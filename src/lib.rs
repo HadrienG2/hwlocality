@@ -27,7 +27,7 @@
 //! use hwloc::Topology;
 //!
 //! fn main() {
-//! 	let topo = Topology::new();
+//! 	let topo = Topology::new().unwrap();
 //!
 //! 	for i in 0..topo.depth() {
 //! 		println!("*** Objects at level {}", i);
@@ -91,7 +91,7 @@ mod topology_object;
 mod bitmap;
 mod support;
 
-pub use ffi::{ObjectType, TypeDepthError, TopologyFlag};
+pub use ffi::{ObjectType, TypeDepthError, TopologyFlag, CpuBindFlags, MemBindPolicy};
 pub use bitmap::{Bitmap, CpuSet, NodeSet};
 pub use support::{TopologySupport, TopologyDiscoverySupport, TopologyCpuBindSupport,
                   TopologyMemBindSupport};
@@ -139,20 +139,25 @@ impl Topology {
     ///
     /// Note that the topology implements the Drop trait, so when
     /// it goes out of scope no further cleanup is necessary.
-    pub fn new() -> Topology {
+    pub fn new() -> Option<Topology> {
         let mut topo: *mut ffi::HwlocTopology = std::ptr::null_mut();
 
         unsafe {
-            ffi::hwloc_topology_init(&mut topo);
-            ffi::hwloc_topology_load(topo);
+            if ffi::hwloc_topology_init(&mut topo) == -1 {
+                return None
+            }
+            if ffi::hwloc_topology_load(topo) == -1 {
+                ffi::hwloc_topology_destroy(topo);
+                return None
+            }
         }
 
         let support = unsafe { ffi::hwloc_topology_get_support(topo) };
 
-        Topology {
+        Some(Topology {
             topo: topo,
             support: support,
-        }
+        })
     }
 
     /// Creates a new Topology with custom flags.
@@ -165,12 +170,12 @@ impl Topology {
     /// ```
     /// use hwloc::{Topology, TopologyFlag};
     ///
-    /// let topology = Topology::with_flags(vec![TopologyFlag::IoDevices]);
+    /// let topology = Topology::with_flags(vec![TopologyFlag::IsThisSystem]);
     /// ```
     ///
     /// Note that the topology implements the Drop trait, so when
     /// it goes out of scope no further cleanup is necessary.
-    pub fn with_flags(flags: Vec<TopologyFlag>) -> Topology {
+    pub fn with_flags(flags: Vec<TopologyFlag>) -> Option<Topology> {
         let mut topo: *mut ffi::HwlocTopology = std::ptr::null_mut();
 
         let final_flag = flags
@@ -179,17 +184,22 @@ impl Topology {
             .fold(0, |out, current| out | current);
 
         unsafe {
-            ffi::hwloc_topology_init(&mut topo);
+            if ffi::hwloc_topology_init(&mut topo) == -1 {
+                return None
+            }
             ffi::hwloc_topology_set_flags(topo, final_flag);
-            ffi::hwloc_topology_load(topo);
+            if ffi::hwloc_topology_load(topo) == -1 {
+                ffi::hwloc_topology_destroy(topo);
+                return None
+            }
         }
 
         let support = unsafe { ffi::hwloc_topology_get_support(topo) };
 
-        Topology {
+        Some(Topology {
             topo: topo,
             support: support,
-        }
+        })
     }
 
     pub fn support(&self) -> &TopologySupport {
@@ -206,11 +216,11 @@ impl Topology {
     /// ```
     /// use hwloc::{Topology,TopologyFlag};
     ///
-    /// let default_topology = Topology::new();
+    /// let default_topology = Topology::new().unwrap();
     /// assert_eq!(0, default_topology.flags().len());
     ///
-    /// let topology_with_flags = Topology::with_flags(vec![TopologyFlag::IoDevices]);
-    /// assert_eq!(vec![TopologyFlag::IoDevices], topology_with_flags.flags());
+    /// let topology_with_flags = Topology::with_flags(vec![TopologyFlag::IsThisSystem]).unwrap();
+    /// assert_eq!(vec![TopologyFlag::IsThisSystem], topology_with_flags.flags());
     /// ```
     pub fn flags(&self) -> Vec<TopologyFlag> {
         let stored_flags = unsafe { ffi::hwloc_topology_get_flags(self.topo) };
@@ -235,11 +245,11 @@ impl Topology {
     /// ```
     /// use hwloc::Topology;
     ///
-    /// let topology = Topology::new();
+    /// let topology = Topology::new().unwrap();
     /// assert!(topology.depth() > 0);
     /// ```
     pub fn depth(&self) -> u32 {
-        unsafe { ffi::hwloc_topology_get_depth(self.topo) }
+        unsafe { ffi::hwloc_topology_get_depth(self.topo) as u32 }
     }
 
     /// Returns the depth for the given `ObjectType`.
@@ -249,7 +259,7 @@ impl Topology {
     /// ```
     /// use hwloc::{Topology,ObjectType};
     ///
-    /// let topology = Topology::new();
+    /// let topology = Topology::new().unwrap();
     ///
     /// let machine_depth = topology.depth_for_type(&ObjectType::Machine).unwrap();
     /// let pu_depth = topology.depth_for_type(&ObjectType::PU).unwrap();
@@ -319,7 +329,7 @@ impl Topology {
     /// ```
     /// use hwloc::{Topology,ObjectType};
     ///
-    /// let topology = Topology::new();
+    /// let topology = Topology::new().unwrap();
     ///
     /// // Load depth for PU to assert against
     /// let pu_depth = topology.depth_for_type(&ObjectType::PU).unwrap();
@@ -337,7 +347,7 @@ impl Topology {
             panic!("The provided depth {} is out of bounds.", depth);
         }
 
-        unsafe { ffi::hwloc_get_depth_type(self.topo, depth) }
+        unsafe { ffi::hwloc_get_depth_type(self.topo, depth as i32) }
     }
 
     /// Returns the number of objects at the given depth.
@@ -347,7 +357,7 @@ impl Topology {
     /// ```
     /// use hwloc::Topology;
     ///
-    /// let topology = Topology::new();
+    /// let topology = Topology::new().unwrap();
     ///
     /// let topo_depth = topology.depth();
     /// assert!(topology.size_at_depth(topo_depth - 1) > 0);
@@ -373,7 +383,7 @@ impl Topology {
     /// ```
     /// use hwloc::{Topology,TopologyObject};
     ///
-    /// let topology = Topology::new();
+    /// let topology = Topology::new().unwrap();
     ///
     /// assert_eq!(topology.type_at_root(), topology.object_at_root().object_type());
     /// ```
@@ -390,7 +400,7 @@ impl Topology {
     /// ```
     /// use hwloc::{Topology,ObjectType};
     ///
-    /// let topology = Topology::new();
+    /// let topology = Topology::new().unwrap();
     ///
     /// let root_type = topology.type_at_root();
     /// let depth_type = topology.type_at_depth(0);
@@ -554,80 +564,11 @@ impl Drop for Topology {
     }
 }
 
-impl Default for Topology {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[derive(Debug)]
 pub enum CpuBindError {
     Generic(i32, String),
 }
 
-bitflags! {
-    /// Process/Thread binding flags.
-    ///
-    /// These bit flags can be used to refine the binding policy.
-    ///
-    /// The default (Process) is to bind the current process, assumed to be
-    /// single-threaded, in a non-strict way.  This is the most portable
-    /// way to bind as all operating systems usually provide it.
-    ///
-    /// **Note:** Not all systems support all kinds of binding.
-    ///
-    /// The following flags (constants) are available:
-    ///
-    /// - **CPUBIND_PROCESS:** Bind all threads of the current (possibly) multithreaded process.
-    /// - **CPUBIND_THREAD:** Bind current thread of current process.
-    /// - **CPUBIND_STRICT:** Request for strict binding from the OS.
-    /// - **CPUBIND_NO_MEMBIND:** Avoid any effect on memory binding.
-    pub flags CpuBindFlags: i32 {
-        /// Bind all threads of the current (possibly) multithreaded process.
-        const CPUBIND_PROCESS = (1<<0),
-        /// Bind current thread of current process.
-        const CPUBIND_THREAD  = (1<<1),
-        /// Request for strict binding from the OS.
-        const CPUBIND_STRICT = (1<<2),
-        /// Avoid any effect on memory binding.
-        const CPUBIND_NO_MEMBIND = (1<<3),
-    }
-}
-
-bitflags! {
-    pub flags MemBindPolicy: i32 {
-        /// Reset the memory allocation policy to the system default. Depending on the operating
-        /// system, this may correspond to MEMBIND_FIRSTTOUCH (Linux), or MEMBIND_BIND (AIX,
-        /// HP-UX, OSF, Solaris, Windows).
-        const MEMBIND_DEFAULT = 0,
-        /// Allocate memory but do not immediately bind it to a specific locality. Instead,
-        /// each page in the allocation is bound only when it is first touched. Pages are
-        /// individually bound to the local NUMA node of the first thread that touches it. If
-        /// there is not enough memory on the node, allocation may be done in the specified
-        /// cpuset before allocating on other nodes.
-        const MEMBIND_FIRSTTOUCH = 1,
-        /// Allocate memory on the specified nodes.
-        const MEMBIND_BIND = 2,
-        /// Allocate memory on the given nodes in an interleaved / round-robin manner.
-        /// The precise layout of the memory across multiple NUMA nodes is OS/system specific.
-        /// Interleaving can be useful when threads distributed across the specified NUMA nodes
-        /// will all be accessing the whole memory range concurrently, since the interleave will
-        /// then balance the memory references.
-        const MEMBIND_INTERLEAVE = 3,
-        /// Replicate memory on the given nodes; reads from this memory will attempt to be
-        /// serviced from the NUMA node local to the reading thread. Replicating can be useful
-        /// when multiple threads from the specified NUMA nodes will be sharing the same read-only
-        /// data.
-        const MEMBIND_REPLICATE = 4,
-        /// For each page bound with this policy, by next time it is touched (and next time
-        /// only), it is moved from its current location to the local NUMA node of the thread
-        /// where the memory reference occurred (if it needs to be moved at all).
-        const MEMBIND_NEXTTOUCH = 5,
-        /// Returned by get_membind() functions when multiple threads or parts of a memory
-        /// area have differing memory binding policies.
-        const MEMBIND_MIXED = -1,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -636,20 +577,20 @@ mod tests {
 
     #[test]
     fn should_set_and_get_flags() {
-        let topo = Topology::with_flags(vec![TopologyFlag::WholeSystem, TopologyFlag::IoBridges]);
-        assert_eq!(vec![TopologyFlag::WholeSystem, TopologyFlag::IoBridges],
+        let topo = Topology::with_flags(vec![TopologyFlag::IncludeDisallowed, TopologyFlag::ThisSystemAllowedResources]).unwrap();
+        assert_eq!(vec![TopologyFlag::IncludeDisallowed, TopologyFlag::ThisSystemAllowedResources],
                    topo.flags());
     }
 
     #[test]
     fn should_get_topology_depth() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
         assert!(topo.depth() > 0);
     }
 
     #[test]
     fn should_match_types_and_their_depth() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
 
         let pu_depth = topo.depth_for_type(&ObjectType::PU).ok().unwrap();
         assert!(pu_depth > 0);
@@ -658,19 +599,20 @@ mod tests {
 
     #[test]
     fn should_get_nbobjs_by_depth() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
         assert!(topo.size_at_depth(1) > 0);
     }
 
     #[test]
     fn should_get_root_object() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
 
         let root_obj = topo.object_at_root();
         assert_eq!(ObjectType::Machine, root_obj.object_type());
-        assert!(root_obj.memory().total_memory() > 0);
+        assert!(root_obj.total_memory() > 0);
         assert_eq!(0, root_obj.depth());
         assert_eq!(0, root_obj.logical_index());
+        println!("{}", root_obj);
         assert!(root_obj.first_child().is_some());
         assert!(root_obj.last_child().is_some());
     }
@@ -678,7 +620,7 @@ mod tests {
     #[test]
     #[cfg(target_os="linux")]
     fn should_support_cpu_binding_on_linux() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
 
         assert!(topo.support().cpu().set_current_process());
         assert!(topo.support().cpu().set_current_thread());
@@ -687,7 +629,7 @@ mod tests {
     #[test]
     #[cfg(target_os="freebsd")]
     fn should_support_cpu_binding_on_freebsd() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
 
         assert!(topo.support().cpu().set_current_process());
         assert!(topo.support().cpu().set_current_thread());
@@ -696,7 +638,7 @@ mod tests {
     #[test]
     #[cfg(target_os="macos")]
     fn should_not_support_cpu_binding_on_macos() {
-        let topo = Topology::new();
+        let topo = Topology::new().unwrap();
 
         assert_eq!(false, topo.support().cpu().set_current_process());
         assert_eq!(false, topo.support().cpu().set_current_thread());
@@ -704,11 +646,11 @@ mod tests {
 
     #[test]
     fn should_produce_cpubind_bitflags() {
-        assert_eq!("1", format!("{:b}", CPUBIND_PROCESS.bits()));
-        assert_eq!("10", format!("{:b}", CPUBIND_THREAD.bits()));
-        assert_eq!("100", format!("{:b}", CPUBIND_STRICT.bits()));
+        assert_eq!("1", format!("{:b}", CpuBindFlags::CPUBIND_PROCESS.bits()));
+        assert_eq!("10", format!("{:b}", CpuBindFlags::CPUBIND_THREAD.bits()));
+        assert_eq!("100", format!("{:b}", CpuBindFlags::CPUBIND_STRICT.bits()));
         assert_eq!("101",
-                   format!("{:b}", (CPUBIND_STRICT | CPUBIND_PROCESS).bits()));
+                   format!("{:b}", (CpuBindFlags::CPUBIND_STRICT | CpuBindFlags::CPUBIND_PROCESS).bits()));
     }
 
 }

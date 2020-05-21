@@ -5,7 +5,7 @@ extern crate kernel32;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
-use hwloc::{Topology, ObjectType, CPUBIND_THREAD, CpuSet};
+use hwloc::{Topology, ObjectType, CpuBindFlags, CpuSet};
 use std::thread;
 use std::sync::{Arc, Mutex};
 
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 /// Thread 1: Before Some(0-1), After Some(1)
 /// ```
 fn main() {
-    let topo = Arc::new(Mutex::new(Topology::new()));
+    let topo = Arc::new(Mutex::new(Topology::new().unwrap()));
 
     // Grab the number of cores in a block so that the lock is removed once
     // the end of the block is reached.
@@ -43,7 +43,7 @@ fn main() {
                 let mut locked_topo = child_topo.lock().unwrap();
 
                 // Thread binding before explicit set.
-                let before = locked_topo.get_cpubind_for_thread(tid, CPUBIND_THREAD);
+                let before = locked_topo.get_cpubind_for_thread(tid, CpuBindFlags::CPUBIND_THREAD);
 
                 // load the cpuset for the given core index.
                 let mut bind_to = cpuset_for_core(&*locked_topo, i);
@@ -53,11 +53,11 @@ fn main() {
 
                 // Set the binding.
                 locked_topo
-                    .set_cpubind_for_thread(tid, bind_to, CPUBIND_THREAD)
+                    .set_cpubind_for_thread(tid, bind_to, CpuBindFlags::CPUBIND_THREAD)
                     .unwrap();
 
                 // Thread binding after explicit set.
-                let after = locked_topo.get_cpubind_for_thread(tid, CPUBIND_THREAD);
+                let after = locked_topo.get_cpubind_for_thread(tid, CpuBindFlags::CPUBIND_THREAD);
                 println!("Thread {}: Before {:?}, After {:?}", i, before, after);
             })
         })

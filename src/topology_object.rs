@@ -10,13 +10,14 @@ use bitmap::{IntHwlocBitmap, CpuSet, NodeSet};
 #[repr(C)]
 pub struct TopologyObject {
     object_type: ObjectType,
+    subtype: *mut c_char,
     os_index: c_uint,
     name: *mut c_char,
-    memory: TopologyObjectMemory,
-    attr: *mut TopologyObjectAttributes,
+    total_memory: u64,
+    //memory: TopologyObjectMemory,
+    attr: *mut TopologyObjectAttributes, 
     depth: c_uint,
     logical_index: c_uint,
-    os_level: c_int,
     next_cousin: *mut TopologyObject,
     prev_cousin: *mut TopologyObject,
     parent: *mut TopologyObject,
@@ -27,19 +28,20 @@ pub struct TopologyObject {
     children: *mut *mut TopologyObject,
     first_child: *mut TopologyObject,
     last_child: *mut TopologyObject,
-    userdata: *mut c_void,
+    memory_arity: c_uint,
+    memory_first_child: *mut TopologyObject,
+    io_arity: c_uint,
+    io_first_child: *mut TopologyObject,
+    misc_arity: c_int,
+    misc_first_child: *mut TopologyObject,
     cpuset: *mut IntHwlocBitmap,
     complete_cpuset: *mut IntHwlocBitmap,
-    online_cpuset: *mut IntHwlocBitmap,
-    allowed_cpuset: *mut IntHwlocBitmap,
     nodeset: *mut IntHwlocBitmap,
     complete_nodeset: *mut IntHwlocBitmap,
-    allowed_nodeset: *mut IntHwlocBitmap,
-    distances: *mut *mut TopologyObjectDistances, // TODO: getter
-    distances_count: c_uint, // TODO: getter
     infos: *mut TopologyObjectInfo, // TODO: getter
     infos_count: c_uint, // TODO: getter
-    symmetric_subtree: c_int,
+    userdata: *mut c_void,
+    gp_index: u64,
 }
 
 impl TopologyObject {
@@ -49,8 +51,8 @@ impl TopologyObject {
     }
 
     /// The memory attributes of the object.
-    pub fn memory(&self) -> &TopologyObjectMemory {
-        &self.memory
+    pub fn total_memory(&self) -> u64 {
+        self.total_memory
     }
 
     /// The OS-provided physical index number.
@@ -94,14 +96,9 @@ impl TopologyObject {
         self.arity
     }
 
-    /// Set if the subtree of objects below this object is symmetric, which means all
-    /// children and their children have identical subtrees.
-    pub fn symmetric_subtree(&self) -> bool {
-        self.symmetric_subtree == 1
-    }
-
     /// All direct children of this object.
     pub fn children(&self) -> Vec<&TopologyObject> {
+        println!("{}", self.arity());
         (0..self.arity())
             .map(|i| unsafe { &**self.children.offset(i as isize) })
             .collect::<Vec<&TopologyObject>>()
@@ -164,26 +161,6 @@ impl TopologyObject {
         self.deref_cpuset(self.complete_cpuset)
     }
 
-    /// The CPU set of online logical processors.
-    ///
-    /// This includes the CPUs contained in this object that are online,
-    /// i.e. draw power and can execute threads. It may however not be allowed
-    /// to bind to them due to administration rules, see allowed_cpuset.
-    pub fn online_cpuset(&self) -> Option<CpuSet> {
-        self.deref_cpuset(self.online_cpuset)
-    }
-
-    /// The CPU set of allowed logical processors.
-    ///
-    /// This includes the CPUs contained in this object which are allowed for
-    /// binding, i.e. passing them to the hwloc binding functions should not
-    /// return permission errors. This is usually restricted by administration
-    /// rules. Some of them may however be offline so binding to them may still
-    /// not be possible, see online_cpuset.
-    pub fn allowed_cpuset(&self) -> Option<CpuSet> {
-        self.deref_cpuset(self.allowed_cpuset)
-    }
-
     /// NUMA nodes covered by this object or containing this object.
     ///
     /// This is the set of NUMA nodes for which there are NODE objects in the topology under or
@@ -212,18 +189,6 @@ impl TopologyObject {
     /// complete_nodeset is full.
     pub fn complete_nodeset(&self) -> Option<NodeSet> {
         self.deref_nodeset(self.complete_nodeset)
-    }
-
-    /// The set of allowed NUMA memory nodes.
-    ///
-    /// This includes the NUMA memory nodes contained in this object which are allowed for memory
-    /// allocation, i.e. passing them to NUMA node-directed memory allocation should not return
-    /// permission errors. This is usually restricted by administration rules.
-    ///
-    /// If there are no NUMA nodes in the machine, all the memory is close to this object, so
-    /// allowed_nodeset is full.
-    pub fn allowed_nodeset(&self) -> Option<NodeSet> {
-        self.deref_nodeset(self.allowed_nodeset)
     }
 
     fn deref_topology(&self, p: &*mut TopologyObject) -> Option<&TopologyObject> {
@@ -268,12 +233,12 @@ impl fmt::Display for TopologyObject {
         let separator_ptr = separator.into_raw();
 
         unsafe {
-            ffi::hwloc_obj_type_snprintf(type_str_ptr, 64, &*self as *const TopologyObject, false);
+            ffi::hwloc_obj_type_snprintf(type_str_ptr, 64, &*self as *const TopologyObject, 0);
             ffi::hwloc_obj_attr_snprintf(attr_str_ptr,
                                          2048,
                                          &*self as *const TopologyObject,
                                          separator_ptr,
-                                         false);
+                                         0);
 
             CString::from_raw(separator_ptr);
 
@@ -355,32 +320,55 @@ impl TopologyObjectDistances {
     }
 }
 
+
+#[cfg(not(feature = "32bits_pci_domain"))]
+const TOPOLOGY_OBJECT_ATTRIBUTES_SIZE: usize = 5;
+#[cfg(feature = "32bits_pci_domain")]
+const TOPOLOGY_OBJECT_ATTRIBUTES_SIZE: usize = 6;
+
 #[repr(C)]
-struct TopologyObjectAttributes {
-    _bindgen_data_: [u64; 5usize],
+pub struct TopologyObjectAttributes {
+    _bindgen_data_: [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE],
 }
 
 impl TopologyObjectAttributes {
+    pub unsafe fn numa(&mut self) -> *mut TopologyObjectNUMANodeAttributes {
+        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        ::std::mem::transmute(raw.offset(0))
+    }
     pub unsafe fn cache(&mut self) -> *mut TopologyObjectCacheAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; 5] as *mut u8;
+        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn group(&mut self) -> *mut TopologyObjectGroupAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; 5] as *mut u8;
+        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn pcidev(&mut self) -> *mut TopologyObjectPCIDevAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; 5] as *mut u8;
+        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn bridge(&mut self) -> *mut TopologyObjectBridgeAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; 5] as *mut u8;
+        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn osdev(&mut self) -> *mut TopologyObjectOSDevAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; 5] as *mut u8;
+        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
+}
+
+#[repr(C)]
+pub struct TopologyObjectNUMANodePageTypeAttributes {
+    pub size: u64,
+    pub count: u64,
+}
+
+#[repr(C)]
+pub struct TopologyObjectNUMANodeAttributes {
+    pub local_memory: u64,
+    pub page_types_len: c_uint,
+    pub page_types: *mut TopologyObjectNUMANodePageTypeAttributes,
 }
 
 #[repr(C)]
@@ -412,11 +400,17 @@ pub enum TopologyObjectCacheType {
 #[repr(C)]
 pub struct TopologyObjectGroupAttributes {
     depth: c_uint,
+    kind: c_uint,
+    subkind: c_uint,
+    dont_merge: c_uchar,
 }
 
 #[repr(C)]
 pub struct TopologyObjectPCIDevAttributes {
+    #[cfg(not(feature = "32bits_pci_domain"))]
     domain: c_ushort,
+    #[cfg(feature = "32bits_pci_domain")]
+    domain: c_uint,
     bus: c_uchar,
     dev: c_uchar,
     func: c_uchar,
@@ -430,10 +424,20 @@ pub struct TopologyObjectPCIDevAttributes {
 }
 
 #[repr(C)]
+pub struct TopologyObjectBridgeDownstreamPCIAttributes {
+    #[cfg(not(feature = "32bits_pci_domain"))]
+    domain: c_ushort,
+    #[cfg(feature = "32bits_pci_domain")]
+    domain: c_uint,
+    secondary_bus: c_uchar,
+    subordinate_bus: c_uchar,
+}
+
+#[repr(C)]
 pub struct TopologyObjectBridgeAttributes {
-    // pub upstream: Union_Unnamed4,
+    upstream: TopologyObjectPCIDevAttributes,
     upstream_type: TopologyObjectBridgeType,
-    // pub downstream: Union_Unnamed5,
+    downstream: TopologyObjectBridgeDownstreamPCIAttributes,
     downstream_type: TopologyObjectBridgeType,
     depth: c_uint,
 }

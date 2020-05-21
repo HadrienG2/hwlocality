@@ -4,7 +4,7 @@ use hwloc::{Topology, ObjectType, TypeDepthError};
 
 /// Prints the number of packages.
 fn main() {
-    let topo = Topology::new();
+    let topo = Topology::new().unwrap();
 
     let package_depth = topo.depth_for_type(&ObjectType::Package);
     match package_depth {

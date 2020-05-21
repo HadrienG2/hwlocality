@@ -15,7 +15,7 @@ readme = "README.md"
 [dependencies]
 libc = "0.2"
 errno = "0.2"
-bitflags = "0.7"
+bitflags = "1.0"
 
 [dependencies.num]
 version = "0.1"

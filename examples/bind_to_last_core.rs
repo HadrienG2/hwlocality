@@ -1,6 +1,6 @@
 extern crate hwloc;
 
-use hwloc::{Topology, TopologyObject, ObjectType, CPUBIND_PROCESS};
+use hwloc::{Topology, TopologyObject, ObjectType, CpuBindFlags};
 
 /// Bind to only one thread of the last core of the machine.
 ///
@@ -17,7 +17,7 @@ use hwloc::{Topology, TopologyObject, ObjectType, CPUBIND_PROCESS};
 /// Cpu Location after explicit bind: Some(1)
 /// ```
 fn main() {
-    let mut topo = Topology::new();
+    let mut topo = Topology::new().unwrap();
 
     // Grab last core and exctract its CpuSet
     let mut cpuset = last_core(&mut topo).cpuset().unwrap();
@@ -27,21 +27,21 @@ fn main() {
 
     // Print the current cpu binding before explicit setting
     println!("Cpu Binding before explicit bind: {:?}",
-             topo.get_cpubind(CPUBIND_PROCESS));
+             topo.get_cpubind(CpuBindFlags::CPUBIND_PROCESS));
     println!("Cpu Location before explicit bind: {:?}",
-             topo.get_cpu_location(CPUBIND_PROCESS));
+             topo.get_cpu_location(CpuBindFlags::CPUBIND_PROCESS));
 
     // Try to bind all threads of the current (possibly multithreaded) process.
-    match topo.set_cpubind(cpuset, CPUBIND_PROCESS) {
+    match topo.set_cpubind(cpuset, CpuBindFlags::CPUBIND_PROCESS) {
         Ok(_) => println!("Correctly bound to last core"),
         Err(e) => println!("Failed to bind: {:?}", e),
     }
 
     // Print the current cpu binding after explicit setting
     println!("Cpu Binding after explicit bind: {:?}",
-             topo.get_cpubind(CPUBIND_PROCESS));
+             topo.get_cpubind(CpuBindFlags::CPUBIND_PROCESS));
     println!("Cpu Location after explicit bind: {:?}",
-             topo.get_cpu_location(CPUBIND_PROCESS));
+             topo.get_cpu_location(CpuBindFlags::CPUBIND_PROCESS));
 }
 
 /// Find the last core
