@@ -5,6 +5,8 @@
 [![Build Status](https://travis-ci.org/daschl/hwloc-rs.svg?branch=master)](https://travis-ci.org/daschl/hwloc-rs)
 [![Build status](https://ci.appveyor.com/api/projects/status/5ky82rqixi67jy9g?svg=true)](https://ci.appveyor.com/project/daschl/hwloc-rs)
 
+# TO BE UPDATED!
+
 This project is a rust binding to the
 [hwloc C library](http://www.open-mpi.org/projects/hwloc/), which provides a
 portable abstraction of the hierarchical topology of modern architectures,
