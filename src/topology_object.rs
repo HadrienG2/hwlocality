@@ -98,7 +98,6 @@ impl TopologyObject {
 
     /// All direct children of this object.
     pub fn children(&self) -> Vec<&TopologyObject> {
-        println!("{}", self.arity());
         (0..self.arity())
             .map(|i| unsafe { &**self.children.offset(i as isize) })
             .collect::<Vec<&TopologyObject>>()
