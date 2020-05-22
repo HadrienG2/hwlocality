@@ -1,6 +1,6 @@
 # hwloc2-rs
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![crates.io](http://meritbadge.herokuapp.com/hwloc)](https://crates.io/crates/hwloc2)
+[![crates.io](http://meritbadge.herokuapp.com/hwloc2)](https://crates.io/crates/hwloc2)
 
 This project is a successor to
 [daschl/hwloc-rs](https://github.com/daschl/hwloc-rs), except that this library
