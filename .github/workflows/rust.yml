@@ -12,7 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install hwloc 2.2.0
-      run: wget https://download.open-mpi.org/release/hwloc/v2.2/hwloc-2.2.0.tar.gz -O hwloc-2.2.0.tar.gz && tar -zxvf hwloc-2.2.0.tar.gz && cd hwloc-2.2.0 && ./configure && make install
+      run: wget https://download.open-mpi.org/release/hwloc/v2.2/hwloc-2.2.0.tar.gz -O hwloc-2.2.0.tar.gz && tar -zxvf hwloc-2.2.0.tar.gz && cd hwloc-2.2.0 && ./configure && sudo make install
     - name: Build
       run: cargo build --verbose
     - name: Run tests
