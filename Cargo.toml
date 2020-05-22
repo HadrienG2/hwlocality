@@ -1,5 +1,5 @@
 [package]
-name = "hwloc"
+name = "hwloc2"
 version = "2.2.0"
 authors = ["Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
 license = "MIT"
