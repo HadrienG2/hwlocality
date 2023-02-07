@@ -12,7 +12,6 @@ pub struct TopologyObject {
     os_index: c_uint,
     name: *mut c_char,
     total_memory: u64,
-    //memory: TopologyObjectMemory,
     attr: *mut TopologyObjectAttributes,
     depth: c_uint,
     logical_index: c_uint,
@@ -26,6 +25,7 @@ pub struct TopologyObject {
     children: *mut *mut TopologyObject,
     first_child: *mut TopologyObject,
     last_child: *mut TopologyObject,
+    symmetric_subtree: c_int,
     memory_arity: c_uint,
     memory_first_child: *mut TopologyObject,
     io_arity: c_uint,
@@ -92,6 +92,14 @@ impl TopologyObject {
     /// The number of direct children.
     pub fn arity(&self) -> u32 {
         self.arity
+    }
+
+    /// Truth that this object is symmetric, which means all normal children and
+    /// their children have identical subtrees.
+    ///
+    /// Memory, I/O and Misc children are ignored.
+    pub fn symmetric_subtree(&self) -> bool {
+        self.symmetric_subtree != 0
     }
 
     /// All direct children of this object.
