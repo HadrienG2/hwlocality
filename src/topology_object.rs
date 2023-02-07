@@ -1,10 +1,12 @@
+use crate::{
+    bitmap::{CpuSet, IntHwlocBitmap, NodeSet},
+    ffi::{self, ObjectType},
+};
 use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, c_void};
-use std::ffi::{CStr, CString};
-use std::fmt;
-
-use ffi::{self, ObjectType};
-
-use bitmap::{CpuSet, IntHwlocBitmap, NodeSet};
+use std::{
+    ffi::{CStr, CString},
+    fmt,
+};
 
 #[repr(C)]
 pub struct TopologyObject {

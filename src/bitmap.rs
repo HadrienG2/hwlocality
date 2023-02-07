@@ -1,4 +1,4 @@
-use ffi;
+use crate::ffi;
 use libc::c_char;
 use std::{
     clone::Clone,
@@ -107,10 +107,7 @@ impl Bitmap {
     /// This function is not meant to be used directly, it rather serves as the
     /// conversion factory when dealing with hwloc-internal structures.
     pub fn from_raw(bitmap: *mut IntHwlocBitmap, manage: bool) -> Bitmap {
-        Bitmap {
-            bitmap,
-            manage,
-        }
+        Bitmap { bitmap, manage }
     }
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
