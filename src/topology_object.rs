@@ -256,6 +256,12 @@ impl fmt::Display for TopologyObject {
     }
 }
 
+impl fmt::Debug for TopologyObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 #[repr(C)]
 pub struct TopologyObjectMemory {
     total_memory: c_ulonglong,
