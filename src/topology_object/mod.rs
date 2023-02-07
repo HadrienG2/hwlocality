@@ -1,5 +1,5 @@
 use crate::{
-    bitmap::{CpuSet, IntHwlocBitmap, NodeSet},
+    bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi::{self, ObjectType},
 };
 use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, c_void};
@@ -32,10 +32,10 @@ pub struct TopologyObject {
     io_first_child: *mut TopologyObject,
     misc_arity: c_int,
     misc_first_child: *mut TopologyObject,
-    cpuset: *mut IntHwlocBitmap,
-    complete_cpuset: *mut IntHwlocBitmap,
-    nodeset: *mut IntHwlocBitmap,
-    complete_nodeset: *mut IntHwlocBitmap,
+    cpuset: *mut RawBitmap,
+    complete_cpuset: *mut RawBitmap,
+    nodeset: *mut RawBitmap,
+    complete_nodeset: *mut RawBitmap,
     infos: *mut TopologyObjectInfo,
     infos_count: c_uint,
     userdata: *mut c_void,

@@ -21,7 +21,7 @@ use std::{
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
 #[repr(C)]
-pub(crate) struct IntHwlocBitmap {
+pub(crate) struct RawBitmap {
     _data: [u8; 0],
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
@@ -36,7 +36,7 @@ pub(crate) struct IntHwlocBitmap {
 ///
 /// A `Bitmap` may be of infinite size.
 #[repr(transparent)]
-pub struct Bitmap(*mut IntHwlocBitmap);
+pub struct Bitmap(*mut RawBitmap);
 
 /// A `CpuSet` is a `Bitmap` whose bits are set according to CPU physical OS indexes.
 pub type CpuSet = Bitmap;
@@ -49,7 +49,7 @@ impl Bitmap {
     /// The pointer must target a valid bitmap that we will acquire ownership of
     /// and automatically free on Drop.
     ///
-    pub(crate) unsafe fn from_raw(bitmap: *mut IntHwlocBitmap) -> Option<Self> {
+    pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
         (!bitmap.is_null()).then_some(Self(bitmap))
     }
 
@@ -58,8 +58,8 @@ impl Bitmap {
     /// The pointer must target a valid bitmap, but unlike with from_raw, it
     /// will not be automatically freed on Drop.
     ///
-    pub(crate) unsafe fn borrow_from_raw(bitmap: &*const IntHwlocBitmap) -> Option<&Self> {
-        (!bitmap.is_null()).then_some(std::mem::transmute::<&*const IntHwlocBitmap, &Self>(bitmap))
+    pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
+        (!bitmap.is_null()).then_some(std::mem::transmute::<&*const RawBitmap, &Self>(bitmap))
     }
 
     /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
@@ -67,17 +67,17 @@ impl Bitmap {
     /// The pointer must target a valid bitmap, but unlike with from_raw, it
     /// will not be automatically freed on Drop.
     ///
-    pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut IntHwlocBitmap) -> Option<&Self> {
-        (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut IntHwlocBitmap, &Self>(bitmap))
+    pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
+        (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut RawBitmap, &Self>(bitmap))
     }
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
-    pub(crate) fn as_ptr(&self) -> *const IntHwlocBitmap {
-        self.0 as *const IntHwlocBitmap
+    pub(crate) fn as_ptr(&self) -> *const RawBitmap {
+        self.0 as *const RawBitmap
     }
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut IntHwlocBitmap {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
         self.0
     }
 
