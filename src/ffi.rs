@@ -68,8 +68,10 @@ bitflags! {
     }
 }
 
+// FIXME: Should not be a Rust enum
 pub enum HwlocTopology {}
 
+// FIXME: Should not be a Rust enum
 #[derive(Debug, PartialEq)]
 pub enum TypeDepthError {
     /// No object of given type exists in the topology.
@@ -90,10 +92,11 @@ pub enum TypeDepthError {
     Unkown = -99,
 }
 
+// TODO: use num_enum here
 const TOPOLOGY_FLAG_INCLUDE_DISALLOWED: i64 = 1;
 const TOPOLOGY_FLAG_IS_THISSYSTEM: i64 = 2;
 const TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES: i64 = 4;
-
+//
 #[derive(Debug, PartialEq)]
 pub enum TopologyFlag {
     IncludeDisallowed = TOPOLOGY_FLAG_INCLUDE_DISALLOWED as isize,
@@ -134,6 +137,7 @@ impl FromPrimitive for TopologyFlag {
     }
 }
 
+// FIXME: Should not be a Rust enum
 #[repr(C)]
 pub enum TypeFilter {
     /// Keep all objects of this type
