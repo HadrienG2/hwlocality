@@ -100,6 +100,7 @@ pub use topology_object::{TopologyObject, TopologyObjectMemory};
 
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
+use std::convert::TryInto;
 
 pub struct Topology {
     topo: *mut ffi::HwlocTopology,
@@ -155,10 +156,7 @@ impl Topology {
 
         let support = unsafe { ffi::hwloc_topology_get_support(topo) };
 
-        Some(Topology {
-            topo,
-            support,
-        })
+        Some(Topology { topo, support })
     }
 
     /// Creates a new Topology with custom flags.
@@ -188,7 +186,7 @@ impl Topology {
             if ffi::hwloc_topology_init(&mut topo) == -1 {
                 return None;
             }
-            ffi::hwloc_topology_set_flags(topo, final_flag);
+            ffi::hwloc_topology_set_flags(topo, final_flag.try_into().unwrap());
             if ffi::hwloc_topology_load(topo) == -1 {
                 ffi::hwloc_topology_destroy(topo);
                 return None;
@@ -197,10 +195,7 @@ impl Topology {
 
         let support = unsafe { ffi::hwloc_topology_get_support(topo) };
 
-        Some(Topology {
-            topo,
-            support,
-        })
+        Some(Topology { topo, support })
     }
 
     pub fn support(&self) -> &TopologySupport {
@@ -229,7 +224,7 @@ impl Topology {
         (0..64)
             .map(|x| (1 << x) & stored_flags)
             .filter(|&x| x > 0)
-            .map(|x| TopologyFlag::from_u64(x).unwrap())
+            .map(|x| TopologyFlag::from_u64(x.into()).unwrap())
             .collect::<Vec<TopologyFlag>>()
     }
 
