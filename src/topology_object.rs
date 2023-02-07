@@ -3,10 +3,7 @@ use crate::{
     ffi::{self, ObjectType},
 };
 use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, c_void};
-use std::{
-    ffi::{CStr, CString},
-    fmt,
-};
+use std::{ffi::CStr, fmt};
 
 #[repr(C)]
 pub struct TopologyObject {
@@ -98,10 +95,13 @@ impl TopologyObject {
     }
 
     /// All direct children of this object.
-    pub fn children(&self) -> Vec<&TopologyObject> {
-        (0..self.arity())
-            .map(|i| unsafe { &**self.children.offset(i as isize) })
-            .collect::<Vec<&TopologyObject>>()
+    pub fn children(&self) -> impl Iterator<Item = &TopologyObject> {
+        let len = if self.children.is_null() {
+            0
+        } else {
+            self.arity()
+        };
+        (0..len).map(move |i| unsafe { &**self.children.offset(i as isize) })
     }
 
     /// The number of memory children.
