@@ -441,21 +441,19 @@ impl Drop for Bitmap {
 
 impl fmt::Display for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut result: *mut c_char = ptr::null_mut();
+        let mut buf: *mut c_char = ptr::null_mut();
         unsafe {
-            ffi::hwloc_bitmap_list_asprintf(&mut result, self.bitmap);
-            write!(f, "{}", CStr::from_ptr(result).to_str().unwrap())
+            ffi::hwloc_bitmap_list_asprintf(&mut buf, self.bitmap);
+            let result = write!(f, "{}", CStr::from_ptr(buf).to_str().unwrap());
+            libc::free(buf as _);
+            result
         }
     }
 }
 
 impl fmt::Debug for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut result: *mut c_char = ptr::null_mut();
-        unsafe {
-            ffi::hwloc_bitmap_list_asprintf(&mut result, self.bitmap);
-            write!(f, "{}", CStr::from_ptr(result).to_str().unwrap())
-        }
+        <Self as fmt::Display>::fmt(self, f)
     }
 }
 
