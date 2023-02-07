@@ -1,11 +1,10 @@
-use libc::{c_int, c_uint, c_ulonglong, c_char, c_void, c_float, c_ushort, c_uchar};
-use std::ffi::CString;
+use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, c_void};
+use std::ffi::{CStr, CString};
 use std::fmt;
 
-use ffi::ObjectType;
-use ffi;
+use ffi::{self, ObjectType};
 
-use bitmap::{IntHwlocBitmap, CpuSet, NodeSet};
+use bitmap::{CpuSet, IntHwlocBitmap, NodeSet};
 
 #[repr(C)]
 pub struct TopologyObject {
@@ -15,7 +14,7 @@ pub struct TopologyObject {
     name: *mut c_char,
     total_memory: u64,
     //memory: TopologyObjectMemory,
-    attr: *mut TopologyObjectAttributes, 
+    attr: *mut TopologyObjectAttributes,
     depth: c_uint,
     logical_index: c_uint,
     next_cousin: *mut TopologyObject,
@@ -39,7 +38,7 @@ pub struct TopologyObject {
     nodeset: *mut IntHwlocBitmap,
     complete_nodeset: *mut IntHwlocBitmap,
     infos: *mut TopologyObjectInfo, // TODO: getter
-    infos_count: c_uint, // TODO: getter
+    infos_count: c_uint,            // TODO: getter
     userdata: *mut c_void,
     gp_index: u64,
 }
@@ -191,7 +190,13 @@ impl TopologyObject {
     }
 
     fn deref_topology(&self, p: &*mut TopologyObject) -> Option<&TopologyObject> {
-        unsafe { if p.is_null() { None } else { Some(&**p) } }
+        unsafe {
+            if p.is_null() {
+                None
+            } else {
+                Some(&**p)
+            }
+        }
     }
 
     fn deref_cpuset(&self, p: *mut IntHwlocBitmap) -> Option<CpuSet> {
@@ -222,29 +227,31 @@ impl TopologyObject {
 
 impl fmt::Display for TopologyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let type_str = CString::new("").unwrap();
-        let type_str_ptr = type_str.into_raw();
-
-        let attr_str = CString::new("").unwrap();
-        let attr_str_ptr = attr_str.into_raw();
-
-        let separator = CString::new("  ").unwrap();
-        let separator_ptr = separator.into_raw();
+        let mut buf_type = [0; 64];
+        let mut buf_attr = [0; 2048];
+        let separator_ptr = b"  \0".as_ptr() as *const c_char;
 
         unsafe {
-            ffi::hwloc_obj_type_snprintf(type_str_ptr, 64, &*self as *const TopologyObject, 0);
-            ffi::hwloc_obj_attr_snprintf(attr_str_ptr,
-                                         2048,
-                                         &*self as *const TopologyObject,
-                                         separator_ptr,
-                                         0);
+            ffi::hwloc_obj_type_snprintf(
+                buf_type.as_mut_ptr(),
+                64,
+                &*self as *const TopologyObject,
+                0,
+            );
+            ffi::hwloc_obj_attr_snprintf(
+                buf_attr.as_mut_ptr(),
+                2048,
+                &*self as *const TopologyObject,
+                separator_ptr,
+                0,
+            );
 
-            CString::from_raw(separator_ptr);
-
-            write!(f,
-                   "{} ({})",
-                   CString::from_raw(type_str_ptr).to_str().unwrap(),
-                   CString::from_raw(attr_str_ptr).to_str().unwrap())
+            write!(
+                f,
+                "{} ({})",
+                CStr::from_ptr(buf_type.as_ptr()).to_str().unwrap(),
+                CStr::from_ptr(buf_attr.as_ptr()).to_str().unwrap()
+            )
         }
     }
 }
@@ -253,7 +260,7 @@ impl fmt::Display for TopologyObject {
 pub struct TopologyObjectMemory {
     total_memory: c_ulonglong,
     local_memory: c_ulonglong,
-    page_types_len: c_uint, // todo: getter
+    page_types_len: c_uint,                        // todo: getter
     page_types: *mut TopologyObjectMemoryPageType, // todo: getter
 }
 
@@ -319,7 +326,6 @@ impl TopologyObjectDistances {
     }
 }
 
-
 #[cfg(not(feature = "32bits_pci_domain"))]
 const TOPOLOGY_OBJECT_ATTRIBUTES_SIZE: usize = 5;
 #[cfg(feature = "32bits_pci_domain")]
@@ -332,27 +338,33 @@ pub struct TopologyObjectAttributes {
 
 impl TopologyObjectAttributes {
     pub unsafe fn numa(&mut self) -> *mut TopologyObjectNUMANodeAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        let raw: *mut u8 =
+            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn cache(&mut self) -> *mut TopologyObjectCacheAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        let raw: *mut u8 =
+            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn group(&mut self) -> *mut TopologyObjectGroupAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        let raw: *mut u8 =
+            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn pcidev(&mut self) -> *mut TopologyObjectPCIDevAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        let raw: *mut u8 =
+            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn bridge(&mut self) -> *mut TopologyObjectBridgeAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        let raw: *mut u8 =
+            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
     pub unsafe fn osdev(&mut self) -> *mut TopologyObjectOSDevAttributes {
-        let raw: *mut u8 = &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
+        let raw: *mut u8 =
+            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
         ::std::mem::transmute(raw.offset(0))
     }
 }
