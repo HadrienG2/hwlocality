@@ -70,13 +70,6 @@
 //! information.
 
 #![allow(dead_code)]
-#[macro_use]
-extern crate bitflags;
-extern crate errno;
-extern crate libc;
-extern crate num;
-#[cfg(target_os = "windows")]
-extern crate winapi;
 
 mod bitmap;
 mod ffi;

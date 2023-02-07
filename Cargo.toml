@@ -11,11 +11,13 @@ documentation = "http://docs.rs/hwloc2/"
 build = "build.rs"
 links = "hwloc"
 readme = "README.md"
+edition = "2021"
 
 [dependencies]
 libc = "0.2"
 errno = "0.2"
 bitflags = "1.0"
+num_enum = "0.5"
 
 [dependencies.num]
 version = "0.1"

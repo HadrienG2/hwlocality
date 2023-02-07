@@ -1,5 +1,3 @@
-extern crate hwloc2;
-
 use hwloc2::Topology;
 
 /// Walk the topology with an array style, from level 0 (always

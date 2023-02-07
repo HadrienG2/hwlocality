@@ -1,5 +1,3 @@
-extern crate hwloc2;
-
 use hwloc2::{Topology, TopologyObject};
 
 /// Walk the topology in a tree-style and print it.

@@ -1,5 +1,3 @@
-extern crate hwloc2;
-
 use hwloc2::{CpuBindFlags, ObjectType, Topology, TopologyObject};
 
 /// Bind to only one thread of the last core of the machine.

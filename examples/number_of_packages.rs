@@ -1,5 +1,3 @@
-extern crate hwloc2;
-
 use hwloc2::{ObjectType, Topology, TypeDepthError};
 
 /// Prints the number of packages.
