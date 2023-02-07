@@ -171,8 +171,8 @@ impl TopologyObject {
     /// topology under this object, i.e. which are known to be physically
     /// contained in this object and known how (the children path between this
     /// object and the PU objects).
-    pub fn cpuset(&self) -> Option<CpuSet> {
-        self.deref_cpuset(self.cpuset)
+    pub fn cpuset(&self) -> Option<&CpuSet> {
+        unsafe { CpuSet::borrow_from_raw_mut(&self.cpuset) }
     }
 
     /// The complete CPU set of logical processors of this object.
@@ -183,8 +183,8 @@ impl TopologyObject {
     /// not set. Thus no corresponding PU object may be found in the topology,
     /// because the precise position is undefined. It is however known that it
     /// would be somewhere under this object.
-    pub fn complete_cpuset(&self) -> Option<CpuSet> {
-        self.deref_cpuset(self.complete_cpuset)
+    pub fn complete_cpuset(&self) -> Option<&CpuSet> {
+        unsafe { CpuSet::borrow_from_raw_mut(&self.complete_cpuset) }
     }
 
     /// NUMA nodes covered by this object or containing this object.
@@ -199,8 +199,8 @@ impl TopologyObject {
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to this object, so the
     /// nodeset is full.
-    pub fn nodeset(&self) -> Option<NodeSet> {
-        self.deref_nodeset(self.nodeset)
+    pub fn nodeset(&self) -> Option<&NodeSet> {
+        unsafe { NodeSet::borrow_from_raw_mut(&self.nodeset) }
     }
 
     /// The complete NUMA node set of this object,.
@@ -213,8 +213,8 @@ impl TopologyObject {
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to this object, so
     /// complete_nodeset is full.
-    pub fn complete_nodeset(&self) -> Option<NodeSet> {
-        self.deref_nodeset(self.complete_nodeset)
+    pub fn complete_nodeset(&self) -> Option<&NodeSet> {
+        unsafe { NodeSet::borrow_from_raw_mut(&self.complete_nodeset) }
     }
 
     fn deref_topology(&self, p: &*mut TopologyObject) -> Option<&TopologyObject> {
@@ -224,26 +224,6 @@ impl TopologyObject {
             } else {
                 Some(&**p)
             }
-        }
-    }
-
-    // FIXME: This allows the user to modify the CPUSet, which is undesirable,
-    //        introduce a view type to prevent this
-    fn deref_cpuset(&self, p: *mut IntHwlocBitmap) -> Option<CpuSet> {
-        if p.is_null() {
-            None
-        } else {
-            Some(CpuSet::from_raw(p, false))
-        }
-    }
-
-    // FIXME: This allows the user to modify the NodeSet, which is undesirable,
-    //        introduce a view type to prevent this
-    fn deref_nodeset(&self, p: *mut IntHwlocBitmap) -> Option<NodeSet> {
-        if p.is_null() {
-            None
-        } else {
-            Some(NodeSet::from_raw(p, false))
         }
     }
 

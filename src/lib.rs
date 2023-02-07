@@ -13,18 +13,10 @@
 //! hwloc = "0.3.0"
 //! ```
 //!
-//! Next, add this to your crate root:
-//!
-//! ```no_run
-//! extern crate hwloc;
-//! ```
-//!
 //! Here is a quick example which walks the `Topology` and prints it out:
 //!
 //! ```no_run
-//! extern crate hwloc;
-//!
-//! use hwloc::Topology;
+//! use hwloc2::Topology;
 //!
 //! fn main() {
 //! 	let topo = Topology::new().unwrap();
@@ -143,7 +135,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::Topology;
+    /// use hwloc2::Topology;
     ///
     /// let topology = Topology::new();
     /// ```
@@ -176,7 +168,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::{Topology, TopologyFlag};
+    /// use hwloc2::{Topology, TopologyFlag};
     ///
     /// let topology = Topology::with_flags(vec![TopologyFlag::IsThisSystem]);
     /// ```
@@ -219,7 +211,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::{Topology,TopologyFlag};
+    /// use hwloc2::{Topology,TopologyFlag};
     ///
     /// let default_topology = Topology::new().unwrap();
     /// assert_eq!(0, default_topology.flags().len());
@@ -248,7 +240,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::Topology;
+    /// use hwloc2::Topology;
     ///
     /// let topology = Topology::new().unwrap();
     /// assert!(topology.depth() > 0);
@@ -262,7 +254,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::{Topology,ObjectType};
+    /// use hwloc2::{Topology,ObjectType};
     ///
     /// let topology = Topology::new().unwrap();
     ///
@@ -332,7 +324,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::{Topology,ObjectType};
+    /// use hwloc2::{Topology,ObjectType};
     ///
     /// let topology = Topology::new().unwrap();
     ///
@@ -360,7 +352,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::Topology;
+    /// use hwloc2::Topology;
     ///
     /// let topology = Topology::new().unwrap();
     ///
@@ -386,7 +378,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::{Topology,TopologyObject};
+    /// use hwloc2::{Topology,TopologyObject};
     ///
     /// let topology = Topology::new().unwrap();
     ///
@@ -403,7 +395,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc::{Topology,ObjectType};
+    /// use hwloc2::{Topology,ObjectType};
     ///
     /// let topology = Topology::new().unwrap();
     ///
@@ -444,7 +436,7 @@ impl Topology {
     }
 
     /// Binds the current process or thread on CPUs given in the `CpuSet`.
-    pub fn set_cpubind(&mut self, set: CpuSet, flags: CpuBindFlags) -> Result<(), CpuBindError> {
+    pub fn set_cpubind(&mut self, set: &CpuSet, flags: CpuBindFlags) -> Result<(), CpuBindError> {
         let result = unsafe { ffi::hwloc_set_cpubind(self.topo, set.as_ptr(), flags.bits()) };
 
         match result {
@@ -458,10 +450,10 @@ impl Topology {
 
     /// Get current process or thread binding.
     pub fn get_cpubind(&self, flags: CpuBindFlags) -> Option<CpuSet> {
-        let raw_set = unsafe { ffi::hwloc_bitmap_alloc() };
-        let res = unsafe { ffi::hwloc_get_cpubind(self.topo, raw_set, flags.bits()) };
+        let mut cpuset = CpuSet::new();
+        let res = unsafe { ffi::hwloc_get_cpubind(self.topo, cpuset.as_mut_ptr(), flags.bits()) };
         if res >= 0 {
-            Some(CpuSet::from_raw(raw_set, true))
+            Some(cpuset)
         } else {
             None
         }
@@ -471,7 +463,7 @@ impl Topology {
     pub fn set_cpubind_for_process(
         &mut self,
         pid: pid_t,
-        set: CpuSet,
+        set: &CpuSet,
         flags: CpuBindFlags,
     ) -> Result<(), CpuBindError> {
         let result =
@@ -488,10 +480,12 @@ impl Topology {
 
     /// Get the current physical binding of a process, identified by its `pid`.
     pub fn get_cpubind_for_process(&self, pid: pid_t, flags: CpuBindFlags) -> Option<CpuSet> {
-        let raw_set = unsafe { ffi::hwloc_bitmap_alloc() };
-        let res = unsafe { ffi::hwloc_get_proc_cpubind(self.topo, pid, raw_set, flags.bits()) };
+        let mut cpuset = CpuSet::new();
+        let res = unsafe {
+            ffi::hwloc_get_proc_cpubind(self.topo, pid, cpuset.as_mut_ptr(), flags.bits())
+        };
         if res >= 0 {
-            Some(CpuSet::from_raw(raw_set, true))
+            Some(cpuset)
         } else {
             None
         }
@@ -501,7 +495,7 @@ impl Topology {
     pub fn set_cpubind_for_thread(
         &mut self,
         tid: pthread_t,
-        set: CpuSet,
+        set: &CpuSet,
         flags: CpuBindFlags,
     ) -> Result<(), CpuBindError> {
         let result =
@@ -518,10 +512,12 @@ impl Topology {
 
     /// Get the current physical binding of thread `tid`.
     pub fn get_cpubind_for_thread(&self, tid: pthread_t, flags: CpuBindFlags) -> Option<CpuSet> {
-        let raw_set = unsafe { ffi::hwloc_bitmap_alloc() };
-        let res = unsafe { ffi::hwloc_get_thread_cpubind(self.topo, tid, raw_set, flags.bits()) };
+        let mut cpuset = CpuSet::new();
+        let res = unsafe {
+            ffi::hwloc_get_thread_cpubind(self.topo, tid, cpuset.as_mut_ptr(), flags.bits())
+        };
         if res >= 0 {
-            Some(CpuSet::from_raw(raw_set, true))
+            Some(cpuset)
         } else {
             None
         }
@@ -540,10 +536,12 @@ impl Topology {
     /// process is single-threaded, flags can be set to zero to let hwloc use
     /// whichever method is available on the underlying OS.
     pub fn get_cpu_location(&self, flags: CpuBindFlags) -> Option<CpuSet> {
-        let raw_set = unsafe { ffi::hwloc_bitmap_alloc() };
-        let res = unsafe { ffi::hwloc_get_last_cpu_location(self.topo, raw_set, flags.bits()) };
+        let mut cpuset = CpuSet::new();
+        let res = unsafe {
+            ffi::hwloc_get_last_cpu_location(self.topo, cpuset.as_mut_ptr(), flags.bits())
+        };
         if res >= 0 {
-            Some(CpuSet::from_raw(raw_set, true))
+            Some(cpuset)
         } else {
             None
         }
@@ -555,11 +553,12 @@ impl Topology {
     /// time according to their binding, so this function may return something that is
     /// already outdated.
     pub fn get_cpu_location_for_process(&self, pid: pid_t, flags: CpuBindFlags) -> Option<CpuSet> {
-        let raw_set = unsafe { ffi::hwloc_bitmap_alloc() };
-        let res =
-            unsafe { ffi::hwloc_get_proc_last_cpu_location(self.topo, pid, raw_set, flags.bits()) };
+        let mut cpuset = CpuSet::new();
+        let res = unsafe {
+            ffi::hwloc_get_proc_last_cpu_location(self.topo, pid, cpuset.as_mut_ptr(), flags.bits())
+        };
         if res >= 0 {
-            Some(CpuSet::from_raw(raw_set, true))
+            Some(cpuset)
         } else {
             None
         }

@@ -14,7 +14,7 @@ fn print_children(topo: &Topology, obj: &TopologyObject, depth: usize) {
     let padding = std::iter::repeat(" ").take(depth).collect::<String>();
     println!("{}{}: #{}", padding, obj, obj.os_index());
 
-    for i in 0..obj.arity() {
-        print_children(topo, obj.children()[i as usize], depth + 1);
+    for child in obj.children() {
+        print_children(topo, child, depth + 1);
     }
 }

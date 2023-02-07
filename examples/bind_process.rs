@@ -18,7 +18,7 @@ fn main() {
     println!("Binding Process with PID {:?}", pid);
 
     // Grab last core and exctract its CpuSet
-    let mut cpuset = last_core(&mut topo).cpuset().unwrap();
+    let mut cpuset = last_core(&mut topo).cpuset().unwrap().clone();
 
     // Get only one logical processor (in case the core is SMT/hyper-threaded).
     cpuset.singlify();
@@ -35,7 +35,7 @@ fn main() {
     }
 
     // Bind to one core.
-    topo.set_cpubind_for_process(pid, cpuset, CpuBindFlags::CPUBIND_PROCESS)
+    topo.set_cpubind_for_process(pid, &cpuset, CpuBindFlags::CPUBIND_PROCESS)
         .unwrap();
 
     println!(

@@ -20,7 +20,7 @@ fn main() {
     let mut topo = Topology::new().unwrap();
 
     // Grab last core and exctract its CpuSet
-    let mut cpuset = last_core(&mut topo).cpuset().unwrap();
+    let mut cpuset = last_core(&mut topo).cpuset().unwrap().clone();
 
     //  Get only one logical processor (in case the core is SMT/hyper-threaded).
     cpuset.singlify();
@@ -36,7 +36,7 @@ fn main() {
     );
 
     // Try to bind all threads of the current (possibly multithreaded) process.
-    match topo.set_cpubind(cpuset, CpuBindFlags::CPUBIND_PROCESS) {
+    match topo.set_cpubind(&cpuset, CpuBindFlags::CPUBIND_PROCESS) {
         Ok(_) => println!("Correctly bound to last core"),
         Err(e) => println!("Failed to bind: {:?}", e),
     }

@@ -2,11 +2,14 @@ use crate::ffi;
 use libc::c_char;
 use std::{
     clone::Clone,
+    convert::TryFrom,
     ffi::CStr,
     fmt,
     iter::FromIterator,
     marker::{PhantomData, PhantomPinned},
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not},
+    ops::{
+        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
+    },
     ptr,
 };
 
@@ -15,7 +18,7 @@ use std::{
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
 #[repr(C)]
-pub struct IntHwlocBitmap {
+pub(crate) struct IntHwlocBitmap {
     _data: [u8; 0],
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
@@ -29,10 +32,8 @@ pub struct IntHwlocBitmap {
 /// Both `CpuSet` and `NodeSet` are always indexed by OS physical number.
 ///
 /// A `Bitmap` may be of infinite size.
-pub struct Bitmap {
-    bitmap: *mut IntHwlocBitmap,
-    manage: bool,
-}
+#[repr(transparent)]
+pub struct Bitmap(*mut IntHwlocBitmap);
 
 /// A `CpuSet` is a `Bitmap` whose bits are set according to CPU physical OS indexes.
 pub type CpuSet = Bitmap;
@@ -40,23 +41,56 @@ pub type CpuSet = Bitmap;
 pub type NodeSet = Bitmap;
 
 impl Bitmap {
+    /// Wraps an owned bitmap from hwloc
+    ///
+    /// The pointer must target a valid bitmap that we will acquire ownership of
+    /// and automatically free on Drop.
+    ///
+    pub(crate) unsafe fn from_raw(bitmap: *mut IntHwlocBitmap) -> Option<Self> {
+        (!bitmap.is_null()).then_some(Self(bitmap))
+    }
+
+    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    ///
+    /// The pointer must target a valid bitmap, but unlike with from_raw, it
+    /// will not be automatically freed on Drop.
+    ///
+    pub(crate) unsafe fn borrow_from_raw(bitmap: &*const IntHwlocBitmap) -> Option<&Self> {
+        (!bitmap.is_null()).then_some(std::mem::transmute::<&*const IntHwlocBitmap, &Self>(bitmap))
+    }
+
+    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    ///
+    /// The pointer must target a valid bitmap, but unlike with from_raw, it
+    /// will not be automatically freed on Drop.
+    ///
+    pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut IntHwlocBitmap) -> Option<&Self> {
+        (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut IntHwlocBitmap, &Self>(bitmap))
+    }
+
+    /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+    pub(crate) fn as_ptr(&self) -> *const IntHwlocBitmap {
+        self.0 as *const IntHwlocBitmap
+    }
+
+    /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut IntHwlocBitmap {
+        self.0
+    }
+
     /// Creates an empty `Bitmap`.
     ///
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let bitmap = Bitmap::new();
     /// assert_eq!("", format!("{}", bitmap));
     /// assert_eq!(true, bitmap.is_empty());
     // ```
-    pub fn new() -> Bitmap {
-        let bitmap = unsafe { ffi::hwloc_bitmap_alloc() };
-        Bitmap {
-            bitmap,
-            manage: true,
-        }
+    pub fn new() -> Self {
+        unsafe { Self::from_raw(ffi::hwloc_bitmap_alloc()).unwrap() }
     }
 
     /// Creates a full `Bitmap`.
@@ -64,35 +98,14 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let bitmap = Bitmap::full();
     /// assert_eq!("0-", format!("{}", bitmap));
     /// assert_eq!(false, bitmap.is_empty());
     // ```
-    pub fn full() -> Bitmap {
-        let bitmap = unsafe { ffi::hwloc_bitmap_alloc_full() };
-        Bitmap {
-            bitmap,
-            manage: true,
-        }
-    }
-
-    /// Creates a new HwlocBitmap (either CpuSet or NodeSet) and sets one index right away.
-    ///
-    /// Examples:
-    ///
-    /// ```
-    /// use hwloc::Bitmap;
-    ///
-    /// let bitmap = Bitmap::from(1);
-    /// assert_eq!("1", format!("{}", bitmap));
-    /// assert_eq!(false, bitmap.is_empty());
-    // ```
-    pub fn from(id: u32) -> Bitmap {
-        let mut bitmap = Bitmap::new();
-        bitmap.set(id);
-        bitmap
+    pub fn full() -> Self {
+        unsafe { Self::from_raw(ffi::hwloc_bitmap_alloc_full()).unwrap() }
     }
 
     /// Creates a new `Bitmap` with the given range.
@@ -100,28 +113,31 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let bitmap = Bitmap::from_range(0, 5);
+    /// let bitmap = Bitmap::from_range(0..=5);
     /// assert_eq!("0-5", format!("{}", bitmap));
     // ```
-    pub fn from_range(begin: u32, end: i32) -> Bitmap {
-        let mut bitmap = Bitmap::new();
-        bitmap.set_range(begin, end);
+    pub fn from_range(range: impl RangeBounds<u32>) -> Self {
+        let mut bitmap = Self::new();
+        bitmap.set_range(range);
         bitmap
     }
 
-    /// Wraps the given hwloc bitmap pointer into its `Bitmap` representation.
+    /// Turn this bitmap into a copy of another bitmap
     ///
-    /// This function is not meant to be used directly, it rather serves as the
-    /// conversion factory when dealing with hwloc-internal structures.
-    pub fn from_raw(bitmap: *mut IntHwlocBitmap, manage: bool) -> Bitmap {
-        Bitmap { bitmap, manage }
-    }
-
-    /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
-    pub fn as_ptr(&self) -> *const IntHwlocBitmap {
-        self.bitmap as *const IntHwlocBitmap
+    /// Examples:
+    ///
+    /// ```
+    /// use hwloc2::Bitmap;
+    ///
+    /// let bitmap = Bitmap::from_range(0..=5);
+    /// let mut bitmap2 = Bitmap::new();
+    /// bitmap2.copy_from(&bitmap);
+    /// assert_eq!("0-5", format!("{}", bitmap2));
+    // ```
+    pub fn copy_from(&mut self, other: &Self) {
+        assert!(unsafe { ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr()) } >= 0);
     }
 
     /// Set index `id` in this `Bitmap`.
@@ -129,34 +145,33 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// bitmap.set(4);
     /// assert_eq!("4", format!("{}", bitmap));
     // ```
     pub fn set(&mut self, id: u32) {
-        unsafe { ffi::hwloc_bitmap_set(self.bitmap, id) }
+        assert!(unsafe { ffi::hwloc_bitmap_set(self.as_mut_ptr(), id) } >= 0)
     }
 
-    /// Add indexes from `begin` to `end` in this `Bitmap`.
-    ///
-    /// If end is -1, the range is infinite.
+    /// Add indexes from this Rust range to the specified bitmap
     ///
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
-    /// bitmap.set_range(3, 5);
+    /// bitmap.set_range(3..=5);
     /// assert_eq!("3-5", format!("{}", bitmap));
     ///
-    /// bitmap.set_range(2, -1);
+    /// bitmap.set_range(2..);
     /// assert_eq!("2-", format!("{}", bitmap));
     // ```
-    pub fn set_range(&mut self, begin: u32, end: i32) {
-        unsafe { ffi::hwloc_bitmap_set_range(self.bitmap, begin, end) }
+    pub fn set_range(&mut self, range: impl RangeBounds<u32>) {
+        let (begin, end) = Self::hwloc_range(range);
+        assert!(unsafe { ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end) } >= 0)
     }
 
     /// Remove index `id` from the `Bitmap`.
@@ -164,14 +179,14 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let mut bitmap = Bitmap::from_range(1,3);
+    /// let mut bitmap = Bitmap::from_range(1..=3);
     /// bitmap.unset(1);
     /// assert_eq!("2-3", format!("{}", bitmap));
     // ```
     pub fn unset(&mut self, id: u32) {
-        unsafe { ffi::hwloc_bitmap_clr(self.bitmap, id) }
+        assert!(unsafe { ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id) } >= 0)
     }
 
     /// Remove indexes from `begin` to `end` in this `Bitmap`.
@@ -181,33 +196,38 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let mut bitmap = Bitmap::from_range(1,5);
-    /// bitmap.unset_range(4,6);
+    /// let mut bitmap = Bitmap::from_range(1..=5);
+    /// bitmap.unset_range(4..6);
     /// assert_eq!("1-3", format!("{}", bitmap));
     ///
-    /// bitmap.unset_range(2,-1);
+    /// bitmap.unset_range(2..);
     /// assert_eq!("1", format!("{}", bitmap));
     // ```
-    pub fn unset_range(&mut self, begin: u32, end: i32) {
-        unsafe { ffi::hwloc_bitmap_clr_range(self.bitmap, begin, end) }
+    pub fn unset_range(&mut self, range: impl RangeBounds<u32>) {
+        let (begin, end) = Self::hwloc_range(range);
+        assert!(unsafe { ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end) } >= 0)
     }
 
-    /// The number of indexes that are in the bitmap.
+    /// The number of indexes that are set in the bitmap.
+    ///
+    /// None means that an infinite number of indices are set.
     ///
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let mut bitmap = Bitmap::from_range(1,5);
-    /// assert_eq!(5, bitmap.weight());
+    /// let mut bitmap = Bitmap::from_range(1..=5);
+    /// assert_eq!(Some(5), bitmap.weight());
     /// bitmap.unset(3);
-    /// assert_eq!(4, bitmap.weight());
+    /// assert_eq!(Some(4), bitmap.weight());
     /// ```
-    pub fn weight(&self) -> i32 {
-        unsafe { ffi::hwloc_bitmap_weight(self.bitmap) }
+    pub fn weight(&self) -> Option<u32> {
+        let result = unsafe { ffi::hwloc_bitmap_weight(self.as_ptr()) };
+        assert!(result >= -1);
+        u32::try_from(result).ok()
     }
 
     /// Clears the `Bitmap`.
@@ -215,18 +235,18 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let mut bitmap = Bitmap::from_range(1,5);
-    /// assert_eq!(5, bitmap.weight());
+    /// let mut bitmap = Bitmap::from_range(1..=5);
+    /// assert_eq!(Some(5), bitmap.weight());
     /// assert_eq!(false, bitmap.is_empty());
     ///
     /// bitmap.clear();
-    /// assert_eq!(0, bitmap.weight());
+    /// assert_eq!(Some(0), bitmap.weight());
     /// assert_eq!(true, bitmap.is_empty());
     /// ```
     pub fn clear(&mut self) {
-        unsafe { ffi::hwloc_bitmap_zero(self.bitmap) }
+        unsafe { ffi::hwloc_bitmap_zero(self.as_mut_ptr()) }
     }
 
     /// Checks if this `Bitmap` has indexes set.
@@ -234,7 +254,7 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// assert_eq!(true, bitmap.is_empty());
@@ -246,8 +266,9 @@ impl Bitmap {
     /// assert_eq!(true, bitmap.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_iszero(self.bitmap) };
-        result != 0
+        let result = unsafe { ffi::hwloc_bitmap_iszero(self.as_ptr()) };
+        assert!(result == 0 || result == 1);
+        result == 1
     }
 
     /// Check if the field with the given id is set.
@@ -255,7 +276,7 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// assert_eq!(false, bitmap.is_set(2));
@@ -264,8 +285,9 @@ impl Bitmap {
     /// assert_eq!(true, bitmap.is_set(2));
     /// ```
     pub fn is_set(&self, id: u32) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isset(self.bitmap, id) };
-        result != 0
+        let result = unsafe { ffi::hwloc_bitmap_isset(self.as_ptr(), id) };
+        assert!(result == 0 || result == 1);
+        result == 1
     }
 
     /// Keep a single index among those set in the bitmap.
@@ -276,23 +298,20 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
-    /// bitmap.set_range(0, 127);
-    /// assert_eq!(128, bitmap.weight());
+    /// bitmap.set_range(0..=127);
+    /// assert_eq!(Some(128), bitmap.weight());
     ///
     /// bitmap.invert();
-    /// assert_eq!(-1, bitmap.weight());
+    /// assert_eq!(None, bitmap.weight());
     ///
     /// bitmap.singlify();
-    /// assert_eq!(1, bitmap.weight());
-    ///
-    /// assert_eq!(128, bitmap.first());
-    /// assert_eq!(128, bitmap.last());
+    /// assert_eq!(Some(1), bitmap.weight());
     /// ```
     pub fn singlify(&mut self) {
-        unsafe { ffi::hwloc_bitmap_singlify(self.bitmap) }
+        unsafe { ffi::hwloc_bitmap_singlify(self.as_mut_ptr()) }
     }
 
     /// Inverts the current `Bitmap`.
@@ -300,7 +319,7 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// bitmap.set(3);
@@ -309,39 +328,39 @@ impl Bitmap {
     /// assert_eq!("0-2,4-", format!("{}", !bitmap));
     /// ```
     pub fn invert(&mut self) {
-        unsafe { ffi::hwloc_bitmap_not(self.bitmap, self.bitmap) }
+        assert!(unsafe { ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr()) } >= 0)
     }
 
-    /// Compute the first index (least significant bit) in this `Bitmap`.
-    ///
-    /// Returns -1 if no index is set.
+    /// Compute the first index (least significant bit) in this `Bitmap`, if any.
     ///
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let bitmap = Bitmap::from_range(4,10);
-    /// assert_eq!(4, bitmap.first());
+    /// let bitmap = Bitmap::from_range(4..=10);
+    /// assert_eq!(Some(4), bitmap.first());
     /// ```
-    pub fn first(&self) -> i32 {
-        unsafe { ffi::hwloc_bitmap_first(self.bitmap) }
+    pub fn first(&self) -> Option<u32> {
+        let result = unsafe { ffi::hwloc_bitmap_first(self.as_ptr()) };
+        assert!(result >= -1);
+        u32::try_from(result).ok()
     }
 
-    /// Compute the last index (most significant bit) in this `Bitmap`.
-    ///
-    /// Returns -1 if no index is bitmap, or if the index bitmap is infinite.
+    /// Compute the last index (most significant bit) in this `Bitmap`, if any.
     ///
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
-    /// let bitmap = Bitmap::from_range(4,10);
-    /// assert_eq!(10, bitmap.last());
+    /// let bitmap = Bitmap::from_range(4..=10);
+    /// assert_eq!(Some(10), bitmap.last());
     /// ```
-    pub fn last(&self) -> i32 {
-        unsafe { ffi::hwloc_bitmap_last(self.bitmap) }
+    pub fn last(&self) -> Option<u32> {
+        let result = unsafe { ffi::hwloc_bitmap_last(self.as_ptr()) };
+        assert!(result >= -1);
+        u32::try_from(result).ok()
     }
 
     /// Test whether this `Bitmap` is completely full.
@@ -349,7 +368,7 @@ impl Bitmap {
     /// Examples:
     ///
     /// ```
-    /// use hwloc::Bitmap;
+    /// use hwloc2::Bitmap;
     ///
     /// let empty_bitmap = Bitmap::new();
     /// assert_eq!(false, empty_bitmap.is_full());
@@ -358,90 +377,100 @@ impl Bitmap {
     /// assert_eq!(true, full_bitmap.is_full());
     /// ```
     pub fn is_full(&self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isfull(self.bitmap) };
+        let result = unsafe { ffi::hwloc_bitmap_isfull(self.as_ptr()) };
+        assert!(result == 0 || result == 1);
         result == 1
+    }
+
+    // Convert a Rust range to an hwloc range
+    fn hwloc_range(range: impl RangeBounds<u32>) -> (u32, i32) {
+        let start = match range.start_bound() {
+            Bound::Unbounded => 0,
+            Bound::Included(i) => *i,
+            Bound::Excluded(i) => i.checked_add(1).unwrap(),
+        };
+        let end = match range.end_bound() {
+            Bound::Unbounded => -1,
+            Bound::Included(i) => i32::try_from(*i).unwrap(),
+            Bound::Excluded(i) => i32::try_from(i.checked_add(1).unwrap()).unwrap(),
+        };
+        (start, end)
     }
 }
 
 impl Not for Bitmap {
-    type Output = Bitmap;
+    type Output = Self;
 
-    /// Returns a new bitmap which contains the negated values of the current
-    /// one.
-    fn not(self) -> Bitmap {
-        unsafe {
-            let result = ffi::hwloc_bitmap_alloc();
-            ffi::hwloc_bitmap_not(result, self.bitmap);
-            Bitmap::from_raw(result, true)
-        }
+    fn not(self) -> Self {
+        let mut result = Self::new();
+        assert!(unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) } >= 0);
+        result
     }
 }
 
 impl BitOr for Bitmap {
-    type Output = Bitmap;
+    type Output = Self;
 
-    fn bitor(self, rhs: Self) -> Bitmap {
-        unsafe {
-            let result = ffi::hwloc_bitmap_alloc();
-            ffi::hwloc_bitmap_or(result, self.bitmap, rhs.bitmap);
-            Bitmap::from_raw(result, true)
-        }
+    fn bitor(self, rhs: Self) -> Self {
+        let mut result = Self::new();
+        assert!(
+            unsafe { ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
+        );
+        result
     }
 }
 
 impl BitOrAssign for Bitmap {
     fn bitor_assign(&mut self, rhs: Self) {
-        unsafe {
-            ffi::hwloc_bitmap_or(self.bitmap, self.bitmap, rhs.bitmap);
-        }
+        assert!(
+            unsafe { ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
+        )
     }
 }
 
 impl BitAnd for Bitmap {
-    type Output = Bitmap;
+    type Output = Self;
 
-    fn bitand(self, rhs: Self) -> Bitmap {
-        unsafe {
-            let result = ffi::hwloc_bitmap_alloc();
-            ffi::hwloc_bitmap_and(result, self.bitmap, rhs.bitmap);
-            Bitmap::from_raw(result, true)
-        }
+    fn bitand(self, rhs: Self) -> Self {
+        let mut result = Self::new();
+        assert!(
+            unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
+        );
+        result
     }
 }
 
 impl BitAndAssign for Bitmap {
     fn bitand_assign(&mut self, rhs: Self) {
-        unsafe {
-            ffi::hwloc_bitmap_and(self.bitmap, self.bitmap, rhs.bitmap);
-        }
+        assert!(
+            unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
+        )
     }
 }
 
 impl BitXor for Bitmap {
-    type Output = Bitmap;
+    type Output = Self;
 
-    fn bitxor(self, rhs: Self) -> Bitmap {
-        unsafe {
-            let result = ffi::hwloc_bitmap_alloc();
-            ffi::hwloc_bitmap_xor(result, self.bitmap, rhs.bitmap);
-            Bitmap::from_raw(result, true)
-        }
+    fn bitxor(self, rhs: Self) -> Self {
+        let mut result = Self::new();
+        assert!(
+            unsafe { ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
+        );
+        result
     }
 }
 
 impl BitXorAssign for Bitmap {
     fn bitxor_assign(&mut self, rhs: Self) {
-        unsafe {
-            ffi::hwloc_bitmap_xor(self.bitmap, self.bitmap, rhs.bitmap);
-        }
+        assert!(
+            unsafe { ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
+        )
     }
 }
 
 impl Drop for Bitmap {
     fn drop(&mut self) {
-        if self.manage {
-            unsafe { ffi::hwloc_bitmap_free(self.bitmap) }
-        }
+        unsafe { ffi::hwloc_bitmap_free(self.as_mut_ptr()) }
     }
 }
 
@@ -449,7 +478,7 @@ impl fmt::Display for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut buf: *mut c_char = ptr::null_mut();
         unsafe {
-            ffi::hwloc_bitmap_list_asprintf(&mut buf, self.bitmap);
+            assert!(ffi::hwloc_bitmap_list_asprintf(&mut buf, self.as_ptr()) >= 0);
             let result = write!(f, "{}", CStr::from_ptr(buf).to_str().unwrap());
             libc::free(buf as _);
             result
@@ -465,17 +494,18 @@ impl fmt::Debug for Bitmap {
 
 impl Clone for Bitmap {
     fn clone(&self) -> Bitmap {
-        let dup = unsafe { ffi::hwloc_bitmap_dup(self.bitmap) };
-        Bitmap::from_raw(dup, true)
+        unsafe { Self::from_raw(ffi::hwloc_bitmap_dup(self.as_ptr())) }.unwrap()
     }
 }
 
 impl PartialEq for Bitmap {
     fn eq(&self, other: &Self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isequal(self.bitmap, other.as_ptr()) };
+        let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
         result == 1
     }
 }
+
+impl Eq for Bitmap {}
 
 impl IntoIterator for Bitmap {
     type Item = u32;
@@ -508,9 +538,17 @@ impl Iterator for BitmapIntoIterator {
     }
 }
 
+impl From<u32> for Bitmap {
+    fn from(value: u32) -> Self {
+        let mut bitmap = Self::new();
+        bitmap.set(value);
+        bitmap
+    }
+}
+
 impl FromIterator<u32> for Bitmap {
     fn from_iter<I: IntoIterator<Item = u32>>(iter: I) -> Bitmap {
-        let mut bitmap = Bitmap::new();
+        let mut bitmap = Self::new();
         for i in iter {
             bitmap.set(i);
         }
@@ -542,7 +580,7 @@ mod tests {
 
     #[test]
     fn should_create_by_range() {
-        let bitmap = Bitmap::from_range(0, 5);
+        let bitmap = Bitmap::from_range(0..=5);
         assert_eq!("0-5", format!("{bitmap}"));
     }
 
@@ -580,16 +618,16 @@ mod tests {
         let mut bitmap = Bitmap::new();
         assert_eq!("", format!("{bitmap}"));
 
-        bitmap.set_range(2, 5);
+        bitmap.set_range(2..=5);
         assert_eq!("2-5", format!("{bitmap}"));
 
-        bitmap.set_range(4, 7);
+        bitmap.set_range(4..=7);
         assert_eq!("2-7", format!("{bitmap}"));
 
         bitmap.set(9);
         assert_eq!("2-7,9", format!("{bitmap}"));
 
-        bitmap.unset_range(6, 10);
+        bitmap.unset_range(6..=10);
         assert_eq!("2-5", format!("{bitmap}"));
     }
 
@@ -598,7 +636,7 @@ mod tests {
         let mut bitmap = Bitmap::new();
 
         assert!(bitmap.is_empty());
-        bitmap.set_range(4, 7);
+        bitmap.set_range(4..=7);
         assert!(!bitmap.is_empty());
         assert!(bitmap.is_set(5));
 
@@ -611,19 +649,19 @@ mod tests {
     fn should_get_weight() {
         let mut bitmap = Bitmap::new();
 
-        assert_eq!(0, bitmap.weight());
+        assert_eq!(Some(0), bitmap.weight());
 
         bitmap.set(9);
-        assert_eq!(1, bitmap.weight());
+        assert_eq!(Some(1), bitmap.weight());
 
-        bitmap.set_range(2, 5);
-        assert_eq!(5, bitmap.weight());
+        bitmap.set_range(2..=5);
+        assert_eq!(Some(5), bitmap.weight());
 
         bitmap.unset(4);
-        assert_eq!(4, bitmap.weight());
+        assert_eq!(Some(4), bitmap.weight());
 
         bitmap.clear();
-        assert_eq!(0, bitmap.weight());
+        assert_eq!(Some(0), bitmap.weight());
     }
 
     #[test]
@@ -638,29 +676,29 @@ mod tests {
     #[test]
     fn should_singlify() {
         let mut bitmap = Bitmap::new();
-        bitmap.set_range(0, 127);
-        assert_eq!(128, bitmap.weight());
+        bitmap.set_range(0..=127);
+        assert_eq!(Some(128), bitmap.weight());
 
         bitmap.invert();
-        assert_eq!(-1, bitmap.weight());
+        assert_eq!(None, bitmap.weight());
 
         bitmap.singlify();
-        assert_eq!(1, bitmap.weight());
+        assert_eq!(Some(1), bitmap.weight());
 
-        assert_eq!(128, bitmap.first());
-        assert_eq!(128, bitmap.last());
+        assert_eq!(Some(128), bitmap.first());
+        assert_eq!(Some(128), bitmap.last());
     }
 
     #[test]
     fn should_check_equality() {
         let mut bitmap1 = Bitmap::new();
-        bitmap1.set_range(0, 3);
+        bitmap1.set_range(0..=3);
 
         let mut bitmap2 = Bitmap::new();
-        bitmap2.set_range(0, 3);
+        bitmap2.set_range(0..=3);
 
         let mut bitmap3 = Bitmap::new();
-        bitmap3.set_range(1, 5);
+        bitmap3.set_range(1..=5);
 
         assert_eq!(bitmap1, bitmap2);
         assert!(bitmap2 == bitmap1);
@@ -671,7 +709,7 @@ mod tests {
     #[test]
     fn should_clone() {
         let mut src = Bitmap::new();
-        src.set_range(0, 3);
+        src.set_range(0..=3);
 
         let dst = src.clone();
         assert_eq!(src, dst);
@@ -679,7 +717,7 @@ mod tests {
 
     #[test]
     fn should_support_into_iter() {
-        let mut bitmap = Bitmap::from_range(4, 8);
+        let mut bitmap = Bitmap::from_range(4..=8);
         bitmap.set(2);
 
         let collected = bitmap.into_iter().collect::<Vec<u32>>();

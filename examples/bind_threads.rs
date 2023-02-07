@@ -46,14 +46,14 @@ fn main() {
                 let before = locked_topo.get_cpubind_for_thread(tid, CpuBindFlags::CPUBIND_THREAD);
 
                 // load the cpuset for the given core index.
-                let mut bind_to = cpuset_for_core(&*locked_topo, i);
+                let mut bind_to = cpuset_for_core(&*locked_topo, i).clone();
 
                 // Get only one logical processor (in case the core is SMT/hyper-threaded).
                 bind_to.singlify();
 
                 // Set the binding.
                 locked_topo
-                    .set_cpubind_for_thread(tid, bind_to, CpuBindFlags::CPUBIND_THREAD)
+                    .set_cpubind_for_thread(tid, &bind_to, CpuBindFlags::CPUBIND_THREAD)
                     .unwrap();
 
                 // Thread binding after explicit set.
@@ -70,7 +70,7 @@ fn main() {
 }
 
 /// Load the `CpuSet` for the given core index.
-fn cpuset_for_core(topology: &Topology, idx: usize) -> CpuSet {
+fn cpuset_for_core(topology: &Topology, idx: usize) -> &CpuSet {
     let cores = (*topology).objects_with_type(&ObjectType::Core).unwrap();
     match cores.get(idx) {
         Some(val) => val.cpuset().unwrap(),
