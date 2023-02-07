@@ -127,54 +127,55 @@ pub enum ObjectType {
 }
 //
 impl ObjectType {
-    /// Truth that this is a data or unified cache
-    pub fn is_data_cache(&self) -> bool {
-        match self {
-            Self::L1Cache
-            | Self::L2Cache
-            | Self::L3Cache
-            | Self::L4Cache
-            | Self::L5Cache
-            | Self::Memcache => true,
-            Self::Machine
-            | Self::Package
-            | Self::Core
-            | Self::PU
-            | Self::L1iCache
-            | Self::L2iCache
-            | Self::L3iCache
-            | Self::Group
-            | Self::NUMANode
-            | Self::Bridge
-            | Self::PCIDevice
-            | Self::OSDevice
-            | Self::Misc
-            | Self::Die => false,
-        }
+    /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
+    pub fn is_normal(&self) -> bool {
+        let result = unsafe { ffi::hwloc_obj_type_is_normal(self.to_raw()) };
+        assert!(result == 0 || result == 1);
+        result == 1
     }
 
-    /// Truth that this is an instruction cache
-    pub fn is_instruction_cache(&self) -> bool {
-        match self {
-            Self::L1iCache | Self::L2iCache | Self::L3iCache => true,
-            Self::Machine
-            | Self::Package
-            | Self::Core
-            | Self::PU
-            | Self::L1Cache
-            | Self::L2Cache
-            | Self::L3Cache
-            | Self::L4Cache
-            | Self::L5Cache
-            | Self::Group
-            | Self::NUMANode
-            | Self::Bridge
-            | Self::PCIDevice
-            | Self::OSDevice
-            | Self::Misc
-            | Self::Memcache
-            | Self::Die => false,
-        }
+    /// Truth that this is a CPU-side cache type (not Memcache)
+    pub fn is_cpu_cache(&self) -> bool {
+        let result = unsafe { ffi::hwloc_obj_type_is_cache(self.to_raw()) };
+        assert!(result == 0 || result == 1);
+        result == 1
+    }
+
+    /// Truth that this is a CPU-side data or unified cache type (not Memcache)
+    pub fn is_cpu_data_cache(&self) -> bool {
+        let result = unsafe { ffi::hwloc_obj_type_is_dcache(self.to_raw()) };
+        assert!(result == 0 || result == 1);
+        result == 1
+    }
+
+    /// Truth that this is a CPU-side instruction cache type (not Memcache)
+    pub fn is_cpu_instruction_cache(&self) -> bool {
+        let result = unsafe { ffi::hwloc_obj_type_is_icache(self.to_raw()) };
+        assert!(result == 0 || result == 1);
+        result == 1
+    }
+
+    /// Truth that this is a memory object type
+    ///
+    /// Memory objects are not listed in the main children list, but rather in
+    /// the dedicated memory children list. They have special depth values
+    /// instead of normal depths like other objects in the main tree.
+    pub fn is_memory(&self) -> bool {
+        let result = unsafe { ffi::hwloc_obj_type_is_memory(self.to_raw()) };
+        assert!(result == 0 || result == 1);
+        result == 1
+    }
+
+    /// Truth that this is an I/O object type
+    ///
+    /// I/O objects are not added to the topology unless I/O discovery is
+    /// enabled through the custom flags. They have empty CPU and node sets.
+    /// They are not part of the main children list, but rather reside in the
+    /// dedicated I/O children list.
+    pub fn is_io(&self) -> bool {
+        let result = unsafe { ffi::hwloc_obj_type_is_io(self.to_raw()) };
+        assert!(result == 0 || result == 1);
+        result == 1
     }
 
     /// Truth that this object type is a leaf of the hardware hierarchy and
@@ -197,64 +198,6 @@ impl ObjectType {
             | Self::Bridge
             | Self::PCIDevice
             | Self::OSDevice
-            | Self::Misc
-            | Self::Memcache
-            | Self::Die => false,
-        }
-    }
-
-    /// Truth that this is a memory object type
-    ///
-    /// Memory objects are not listed in the main children list, but rather in
-    /// the dedicated memory children list. They have special depth values
-    /// instead of normal depths like other objects in the main tree.
-    pub fn is_memory(&self) -> bool {
-        match *self {
-            Self::NUMANode | Self::Memcache => true,
-            Self::Machine
-            | Self::Package
-            | Self::Core
-            | Self::PU
-            | Self::L1iCache
-            | Self::L2iCache
-            | Self::L3iCache
-            | Self::L1Cache
-            | Self::L2Cache
-            | Self::L3Cache
-            | Self::L4Cache
-            | Self::L5Cache
-            | Self::Group
-            | Self::Bridge
-            | Self::PCIDevice
-            | Self::OSDevice
-            | Self::Misc
-            | Self::Die => false,
-        }
-    }
-
-    /// Truth that this is an I/O object type
-    ///
-    /// I/O objects are not added to the topology unless I/O discovery is
-    /// enabled through the custom flags. They have empty CPU and node sets.
-    /// They are not part of the main children list, but rather reside in the
-    /// dedicated I/O children list.
-    pub fn is_io(&self) -> bool {
-        match self {
-            Self::Bridge | Self::PCIDevice | Self::OSDevice => true,
-            Self::Machine
-            | Self::Package
-            | Self::Core
-            | Self::PU
-            | Self::L1iCache
-            | Self::L2iCache
-            | Self::L3iCache
-            | Self::L1Cache
-            | Self::L2Cache
-            | Self::L3Cache
-            | Self::L4Cache
-            | Self::L5Cache
-            | Self::Group
-            | Self::NUMANode
             | Self::Misc
             | Self::Memcache
             | Self::Die => false,

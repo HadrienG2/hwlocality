@@ -150,9 +150,118 @@ macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]
         extern "C" {
-
             // Indicate at runtime which hwloc API version was used at build time.
             pub(crate) fn hwloc_get_api_version() -> c_uint;
+
+            // === Bitmap API ( https://www.open-mpi.org/projects/hwloc/doc/v2.9.0/a00181.php ) ===
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_alloc() -> *mut RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_alloc_full() -> *mut RawBitmap;
+            pub(crate) fn hwloc_bitmap_free(bitmap: *mut RawBitmap);
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_dup(src: *const RawBitmap) -> *mut RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_copy(dst: *mut RawBitmap, src: *const RawBitmap) -> c_int;
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_list_asprintf(
+                strp: *mut *mut c_char,
+                bitmap: *const RawBitmap,
+            ) -> c_int;
+
+            pub(crate) fn hwloc_bitmap_zero(bitmap: *mut RawBitmap);
+            pub(crate) fn hwloc_bitmap_fill(bitmap: *mut RawBitmap);
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_set(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_set_range(
+                bitmap: *mut RawBitmap,
+                begin: c_uint,
+                end: c_int,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_clr(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_clr_range(
+                bitmap: *mut RawBitmap,
+                begin: c_uint,
+                end: c_int,
+            ) -> c_int;
+            pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut RawBitmap);
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_isset(bitmap: *const RawBitmap, id: c_uint) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_iszero(bitmap: *const RawBitmap) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_isfull(bitmap: *const RawBitmap) -> c_int;
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_first(bitmap: *const RawBitmap) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_next(bitmap: *const RawBitmap, prev: c_int) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_last(bitmap: *const RawBitmap) -> c_int;
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_weight(bitmap: *const RawBitmap) -> c_int;
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_or(
+                result: *mut RawBitmap,
+                bitmap1: *const RawBitmap,
+                bitmap2: *const RawBitmap,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_and(
+                result: *mut RawBitmap,
+                bitmap1: *const RawBitmap,
+                bitmap2: *const RawBitmap,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_xor(
+                result: *mut RawBitmap,
+                bitmap1: *const RawBitmap,
+                bitmap2: *const RawBitmap,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_not(
+                result: *mut RawBitmap,
+                bitmap: *const RawBitmap,
+            ) -> c_int;
+
+            pub(crate) fn hwloc_bitmap_isequal(
+                left: *const RawBitmap,
+                right: *const RawBitmap,
+            ) -> c_int;
+            pub(crate) fn hwloc_bitmap_compare(
+                left: *const RawBitmap,
+                right: *const RawBitmap,
+            ) -> c_int;
+
+            // === Ordering between ObjectTypes ===
+
+            #[must_use]
+            pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
+
+            // === Kinds of ObjectTypes ===
+
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_normal(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_io(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_memory(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_cache(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_dcache(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_icache(ty: RawObjectType) -> c_int;
+
+            // === FIXME: The following FFIs have not yet been checked for correctness ===
 
             // === Topology Creation and Destruction ===
 
@@ -400,91 +509,6 @@ macro_rules! extern_c_block {
                 len: size_t,
             ) -> c_int;
 
-            // === Bitmap API ( https://www.open-mpi.org/projects/hwloc/doc/v2.9.0/a00181.php ) ===
-
-            pub(crate) fn hwloc_bitmap_alloc() -> *mut RawBitmap;
-            pub(crate) fn hwloc_bitmap_alloc_full() -> *mut RawBitmap;
-            pub(crate) fn hwloc_bitmap_free(bitmap: *mut RawBitmap);
-            pub(crate) fn hwloc_bitmap_dup(src: *const RawBitmap) -> *mut RawBitmap;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_copy(dst: *mut RawBitmap, src: *const RawBitmap) -> c_int;
-
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_list_asprintf(
-                strp: *mut *mut c_char,
-                bitmap: *const RawBitmap,
-            ) -> c_int;
-
-            pub(crate) fn hwloc_bitmap_zero(bitmap: *mut RawBitmap);
-            pub(crate) fn hwloc_bitmap_fill(bitmap: *mut RawBitmap);
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_set(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_set_range(
-                bitmap: *mut RawBitmap,
-                begin: c_uint,
-                end: c_int,
-            ) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_clr(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_clr_range(
-                bitmap: *mut RawBitmap,
-                begin: c_uint,
-                end: c_int,
-            ) -> c_int;
-            pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut RawBitmap);
-
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_isset(bitmap: *const RawBitmap, id: c_uint) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_iszero(bitmap: *const RawBitmap) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_isfull(bitmap: *const RawBitmap) -> c_int;
-
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_first(bitmap: *const RawBitmap) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_next(bitmap: *const RawBitmap, prev: c_int) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_last(bitmap: *const RawBitmap) -> c_int;
-
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_weight(bitmap: *const RawBitmap) -> c_int;
-
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_or(
-                result: *mut RawBitmap,
-                bitmap1: *const RawBitmap,
-                bitmap2: *const RawBitmap,
-            ) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_and(
-                result: *mut RawBitmap,
-                bitmap1: *const RawBitmap,
-                bitmap2: *const RawBitmap,
-            ) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_xor(
-                result: *mut RawBitmap,
-                bitmap1: *const RawBitmap,
-                bitmap2: *const RawBitmap,
-            ) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_not(
-                result: *mut RawBitmap,
-                bitmap: *const RawBitmap,
-            ) -> c_int;
-
-            pub(crate) fn hwloc_bitmap_isequal(
-                left: *const RawBitmap,
-                right: *const RawBitmap,
-            ) -> c_int;
-            pub(crate) fn hwloc_bitmap_compare(
-                left: *const RawBitmap,
-                right: *const RawBitmap,
-            ) -> c_int;
-
             // === TopologyObject text I/O ===
 
             pub(crate) fn hwloc_obj_type_string(object_type: RawObjectType) -> *const c_char;
@@ -521,10 +545,6 @@ macro_rules! extern_c_block {
                 name: *const c_char,
                 value: *const c_char,
             ) -> c_int;
-
-            // === Ordering between ObjectTypes ===
-
-            pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
         }
     };
 }
