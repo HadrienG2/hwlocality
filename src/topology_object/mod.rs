@@ -1,6 +1,6 @@
 pub mod types;
 
-use self::types::ObjectType;
+use self::types::{ObjectType, RawObjectType};
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi,
@@ -10,7 +10,7 @@ use std::{ffi::CStr, fmt};
 
 #[repr(C)]
 pub struct TopologyObject {
-    object_type: ObjectType,
+    object_type: RawObjectType,
     subtype: *mut c_char,
     os_index: c_uint,
     name: *mut c_char,
@@ -48,7 +48,7 @@ pub struct TopologyObject {
 impl TopologyObject {
     /// The type of the object.
     pub fn object_type(&self) -> ObjectType {
-        self.object_type
+        self.object_type.try_into().unwrap()
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
