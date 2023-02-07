@@ -102,7 +102,11 @@ use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
 use std::convert::TryInto;
 
-// Indicate at runtime which hwloc API version was used at build time.
+/// Indicate at runtime which hwloc API version was used at build time.
+/// This number is updated to (X<<16)+(Y<<8)+Z when a new release X.Y.Z
+/// actually modifies the API.
+///
+/// Users may check for available features at build time using this number
 pub fn get_api_version() -> u32 {
     unsafe { ffi::hwloc_get_api_version() as u32 }
 }
