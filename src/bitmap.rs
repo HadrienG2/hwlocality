@@ -1,3 +1,5 @@
+//! Safe interface to the hwloc bitmap API
+
 use crate::ffi;
 use libc::c_char;
 use std::{

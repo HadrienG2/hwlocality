@@ -540,7 +540,7 @@ macro_rules! extern_c_block {
                 len: size_t,
             ) -> c_int;
 
-            // === Bitmap Methods ===
+            // === Bitmap API ( https://www.open-mpi.org/projects/hwloc/doc/v2.9.0/a00181.php ) ===
 
             pub(crate) fn hwloc_bitmap_alloc() -> *mut IntHwlocBitmap;
             pub(crate) fn hwloc_bitmap_alloc_full() -> *mut IntHwlocBitmap;
