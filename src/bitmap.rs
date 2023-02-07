@@ -1,10 +1,13 @@
 use ffi;
 use libc::c_char;
-use std::{fmt, ptr};
-use std::ffi::CStr;
-use std::ops::Not;
-use std::clone::Clone;
-use std::iter::FromIterator;
+use std::{
+    clone::Clone,
+    ffi::CStr,
+    fmt,
+    iter::FromIterator,
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not},
+    ptr,
+};
 
 pub enum IntHwlocBitmap {}
 
@@ -368,6 +371,66 @@ impl Not for Bitmap {
     }
 }
 
+impl BitOr for Bitmap {
+    type Output = Bitmap;
+
+    fn bitor(self, rhs: Self) -> Bitmap {
+        unsafe {
+            let result = ffi::hwloc_bitmap_alloc();
+            ffi::hwloc_bitmap_or(result, self.bitmap, rhs.bitmap);
+            Bitmap::from_raw(result, true)
+        }
+    }
+}
+
+impl BitOrAssign for Bitmap {
+    fn bitor_assign(&mut self, rhs: Self) {
+        unsafe {
+            ffi::hwloc_bitmap_or(self.bitmap, self.bitmap, rhs.bitmap);
+        }
+    }
+}
+
+impl BitAnd for Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: Self) -> Bitmap {
+        unsafe {
+            let result = ffi::hwloc_bitmap_alloc();
+            ffi::hwloc_bitmap_and(result, self.bitmap, rhs.bitmap);
+            Bitmap::from_raw(result, true)
+        }
+    }
+}
+
+impl BitAndAssign for Bitmap {
+    fn bitand_assign(&mut self, rhs: Self) {
+        unsafe {
+            ffi::hwloc_bitmap_and(self.bitmap, self.bitmap, rhs.bitmap);
+        }
+    }
+}
+
+impl BitXor for Bitmap {
+    type Output = Bitmap;
+
+    fn bitxor(self, rhs: Self) -> Bitmap {
+        unsafe {
+            let result = ffi::hwloc_bitmap_alloc();
+            ffi::hwloc_bitmap_xor(result, self.bitmap, rhs.bitmap);
+            Bitmap::from_raw(result, true)
+        }
+    }
+}
+
+impl BitXorAssign for Bitmap {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        unsafe {
+            ffi::hwloc_bitmap_xor(self.bitmap, self.bitmap, rhs.bitmap);
+        }
+    }
+}
+
 impl Drop for Bitmap {
     fn drop(&mut self) {
         if self.manage {
@@ -625,5 +688,4 @@ mod tests {
         let bitmap = (1..10).collect::<Bitmap>();
         assert_eq!("1-9", format!("{}", bitmap));
     }
-
 }
