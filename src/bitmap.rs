@@ -4,6 +4,7 @@ use crate::ffi;
 use libc::c_char;
 use std::{
     clone::Clone,
+    cmp::Ordering,
     convert::TryFrom,
     ffi::CStr,
     fmt,
@@ -542,11 +543,30 @@ impl Clone for Bitmap {
 impl PartialEq for Bitmap {
     fn eq(&self, other: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
+        assert!(result == 0 || result == 1);
         result == 1
     }
 }
 
 impl Eq for Bitmap {}
+
+impl PartialOrd for Bitmap {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Bitmap {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let result = unsafe { ffi::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
+        match result {
+            -1 => Ordering::Less,
+            0 => Ordering::Equal,
+            1 => Ordering::Greater,
+            _ => unreachable!(),
+        }
+    }
+}
 
 /// Owned iterator over set bitmap indices
 pub struct BitmapIntoIterator {
