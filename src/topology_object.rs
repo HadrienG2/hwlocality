@@ -48,7 +48,7 @@ impl TopologyObject {
         self.object_type.clone()
     }
 
-    /// The memory attributes of the object.
+    /// Total memory (in bytes) in NUMA nodes below this object
     pub fn total_memory(&self) -> u64 {
         self.total_memory
     }
@@ -89,7 +89,10 @@ impl TopologyObject {
         self.sibling_rank
     }
 
-    /// The number of direct children.
+    /// The number of normal direct children.
+    ///
+    /// Memory, Misc and I/O children are not listed here but rather in their
+    /// dedicated children list.
     pub fn arity(&self) -> u32 {
         self.arity
     }
@@ -224,6 +227,8 @@ impl TopologyObject {
         }
     }
 
+    // FIXME: This allows the user to modify the CPUSet, which is undesirable,
+    //        introduce a view type to prevent this
     fn deref_cpuset(&self, p: *mut IntHwlocBitmap) -> Option<CpuSet> {
         if p.is_null() {
             None
@@ -232,6 +237,8 @@ impl TopologyObject {
         }
     }
 
+    // FIXME: This allows the user to modify the NodeSet, which is undesirable,
+    //        introduce a view type to prevent this
     fn deref_nodeset(&self, p: *mut IntHwlocBitmap) -> Option<NodeSet> {
         if p.is_null() {
             None
@@ -240,7 +247,9 @@ impl TopologyObject {
         }
     }
 
-    pub fn cache_attributes(&self) -> Option<&TopologyObjectCacheAttributes> {
+    // FIXME: This assumes that the hwloc_obj_attr_u union is always a cache.
+    //        Must check that it is indeed a cache first!
+    fn cache_attributes(&self) -> Option<&TopologyObjectCacheAttributes> {
         let cache_ptr = unsafe { (*self.attr).cache() };
         if cache_ptr.is_null() {
             None
