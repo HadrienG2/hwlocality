@@ -45,7 +45,7 @@ fn main() {
 
 /// Find the last core
 fn last_core(topo: &mut Topology) -> &TopologyObject {
-    let core_depth = topo.depth_or_below_for_type(&ObjectType::Core).unwrap();
+    let core_depth = topo.depth_or_below_for_type(ObjectType::Core).unwrap();
     let all_cores = topo.objects_at_depth(core_depth);
     all_cores.last().unwrap()
 }

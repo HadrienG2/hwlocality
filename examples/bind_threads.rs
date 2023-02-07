@@ -20,7 +20,7 @@ fn main() {
         let topo_rc = topo.clone();
         let topo_locked = topo_rc.lock().unwrap();
         (*topo_locked)
-            .objects_with_type(&ObjectType::Core)
+            .objects_with_type(ObjectType::Core)
             .unwrap()
             .len()
     };
@@ -64,7 +64,7 @@ fn main() {
 
 /// Load the `CpuSet` for the given core index.
 fn cpuset_for_core(topology: &Topology, idx: usize) -> &CpuSet {
-    let cores = (*topology).objects_with_type(&ObjectType::Core).unwrap();
+    let cores = (*topology).objects_with_type(ObjectType::Core).unwrap();
     match cores.get(idx) {
         Some(val) => val.cpuset().unwrap(),
         None => panic!("No Core found with id {}", idx),

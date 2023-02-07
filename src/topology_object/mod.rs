@@ -1,6 +1,9 @@
+pub mod types;
+
+use self::types::ObjectType;
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
-    ffi::{self, ObjectType},
+    ffi,
 };
 use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, c_void};
 use std::{ffi::CStr, fmt};

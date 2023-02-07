@@ -1,11 +1,11 @@
 use crate::{
     bitmap::RawBitmap,
     support::TopologySupport,
-    topology_object::{TopologyObject, TopologyObjectAttributes},
+    topology_object::{types::RawObjectType, TopologyObject, TopologyObjectAttributes},
 };
+use bitflags::bitflags;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, size_t};
 use num::{FromPrimitive, ToPrimitive};
-use std::cmp::{Ordering, PartialOrd};
 
 bitflags! {
     /// Process/Thread binding flags.
@@ -69,146 +69,6 @@ bitflags! {
 }
 
 pub enum HwlocTopology {}
-
-/// Represents the type of a topology object.
-///
-/// Note that (partial) ordering for object types is implemented as a call
-/// into the `hwloc` library which defines ordering as follows:
-///
-/// - A == B if `ObjectType::A` and `ObjectType::B` are the same.
-/// - A < B if `ObjectType::A` includes objects of type `ObjectType::B`.
-/// - A > B if objects of `ObjectType::A` are included in type `ObjectType::B`.
-///
-/// It can also help to think of it as comparing the relative depths of each type, so
-/// a `ObjectType::System` will be smaller than a `ObjectType::PU` since the system
-/// contains processing units.
-#[repr(u32)]
-#[derive(Debug, Clone)]
-pub enum ObjectType {
-    /// The typical root object type. A set of processors and memory with cache
-    /// coherency.
-    Machine,
-    /// Physical package, what goes into a socket. In the physical meaning,
-    /// i.e. that you can add or remove physically.
-    Package,
-    /// A computation unit (may be shared by several logical processors).
-    Core,
-    /// Processing Unit, or (Logical) Processor.
-    ///
-    /// An execution unit (may share a core with some other logical
-    /// processors, e.g. in the case of an SMT core). Objects of this kind
-    /// are always reported and can thus be used as fallback when others are
-    /// not.
-    PU,
-    /// Data cache
-    ///
-    /// Level 1 Data (or Unified) Cache.
-    L1Cache,
-    /// Data cache
-    ///
-    /// Level 2 Data (or Unified) Cache.
-    L2Cache,
-    /// Data cache
-    ///
-    /// Level 3 Data (or Unified) Cache.
-    L3Cache,
-    /// Data cache
-    ///
-    /// Level 4 Data (or Unified) Cache.
-    L4Cache,
-    /// Data cache
-    ///
-    /// Level 5 Data (or Unified) Cache.
-    L5Cache,
-    /// Instruction cache
-    ///
-    /// Level 1 Instruction cache (filtered out by default)
-    L1iCache,
-    /// Instruction cache
-    ///
-    /// Level 2 Instruction cache (filtered out by default)
-    L2iCache,
-    /// Instruction cache
-    ///
-    /// Level 3 Instruction cache (filtered out by default)
-    L3iCache,
-    /// Group objects.
-    ///
-    /// Objects which do not fit in the above but are detected by hwloc and
-    /// are useful to take into account for affinity. For instance, some
-    /// operating systems expose their arbitrary processors aggregation this
-    /// way. And hwloc may insert such objects to group NUMA nodes according
-    /// to their distances.
-    ///
-    /// These objects are ignored when they do not bring any structure.
-    Group,
-    /// A set of processors around memory which the processors can directly
-    /// access.
-    NUMANode,
-    /// Any bridge that connects the host or an I/O bus, to another I/O bus.
-    ///
-    /// Bridge objects have neither CPU sets nor node sets.
-    /// They are not added to the topology unless I/O discovery
-    /// is enabled through the custom flags.
-    Bridge,
-    /// PCI device.
-    ///
-    /// These objects have neither CPU sets nor node sets.
-    /// They are not added to the topology unless I/O discovery
-    /// is enabled through the custom flags.
-    PCIDevice,
-    /// Operating system device.
-    ///
-    /// These objects have neither CPU sets nor node sets. They are not
-    /// added to the topology unless I/O discovery is enabled
-    /// through the custom flags.
-    OSDevice,
-    /// Miscellaneous objects.
-    ///
-    /// Objects without particular meaning, that can e.g. be
-    /// added by the application for its own use, or by hwloc
-    /// for miscellaneous objects such as MemoryModule (DIMMs).
-    Misc,
-    /// Memory-side cache
-    ///
-    /// Memory-side cache (filtered out by default).
-    ///
-    /// A cache in front of a specific NUMA node.
-    ///
-    /// Memory objects are not listed in the main children list, but rather in the dedicated Memory
-    /// children list.
-    ///
-    /// Memory-side cache have a special depth ::HWLOC_TYPE_DEPTH_MEMCACHE instead of a normal
-    /// depth just like other objects in the main tree.
-    Memcache,
-    /// Die within a physical package.
-    ///
-    /// A subpart of the physical package, that contains multiple cores.
-    Die,
-    /// An internal sentinel value.
-    TypeMax,
-}
-
-impl PartialOrd for ObjectType {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let compared = unsafe { hwloc_compare_types(self.clone(), other.clone()) };
-        match compared {
-            c if c < 0 => Some(Ordering::Less),
-            c if c == 0 => Some(Ordering::Equal),
-            c if c > 0 => Some(Ordering::Greater),
-            _ => None,
-        }
-    }
-}
-
-impl PartialEq for ObjectType {
-    fn eq(&self, other: &Self) -> bool {
-        match self.partial_cmp(other) {
-            Some(Ordering::Equal) => true,
-            _ => false,
-        }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 pub enum TypeDepthError {
@@ -343,12 +203,12 @@ macro_rules! extern_c_block {
 
             pub(crate) fn hwloc_topology_set_type_filter(
                 topology: *mut HwlocTopology,
-                otype: ObjectType,
+                otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_get_type_filter(
                 topology: *mut HwlocTopology,
-                otype: ObjectType,
+                otype: RawObjectType,
                 filter: *mut c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_all_types_filter(
@@ -357,17 +217,17 @@ macro_rules! extern_c_block {
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_cache_types_filter(
                 topology: *mut HwlocTopology,
-                otype: ObjectType,
+                otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_icache_types_filter(
                 topology: *mut HwlocTopology,
-                otype: ObjectType,
+                otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_io_types_filter(
                 topology: *mut HwlocTopology,
-                otype: ObjectType,
+                otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
 
@@ -411,13 +271,13 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_topology_get_depth(topology: *mut HwlocTopology) -> c_int;
             pub(crate) fn hwloc_get_type_depth(
                 topology: *mut HwlocTopology,
-                object_type: ObjectType,
+                object_type: RawObjectType,
             ) -> c_int;
             pub(crate) fn hwloc_get_memory_parents_depth(topology: *mut HwlocTopology) -> c_int;
             pub(crate) fn hwloc_get_depth_type(
                 topology: *mut HwlocTopology,
                 depth: c_int,
-            ) -> ObjectType;
+            ) -> RawObjectType;
             pub(crate) fn hwloc_get_nbobjs_by_depth(
                 topology: *mut HwlocTopology,
                 depth: c_uint,
@@ -627,7 +487,7 @@ macro_rules! extern_c_block {
 
             // === TopologyObject text I/O ===
 
-            pub(crate) fn hwloc_obj_type_string(object_type: ObjectType) -> *const c_char;
+            pub(crate) fn hwloc_obj_type_string(object_type: RawObjectType) -> *const c_char;
             pub(crate) fn hwloc_obj_type_snprintf(
                 into: *mut c_char,
                 size: size_t,
@@ -643,13 +503,13 @@ macro_rules! extern_c_block {
             ) -> c_int;
             pub(crate) fn hwloc_type_sscanf(
                 strng: *const c_char,
-                obj_type: *mut ObjectType,
+                obj_type: *mut RawObjectType,
                 attrs: *mut TopologyObjectAttributes,
                 attrs_size: size_t,
             ) -> c_int;
             pub(crate) fn hwloc_type_sscanf_as_depth(
                 strng: *const c_char,
-                obj_type: *mut ObjectType,
+                obj_type: *mut RawObjectType,
                 topology: *mut HwlocTopology,
                 depthp: *mut c_int,
             ) -> c_int;
@@ -664,7 +524,7 @@ macro_rules! extern_c_block {
 
             // === Ordering between ObjectTypes ===
 
-            pub(crate) fn hwloc_compare_types(type1: ObjectType, type2: ObjectType) -> c_int;
+            pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
         }
     };
 }
@@ -684,14 +544,5 @@ mod tests {
     fn should_convert_flag_to_primitive() {
         assert_eq!(1, TopologyFlag::IncludeDisallowed as u64);
         assert_eq!(4, TopologyFlag::ThisSystemAllowedResources as u64);
-    }
-
-    #[test]
-    fn should_compare_object_types() {
-        assert!(ObjectType::Machine == ObjectType::Machine);
-        assert!(ObjectType::PU == ObjectType::PU);
-
-        assert!(ObjectType::Machine < ObjectType::PU);
-        assert!(ObjectType::PU > ObjectType::L1Cache);
     }
 }
