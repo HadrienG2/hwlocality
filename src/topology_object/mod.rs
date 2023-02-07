@@ -48,7 +48,7 @@ pub struct TopologyObject {
 impl TopologyObject {
     /// The type of the object.
     pub fn object_type(&self) -> ObjectType {
-        self.object_type.clone()
+        self.object_type
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -460,6 +460,7 @@ impl TopologyObjectCacheAttributes {
     }
 }
 
+// FIXME: Should not be a Rust enum
 #[repr(C)]
 pub enum TopologyObjectCacheType {
     Unified = 0,
@@ -512,6 +513,7 @@ pub struct TopologyObjectBridgeAttributes {
     depth: c_uint,
 }
 
+// FIXME: Should not be a Rust enum
 #[repr(C)]
 pub enum TopologyObjectBridgeType {
     Host = 0,
@@ -523,6 +525,7 @@ pub struct TopologyObjectOSDevAttributes {
     _type: TopologyObjectOSDevType,
 }
 
+// FIXME: Should not be a Rust enum
 #[repr(C)]
 pub enum TopologyObjectOSDevType {
     Block = 0,
