@@ -5,11 +5,20 @@ use std::{
     ffi::CStr,
     fmt,
     iter::FromIterator,
+    marker::{PhantomData, PhantomPinned},
     ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not},
     ptr,
 };
 
-pub enum IntHwlocBitmap {}
+/// Opaque bitmap struct
+///
+/// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
+/// pointers map to.
+#[repr(C)]
+pub struct IntHwlocBitmap {
+    _data: [u8; 0],
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
 
 /// A generic bitmap, understood by hwloc.
 ///
