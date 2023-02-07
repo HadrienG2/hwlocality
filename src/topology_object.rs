@@ -235,13 +235,13 @@ impl fmt::Display for TopologyObject {
             ffi::hwloc_obj_type_snprintf(
                 buf_type.as_mut_ptr(),
                 64,
-                &*self as *const TopologyObject,
+                self as *const TopologyObject,
                 0,
             );
             ffi::hwloc_obj_attr_snprintf(
                 buf_attr.as_mut_ptr(),
                 2048,
-                &*self as *const TopologyObject,
+                self as *const TopologyObject,
                 separator_ptr,
                 0,
             );

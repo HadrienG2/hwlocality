@@ -45,7 +45,7 @@ impl Bitmap {
     pub fn new() -> Bitmap {
         let bitmap = unsafe { ffi::hwloc_bitmap_alloc() };
         Bitmap {
-            bitmap: bitmap,
+            bitmap,
             manage: true,
         }
     }
@@ -64,7 +64,7 @@ impl Bitmap {
     pub fn full() -> Bitmap {
         let bitmap = unsafe { ffi::hwloc_bitmap_alloc_full() };
         Bitmap {
-            bitmap: bitmap,
+            bitmap,
             manage: true,
         }
     }
@@ -108,8 +108,8 @@ impl Bitmap {
     /// conversion factory when dealing with hwloc-internal structures.
     pub fn from_raw(bitmap: *mut IntHwlocBitmap, manage: bool) -> Bitmap {
         Bitmap {
-            bitmap: bitmap,
-            manage: manage,
+            bitmap,
+            manage,
         }
     }
 
@@ -241,7 +241,7 @@ impl Bitmap {
     /// ```
     pub fn is_empty(&self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_iszero(self.bitmap) };
-        !(result == 0)
+        result != 0
     }
 
     /// Check if the field with the given id is set.
@@ -259,7 +259,7 @@ impl Bitmap {
     /// ```
     pub fn is_set(&self, id: u32) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isset(self.bitmap, id) };
-        !(result == 0)
+        result != 0
     }
 
     /// Keep a single index among those set in the bitmap.
@@ -537,24 +537,24 @@ mod tests {
     #[test]
     fn should_create_by_range() {
         let bitmap = Bitmap::from_range(0, 5);
-        assert_eq!("0-5", format!("{}", bitmap));
+        assert_eq!("0-5", format!("{bitmap}"));
     }
 
     #[test]
     fn should_set_and_unset_bitmap_index() {
         let mut bitmap = Bitmap::new();
-        assert_eq!("", format!("{}", bitmap));
+        assert_eq!("", format!("{bitmap}"));
 
         assert!(bitmap.is_empty());
 
         bitmap.set(1);
         bitmap.set(3);
         bitmap.set(8);
-        assert_eq!("1,3,8", format!("{}", bitmap));
+        assert_eq!("1,3,8", format!("{bitmap}"));
         assert!(!bitmap.is_empty());
 
         bitmap.unset(3);
-        assert_eq!("1,8", format!("{}", bitmap));
+        assert_eq!("1,8", format!("{bitmap}"));
         assert!(!bitmap.is_empty());
     }
 
@@ -572,19 +572,19 @@ mod tests {
     #[test]
     fn should_set_and_unset_range() {
         let mut bitmap = Bitmap::new();
-        assert_eq!("", format!("{}", bitmap));
+        assert_eq!("", format!("{bitmap}"));
 
         bitmap.set_range(2, 5);
-        assert_eq!("2-5", format!("{}", bitmap));
+        assert_eq!("2-5", format!("{bitmap}"));
 
         bitmap.set_range(4, 7);
-        assert_eq!("2-7", format!("{}", bitmap));
+        assert_eq!("2-7", format!("{bitmap}"));
 
         bitmap.set(9);
-        assert_eq!("2-7,9", format!("{}", bitmap));
+        assert_eq!("2-7,9", format!("{bitmap}"));
 
         bitmap.unset_range(6, 10);
-        assert_eq!("2-5", format!("{}", bitmap));
+        assert_eq!("2-5", format!("{bitmap}"));
     }
 
     #[test]
@@ -625,7 +625,7 @@ mod tests {
         let mut bitmap = Bitmap::new();
         bitmap.set(3);
 
-        assert_eq!("3", format!("{}", bitmap));
+        assert_eq!("3", format!("{bitmap}"));
         assert_eq!("0-2,4-", format!("{}", !bitmap));
     }
 
@@ -684,6 +684,6 @@ mod tests {
     #[test]
     fn should_support_from_iter() {
         let bitmap = (1..10).collect::<Bitmap>();
-        assert_eq!("1-9", format!("{}", bitmap));
+        assert_eq!("1-9", format!("{bitmap}"));
     }
 }

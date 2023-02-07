@@ -11,11 +11,11 @@ pub struct TopologySupport {
 impl fmt::Debug for TopologySupport {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         unsafe {
-            write!(f,
-                   "{:?}, {:?}, {:?}",
-                   *self.discovery,
-                   *self.cpubind,
-                   *self.membind)
+            write!(
+                f,
+                "{:?}, {:?}, {:?}",
+                *self.discovery, *self.cpubind, *self.membind
+            )
         }
     }
 }

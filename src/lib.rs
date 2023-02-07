@@ -86,19 +86,20 @@ extern crate num;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
-mod ffi;
-mod topology_object;
 mod bitmap;
+mod ffi;
 mod support;
+mod topology_object;
 
-pub use ffi::{ObjectType, TypeDepthError, TopologyFlag, CpuBindFlags, MemBindPolicy};
 pub use bitmap::{Bitmap, CpuSet, NodeSet};
-pub use support::{TopologySupport, TopologyDiscoverySupport, TopologyCpuBindSupport,
-                  TopologyMemBindSupport};
+pub use ffi::{CpuBindFlags, MemBindPolicy, ObjectType, TopologyFlag, TypeDepthError};
+pub use support::{
+    TopologyCpuBindSupport, TopologyDiscoverySupport, TopologyMemBindSupport, TopologySupport,
+};
 pub use topology_object::{TopologyObject, TopologyObjectMemory};
 
-use num::{ToPrimitive, FromPrimitive};
 use errno::errno;
+use num::{FromPrimitive, ToPrimitive};
 
 pub struct Topology {
     topo: *mut ffi::HwlocTopology,
@@ -144,19 +145,19 @@ impl Topology {
 
         unsafe {
             if ffi::hwloc_topology_init(&mut topo) == -1 {
-                return None
+                return None;
             }
             if ffi::hwloc_topology_load(topo) == -1 {
                 ffi::hwloc_topology_destroy(topo);
-                return None
+                return None;
             }
         }
 
         let support = unsafe { ffi::hwloc_topology_get_support(topo) };
 
         Some(Topology {
-            topo: topo,
-            support: support,
+            topo,
+            support,
         })
     }
 
@@ -185,20 +186,20 @@ impl Topology {
 
         unsafe {
             if ffi::hwloc_topology_init(&mut topo) == -1 {
-                return None
+                return None;
             }
             ffi::hwloc_topology_set_flags(topo, final_flag);
             if ffi::hwloc_topology_load(topo) == -1 {
                 ffi::hwloc_topology_destroy(topo);
-                return None
+                return None;
             }
         }
 
         let support = unsafe { ffi::hwloc_topology_get_support(topo) };
 
         Some(Topology {
-            topo: topo,
-            support: support,
+            topo,
+            support,
         })
     }
 
@@ -411,9 +412,10 @@ impl Topology {
     }
 
     /// Returns all `TopologyObjects` with the given `ObjectType`.
-    pub fn objects_with_type(&self,
-                             object_type: &ObjectType)
-                             -> Result<Vec<&TopologyObject>, TypeDepthError> {
+    pub fn objects_with_type(
+        &self,
+        object_type: &ObjectType,
+    ) -> Result<Vec<&TopologyObject>, TypeDepthError> {
         match self.depth_for_type(object_type) {
             Ok(depth) => Ok(self.objects_at_depth(depth)),
             Err(TypeDepthError::TypeDepthOSDevice) => {
@@ -444,7 +446,7 @@ impl Topology {
         match result {
             r if r < 0 => {
                 let e = errno();
-                Err(CpuBindError::Generic(e.0 as i32, format!("{}", e)))
+                Err(CpuBindError::Generic(e.0, format!("{e}")))
             }
             _ => Ok(()),
         }
@@ -462,18 +464,19 @@ impl Topology {
     }
 
     /// Binds a process (identified by its `pid`) on CPUs identified by the given `CpuSet`.
-    pub fn set_cpubind_for_process(&mut self,
-                                   pid: pid_t,
-                                   set: CpuSet,
-                                   flags: CpuBindFlags)
-                                   -> Result<(), CpuBindError> {
+    pub fn set_cpubind_for_process(
+        &mut self,
+        pid: pid_t,
+        set: CpuSet,
+        flags: CpuBindFlags,
+    ) -> Result<(), CpuBindError> {
         let result =
             unsafe { ffi::hwloc_set_proc_cpubind(self.topo, pid, set.as_ptr(), flags.bits()) };
 
         match result {
             r if r < 0 => {
                 let e = errno();
-                Err(CpuBindError::Generic(e.0 as i32, format!("{}", e)))
+                Err(CpuBindError::Generic(e.0, format!("{e}")))
             }
             _ => Ok(()),
         }
@@ -491,18 +494,19 @@ impl Topology {
     }
 
     /// Bind a thread (by its `tid`) on CPUs given in through the `CpuSet`.
-    pub fn set_cpubind_for_thread(&mut self,
-                                  tid: pthread_t,
-                                  set: CpuSet,
-                                  flags: CpuBindFlags)
-                                  -> Result<(), CpuBindError> {
+    pub fn set_cpubind_for_thread(
+        &mut self,
+        tid: pthread_t,
+        set: CpuSet,
+        flags: CpuBindFlags,
+    ) -> Result<(), CpuBindError> {
         let result =
             unsafe { ffi::hwloc_set_thread_cpubind(self.topo, tid, set.as_ptr(), flags.bits()) };
 
         match result {
             r if r < 0 => {
                 let e = errno();
-                Err(CpuBindError::Generic(e.0 as i32, format!("{}", e)))
+                Err(CpuBindError::Generic(e.0, format!("{e}")))
             }
             _ => Ok(()),
         }
@@ -569,7 +573,6 @@ pub enum CpuBindError {
     Generic(i32, String),
 }
 
-
 #[cfg(test)]
 mod tests {
 
@@ -577,9 +580,18 @@ mod tests {
 
     #[test]
     fn should_set_and_get_flags() {
-        let topo = Topology::with_flags(vec![TopologyFlag::IncludeDisallowed, TopologyFlag::ThisSystemAllowedResources]).unwrap();
-        assert_eq!(vec![TopologyFlag::IncludeDisallowed, TopologyFlag::ThisSystemAllowedResources],
-                   topo.flags());
+        let topo = Topology::with_flags(vec![
+            TopologyFlag::IncludeDisallowed,
+            TopologyFlag::ThisSystemAllowedResources,
+        ])
+        .unwrap();
+        assert_eq!(
+            vec![
+                TopologyFlag::IncludeDisallowed,
+                TopologyFlag::ThisSystemAllowedResources
+            ],
+            topo.flags()
+        );
     }
 
     #[test]
@@ -612,13 +624,13 @@ mod tests {
         assert!(root_obj.total_memory() > 0);
         assert_eq!(0, root_obj.depth());
         assert_eq!(0, root_obj.logical_index());
-        println!("{}", root_obj);
+        println!("{root_obj}");
         assert!(root_obj.first_child().is_some());
         assert!(root_obj.last_child().is_some());
     }
 
     #[test]
-    #[cfg(target_os="linux")]
+    #[cfg(target_os = "linux")]
     fn should_support_cpu_binding_on_linux() {
         let topo = Topology::new().unwrap();
 
@@ -627,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os="freebsd")]
+    #[cfg(target_os = "freebsd")]
     fn should_support_cpu_binding_on_freebsd() {
         let topo = Topology::new().unwrap();
 
@@ -636,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os="macos")]
+    #[cfg(target_os = "macos")]
     fn should_not_support_cpu_binding_on_macos() {
         let topo = Topology::new().unwrap();
 
@@ -649,8 +661,12 @@ mod tests {
         assert_eq!("1", format!("{:b}", CpuBindFlags::CPUBIND_PROCESS.bits()));
         assert_eq!("10", format!("{:b}", CpuBindFlags::CPUBIND_THREAD.bits()));
         assert_eq!("100", format!("{:b}", CpuBindFlags::CPUBIND_STRICT.bits()));
-        assert_eq!("101",
-                   format!("{:b}", (CpuBindFlags::CPUBIND_STRICT | CpuBindFlags::CPUBIND_PROCESS).bits()));
+        assert_eq!(
+            "101",
+            format!(
+                "{:b}",
+                (CpuBindFlags::CPUBIND_STRICT | CpuBindFlags::CPUBIND_PROCESS).bits()
+            )
+        );
     }
-
 }
