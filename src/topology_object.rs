@@ -111,8 +111,12 @@ impl TopologyObject {
 
     /// All memory children of this object.
     pub fn memory_children(&self) -> impl Iterator<Item = &TopologyObject> {
-        (0..self.memory_arity())
-            .map(move |i| unsafe { &*self.memory_first_child.offset(i as isize) })
+        let len = if self.memory_first_child.is_null() {
+            0
+        } else {
+            self.memory_arity()
+        };
+        (0..len).map(move |i| unsafe { &*self.memory_first_child.offset(i as isize) })
     }
 
     /// Next object of same type and depth.
