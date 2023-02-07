@@ -291,6 +291,9 @@ macro_rules! extern_c_block {
         #[link(name = $link_name)]
         extern "C" {
 
+            // Indicate at runtime which hwloc API version was used at build time.
+            pub fn hwloc_get_api_version() -> c_uint;
+
             // === Topology Creation and Destruction ===
 
             pub fn hwloc_topology_init(topology: *mut *mut HwlocTopology) -> c_int;

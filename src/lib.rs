@@ -102,6 +102,11 @@ use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
 use std::convert::TryInto;
 
+// Indicate at runtime which hwloc API version was used at build time.
+pub fn get_api_version() -> u32 {
+    unsafe { ffi::hwloc_get_api_version() as u32 }
+}
+
 pub struct Topology {
     topo: *mut ffi::HwlocTopology,
     support: *const TopologySupport,
