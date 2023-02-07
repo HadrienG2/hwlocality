@@ -39,8 +39,8 @@ pub struct TopologyObject {
     complete_cpuset: *mut IntHwlocBitmap,
     nodeset: *mut IntHwlocBitmap,
     complete_nodeset: *mut IntHwlocBitmap,
-    infos: *mut TopologyObjectInfo, // TODO: getter
-    infos_count: c_uint,            // TODO: getter
+    infos: *mut TopologyObjectInfo,
+    infos_count: c_uint,
     userdata: *mut c_void,
     gp_index: u64,
 }
@@ -102,6 +102,17 @@ impl TopologyObject {
         (0..self.arity())
             .map(|i| unsafe { &**self.children.offset(i as isize) })
             .collect::<Vec<&TopologyObject>>()
+    }
+
+    /// The number of memory children.
+    pub fn memory_arity(&self) -> u32 {
+        self.memory_arity
+    }
+
+    /// All memory children of this object.
+    pub fn memory_children(&self) -> impl Iterator<Item = &TopologyObject> {
+        (0..self.memory_arity())
+            .map(move |i| unsafe { &*self.memory_first_child.offset(i as isize) })
     }
 
     /// Next object of same type and depth.
@@ -225,6 +236,16 @@ impl TopologyObject {
             unsafe { Some(&*cache_ptr) }
         }
     }
+
+    /// Get TopologyObject infos
+    pub fn infos(&self) -> &[TopologyObjectInfo] {
+        let len = if self.infos.is_null() {
+            0
+        } else {
+            self.infos_count as usize
+        };
+        unsafe { std::slice::from_raw_parts(self.infos, len) }
+    }
 }
 
 impl fmt::Display for TopologyObject {
@@ -294,6 +315,32 @@ pub struct TopologyObjectMemoryPageType {
 pub struct TopologyObjectInfo {
     name: *mut c_char,
     value: *mut c_char,
+}
+
+impl TopologyObjectInfo {
+    pub const NAME_OF_CPU_VENDOR: &'static str = "CPUVendor";
+    pub const NAME_OF_CPU_MODEL: &'static str = "CPUModel";
+    pub const NAME_OF_CPU_FAMILY_NUMBER: &'static str = "CPUFamilyNumber";
+    pub const NAME_OF_CPU_MODEL_NUMBER: &'static str = "CPUModelNumber";
+    pub const NAME_OF_CPU_STEPPING: &'static str = "CPUStepping";
+    pub const NAME_OF_BACKEND: &'static str = "Backend";
+    pub const NAME_OF_OS_NAME: &'static str = "OSName";
+    pub const NAME_OF_OS_RELEASE: &'static str = "OSRelease";
+    pub const NAME_OF_OS_VERSION: &'static str = "OSVersion";
+    pub const NAME_OF_OS_HOST_NAME: &'static str = "HostName";
+    pub const NAME_OF_OS_ARCHITECTURE: &'static str = "Architecture";
+    pub const NAME_OF_OS_HWLOC_VERSION: &'static str = "hwlocVersion";
+    pub const NAME_OF_OS_PROCESS_NAME: &'static str = "ProcessName";
+
+    /// The name of the ObjectInfo
+    pub fn name(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.name) }
+    }
+
+    /// The value of the ObjectInfo
+    pub fn value(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.value) }
+    }
 }
 
 #[repr(C)]
