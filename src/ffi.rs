@@ -286,605 +286,335 @@ pub enum TypeFilter {
     KeepImportant = 3,
 }
 
-#[cfg(target_os = "windows")]
-#[link(name = "libhwloc")]
-extern "C" {
+macro_rules! extern_c_block {
+    ($link_name:literal) => {
+        #[link(name = $link_name)]
+        extern "C" {
 
-    // === Topology Creation and Destruction ===
+            // === Topology Creation and Destruction ===
 
-    pub fn hwloc_topology_init(topology: *mut *mut HwlocTopology) -> c_int;
-    pub fn hwloc_topology_load(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_topology_destroy(topology: *mut HwlocTopology);
+            pub fn hwloc_topology_init(topology: *mut *mut HwlocTopology) -> c_int;
+            pub fn hwloc_topology_load(topology: *mut HwlocTopology) -> c_int;
+            pub fn hwloc_topology_destroy(topology: *mut HwlocTopology);
 
-    // === Topology Utilities
-    pub fn hwloc_topology_dup(newtop: *mut *mut HwlocTopology, oldtop: *mut HwlocTopology)
-        -> c_int;
-    pub fn hwloc_topology_abi_check(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_topology_check(topology: *mut HwlocTopology) -> c_int;
+            // === Topology Utilities
+            pub fn hwloc_topology_dup(
+                newtop: *mut *mut HwlocTopology,
+                oldtop: *mut HwlocTopology,
+            ) -> c_int;
+            pub fn hwloc_topology_abi_check(topology: *mut HwlocTopology) -> c_int;
+            pub fn hwloc_topology_check(topology: *mut HwlocTopology) -> c_int;
 
-    // === Topology Detection Configuration and Query ===
-    pub fn hwloc_topology_set_pid(topology: *mut HwlocTopology, pid: pid_t) -> c_int;
-    pub fn hwloc_topology_set_synthetic(
-        topology: *mut HwlocTopology,
-        description: *const c_char,
-    ) -> c_int;
-    pub fn hwloc_topology_set_xml(topology: *mut HwlocTopology, xmlpath: *const c_char) -> c_int;
-    pub fn hwloc_topology_set_xmlbuffer(
-        topology: *mut HwlocTopology,
-        buffer: *const c_char,
-        size: c_int,
-    ) -> c_int;
-    pub fn hwloc_topology_set_components(
-        topology: *mut HwlocTopology,
-        flags: c_ulong,
-        name: *const c_char,
-    ) -> c_int;
+            // === Topology Detection Configuration and Query ===
+            pub fn hwloc_topology_set_pid(topology: *mut HwlocTopology, pid: pid_t) -> c_int;
+            pub fn hwloc_topology_set_synthetic(
+                topology: *mut HwlocTopology,
+                description: *const c_char,
+            ) -> c_int;
+            pub fn hwloc_topology_set_xml(
+                topology: *mut HwlocTopology,
+                xmlpath: *const c_char,
+            ) -> c_int;
+            pub fn hwloc_topology_set_xmlbuffer(
+                topology: *mut HwlocTopology,
+                buffer: *const c_char,
+                size: c_int,
+            ) -> c_int;
+            pub fn hwloc_topology_set_components(
+                topology: *mut HwlocTopology,
+                flags: c_ulong,
+                name: *const c_char,
+            ) -> c_int;
 
-    pub fn hwloc_topology_set_flags(topology: *mut HwlocTopology, flags: c_ulong) -> c_int;
-    pub fn hwloc_topology_get_flags(topology: *mut HwlocTopology) -> c_ulong;
-    pub fn hwloc_topology_is_thissystem(topology: *mut HwlocTopology) -> c_int;
+            pub fn hwloc_topology_set_flags(topology: *mut HwlocTopology, flags: c_ulong) -> c_int;
+            pub fn hwloc_topology_get_flags(topology: *mut HwlocTopology) -> c_ulong;
+            pub fn hwloc_topology_is_thissystem(topology: *mut HwlocTopology) -> c_int;
 
-    pub fn hwloc_topology_get_support(topology: *mut HwlocTopology) -> *const TopologySupport;
+            pub fn hwloc_topology_get_support(
+                topology: *mut HwlocTopology,
+            ) -> *const TopologySupport;
 
-    pub fn hwloc_topology_set_type_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_get_type_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: *mut c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_all_types_filter(
-        topology: *mut HwlocTopology,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_cache_types_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_icache_types_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_io_types_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
+            pub fn hwloc_topology_set_type_filter(
+                topology: *mut HwlocTopology,
+                otype: ObjectType,
+                filter: c_uchar,
+            ) -> c_int;
+            pub fn hwloc_topology_get_type_filter(
+                topology: *mut HwlocTopology,
+                otype: ObjectType,
+                filter: *mut c_uchar,
+            ) -> c_int;
+            pub fn hwloc_topology_set_all_types_filter(
+                topology: *mut HwlocTopology,
+                filter: c_uchar,
+            ) -> c_int;
+            pub fn hwloc_topology_set_cache_types_filter(
+                topology: *mut HwlocTopology,
+                otype: ObjectType,
+                filter: c_uchar,
+            ) -> c_int;
+            pub fn hwloc_topology_set_icache_types_filter(
+                topology: *mut HwlocTopology,
+                otype: ObjectType,
+                filter: c_uchar,
+            ) -> c_int;
+            pub fn hwloc_topology_set_io_types_filter(
+                topology: *mut HwlocTopology,
+                otype: ObjectType,
+                filter: c_uchar,
+            ) -> c_int;
 
-    pub fn hwloc_topology_set_userdata(topology: *mut HwlocTopology, data: *const c_void);
-    pub fn hwloc_topology_get_userdata(topology: *mut HwlocTopology) -> *mut c_void;
+            pub fn hwloc_topology_set_userdata(topology: *mut HwlocTopology, data: *const c_void);
+            pub fn hwloc_topology_get_userdata(topology: *mut HwlocTopology) -> *mut c_void;
 
-    pub fn hwloc_topology_restrict(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        flags: c_ulong,
-    ) -> c_int;
-    pub fn hwloc_topology_allow(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        flags: c_ulong,
-    ) -> c_int;
+            pub fn hwloc_topology_restrict(
+                topology: *mut HwlocTopology,
+                set: *const IntHwlocBitmap,
+                flags: c_ulong,
+            ) -> c_int;
+            pub fn hwloc_topology_allow(
+                topology: *mut HwlocTopology,
+                set: *const IntHwlocBitmap,
+                flags: c_ulong,
+            ) -> c_int;
 
-    pub fn hwloc_topology_insert_misc_object(
-        topology: *mut HwlocTopology,
-        parent: *mut TopologyObject,
-        name: *const c_char,
-    ) -> *mut TopologyObject;
-    pub fn hwloc_topology_alloc_group_object(topology: *mut HwlocTopology) -> *mut TopologyObject;
-    pub fn hwloc_topology_insert_group_object(
-        topology: *mut HwlocTopology,
-        group: *mut TopologyObject,
-    ) -> *mut TopologyObject;
+            pub fn hwloc_topology_insert_misc_object(
+                topology: *mut HwlocTopology,
+                parent: *mut TopologyObject,
+                name: *const c_char,
+            ) -> *mut TopologyObject;
+            pub fn hwloc_topology_alloc_group_object(
+                topology: *mut HwlocTopology,
+            ) -> *mut TopologyObject;
+            pub fn hwloc_topology_insert_group_object(
+                topology: *mut HwlocTopology,
+                group: *mut TopologyObject,
+            ) -> *mut TopologyObject;
 
-    pub fn hwloc_obj_add_other_obj_sets(
-        dst: *mut TopologyObject,
-        src: *mut TopologyObject,
-    ) -> c_int;
+            pub fn hwloc_obj_add_other_obj_sets(
+                dst: *mut TopologyObject,
+                src: *mut TopologyObject,
+            ) -> c_int;
 
-    // === Object levels, depths and types ===
+            // === Object levels, depths and types ===
 
-    pub fn hwloc_topology_get_depth(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_get_type_depth(topology: *mut HwlocTopology, object_type: ObjectType) -> c_int;
-    pub fn hwloc_get_memory_parents_depth(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_get_depth_type(topology: *mut HwlocTopology, depth: c_int) -> ObjectType;
-    pub fn hwloc_get_nbobjs_by_depth(topology: *mut HwlocTopology, depth: c_uint) -> c_uint;
+            pub fn hwloc_topology_get_depth(topology: *mut HwlocTopology) -> c_int;
+            pub fn hwloc_get_type_depth(
+                topology: *mut HwlocTopology,
+                object_type: ObjectType,
+            ) -> c_int;
+            pub fn hwloc_get_memory_parents_depth(topology: *mut HwlocTopology) -> c_int;
+            pub fn hwloc_get_depth_type(topology: *mut HwlocTopology, depth: c_int) -> ObjectType;
+            pub fn hwloc_get_nbobjs_by_depth(topology: *mut HwlocTopology, depth: c_uint)
+                -> c_uint;
 
-    pub fn hwloc_get_obj_by_depth(
-        topology: *mut HwlocTopology,
-        depth: c_uint,
-        idx: c_uint,
-    ) -> *mut TopologyObject;
+            pub fn hwloc_get_obj_by_depth(
+                topology: *mut HwlocTopology,
+                depth: c_uint,
+                idx: c_uint,
+            ) -> *mut TopologyObject;
 
-    // === CPU Binding ===
-    pub fn hwloc_set_cpubind(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_cpubind(
-        topology: *mut HwlocTopology,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_proc_cpubind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *const IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_proc_cpubind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_thread_cpubind(
-        topology: *mut HwlocTopology,
-        thread: pthread_t,
-        set: *const IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_thread_cpubind(
-        topology: *mut HwlocTopology,
-        pid: pthread_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_last_cpu_location(
-        topology: *mut HwlocTopology,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_proc_last_cpu_location(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
+            // === CPU Binding ===
+            pub fn hwloc_set_cpubind(
+                topology: *mut HwlocTopology,
+                set: *const IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_cpubind(
+                topology: *mut HwlocTopology,
+                set: *mut IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_set_proc_cpubind(
+                topology: *mut HwlocTopology,
+                pid: pid_t,
+                set: *const IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_proc_cpubind(
+                topology: *mut HwlocTopology,
+                pid: pid_t,
+                set: *mut IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_set_thread_cpubind(
+                topology: *mut HwlocTopology,
+                thread: pthread_t,
+                set: *const IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_thread_cpubind(
+                topology: *mut HwlocTopology,
+                pid: pthread_t,
+                set: *mut IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_last_cpu_location(
+                topology: *mut HwlocTopology,
+                set: *mut IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_proc_last_cpu_location(
+                topology: *mut HwlocTopology,
+                pid: pid_t,
+                set: *mut IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
 
-    // === Memory Binding ===
-    pub fn hwloc_set_membind(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        policy: MemBindPolicy,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_membind(
-        topology: *mut HwlocTopology,
-        set: *mut IntHwlocBitmap,
-        policy: *mut MemBindPolicy,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_proc_membind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *const IntHwlocBitmap,
-        policy: MemBindPolicy,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_proc_membind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *mut IntHwlocBitmap,
-        policy: *mut MemBindPolicy,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_area_membind(
-        topology: *mut HwlocTopology,
-        addr: *const c_void,
-        len: size_t,
-        set: *const IntHwlocBitmap,
-        policy: MemBindPolicy,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_area_membind(
-        topology: *mut HwlocTopology,
-        addr: *const c_void,
-        len: size_t,
-        set: *mut IntHwlocBitmap,
-        policy: *mut MemBindPolicy,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_area_memlocation(
-        topology: *mut HwlocTopology,
-        addr: *const c_void,
-        len: size_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_alloc(topology: *mut HwlocTopology, len: size_t) -> *mut c_void;
-    pub fn hwloc_alloc_membind(
-        topology: *mut HwlocTopology,
-        len: size_t,
-        set: *const IntHwlocBitmap,
-        policy: MemBindPolicy,
-        flags: c_int,
-    ) -> *mut c_void;
-    pub fn hwloc_free(topology: *mut HwlocTopology, addr: *mut c_void, len: size_t) -> c_int;
+            // === Memory Binding ===
+            pub fn hwloc_set_membind(
+                topology: *mut HwlocTopology,
+                set: *const IntHwlocBitmap,
+                policy: MemBindPolicy,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_membind(
+                topology: *mut HwlocTopology,
+                set: *mut IntHwlocBitmap,
+                policy: *mut MemBindPolicy,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_set_proc_membind(
+                topology: *mut HwlocTopology,
+                pid: pid_t,
+                set: *const IntHwlocBitmap,
+                policy: MemBindPolicy,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_proc_membind(
+                topology: *mut HwlocTopology,
+                pid: pid_t,
+                set: *mut IntHwlocBitmap,
+                policy: *mut MemBindPolicy,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_set_area_membind(
+                topology: *mut HwlocTopology,
+                addr: *const c_void,
+                len: size_t,
+                set: *const IntHwlocBitmap,
+                policy: MemBindPolicy,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_area_membind(
+                topology: *mut HwlocTopology,
+                addr: *const c_void,
+                len: size_t,
+                set: *mut IntHwlocBitmap,
+                policy: *mut MemBindPolicy,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_get_area_memlocation(
+                topology: *mut HwlocTopology,
+                addr: *const c_void,
+                len: size_t,
+                set: *mut IntHwlocBitmap,
+                flags: c_int,
+            ) -> c_int;
+            pub fn hwloc_alloc(topology: *mut HwlocTopology, len: size_t) -> *mut c_void;
+            pub fn hwloc_alloc_membind(
+                topology: *mut HwlocTopology,
+                len: size_t,
+                set: *const IntHwlocBitmap,
+                policy: MemBindPolicy,
+                flags: c_int,
+            ) -> *mut c_void;
+            pub fn hwloc_free(
+                topology: *mut HwlocTopology,
+                addr: *mut c_void,
+                len: size_t,
+            ) -> c_int;
 
-    // === Bitmap Methods ===
-    pub fn hwloc_bitmap_alloc() -> *mut IntHwlocBitmap;
-    pub fn hwloc_bitmap_alloc_full() -> *mut IntHwlocBitmap;
-    pub fn hwloc_bitmap_free(bitmap: *mut IntHwlocBitmap);
-    pub fn hwloc_bitmap_list_asprintf(
-        strp: *mut *mut c_char,
-        bitmap: *const IntHwlocBitmap,
-    ) -> c_int;
-    pub fn hwloc_bitmap_set(bitmap: *mut IntHwlocBitmap, id: c_uint);
-    pub fn hwloc_bitmap_set_range(bitmap: *mut IntHwlocBitmap, begin: c_uint, end: c_int);
-    pub fn hwloc_bitmap_clr(bitmap: *mut IntHwlocBitmap, id: c_uint);
-    pub fn hwloc_bitmap_clr_range(bitmap: *mut IntHwlocBitmap, begin: c_uint, end: c_int);
-    pub fn hwloc_bitmap_weight(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_zero(bitmap: *mut IntHwlocBitmap);
-    pub fn hwloc_bitmap_iszero(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_isset(bitmap: *const IntHwlocBitmap, id: c_uint) -> c_int;
-    pub fn hwloc_bitmap_singlify(bitmap: *mut IntHwlocBitmap);
-    pub fn hwloc_bitmap_not(result: *mut IntHwlocBitmap, bitmap: *const IntHwlocBitmap);
-    pub fn hwloc_bitmap_or(
-        result: *mut IntHwlocBitmap,
-        bitmap1: *const IntHwlocBitmap,
-        bitmap2: *const IntHwlocBitmap,
-    );
-    pub fn hwloc_bitmap_and(
-        result: *mut IntHwlocBitmap,
-        bitmap1: *const IntHwlocBitmap,
-        bitmap2: *const IntHwlocBitmap,
-    );
-    pub fn hwloc_bitmap_xor(
-        result: *mut IntHwlocBitmap,
-        bitmap1: *const IntHwlocBitmap,
-        bitmap2: *const IntHwlocBitmap,
-    );
-    pub fn hwloc_bitmap_first(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_last(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_dup(src: *const IntHwlocBitmap) -> *mut IntHwlocBitmap;
-    pub fn hwloc_bitmap_compare(left: *const IntHwlocBitmap, right: *const IntHwlocBitmap)
-        -> c_int;
-    pub fn hwloc_bitmap_isequal(left: *const IntHwlocBitmap, right: *const IntHwlocBitmap)
-        -> c_int;
-    pub fn hwloc_bitmap_isfull(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_next(bitmap: *const IntHwlocBitmap, prev: c_int) -> c_int;
+            // === Bitmap Methods ===
+            pub fn hwloc_bitmap_alloc() -> *mut IntHwlocBitmap;
+            pub fn hwloc_bitmap_alloc_full() -> *mut IntHwlocBitmap;
+            pub fn hwloc_bitmap_free(bitmap: *mut IntHwlocBitmap);
+            pub fn hwloc_bitmap_list_asprintf(
+                strp: *mut *mut c_char,
+                bitmap: *const IntHwlocBitmap,
+            ) -> c_int;
+            pub fn hwloc_bitmap_set(bitmap: *mut IntHwlocBitmap, id: c_uint);
+            pub fn hwloc_bitmap_set_range(bitmap: *mut IntHwlocBitmap, begin: c_uint, end: c_int);
+            pub fn hwloc_bitmap_clr(bitmap: *mut IntHwlocBitmap, id: c_uint);
+            pub fn hwloc_bitmap_clr_range(bitmap: *mut IntHwlocBitmap, begin: c_uint, end: c_int);
+            pub fn hwloc_bitmap_weight(bitmap: *const IntHwlocBitmap) -> c_int;
+            pub fn hwloc_bitmap_zero(bitmap: *mut IntHwlocBitmap);
+            pub fn hwloc_bitmap_iszero(bitmap: *const IntHwlocBitmap) -> c_int;
+            pub fn hwloc_bitmap_isset(bitmap: *const IntHwlocBitmap, id: c_uint) -> c_int;
+            pub fn hwloc_bitmap_singlify(bitmap: *mut IntHwlocBitmap);
+            pub fn hwloc_bitmap_not(result: *mut IntHwlocBitmap, bitmap: *const IntHwlocBitmap);
+            pub fn hwloc_bitmap_or(
+                result: *mut IntHwlocBitmap,
+                bitmap1: *const IntHwlocBitmap,
+                bitmap2: *const IntHwlocBitmap,
+            );
+            pub fn hwloc_bitmap_and(
+                result: *mut IntHwlocBitmap,
+                bitmap1: *const IntHwlocBitmap,
+                bitmap2: *const IntHwlocBitmap,
+            );
+            pub fn hwloc_bitmap_xor(
+                result: *mut IntHwlocBitmap,
+                bitmap1: *const IntHwlocBitmap,
+                bitmap2: *const IntHwlocBitmap,
+            );
+            pub fn hwloc_bitmap_first(bitmap: *const IntHwlocBitmap) -> c_int;
+            pub fn hwloc_bitmap_last(bitmap: *const IntHwlocBitmap) -> c_int;
+            pub fn hwloc_bitmap_dup(src: *const IntHwlocBitmap) -> *mut IntHwlocBitmap;
+            pub fn hwloc_bitmap_compare(
+                left: *const IntHwlocBitmap,
+                right: *const IntHwlocBitmap,
+            ) -> c_int;
+            pub fn hwloc_bitmap_isequal(
+                left: *const IntHwlocBitmap,
+                right: *const IntHwlocBitmap,
+            ) -> c_int;
+            pub fn hwloc_bitmap_isfull(bitmap: *const IntHwlocBitmap) -> c_int;
+            pub fn hwloc_bitmap_next(bitmap: *const IntHwlocBitmap, prev: c_int) -> c_int;
 
-    pub fn hwloc_obj_type_string(object_type: ObjectType) -> *const c_char;
-    pub fn hwloc_obj_type_snprintf(
-        into: *mut c_char,
-        size: size_t,
-        object: *const TopologyObject,
-        verbose: c_int,
-    ) -> c_int;
-    pub fn hwloc_obj_attr_snprintf(
-        into: *mut c_char,
-        size: size_t,
-        object: *const TopologyObject,
-        separator: *const c_char,
-        verbose: c_int,
-    ) -> c_int;
-    pub fn hwloc_type_sscanf(
-        strng: *const c_char,
-        obj_type: *mut ObjectType,
-        attrs: *mut TopologyObjectAttributes,
-        attrs_size: size_t,
-    ) -> c_int;
-    pub fn hwloc_type_sscanf_as_depth(
-        strng: *const c_char,
-        obj_type: *mut ObjectType,
-        topology: *mut HwlocTopology,
-        depthp: *mut c_int,
-    ) -> c_int;
+            pub fn hwloc_obj_type_string(object_type: ObjectType) -> *const c_char;
+            pub fn hwloc_obj_type_snprintf(
+                into: *mut c_char,
+                size: size_t,
+                object: *const TopologyObject,
+                verbose: c_int,
+            ) -> c_int;
+            pub fn hwloc_obj_attr_snprintf(
+                into: *mut c_char,
+                size: size_t,
+                object: *const TopologyObject,
+                separator: *const c_char,
+                verbose: c_int,
+            ) -> c_int;
+            pub fn hwloc_type_sscanf(
+                strng: *const c_char,
+                obj_type: *mut ObjectType,
+                attrs: *mut TopologyObjectAttributes,
+                attrs_size: size_t,
+            ) -> c_int;
+            pub fn hwloc_type_sscanf_as_depth(
+                strng: *const c_char,
+                obj_type: *mut ObjectType,
+                topology: *mut HwlocTopology,
+                depthp: *mut c_int,
+            ) -> c_int;
 
-    pub fn hwloc_obj_add_info(
-        obj: *mut TopologyObject,
-        name: *const c_char,
-        value: *const c_char,
-    ) -> c_int;
+            pub fn hwloc_obj_add_info(
+                obj: *mut TopologyObject,
+                name: *const c_char,
+                value: *const c_char,
+            ) -> c_int;
 
-    pub fn hwloc_compare_types(type1: ObjectType, type2: ObjectType) -> c_int;
+            pub fn hwloc_compare_types(type1: ObjectType, type2: ObjectType) -> c_int;
+        }
+    };
 }
+
+#[cfg(target_os = "windows")]
+extern_c_block!("libhwloc");
 
 #[cfg(not(target_os = "windows"))]
-#[link(name = "hwloc")]
-extern "C" {
-
-    // === Topology Creation and Destruction ===
-
-    pub fn hwloc_topology_init(topology: *mut *mut HwlocTopology) -> c_int;
-    pub fn hwloc_topology_load(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_topology_destroy(topology: *mut HwlocTopology);
-
-    // === Topology Utilities
-    pub fn hwloc_topology_dup(newtop: *mut *mut HwlocTopology, oldtop: *mut HwlocTopology)
-        -> c_int;
-    pub fn hwloc_topology_abi_check(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_topology_check(topology: *mut HwlocTopology) -> c_int;
-
-    // === Topology Detection Configuration and Query ===
-    pub fn hwloc_topology_set_pid(topology: *mut HwlocTopology, pid: pid_t) -> c_int;
-    pub fn hwloc_topology_set_synthetic(
-        topology: *mut HwlocTopology,
-        description: *const c_char,
-    ) -> c_int;
-    pub fn hwloc_topology_set_xml(topology: *mut HwlocTopology, xmlpath: *const c_char) -> c_int;
-    pub fn hwloc_topology_set_xmlbuffer(
-        topology: *mut HwlocTopology,
-        buffer: *const c_char,
-        size: c_int,
-    ) -> c_int;
-    pub fn hwloc_topology_set_components(
-        topology: *mut HwlocTopology,
-        flags: c_ulong,
-        name: *const c_char,
-    ) -> c_int;
-
-    pub fn hwloc_topology_set_flags(topology: *mut HwlocTopology, flags: c_ulong) -> c_int;
-    pub fn hwloc_topology_get_flags(topology: *mut HwlocTopology) -> c_ulong;
-    pub fn hwloc_topology_is_thissystem(topology: *mut HwlocTopology) -> c_int;
-
-    pub fn hwloc_topology_get_support(topology: *mut HwlocTopology) -> *const TopologySupport;
-
-    pub fn hwloc_topology_set_type_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_get_type_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: *mut c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_all_types_filter(
-        topology: *mut HwlocTopology,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_cache_types_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_icache_types_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-    pub fn hwloc_topology_set_io_types_filter(
-        topology: *mut HwlocTopology,
-        otype: ObjectType,
-        filter: c_uchar,
-    ) -> c_int;
-
-    pub fn hwloc_topology_set_userdata(topology: *mut HwlocTopology, data: *const c_void);
-    pub fn hwloc_topology_get_userdata(topology: *mut HwlocTopology) -> *mut c_void;
-
-    pub fn hwloc_topology_restrict(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        flags: c_ulong,
-    ) -> c_int;
-    pub fn hwloc_topology_allow(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        flags: c_ulong,
-    ) -> c_int;
-
-    pub fn hwloc_topology_insert_misc_object(
-        topology: *mut HwlocTopology,
-        parent: *mut TopologyObject,
-        name: *const c_char,
-    ) -> *mut TopologyObject;
-    pub fn hwloc_topology_alloc_group_object(topology: *mut HwlocTopology) -> *mut TopologyObject;
-    pub fn hwloc_topology_insert_group_object(
-        topology: *mut HwlocTopology,
-        group: *mut TopologyObject,
-    ) -> *mut TopologyObject;
-
-    pub fn hwloc_obj_add_other_obj_sets(
-        dst: *mut TopologyObject,
-        src: *mut TopologyObject,
-    ) -> c_int;
-
-    // === Object levels, depths and types ===
-
-    pub fn hwloc_topology_get_depth(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_get_type_depth(topology: *mut HwlocTopology, object_type: ObjectType) -> c_int;
-    pub fn hwloc_get_memory_parents_depth(topology: *mut HwlocTopology) -> c_int;
-    pub fn hwloc_get_depth_type(topology: *mut HwlocTopology, depth: c_int) -> ObjectType;
-    pub fn hwloc_get_nbobjs_by_depth(topology: *mut HwlocTopology, depth: c_uint) -> c_uint;
-
-    pub fn hwloc_get_obj_by_depth(
-        topology: *mut HwlocTopology,
-        depth: c_uint,
-        idx: c_uint,
-    ) -> *mut TopologyObject;
-
-    // === CPU Binding ===
-    pub fn hwloc_set_cpubind(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_cpubind(
-        topology: *mut HwlocTopology,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_proc_cpubind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *const IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_proc_cpubind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_thread_cpubind(
-        topology: *mut HwlocTopology,
-        thread: pthread_t,
-        set: *const IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_thread_cpubind(
-        topology: *mut HwlocTopology,
-        pid: pthread_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_last_cpu_location(
-        topology: *mut HwlocTopology,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_proc_last_cpu_location(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-
-    // === Memory Binding ===
-    pub fn hwloc_set_membind(
-        topology: *mut HwlocTopology,
-        set: *const IntHwlocBitmap,
-        policy: c_uchar,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_membind(
-        topology: *mut HwlocTopology,
-        set: *mut IntHwlocBitmap,
-        policy: *mut c_uchar,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_proc_membind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *const IntHwlocBitmap,
-        policy: c_uchar,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_proc_membind(
-        topology: *mut HwlocTopology,
-        pid: pid_t,
-        set: *mut IntHwlocBitmap,
-        policy: *mut c_uchar,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_set_area_membind(
-        topology: *mut HwlocTopology,
-        addr: *const c_void,
-        len: size_t,
-        set: *const IntHwlocBitmap,
-        policy: c_uchar,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_area_membind(
-        topology: *mut HwlocTopology,
-        addr: *const c_void,
-        len: size_t,
-        set: *mut IntHwlocBitmap,
-        policy: *mut c_uchar,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_get_area_memlocation(
-        topology: *mut HwlocTopology,
-        addr: *const c_void,
-        len: size_t,
-        set: *mut IntHwlocBitmap,
-        flags: c_int,
-    ) -> c_int;
-    pub fn hwloc_alloc(topology: *mut HwlocTopology, len: size_t) -> *mut c_void;
-    pub fn hwloc_alloc_membind(
-        topology: *mut HwlocTopology,
-        len: size_t,
-        set: *const IntHwlocBitmap,
-        policy: MemBindPolicy,
-        flags: c_int,
-    ) -> *mut c_void;
-    pub fn hwloc_free(topology: *mut HwlocTopology, addr: *mut c_void, len: size_t) -> c_int;
-
-    // === Bitmap Methods ===
-    pub fn hwloc_bitmap_alloc() -> *mut IntHwlocBitmap;
-    pub fn hwloc_bitmap_alloc_full() -> *mut IntHwlocBitmap;
-    pub fn hwloc_bitmap_free(bitmap: *mut IntHwlocBitmap);
-    pub fn hwloc_bitmap_list_asprintf(
-        strp: *mut *mut c_char,
-        bitmap: *const IntHwlocBitmap,
-    ) -> c_int;
-    pub fn hwloc_bitmap_set(bitmap: *mut IntHwlocBitmap, id: c_uint);
-    pub fn hwloc_bitmap_set_range(bitmap: *mut IntHwlocBitmap, begin: c_uint, end: c_int);
-    pub fn hwloc_bitmap_clr(bitmap: *mut IntHwlocBitmap, id: c_uint);
-    pub fn hwloc_bitmap_clr_range(bitmap: *mut IntHwlocBitmap, begin: c_uint, end: c_int);
-    pub fn hwloc_bitmap_weight(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_zero(bitmap: *mut IntHwlocBitmap);
-    pub fn hwloc_bitmap_iszero(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_isset(bitmap: *const IntHwlocBitmap, id: c_uint) -> c_int;
-    pub fn hwloc_bitmap_singlify(bitmap: *mut IntHwlocBitmap);
-    pub fn hwloc_bitmap_not(result: *mut IntHwlocBitmap, bitmap: *const IntHwlocBitmap);
-    pub fn hwloc_bitmap_or(
-        result: *mut IntHwlocBitmap,
-        bitmap1: *const IntHwlocBitmap,
-        bitmap2: *const IntHwlocBitmap,
-    );
-    pub fn hwloc_bitmap_and(
-        result: *mut IntHwlocBitmap,
-        bitmap1: *const IntHwlocBitmap,
-        bitmap2: *const IntHwlocBitmap,
-    );
-    pub fn hwloc_bitmap_xor(
-        result: *mut IntHwlocBitmap,
-        bitmap1: *const IntHwlocBitmap,
-        bitmap2: *const IntHwlocBitmap,
-    );
-    pub fn hwloc_bitmap_first(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_last(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_dup(src: *const IntHwlocBitmap) -> *mut IntHwlocBitmap;
-    pub fn hwloc_bitmap_compare(left: *const IntHwlocBitmap, right: *const IntHwlocBitmap)
-        -> c_int;
-    pub fn hwloc_bitmap_isequal(left: *const IntHwlocBitmap, right: *const IntHwlocBitmap)
-        -> c_int;
-    pub fn hwloc_bitmap_isfull(bitmap: *const IntHwlocBitmap) -> c_int;
-    pub fn hwloc_bitmap_next(bitmap: *const IntHwlocBitmap, prev: c_int) -> c_int;
-
-    pub fn hwloc_obj_type_string(object_type: ObjectType) -> *const c_char;
-    pub fn hwloc_obj_type_snprintf(
-        into: *mut c_char,
-        size: size_t,
-        object: *const TopologyObject,
-        verbose: c_int,
-    ) -> c_int;
-    pub fn hwloc_obj_attr_snprintf(
-        into: *mut c_char,
-        size: size_t,
-        object: *const TopologyObject,
-        separator: *const c_char,
-        verbose: c_int,
-    ) -> c_int;
-    pub fn hwloc_type_sscanf(
-        strng: *const c_char,
-        obj_type: *mut ObjectType,
-        attrs: *mut TopologyObjectAttributes,
-        attrs_size: size_t,
-    ) -> c_int;
-    pub fn hwloc_type_sscanf_as_depth(
-        strng: *const c_char,
-        obj_type: *mut ObjectType,
-        topology: *mut HwlocTopology,
-        depthp: *mut c_int,
-    ) -> c_int;
-
-    pub fn hwloc_obj_add_info(
-        obj: *mut TopologyObject,
-        name: *const c_char,
-        value: *const c_char,
-    ) -> c_int;
-
-    pub fn hwloc_compare_types(type1: ObjectType, type2: ObjectType) -> c_int;
-}
+extern_c_block!("hwloc");
 
 #[cfg(test)]
 mod tests {
