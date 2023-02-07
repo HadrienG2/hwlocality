@@ -1,13 +1,13 @@
-extern crate hwloc;
-extern crate libc;
+extern crate hwloc2;
 #[cfg(target_os = "windows")]
 extern crate kernel32;
+extern crate libc;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
-use hwloc::{Topology, ObjectType, CpuBindFlags, CpuSet};
-use std::thread;
+use hwloc2::{CpuBindFlags, CpuSet, ObjectType, Topology};
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 /// Example which spawns one thread per core and then assigns it to each.
 ///

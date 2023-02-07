@@ -1,6 +1,6 @@
-extern crate hwloc;
+extern crate hwloc2;
 
-use hwloc::{Topology, ObjectType};
+use hwloc2::{ObjectType, Topology};
 
 /// Compute the amount of cache that the first logical processor
 /// has above it.
@@ -15,17 +15,23 @@ fn main() {
 
     while let Some(p) = parent {
         match p.object_type() {
-            ObjectType::L1Cache | ObjectType::L2Cache | ObjectType::L3Cache | ObjectType::L4Cache | ObjectType::L5Cache => {
+            ObjectType::L1Cache
+            | ObjectType::L2Cache
+            | ObjectType::L3Cache
+            | ObjectType::L4Cache
+            | ObjectType::L5Cache => {
                 levels += 1;
                 // This should actually be size(), but there is a (compiler) bug? with the c-ffi unions
                 size += p.cache_attributes().unwrap().size;
-            },
-            _ => {},
+            }
+            _ => {}
         }
         parent = p.parent();
     }
 
-    println!("*** Logical processor 0 has {} caches totalling {} KB",
-             levels,
-             size / 1024);
+    println!(
+        "*** Logical processor 0 has {} caches totalling {} KB",
+        levels,
+        size / 1024
+    );
 }

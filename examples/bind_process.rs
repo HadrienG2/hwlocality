@@ -1,11 +1,11 @@
-extern crate hwloc;
+extern crate hwloc2;
+#[cfg(target_os = "windows")]
+extern crate kernel32;
 extern crate libc;
 #[cfg(target_os = "windows")]
 extern crate winapi;
-#[cfg(target_os = "windows")]
-extern crate kernel32;
 
-use hwloc::{Topology, CpuBindFlags, TopologyObject, ObjectType};
+use hwloc2::{CpuBindFlags, ObjectType, Topology, TopologyObject};
 
 /// Example which binds an arbitrary process (in this example this very same one) to
 /// the last core.
@@ -23,9 +23,11 @@ fn main() {
     // Get only one logical processor (in case the core is SMT/hyper-threaded).
     cpuset.singlify();
 
-    println!("Before Bind: {:?}",
-             topo.get_cpubind_for_process(pid, CpuBindFlags::CPUBIND_PROCESS)
-                 .unwrap());
+    println!(
+        "Before Bind: {:?}",
+        topo.get_cpubind_for_process(pid, CpuBindFlags::CPUBIND_PROCESS)
+            .unwrap()
+    );
 
     // Last CPU Location for this PID (not implemented on all systems)
     if let Some(l) = topo.get_cpu_location_for_process(pid, CpuBindFlags::CPUBIND_PROCESS) {
@@ -36,9 +38,11 @@ fn main() {
     topo.set_cpubind_for_process(pid, cpuset, CpuBindFlags::CPUBIND_PROCESS)
         .unwrap();
 
-    println!("After Bind: {:?}",
-             topo.get_cpubind_for_process(pid, CpuBindFlags::CPUBIND_PROCESS)
-                 .unwrap());
+    println!(
+        "After Bind: {:?}",
+        topo.get_cpubind_for_process(pid, CpuBindFlags::CPUBIND_PROCESS)
+            .unwrap()
+    );
 
     // Last CPU Location for this PID (not implemented on all systems)
     if let Some(l) = topo.get_cpu_location_for_process(pid, CpuBindFlags::CPUBIND_PROCESS) {

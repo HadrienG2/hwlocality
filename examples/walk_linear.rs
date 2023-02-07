@@ -1,6 +1,6 @@
-extern crate hwloc;
+extern crate hwloc2;
 
-use hwloc::Topology;
+use hwloc2::Topology;
 
 /// Walk the topology with an array style, from level 0 (always
 /// the system level) to the lowest level (always the proc level).
