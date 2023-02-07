@@ -66,7 +66,7 @@ impl TopologyObject {
 
     /// The name of the object, if set.
     pub fn name(&self) -> String {
-        let c_str = unsafe { CString::from_raw(self.name) };
+        let c_str = unsafe { CStr::from_ptr(self.name) };
         c_str.to_str().unwrap().to_string()
     }
 
