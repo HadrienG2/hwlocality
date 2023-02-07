@@ -170,6 +170,11 @@ impl Bitmap {
     /// assert_eq!("2-", format!("{}", bitmap));
     // ```
     pub fn set_range(&mut self, range: impl RangeBounds<u32>) {
+        if (range.start_bound(), range.end_bound()) == (Bound::Unbounded, Bound::Unbounded) {
+            self.fill();
+            return;
+        }
+
         let (begin, end) = Self::hwloc_range(range);
         assert!(unsafe { ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end) } >= 0)
     }
@@ -206,6 +211,11 @@ impl Bitmap {
     /// assert_eq!("1", format!("{}", bitmap));
     // ```
     pub fn unset_range(&mut self, range: impl RangeBounds<u32>) {
+        if (range.start_bound(), range.end_bound()) == (Bound::Unbounded, Bound::Unbounded) {
+            self.clear();
+            return;
+        }
+
         let (begin, end) = Self::hwloc_range(range);
         assert!(unsafe { ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end) } >= 0)
     }
@@ -228,6 +238,23 @@ impl Bitmap {
         let result = unsafe { ffi::hwloc_bitmap_weight(self.as_ptr()) };
         assert!(result >= -1);
         u32::try_from(result).ok()
+    }
+
+    /// Fill the `Bitmap`.
+    ///
+    /// Examples:
+    ///
+    /// ```
+    /// use hwloc2::Bitmap;
+    ///
+    /// let mut bitmap = Bitmap::from_range(1..=5);
+    /// assert_eq!(Some(5), bitmap.weight());
+    ///
+    /// bitmap.fill();
+    /// assert_eq!(None, bitmap.weight());
+    /// ```
+    pub fn fill(&mut self) {
+        unsafe { ffi::hwloc_bitmap_fill(self.as_mut_ptr()) }
     }
 
     /// Clears the `Bitmap`.
@@ -396,6 +423,18 @@ impl Bitmap {
         };
         (start, end)
     }
+
+    // Iterator building block
+    fn next(&self, index: Option<u32>) -> Option<u32> {
+        let result = unsafe {
+            ffi::hwloc_bitmap_next(
+                self.as_ptr(),
+                index.map(|v| i32::try_from(v).unwrap()).unwrap_or(-1),
+            )
+        };
+        assert!(result >= -1);
+        u32::try_from(result).ok()
+    }
 }
 
 impl Not for Bitmap {
@@ -507,6 +546,21 @@ impl PartialEq for Bitmap {
 
 impl Eq for Bitmap {}
 
+/// Owned iterator over set bitmap indices
+pub struct BitmapIntoIterator {
+    bitmap: Bitmap,
+    index: Option<u32>,
+}
+//
+impl Iterator for BitmapIntoIterator {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        self.index = self.bitmap.next(self.index);
+        self.index
+    }
+}
+//
 impl IntoIterator for Bitmap {
     type Item = u32;
     type IntoIter = BitmapIntoIterator;
@@ -514,26 +568,34 @@ impl IntoIterator for Bitmap {
     fn into_iter(self) -> Self::IntoIter {
         BitmapIntoIterator {
             bitmap: self,
-            index: -1,
+            index: None,
         }
     }
 }
 
-pub struct BitmapIntoIterator {
-    bitmap: Bitmap,
-    index: i32,
+/// Borrowed iterator over set bitmap indices
+pub struct BitmapIterator<'bitmap> {
+    bitmap: &'bitmap Bitmap,
+    index: Option<u32>,
 }
-
-impl Iterator for BitmapIntoIterator {
+//
+impl Iterator for BitmapIterator<'_> {
     type Item = u32;
 
     fn next(&mut self) -> Option<u32> {
-        let result = unsafe { ffi::hwloc_bitmap_next(self.bitmap.as_ptr(), self.index) };
-        self.index = result;
-        if result < 0 {
-            None
-        } else {
-            Some(result as u32)
+        self.index = self.bitmap.next(self.index);
+        self.index
+    }
+}
+//
+impl<'bitmap> IntoIterator for &'bitmap Bitmap {
+    type Item = u32;
+    type IntoIter = BitmapIterator<'bitmap>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitmapIterator {
+            bitmap: self,
+            index: None,
         }
     }
 }

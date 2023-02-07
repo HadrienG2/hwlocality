@@ -551,13 +551,15 @@ macro_rules! extern_c_block {
                 dst: *mut IntHwlocBitmap,
                 src: *const IntHwlocBitmap,
             ) -> c_int;
-            //
+
             #[must_use]
             pub(crate) fn hwloc_bitmap_list_asprintf(
                 strp: *mut *mut c_char,
                 bitmap: *const IntHwlocBitmap,
             ) -> c_int;
-            //
+
+            pub(crate) fn hwloc_bitmap_zero(bitmap: *mut IntHwlocBitmap);
+            pub(crate) fn hwloc_bitmap_fill(bitmap: *mut IntHwlocBitmap);
             #[must_use]
             pub(crate) fn hwloc_bitmap_set(bitmap: *mut IntHwlocBitmap, id: c_uint) -> c_int;
             #[must_use]
@@ -574,18 +576,25 @@ macro_rules! extern_c_block {
                 begin: c_uint,
                 end: c_int,
             ) -> c_int;
-            //
+            pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut IntHwlocBitmap);
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_isset(bitmap: *const IntHwlocBitmap, id: c_uint) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_iszero(bitmap: *const IntHwlocBitmap) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_isfull(bitmap: *const IntHwlocBitmap) -> c_int;
+
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_first(bitmap: *const IntHwlocBitmap) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_next(bitmap: *const IntHwlocBitmap, prev: c_int) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_last(bitmap: *const IntHwlocBitmap) -> c_int;
+
             #[must_use]
             pub(crate) fn hwloc_bitmap_weight(bitmap: *const IntHwlocBitmap) -> c_int;
-            pub(crate) fn hwloc_bitmap_zero(bitmap: *mut IntHwlocBitmap);
-            pub(crate) fn hwloc_bitmap_iszero(bitmap: *const IntHwlocBitmap) -> c_int;
-            pub(crate) fn hwloc_bitmap_isset(bitmap: *const IntHwlocBitmap, id: c_uint) -> c_int;
-            pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut IntHwlocBitmap);
-            #[must_use]
-            pub(crate) fn hwloc_bitmap_not(
-                result: *mut IntHwlocBitmap,
-                bitmap: *const IntHwlocBitmap,
-            ) -> c_int;
+
             #[must_use]
             pub(crate) fn hwloc_bitmap_or(
                 result: *mut IntHwlocBitmap,
@@ -604,18 +613,22 @@ macro_rules! extern_c_block {
                 bitmap1: *const IntHwlocBitmap,
                 bitmap2: *const IntHwlocBitmap,
             ) -> c_int;
-            pub(crate) fn hwloc_bitmap_first(bitmap: *const IntHwlocBitmap) -> c_int;
-            pub(crate) fn hwloc_bitmap_last(bitmap: *const IntHwlocBitmap) -> c_int;
-            pub(crate) fn hwloc_bitmap_compare(
-                left: *const IntHwlocBitmap,
-                right: *const IntHwlocBitmap,
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_not(
+                result: *mut IntHwlocBitmap,
+                bitmap: *const IntHwlocBitmap,
             ) -> c_int;
+
             pub(crate) fn hwloc_bitmap_isequal(
                 left: *const IntHwlocBitmap,
                 right: *const IntHwlocBitmap,
             ) -> c_int;
-            pub(crate) fn hwloc_bitmap_isfull(bitmap: *const IntHwlocBitmap) -> c_int;
-            pub(crate) fn hwloc_bitmap_next(bitmap: *const IntHwlocBitmap, prev: c_int) -> c_int;
+            pub(crate) fn hwloc_bitmap_compare(
+                left: *const IntHwlocBitmap,
+                right: *const IntHwlocBitmap,
+            ) -> c_int;
+
+            // === TopologyObject text I/O ===
 
             pub(crate) fn hwloc_obj_type_string(object_type: ObjectType) -> *const c_char;
             pub(crate) fn hwloc_obj_type_snprintf(
@@ -644,11 +657,15 @@ macro_rules! extern_c_block {
                 depthp: *mut c_int,
             ) -> c_int;
 
+            // === Adding custom metadata to TopologyObject ===
+
             pub(crate) fn hwloc_obj_add_info(
                 obj: *mut TopologyObject,
                 name: *const c_char,
                 value: *const c_char,
             ) -> c_int;
+
+            // === Ordering between ObjectTypes ===
 
             pub(crate) fn hwloc_compare_types(type1: ObjectType, type2: ObjectType) -> c_int;
         }
