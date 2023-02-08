@@ -29,6 +29,93 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
 
+            // === Topology creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
+
+            // TODO
+
+            // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
+
+            // TODO
+
+            // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__strings.html ===
+
+            // TODO
+
+            // === Consulting and adding key-value attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html ===
+
+            // TODO
+
+            // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
+
+            // TODO
+
+            // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html ===
+
+            // TODO
+
+            // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html ===
+
+            // TODO
+
+            // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
+
+            // TODO
+
+            // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
+
+            // TODO
+
+            // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html ===
+
+            // TODO
+
+            // === Finding objects covering at least CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html ===
+
+            // TODO
+
+            // === Looking at ancestor and child objects ===
+
+            // TODO
+
+            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html ===
+
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_normal(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_io(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_memory(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_cache(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_dcache(ty: RawObjectType) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_is_icache(ty: RawObjectType) -> c_int;
+
+            // === Looking at cache objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html ===
+
+            // TODO
+
+            // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html ===
+
+            // TODO
+
+            // === Distributing items over a topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html ===
+
+            // TODO
+
+            // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html ===
+
+            // TODO
+
+            // === Converting between CPU sets and node sets: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__nodeset__convert.html ===
+
+            // TODO
+
+            // Finding I/O objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html ===
+
+            // TODO
+
             // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html ===
 
             #[must_use]
@@ -117,22 +204,8 @@ macro_rules! extern_c_block {
                 right: *const RawBitmap,
             ) -> c_int;
 
-            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html ===
-
-            #[must_use]
-            pub(crate) fn hwloc_obj_type_is_normal(ty: RawObjectType) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_obj_type_is_io(ty: RawObjectType) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_obj_type_is_memory(ty: RawObjectType) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_obj_type_is_cache(ty: RawObjectType) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_obj_type_is_dcache(ty: RawObjectType) -> c_int;
-            #[must_use]
-            pub(crate) fn hwloc_obj_type_is_icache(ty: RawObjectType) -> c_int;
-
-            // === FIXME: The following FFIs have not yet been checked for correctness ===
+            // ### FIXME: The following FFIs have not yet been refactored
+            // ###        Clean them up and insert them above
 
             // === Topology Creation and Destruction ===
 
