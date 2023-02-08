@@ -1,6 +1,6 @@
 use crate::{
     bitmap::RawBitmap,
-    object::{types::RawObjectType, TopologyObject, TopologyObjectAttributes},
+    object::{attributes::RawObjectAttributes, types::RawObjectType, TopologyObject},
     support::TopologySupport,
 };
 use bitflags::bitflags;
@@ -163,6 +163,8 @@ macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]
         extern "C" {
+            // === API versioning: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__api__version.html ===
+
             // Indicate at runtime which hwloc API version was used at build time.
             pub(crate) fn hwloc_get_api_version() -> c_uint;
 
@@ -541,7 +543,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_type_sscanf(
                 strng: *const c_char,
                 obj_type: *mut RawObjectType,
-                attrs: *mut TopologyObjectAttributes,
+                attrs: *mut RawObjectAttributes,
                 attrs_size: size_t,
             ) -> c_int;
             pub(crate) fn hwloc_type_sscanf_as_depth(

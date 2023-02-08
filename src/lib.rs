@@ -77,6 +77,12 @@ mod ffi;
 mod object;
 mod support;
 
+use self::{
+    bitmap::CpuSet,
+    ffi::{CpuBindFlags, TopologyFlag, TypeDepthError},
+    object::{types::ObjectType, TopologyObject},
+    support::TopologySupport,
+};
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
 use std::convert::TryInto;

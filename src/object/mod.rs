@@ -94,7 +94,7 @@ impl TopologyObject {
 
     /// Object type-specific attributes
     pub fn attributes(&self) -> Option<ObjectAttributes> {
-        ObjectAttributes::new(self.object_type(), &self.attr)
+        unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
     }
 
     /// Vertical index in the hierarchy.
