@@ -346,7 +346,11 @@ impl TopologyObject {
         };
 
         let buf_attr = unsafe {
-            let separator_ptr = b"  \0".as_ptr() as *const c_char;
+            let separator_ptr = if f.alternate() {
+                b"\n  \0".as_ptr()
+            } else {
+                b"  \0".as_ptr()
+            } as *const c_char;
             let attr_len_i32 = ffi::hwloc_obj_attr_snprintf(
                 std::ptr::null_mut(),
                 0,
@@ -369,12 +373,13 @@ impl TopologyObject {
         };
 
         unsafe {
-            write!(
-                f,
-                "{} ({})",
-                CStr::from_ptr(buf_type.as_ptr()).to_str().unwrap(),
-                CStr::from_ptr(buf_attr.as_ptr()).to_str().unwrap()
-            )
+            let type_str = CStr::from_ptr(buf_type.as_ptr()).to_str().unwrap();
+            let attr_str = CStr::from_ptr(buf_attr.as_ptr()).to_str().unwrap();
+            if f.alternate() {
+                write!(f, "{type_str} (\n  {attr_str}\n)")
+            } else {
+                write!(f, "{type_str} ({attr_str})")
+            }
         }
     }
 }
