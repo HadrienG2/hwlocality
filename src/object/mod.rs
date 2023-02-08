@@ -1,3 +1,8 @@
+//! Topology objects
+//!
+//! - Top-level doc: https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
+//! - Attributes: https://hwloc.readthedocs.io/en/v2.9/attributes.html
+
 pub mod types;
 
 use self::types::{
@@ -55,13 +60,39 @@ impl TopologyObject {
     }
 
     /// Subtype string to better describe the type field
+    ///
+    /// At the time of writing, hwloc may emit the following subtype strings:
+    ///
+    /// - `ObjectType::NUMANode`:
+    ///     * "DRAM" for main memory
+    ///     * "HBM" for high bandwidth memory
+    ///     * "SPM" for specific-purpose memory (usually reserved for custom applications)
+    ///     * "NVM" for non-volatile memory (when used as main mamory)
+    ///     * "MCDRAM" on Intel KNL
+    ///     * "GPUMemory" on POWER architecture with NVidia GPU memory shared
+    ///       over NVLink
+    /// - `ObjectType::Group`: "Cluster", "Module", "Tile", "Compute Unit",
+    ///    "Book" or "Drawer" for different architecture-specific groups of CPUs
+    /// - `ObjectType::OSDevice`:
+    ///     * `OSDeviceType::CoProcessor`: "OpenCL", "LevelZero", "CUDA", "VectorEngine".
+    ///     * `OSDeviceType::GPU`:
+    ///         - "RSMI" for AMD GPUs
+    ///         - "NVML" for NVidia GPUs
+    ///     * `OSDeviceType::OpenFabrics`: "BXI" for Bull/Atos BXI HCA.
+    ///     * `OSDeviceType::Storage`:
+    ///         - "Disk"
+    ///         - "NVM" for non-volatile memory
+    ///         - "SPM" for specific-purpose memory
+    ///         - "CXLMem" for CXL volatile ou persistent memory
+    ///         - "Tape"
+    ///         - "Removable Media Device"
+    /// - `ObjectType::L3Cache`: "MemorySideCache" when hwloc is configured to
+    ///   expose the KNL MCDRAM in Cache mode as a L3
+    /// - `ObjectType::PCIDevice`: "NVSwitch" for NVLink switches.
+    /// - `ObjectType::Misc`: "MemoryModule" for DIMMs.
+    ///
     pub fn subtype(&self) -> Option<&str> {
         self.deref_string(self.subtype)
-    }
-
-    /// Total memory (in bytes) in NUMA nodes below this object
-    pub fn total_memory(&self) -> u64 {
-        self.total_memory
     }
 
     /// The OS-provided physical index number.
@@ -73,9 +104,14 @@ impl TopologyObject {
         (self.os_index != HWLOC_UNKNOWN_INDEX).then_some(self.os_index)
     }
 
-    /// The name of the object, if set.
+    /// The name of the object
     pub fn name(&self) -> Option<&str> {
         self.deref_string(self.name)
+    }
+
+    /// Total memory (in bytes) in NUMA nodes below this object
+    pub fn total_memory(&self) -> u64 {
+        self.total_memory
     }
 
     /// Vertical index in the hierarchy.
@@ -228,8 +264,18 @@ impl TopologyObject {
         unsafe { NodeSet::borrow_from_raw_mut(&self.complete_nodeset) }
     }
 
+    /// Complete list of (key, value) info pairs
+    pub fn infos(&self) -> &[TopologyObjectInfo] {
+        let len = if self.infos.is_null() {
+            0
+        } else {
+            self.infos_count as usize
+        };
+        unsafe { std::slice::from_raw_parts(self.infos, len) }
+    }
+
     /// Dereference a C-style string with correct lifetime
-    pub fn deref_string(&self, p: *mut c_char) -> Option<&str> {
+    fn deref_string(&self, p: *mut c_char) -> Option<&str> {
         if p.is_null() {
             return None;
         }
@@ -256,16 +302,6 @@ impl TopologyObject {
         } else {
             unsafe { Some(&*cache_ptr) }
         }
-    }
-
-    /// Get TopologyObject infos
-    pub fn infos(&self) -> &[TopologyObjectInfo] {
-        let len = if self.infos.is_null() {
-            0
-        } else {
-            self.infos_count as usize
-        };
-        unsafe { std::slice::from_raw_parts(self.infos, len) }
     }
 }
 
@@ -332,6 +368,12 @@ pub struct TopologyObjectMemoryPageType {
     count: c_ulonglong,
 }
 
+/// Key-value info attributes
+///
+/// hwloc defines a number of standard info attribute names with associated
+/// semantics, please check
+/// https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info for
+/// an up-to-date list.
 #[repr(C)]
 pub struct TopologyObjectInfo {
     name: *mut c_char,
@@ -339,21 +381,6 @@ pub struct TopologyObjectInfo {
 }
 
 impl TopologyObjectInfo {
-    // FIXME: Add docs
-    pub const CPU_VENDOR: &'static str = "CPUVendor";
-    pub const CPU_MODEL: &'static str = "CPUModel";
-    pub const CPU_FAMILY_NUMBER: &'static str = "CPUFamilyNumber";
-    pub const CPU_MODEL_NUMBER: &'static str = "CPUModelNumber";
-    pub const CPU_STEPPING: &'static str = "CPUStepping";
-    pub const BACKEND: &'static str = "Backend";
-    pub const OS_NAME: &'static str = "OSName";
-    pub const OS_RELEASE: &'static str = "OSRelease";
-    pub const OS_VERSION: &'static str = "OSVersion";
-    pub const OS_HOST_NAME: &'static str = "HostName";
-    pub const OS_ARCHITECTURE: &'static str = "Architecture";
-    pub const OS_HWLOC_VERSION: &'static str = "hwlocVersion";
-    pub const OS_PROCESS_NAME: &'static str = "ProcessName";
-
     /// The name of the ObjectInfo
     pub fn name(&self) -> Option<&str> {
         self.deref_string(self.name)
