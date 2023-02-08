@@ -7,6 +7,31 @@ use crate::ffi;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::cmp::{Ordering, PartialOrd};
 
+/// Rust mapping of the hwloc_obj_bridge_type_t enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawBridgeType = u32;
+
+/// Type of one side (upstream or downstream) of an I/O bridge.
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, IntoPrimitive, TryFromPrimitive)]
+pub enum BridgeType {
+    /// Host-side of a bridge, only possible upstream
+    Host,
+
+    /// PCI-side of a bridge
+    PCI,
+}
+//
+impl BridgeType {
+    /// Convert to the internal representation used by hwloc
+    pub(crate) fn to_raw(&self) -> RawBridgeType {
+        RawBridgeType::from(*self)
+    }
+}
+
 /// Rust mapping of the hwloc_obj_type_t enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in

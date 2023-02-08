@@ -1,6 +1,6 @@
 pub mod types;
 
-use self::types::{ObjectType, RawObjectType};
+use self::types::{BridgeType, ObjectType, RawBridgeType, RawObjectType};
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi,
@@ -507,17 +507,22 @@ pub struct TopologyObjectBridgeDownstreamPCIAttributes {
 #[repr(C)]
 pub struct TopologyObjectBridgeAttributes {
     upstream: TopologyObjectPCIDevAttributes,
-    upstream_type: TopologyObjectBridgeType,
+    upstream_type: RawBridgeType,
     downstream: TopologyObjectBridgeDownstreamPCIAttributes,
-    downstream_type: TopologyObjectBridgeType,
+    downstream_type: RawBridgeType,
     depth: c_uint,
 }
+//
+impl TopologyObjectBridgeAttributes {
+    /// Upstream bridge type
+    pub fn upstream_type(&self) -> BridgeType {
+        self.upstream_type.try_into().unwrap()
+    }
 
-// FIXME: Should not be a Rust enum
-#[repr(C)]
-pub enum TopologyObjectBridgeType {
-    Host,
-    PCI,
+    /// Downstreap bridge type
+    pub fn downstream_type(&self) -> BridgeType {
+        self.downstream_type.try_into().unwrap()
+    }
 }
 
 #[repr(C)]
