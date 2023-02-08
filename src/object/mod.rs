@@ -326,29 +326,50 @@ impl TopologyObject {
 
 impl fmt::Display for TopologyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut buf_type = [0; 64];
-        let mut buf_attr = [0; 2048];
-        let separator_ptr = b"  \0".as_ptr() as *const c_char;
-
-        unsafe {
+        let buf_type = unsafe {
+            let type_len_i32 = ffi::hwloc_obj_type_snprintf(
+                std::ptr::null_mut(),
+                0,
+                self as *const TopologyObject,
+                0,
+            );
+            let type_len = usize::try_from(type_len_i32).unwrap();
+            let mut buf_type = vec![0 as c_char; type_len + 1];
             assert!(
                 ffi::hwloc_obj_type_snprintf(
                     buf_type.as_mut_ptr(),
-                    64,
+                    buf_type.len(),
                     self as *const TopologyObject,
                     0,
-                ) >= 0
+                ) == type_len_i32
             );
+            buf_type
+        };
+
+        let buf_attr = unsafe {
+            let separator_ptr = b"  \0".as_ptr() as *const c_char;
+            let attr_len_i32 = ffi::hwloc_obj_attr_snprintf(
+                std::ptr::null_mut(),
+                0,
+                self as *const TopologyObject,
+                separator_ptr,
+                0,
+            );
+            let attr_len = usize::try_from(attr_len_i32).unwrap();
+            let mut buf_attr = vec![0 as c_char; attr_len + 1];
             assert!(
                 ffi::hwloc_obj_attr_snprintf(
                     buf_attr.as_mut_ptr(),
-                    2048,
+                    buf_attr.len(),
                     self as *const TopologyObject,
                     separator_ptr,
                     0,
-                ) >= 0
+                ) == attr_len_i32
             );
+            buf_attr
+        };
 
+        unsafe {
             write!(
                 f,
                 "{} ({})",

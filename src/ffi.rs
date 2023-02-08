@@ -63,10 +63,6 @@ macro_rules! extern_c_block {
                 verbose: c_int,
             ) -> c_int;
 
-            // === Consulting and adding key-value attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html ===
-
-            // TODO
-
             // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
 
             // TODO
