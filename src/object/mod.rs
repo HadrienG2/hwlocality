@@ -311,8 +311,6 @@ impl TopologyObject {
         unsafe { std::slice::from_raw_parts(self.infos, len) }
     }
 
-    ///
-
     /// Iterate over a C-style linked list of child TopologyObjects
     unsafe fn iter_linked_children(
         start: &*mut TopologyObject,
