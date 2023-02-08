@@ -1,6 +1,9 @@
 pub mod types;
 
-use self::types::{BridgeType, CacheType, ObjectType, RawBridgeType, RawCacheType, RawObjectType};
+use self::types::{
+    BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType, RawOSDeviceType,
+    RawObjectType,
+};
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi,
@@ -526,16 +529,12 @@ impl TopologyObjectBridgeAttributes {
 
 #[repr(C)]
 pub struct TopologyObjectOSDevAttributes {
-    _type: TopologyObjectOSDevType,
+    ty: RawOSDeviceType,
 }
-
-// FIXME: Should not be a Rust enum
-#[repr(C)]
-pub enum TopologyObjectOSDevType {
-    Block = 0,
-    GPU = 1,
-    Network = 2,
-    OpenFabrics = 3,
-    DMA = 4,
-    COPROC = 5,
+//
+impl TopologyObjectOSDevAttributes {
+    /// OS device type
+    pub fn device_type(&self) -> OSDeviceType {
+        self.ty.try_into().unwrap()
+    }
 }

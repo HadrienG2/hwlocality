@@ -289,6 +289,55 @@ impl CacheType {
     }
 }
 
+/// Rust mapping of the hwloc_obj_osdev_type_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawOSDeviceType = u32;
+
+/// Type of a OS device
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, IntoPrimitive, TryFromPrimitive)]
+pub enum OSDeviceType {
+    /// Operating system storage device (e.g. block)
+    ///
+    /// For instance "sda" or "dax2.0" on Linux.
+    Storage,
+
+    /// Operating system GPU device
+    ///
+    /// For instance ":0.0" for a GL display, "card0" for a Linux DRM device.
+    GPU,
+
+    /// Operating system network device
+    ///
+    /// For instance the "eth0" interface on Linux.
+    Network,
+
+    /// Operating system openfabrics device
+    ///
+    /// For instance the "mlx4_0" InfiniBand HCA, "hfi1_0" Omni-Path interface,
+    /// or "bxi0" Atos/Bull BXI HCA on Linux.
+    OpenFabrics,
+
+    /// Operating system dma engine device
+    ///
+    /// For instance the "dma0chan0" DMA channel on Linux.
+    DMA,
+
+    /// Operating system co-processor device
+    ///
+    /// For instance "opencl0d0" for a OpenCL device, "cuda0" for a CUDA device.
+    CoProcessor,
+
+    /// Operating system memory device
+    ///
+    /// For instance DAX file for non-volatile or high-bandwidth memory, like
+    /// "dax2.0" on Linux.
+    Memory,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
