@@ -7,7 +7,7 @@ pub mod attributes;
 pub mod types;
 
 use self::{
-    attributes::{ObjectAttributes, RawObjectAttributes},
+    attributes::{ObjectAttributes, ObjectInfo, RawObjectAttributes},
     types::{ObjectType, RawObjectType},
 };
 use crate::{
@@ -360,29 +360,5 @@ impl fmt::Display for TopologyObject {
 impl fmt::Debug for TopologyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
-    }
-}
-
-/// Key-value string attributes
-///
-/// hwloc defines a number of standard info attribute names with associated
-/// semantics, please check out
-/// https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info for
-/// more information.
-#[repr(C)]
-pub struct ObjectInfo {
-    name: *mut c_char,
-    value: *mut c_char,
-}
-
-impl ObjectInfo {
-    /// The name of the ObjectInfo
-    pub fn name(&self) -> Option<&str> {
-        unsafe { ffi::deref_string(&self.name) }
-    }
-
-    /// The value of the ObjectInfo
-    pub fn value(&self) -> Option<&str> {
-        unsafe { ffi::deref_string(&self.value) }
     }
 }
