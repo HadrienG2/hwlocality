@@ -1,7 +1,7 @@
 //! Topology object attributes
-//!
-//! - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
-//! - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
+
+// - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
+// - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
 use crate::{
     ffi,
@@ -317,6 +317,7 @@ impl BridgeAttributes {
         DownstreamAttributes::new(self.downstream_type(), &self.downstream)
     }
 
+    /// Bridge object depth
     pub fn depth(&self) -> u32 {
         self.depth
     }

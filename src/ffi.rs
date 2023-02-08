@@ -1,5 +1,6 @@
 use crate::{
     bitmap::RawBitmap,
+    depth::RawDepth,
     object::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
     MemBindPolicy, RawTopology,
@@ -43,7 +44,29 @@ macro_rules! extern_c_block {
 
             // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_depth(topology: *mut RawTopology) -> RawDepth;
+            #[must_use]
+            pub(crate) fn hwloc_get_type_depth(
+                topology: *mut RawTopology,
+                object_type: RawObjectType,
+            ) -> RawDepth;
+            #[must_use]
+            pub(crate) fn hwloc_get_depth_type(
+                topology: *mut RawTopology,
+                depth: RawDepth,
+            ) -> RawObjectType;
+            #[must_use]
+            pub(crate) fn hwloc_get_nbobjs_by_depth(
+                topology: *mut RawTopology,
+                depth: RawDepth,
+            ) -> c_uint;
+            #[must_use]
+            pub(crate) fn hwloc_get_obj_by_depth(
+                topology: *mut RawTopology,
+                depth: RawDepth,
+                idx: c_uint,
+            ) -> *mut TopologyObject;
 
             // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__strings.html ===
 
@@ -337,29 +360,6 @@ macro_rules! extern_c_block {
                 dst: *mut TopologyObject,
                 src: *mut TopologyObject,
             ) -> c_int;
-
-            // === Object levels, depths and types ===
-
-            pub(crate) fn hwloc_topology_get_depth(topology: *mut RawTopology) -> c_int;
-            pub(crate) fn hwloc_get_type_depth(
-                topology: *mut RawTopology,
-                object_type: RawObjectType,
-            ) -> c_int;
-            pub(crate) fn hwloc_get_memory_parents_depth(topology: *mut RawTopology) -> c_int;
-            pub(crate) fn hwloc_get_depth_type(
-                topology: *mut RawTopology,
-                depth: c_int,
-            ) -> RawObjectType;
-            pub(crate) fn hwloc_get_nbobjs_by_depth(
-                topology: *mut RawTopology,
-                depth: c_uint,
-            ) -> c_uint;
-
-            pub(crate) fn hwloc_get_obj_by_depth(
-                topology: *mut RawTopology,
-                depth: c_uint,
-                idx: c_uint,
-            ) -> *mut TopologyObject;
 
             // === CPU Binding ===
             pub(crate) fn hwloc_set_cpubind(

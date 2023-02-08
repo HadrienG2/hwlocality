@@ -5,7 +5,7 @@ fn main() {
     let topo = Topology::new().unwrap();
 
     println!("*** Printing overall tree");
-    print_children(&topo, topo.object_at_root(), 0);
+    print_children(&topo, topo.root_object(), 0);
 }
 
 fn print_children(topo: &Topology, obj: &TopologyObject, depth: usize) {

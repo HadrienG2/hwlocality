@@ -1,18 +1,21 @@
 //! Object types
-//!
-//! - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
-//! - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
+
+// - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
+// - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
 use crate::ffi;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::cmp::{Ordering, PartialOrd};
+use std::{
+    cmp::{Ordering, PartialOrd},
+    ffi::{c_int, c_uint},
+};
 
 /// Rust mapping of the hwloc_obj_type_e enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 ///
-pub(crate) type RawObjectType = u32;
+pub(crate) type RawObjectType = c_uint;
 
 /// Represents the type of a topology object.
 ///
@@ -123,7 +126,7 @@ pub enum ObjectType {
     ///
     /// A cache in front of a specific NUMA node. This object always has at
     /// least one NUMA node as a memory child.
-    Memcache,
+    MemCache,
 
     /// Die within a physical package.
     ///
@@ -139,21 +142,21 @@ impl ObjectType {
         result == 1
     }
 
-    /// Truth that this is a CPU-side cache type (not Memcache)
+    /// Truth that this is a CPU-side cache type (not MemCache)
     pub fn is_cpu_cache(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_cache(self.to_raw()) };
         assert!(result == 0 || result == 1);
         result == 1
     }
 
-    /// Truth that this is a CPU-side data or unified cache type (not Memcache)
+    /// Truth that this is a CPU-side data or unified cache type (not MemCache)
     pub fn is_cpu_data_cache(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_dcache(self.to_raw()) };
         assert!(result == 0 || result == 1);
         result == 1
     }
 
-    /// Truth that this is a CPU-side instruction cache type (not Memcache)
+    /// Truth that this is a CPU-side instruction cache type (not MemCache)
     pub fn is_cpu_instruction_cache(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_icache(self.to_raw()) };
         assert!(result == 0 || result == 1);
@@ -204,7 +207,7 @@ impl ObjectType {
             | Self::PCIDevice
             | Self::OSDevice
             | Self::Misc
-            | Self::Memcache
+            | Self::MemCache
             | Self::Die => false,
         }
     }
@@ -219,10 +222,11 @@ impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let compared = unsafe { ffi::hwloc_compare_types(self.to_raw(), other.to_raw()) };
         match compared {
+            c_int::MAX => None,
             c if c < 0 => Some(Ordering::Less),
             c if c == 0 => Some(Ordering::Equal),
             c if c > 0 => Some(Ordering::Greater),
-            _ => None,
+            _ => unreachable!(),
         }
     }
 }
@@ -241,7 +245,7 @@ impl PartialEq for ObjectType {
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 ///
-pub(crate) type RawBridgeType = u32;
+pub(crate) type RawBridgeType = c_uint;
 
 /// Type of one side (upstream or downstream) of an I/O bridge.
 #[repr(u32)]
@@ -266,7 +270,7 @@ impl BridgeType {
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 ///
-pub(crate) type RawCacheType = u32;
+pub(crate) type RawCacheType = c_uint;
 
 /// Cache type
 #[repr(u32)]
@@ -294,7 +298,7 @@ impl CacheType {
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 ///
-pub(crate) type RawOSDeviceType = u32;
+pub(crate) type RawOSDeviceType = c_uint;
 
 /// Type of a OS device
 #[repr(u32)]

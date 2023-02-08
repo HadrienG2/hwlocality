@@ -1,7 +1,7 @@
 //! Topology objects
-//!
-//! - Top-level doc: https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
-//! - Attributes: https://hwloc.readthedocs.io/en/v2.9/attributes.html
+
+// - Top-level doc: https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
+// - Attributes: https://hwloc.readthedocs.io/en/v2.9/attributes.html
 
 pub mod attributes;
 pub mod types;
@@ -12,6 +12,7 @@ use self::{
 };
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
+    depth::{Depth, RawDepth},
     ffi,
 };
 use libc::{c_char, c_int, c_uint, c_void};
@@ -28,8 +29,7 @@ pub struct TopologyObject {
     name: *mut c_char,
     total_memory: u64,
     attr: *mut RawObjectAttributes,
-    depth: RawTypeDepth,
-    // TODO: Left to check
+    depth: RawDepth,
     logical_index: c_uint,
     next_cousin: *mut TopologyObject,
     prev_cousin: *mut TopologyObject,
@@ -106,11 +106,9 @@ impl TopologyObject {
     /// to the number of parent/child links from the root object to here.
     ///
     /// For special objects (NUMA nodes, I/O and Misc) that are not in the main
-    /// tree, this is a special negative value that corresponds to their
-    /// dedicated level.
-    // TODO: Finish refactoring this
-    pub fn depth(&self) -> TypeDepth {
-        self.depth
+    /// tree, this is a special value that is unique to their type.
+    pub fn depth(&self) -> Depth {
+        self.depth.try_into().unwrap()
     }
 
     /// Horizontal index in the whole list of similar objects, hence guaranteed

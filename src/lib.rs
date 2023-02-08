@@ -73,18 +73,23 @@
 #![allow(dead_code)]
 
 pub mod bitmap;
+pub mod depth;
 mod ffi;
 pub mod object;
 pub mod support;
 
 use self::{
     bitmap::CpuSet,
+    depth::{Depth, DepthError, DepthResult},
     object::{types::ObjectType, TopologyObject},
     support::TopologySupport,
 };
 use bitflags::bitflags;
+use depth::RawDepth;
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
+use num_enum::TryFromPrimitiveError;
+use object::types::RawObjectType;
 use std::{
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
@@ -181,11 +186,11 @@ impl Topology {
     ///
     /// Note that the topology implements the Drop trait, so when
     /// it goes out of scope no further cleanup is necessary.
-    pub fn with_flags(flags: Vec<TopologyFlag>) -> Option<Topology> {
+    pub fn with_flags(flags: impl IntoIterator<Item = TopologyFlag>) -> Option<Topology> {
         let mut topo: *mut RawTopology = std::ptr::null_mut();
 
         let final_flag = flags
-            .iter()
+            .into_iter()
             .map(|f| f.to_u64().unwrap())
             .fold(0, |out, current| out | current);
 
@@ -225,23 +230,22 @@ impl Topology {
     /// let topology_with_flags = Topology::with_flags(vec![TopologyFlag::IsThisSystem]).unwrap();
     /// assert_eq!(vec![TopologyFlag::IsThisSystem], topology_with_flags.flags());
     /// ```
-    pub fn flags(&self) -> Vec<TopologyFlag> {
+    pub fn flags(&self) -> impl Iterator<Item = TopologyFlag> {
         let stored_flags = unsafe { ffi::hwloc_topology_get_flags(self.topo) };
 
         (0..64)
-            .map(|x| (1 << x) & stored_flags)
+            .map(move |x| (1 << x) & stored_flags)
             .filter(|&x| x > 0)
             .map(|x| TopologyFlag::from_u64(x.into()).unwrap())
-            .collect::<Vec<TopologyFlag>>()
     }
 
     /// Returns the full depth of the topology.
     ///
-    /// In practice, the full depth of the topology equals the depth of the `ObjectType::PU`
-    /// plus one.
+    /// In practice, the full depth of the topology equals the depth of the
+    /// `ObjectType::PU` plus one.
     ///
-    /// The full topology depth is useful to know if one needs to manually traverse the
-    /// complete topology.
+    /// The full topology depth is useful to know if one needs to manually
+    /// traverse the complete topology.
     ///
     /// # Examples
     ///
@@ -252,10 +256,17 @@ impl Topology {
     /// assert!(topology.depth() > 0);
     /// ```
     pub fn depth(&self) -> u32 {
-        unsafe { ffi::hwloc_topology_get_depth(self.topo) as u32 }
+        unsafe { ffi::hwloc_topology_get_depth(self.topo) }
+            .try_into()
+            .unwrap()
     }
 
-    /// Returns the depth for the given `ObjectType`.
+    /// Returns the depth for the given `ObjectType`
+    ///
+    /// This will return `Err(DepthError::None)` if no object of this type
+    /// is present or if the OS doesn't provide this kind of information. If a
+    /// similar type is acceptable, consider using `depth_of_below_for_type()`
+    /// or `depth_or_above_for_type()` instead.
     ///
     /// # Examples
     ///
@@ -269,61 +280,56 @@ impl Topology {
     /// assert!(machine_depth < pu_depth);
     /// ```
     ///
-    /// # Failures
-    ///
-    /// If hwloc can't find the depth for the given `ObjectType`, this method will
-    /// return an error from the `TypeDepthError` enum. See this one for more info
-    /// on each specific error.
-    ///
-    /// Note that for `ObjectType::Bridge`, `ObjectType::PCIDevice` and `ObjectType::OSDevice`,
-    /// always an error will be returned which signals their virtual depth.
-    pub fn depth_for_type(&self, object_type: ObjectType) -> Result<u32, TypeDepthError> {
-        let result = unsafe { ffi::hwloc_get_type_depth(self.topo, object_type.into()) };
-
-        match result {
-            result if result >= 0 => Ok(result as u32),
-            -1 => Err(TypeDepthError::TypeDepthUnknown),
-            -2 => Err(TypeDepthError::TypeDepthMultiple),
-            -3 => Err(TypeDepthError::TypeDepthBridge),
-            -4 => Err(TypeDepthError::TypeDepthPCIDevice),
-            -5 => Err(TypeDepthError::TypeDepthOSDevice),
-            _ => Err(TypeDepthError::Unkown),
-        }
+    pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
+        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.topo, object_type.into()) })
     }
 
-    pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> Result<u32, TypeDepthError> {
+    /// Returns the depth for the given `ObjectType` or below
+    ///
+    /// If no object of this type is present on the underlying architecture, the
+    /// function returns the depth of the first "present" object typically found
+    /// inside `object_type`.
+    ///
+    /// This function is only meaningful for normal object types.
+    pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
+        assert!(object_type.is_normal());
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
-            Err(TypeDepthError::TypeDepthUnknown) => {
-                let pu_depth = self.depth_for_type(ObjectType::PU).unwrap();
-                for i in (0..pu_depth).rev() {
-                    if self.type_at_depth(i) < object_type {
-                        return Ok(i + 1);
+            Err(DepthError::None) => {
+                let pu_depth = self.depth_for_type(ObjectType::PU).unwrap().assert_normal();
+                for depth in (0..pu_depth).rev() {
+                    if self.type_at_depth(depth.into()).unwrap() < object_type {
+                        return Ok(Depth::Normal(depth + 1));
                     }
                 }
-                Err(TypeDepthError::TypeDepthUnknown)
+                Err(DepthError::None)
             }
             Err(e) => Err(e),
         }
     }
 
-    pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> Result<u32, TypeDepthError> {
+    /// Returns the depth for the given `ObjectType` or above
+    ///
+    /// If no object of this type is present on the underlying architecture, the
+    /// function returns the depth of the first "present" object typically
+    /// containing `object_type`.
+    ///
+    /// This function is only meaningful for normal object types.
+    pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
+        assert!(object_type.is_normal());
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
-            Err(TypeDepthError::TypeDepthUnknown) => {
-                let pu_depth = self.depth_for_type(ObjectType::PU).unwrap();
-                for i in 0..pu_depth {
-                    if self.type_at_depth(i) > object_type {
-                        return Ok(i - 1);
+            Err(DepthError::None) => {
+                for depth in (0..self.depth()).rev() {
+                    if self.type_at_depth(depth.into()).unwrap() > object_type {
+                        return Ok(Depth::Normal(depth - 1));
                     }
                 }
-                Err(TypeDepthError::TypeDepthUnknown)
+                Err(DepthError::None)
             }
             Err(e) => Err(e),
         }
     }
-
-    // pub fn depth_or_below_for_type(&self, object_type: ObjectType)
 
     /// Returns the corresponding `ObjectType` for the given depth.
     ///
@@ -340,19 +346,19 @@ impl Topology {
     /// assert_eq!(ObjectType::PU, topology.type_at_depth(pu_depth));
     /// ```
     ///
-    /// # Panics
-    ///
-    /// This method will panic if the given depth is larger than the full depth
-    /// minus one. It can't be negative since its an unsigned integer, but be
-    /// careful with the depth provided in general.
-    pub fn type_at_depth(&self, depth: u32) -> ObjectType {
-        if depth > self.depth() - 1 {
-            panic!("The provided depth {} is out of bounds.", depth);
+    pub fn type_at_depth(&self, depth: Depth) -> Option<ObjectType> {
+        if let Depth::Normal(depth) = depth {
+            if depth >= self.depth() {
+                return None;
+            }
         }
-
-        unsafe { ffi::hwloc_get_depth_type(self.topo, depth as i32) }
-            .try_into()
-            .unwrap()
+        match unsafe { ffi::hwloc_get_depth_type(self.topo, depth.into()) }.try_into() {
+            Ok(depth) => Some(depth),
+            Err(TryFromPrimitiveError {
+                number: RawObjectType::MAX,
+            }) => None,
+            Err(unknown) => unreachable!("Got unknown object type {unknown}"),
+        }
     }
 
     /// Returns the number of objects at the given depth.
@@ -368,17 +374,8 @@ impl Topology {
     /// assert!(topology.size_at_depth(topo_depth - 1) > 0);
     /// ```
     ///
-    /// # Panics
-    ///
-    /// This method will panic if the given depth is larger than the full depth
-    /// minus one. It can't be negative since its an unsigned integer, but be
-    /// careful with the depth provided in general.
-    pub fn size_at_depth(&self, depth: u32) -> u32 {
-        if depth > self.depth() - 1 {
-            panic!("The provided depth {} is out of bounds.", depth);
-        }
-
-        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.topo, depth) }
+    pub fn size_at_depth(&self, depth: Depth) -> u32 {
+        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.topo, depth.into()) }
     }
 
     /// Returns the `TopologyObject` at the root of the topology.
@@ -392,55 +389,28 @@ impl Topology {
     ///
     /// assert_eq!(topology.type_at_root(), topology.object_at_root().object_type());
     /// ```
-    pub fn object_at_root(&self) -> &TopologyObject {
-        self.objects_at_depth(0).first().unwrap()
-    }
-
-    /// Returns the `ObjectType` at the root of the topology.
-    ///
-    /// This method is a convenient shorthand for `type_at_depth(0)`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::{Topology,ObjectType};
-    ///
-    /// let topology = Topology::new().unwrap();
-    ///
-    /// let root_type = topology.type_at_root();
-    /// let depth_type = topology.type_at_depth(0);
-    /// assert_eq!(root_type, depth_type);
-    /// ```
-    pub fn type_at_root(&self) -> ObjectType {
-        self.type_at_depth(0)
+    pub fn root_object(&self) -> &TopologyObject {
+        self.objects_at_depth(0.into()).next().unwrap()
     }
 
     /// Returns all `TopologyObjects` with the given `ObjectType`.
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
-    ) -> Result<Vec<&TopologyObject>, TypeDepthError> {
-        match self.depth_for_type(object_type) {
-            Ok(depth) => Ok(self.objects_at_depth(depth)),
-            Err(TypeDepthError::TypeDepthOSDevice) => {
-                Ok(self.objects_at_depth(TypeDepthError::TypeDepthOSDevice as u32))
-            }
-            Err(TypeDepthError::TypeDepthPCIDevice) => {
-                Ok(self.objects_at_depth(TypeDepthError::TypeDepthPCIDevice as u32))
-            }
-            Err(TypeDepthError::TypeDepthBridge) => {
-                Ok(self.objects_at_depth(TypeDepthError::TypeDepthBridge as u32))
-            }
-            Err(e) => Err(e),
-        }
+    ) -> Result<impl Iterator<Item = &TopologyObject>, DepthError> {
+        self.depth_for_type(object_type)
+            .map(|depth| self.objects_at_depth(depth))
     }
 
     /// Returns all `TopologyObject`s at the given depth.
-    pub fn objects_at_depth(&self, depth: u32) -> Vec<&TopologyObject> {
+    pub fn objects_at_depth(&self, depth: Depth) -> impl Iterator<Item = &TopologyObject> {
         let size = self.size_at_depth(depth);
-        (0..size)
-            .map(|idx| unsafe { &*ffi::hwloc_get_obj_by_depth(self.topo, depth, idx) })
-            .collect::<Vec<&TopologyObject>>()
+        let depth = RawDepth::from(depth);
+        (0..size).map(move |idx| {
+            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.topo, depth, idx) };
+            assert!(!ptr.is_null());
+            unsafe { &*ptr }
+        })
     }
 
     /// Binds the current process or thread on CPUs given in the `CpuSet`.
@@ -646,27 +616,6 @@ bitflags! {
     }
 }
 
-// FIXME: Should not be a Rust enum
-#[derive(Debug, PartialEq)]
-pub enum TypeDepthError {
-    /// No object of given type exists in the topology.
-    TypeDepthUnknown = -1,
-    /// Objects of given type exist at different depth in the topology.
-    TypeDepthMultiple = -2,
-    /// Virtual depth for NUMA node object level.
-    TypeDepthNumaNode = -3,
-    /// Virtual depth for bridge object level.
-    TypeDepthBridge = -4,
-    /// Virtual depth for PCI device object level.
-    TypeDepthPCIDevice = -5,
-    /// Virtual depth for software device object level.
-    TypeDepthOSDevice = -6,
-    /// Virtual depth for misc. entry object level.
-    TypeDepthMisc = -7,
-    /// HWLOC returned a depth error which is not known to the rust binding.
-    Unkown = -99,
-}
-
 // TODO: use num_enum here
 const TOPOLOGY_FLAG_INCLUDE_DISALLOWED: i64 = 1;
 const TOPOLOGY_FLAG_IS_THISSYSTEM: i64 = 2;
@@ -742,7 +691,7 @@ mod tests {
                 TopologyFlag::IncludeDisallowed,
                 TopologyFlag::ThisSystemAllowedResources
             ],
-            topo.flags()
+            topo.flags().collect::<Vec<_>>()
         );
     }
 
@@ -756,25 +705,25 @@ mod tests {
     fn should_match_types_and_their_depth() {
         let topo = Topology::new().unwrap();
 
-        let pu_depth = topo.depth_for_type(ObjectType::PU).ok().unwrap();
-        assert!(pu_depth > 0);
-        assert_eq!(ObjectType::PU, topo.type_at_depth(pu_depth));
+        let pu_depth = topo.depth_for_type(ObjectType::PU).unwrap();
+        assert!(pu_depth.assert_normal() > 0);
+        assert_eq!(Some(ObjectType::PU), topo.type_at_depth(pu_depth));
     }
 
     #[test]
     fn should_get_nbobjs_by_depth() {
         let topo = Topology::new().unwrap();
-        assert!(topo.size_at_depth(1) > 0);
+        assert!(topo.size_at_depth(1.into()) > 0);
     }
 
     #[test]
     fn should_get_root_object() {
         let topo = Topology::new().unwrap();
 
-        let root_obj = topo.object_at_root();
+        let root_obj = topo.root_object();
         assert_eq!(ObjectType::Machine, root_obj.object_type());
         assert!(root_obj.total_memory() > 0);
-        assert_eq!(0, root_obj.depth());
+        assert_eq!(Depth::Normal(0), root_obj.depth());
         assert_eq!(0, root_obj.logical_index());
         println!("{root_obj}");
         assert!(root_obj.first_normal_child().is_some());
