@@ -29,7 +29,7 @@ macro_rules! extern_c_block {
         extern "C" {
             // === API versioning: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__api__version.html ===
 
-            // Indicate at runtime which hwloc API version was used at build time.
+            #[must_use]
             pub(crate) fn hwloc_get_api_version() -> c_uint;
 
             // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html ===
@@ -217,10 +217,12 @@ macro_rules! extern_c_block {
                 bitmap: *const RawBitmap,
             ) -> c_int;
 
+            #[must_use]
             pub(crate) fn hwloc_bitmap_isequal(
                 left: *const RawBitmap,
                 right: *const RawBitmap,
             ) -> c_int;
+            #[must_use]
             pub(crate) fn hwloc_bitmap_compare(
                 left: *const RawBitmap,
                 right: *const RawBitmap,
