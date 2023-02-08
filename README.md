@@ -15,11 +15,10 @@ cores, and simultaneous multi threading.
 
 ## Prerequisites
 
-A system installed with hwloc 2.2.0.
+A system installed with hwloc >=2.2.0 and associated development packages installed.
 
-Please note, this is _not_ the default version installed by package managers of
-many mainstream distributions right now. You will probably have to install it
-from source:
+Beware that some Linux distributions provide older hwloc versions. You may have
+to install it from source.
 
 You can download the source from https://www.open-mpi.org/projects/hwloc/
 

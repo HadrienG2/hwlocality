@@ -1,4 +1,4 @@
-//! Safe interface to the hwloc bitmap API
+//! Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 use crate::ffi;
 use libc::c_char;

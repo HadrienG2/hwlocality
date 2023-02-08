@@ -157,7 +157,7 @@ macro_rules! extern_c_block {
             // Indicate at runtime which hwloc API version was used at build time.
             pub(crate) fn hwloc_get_api_version() -> c_uint;
 
-            // === Bitmap API ( https://www.open-mpi.org/projects/hwloc/doc/v2.9.0/a00181.php ) ===
+            // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html ===
 
             #[must_use]
             pub(crate) fn hwloc_bitmap_alloc() -> *mut RawBitmap;
@@ -245,12 +245,12 @@ macro_rules! extern_c_block {
                 right: *const RawBitmap,
             ) -> c_int;
 
-            // === Ordering between ObjectTypes ===
+            // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html ===
 
             #[must_use]
             pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
 
-            // === Kinds of ObjectTypes ===
+            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html ===
 
             #[must_use]
             pub(crate) fn hwloc_obj_type_is_normal(ty: RawObjectType) -> c_int;

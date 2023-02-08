@@ -463,9 +463,9 @@ impl TopologyObjectCacheAttributes {
 // FIXME: Should not be a Rust enum
 #[repr(C)]
 pub enum TopologyObjectCacheType {
-    Unified = 0,
-    Data = 1,
-    Instruction = 2,
+    Unified,
+    Data,
+    Instruction,
 }
 
 #[repr(C)]
@@ -516,8 +516,8 @@ pub struct TopologyObjectBridgeAttributes {
 // FIXME: Should not be a Rust enum
 #[repr(C)]
 pub enum TopologyObjectBridgeType {
-    Host = 0,
-    PCI = 1,
+    Host,
+    PCI,
 }
 
 #[repr(C)]

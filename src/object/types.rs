@@ -1,3 +1,8 @@
+//! Object types
+//!
+//! - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
+//! - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
+
 use crate::ffi;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::cmp::{Ordering, PartialOrd};
