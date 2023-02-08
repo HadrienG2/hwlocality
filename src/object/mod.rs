@@ -322,16 +322,15 @@ impl TopologyObject {
             Some(child)
         })
     }
-}
 
-impl fmt::Display for TopologyObject {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    /// Display the TopologyObject's type and attributes
+    fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
         let buf_type = unsafe {
             let type_len_i32 = ffi::hwloc_obj_type_snprintf(
                 std::ptr::null_mut(),
                 0,
                 self as *const TopologyObject,
-                0,
+                verbose as c_int,
             );
             let type_len = usize::try_from(type_len_i32).unwrap();
             let mut buf_type = vec![0 as c_char; type_len + 1];
@@ -340,7 +339,7 @@ impl fmt::Display for TopologyObject {
                     buf_type.as_mut_ptr(),
                     buf_type.len(),
                     self as *const TopologyObject,
-                    0,
+                    verbose as c_int,
                 ) == type_len_i32
             );
             buf_type
@@ -353,7 +352,7 @@ impl fmt::Display for TopologyObject {
                 0,
                 self as *const TopologyObject,
                 separator_ptr,
-                0,
+                verbose as c_int,
             );
             let attr_len = usize::try_from(attr_len_i32).unwrap();
             let mut buf_attr = vec![0 as c_char; attr_len + 1];
@@ -363,7 +362,7 @@ impl fmt::Display for TopologyObject {
                     buf_attr.len(),
                     self as *const TopologyObject,
                     separator_ptr,
-                    0,
+                    verbose as c_int,
                 ) == attr_len_i32
             );
             buf_attr
@@ -380,8 +379,14 @@ impl fmt::Display for TopologyObject {
     }
 }
 
+impl fmt::Display for TopologyObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.display(f, false)
+    }
+}
+
 impl fmt::Debug for TopologyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self, f)
+        self.display(f, true)
     }
 }
