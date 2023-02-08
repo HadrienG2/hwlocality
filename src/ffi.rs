@@ -47,6 +47,8 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_get_depth(topology: *mut RawTopology) -> RawDepth;
             #[must_use]
+            pub(crate) fn hwloc_get_memory_parents_depth(topology: *mut RawTopology) -> RawDepth;
+            #[must_use]
             pub(crate) fn hwloc_get_type_depth(
                 topology: *mut RawTopology,
                 object_type: RawObjectType,

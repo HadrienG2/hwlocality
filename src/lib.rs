@@ -214,7 +214,7 @@ impl Topology {
         unsafe { &*self.support }
     }
 
-    /// Returns the flags currently set for this topology.
+    /// Flags currently set for this topology.
     ///
     /// Note that the flags are only used during initialization, so this
     /// method can just be used for debugging purposes.
@@ -239,7 +239,7 @@ impl Topology {
             .map(|x| TopologyFlag::from_u64(x.into()).unwrap())
     }
 
-    /// Returns the full depth of the topology.
+    /// Full depth of the topology.
     ///
     /// In practice, the full depth of the topology equals the depth of the
     /// `ObjectType::PU` plus one.
@@ -261,7 +261,12 @@ impl Topology {
             .unwrap()
     }
 
-    /// Returns the depth for the given `ObjectType`
+    /// Depth of parents where memory objects are attached
+    pub fn memory_parents_depth(&self) -> DepthResult {
+        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.topo) })
+    }
+
+    /// Depth for the given `ObjectType`
     ///
     /// This will return `Err(DepthError::None)` if no object of this type
     /// is present or if the OS doesn't provide this kind of information. If a
@@ -284,7 +289,7 @@ impl Topology {
         Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.topo, object_type.into()) })
     }
 
-    /// Returns the depth for the given `ObjectType` or below
+    /// Depth for the given `ObjectType` or below
     ///
     /// If no object of this type is present on the underlying architecture, the
     /// function returns the depth of the first "present" object typically found
@@ -308,7 +313,7 @@ impl Topology {
         }
     }
 
-    /// Returns the depth for the given `ObjectType` or above
+    /// Depth for the given `ObjectType` or above
     ///
     /// If no object of this type is present on the underlying architecture, the
     /// function returns the depth of the first "present" object typically
@@ -331,7 +336,7 @@ impl Topology {
         }
     }
 
-    /// Returns the corresponding `ObjectType` for the given depth.
+    /// `ObjectType` at the given depth.
     ///
     /// # Examples
     ///
@@ -361,7 +366,7 @@ impl Topology {
         }
     }
 
-    /// Returns the number of objects at the given depth.
+    /// Number of objects at the given depth.
     ///
     /// # Examples
     ///
@@ -378,7 +383,7 @@ impl Topology {
         unsafe { ffi::hwloc_get_nbobjs_by_depth(self.topo, depth.into()) }
     }
 
-    /// Returns the `TopologyObject` at the root of the topology.
+    /// `TopologyObject` at the root of the topology.
     ///
     /// # Examples
     ///
@@ -393,7 +398,7 @@ impl Topology {
         self.objects_at_depth(0.into()).next().unwrap()
     }
 
-    /// Returns all `TopologyObjects` with the given `ObjectType`.
+    /// `TopologyObjects` with the given `ObjectType`.
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
@@ -402,7 +407,7 @@ impl Topology {
         self.objects_at_depth(depth)
     }
 
-    /// Returns all `TopologyObject`s at the given depth.
+    /// `TopologyObject`s at the given depth.
     pub fn objects_at_depth(&self, depth: Depth) -> impl Iterator<Item = &TopologyObject> {
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
