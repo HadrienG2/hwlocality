@@ -397,9 +397,9 @@ impl Topology {
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
-    ) -> Result<impl Iterator<Item = &TopologyObject>, DepthError> {
-        self.depth_for_type(object_type)
-            .map(|depth| self.objects_at_depth(depth))
+    ) -> impl Iterator<Item = &TopologyObject> {
+        let depth = self.depth_for_type(object_type).unwrap();
+        self.objects_at_depth(depth)
     }
 
     /// Returns all `TopologyObject`s at the given depth.
