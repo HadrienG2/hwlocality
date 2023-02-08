@@ -3,19 +3,23 @@
 //! - Top-level doc: https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
 //! - Attributes: https://hwloc.readthedocs.io/en/v2.9/attributes.html
 
+pub mod attributes;
 pub mod types;
 
-use self::types::{
-    BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType, RawOSDeviceType,
-    RawObjectType,
+use self::{
+    attributes::{ObjectAttributes, RawObjectAttributes},
+    types::{ObjectType, RawObjectType},
 };
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi,
 };
-use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, c_void};
+use libc::{c_char, c_float, c_int, c_uint, c_ulonglong, c_void};
 use std::{ffi::CStr, fmt};
 
+/// Hardware topology object
+//
+// See the matching method names for more details on field semantics
 #[repr(C)]
 pub struct TopologyObject {
     object_type: RawObjectType,
@@ -23,7 +27,7 @@ pub struct TopologyObject {
     os_index: c_uint,
     name: *mut c_char,
     total_memory: u64,
-    attr: *mut TopologyObjectAttributes,
+    attr: *mut RawObjectAttributes,
     depth: c_uint,
     logical_index: c_uint,
     next_cousin: *mut TopologyObject,
@@ -61,44 +65,18 @@ impl TopologyObject {
 
     /// Subtype string to better describe the type field
     ///
-    /// At the time of writing, hwloc may emit the following subtype strings:
-    ///
-    /// - `ObjectType::NUMANode`:
-    ///     * "DRAM" for main memory
-    ///     * "HBM" for high bandwidth memory
-    ///     * "SPM" for specific-purpose memory (usually reserved for custom applications)
-    ///     * "NVM" for non-volatile memory (when used as main mamory)
-    ///     * "MCDRAM" on Intel KNL
-    ///     * "GPUMemory" on POWER architecture with NVidia GPU memory shared
-    ///       over NVLink
-    /// - `ObjectType::Group`: "Cluster", "Module", "Tile", "Compute Unit",
-    ///    "Book" or "Drawer" for different architecture-specific groups of CPUs
-    /// - `ObjectType::OSDevice`:
-    ///     * `OSDeviceType::CoProcessor`: "OpenCL", "LevelZero", "CUDA", "VectorEngine".
-    ///     * `OSDeviceType::GPU`:
-    ///         - "RSMI" for AMD GPUs
-    ///         - "NVML" for NVidia GPUs
-    ///     * `OSDeviceType::OpenFabrics`: "BXI" for Bull/Atos BXI HCA.
-    ///     * `OSDeviceType::Storage`:
-    ///         - "Disk"
-    ///         - "NVM" for non-volatile memory
-    ///         - "SPM" for specific-purpose memory
-    ///         - "CXLMem" for CXL volatile ou persistent memory
-    ///         - "Tape"
-    ///         - "Removable Media Device"
-    /// - `ObjectType::L3Cache`: "MemorySideCache" when hwloc is configured to
-    ///   expose the KNL MCDRAM in Cache mode as a L3
-    /// - `ObjectType::PCIDevice`: "NVSwitch" for NVLink switches.
-    /// - `ObjectType::Misc`: "MemoryModule" for DIMMs.
-    ///
+    /// See https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
+    /// for a list of subtype strings that hwloc can emit.
     pub fn subtype(&self) -> Option<&str> {
-        self.deref_string(self.subtype)
+        ffi::deref_string(&self.subtype)
     }
 
     /// The OS-provided physical index number.
     ///
     /// It is not guaranteed unique across the entire machine,
     /// except for PUs and NUMA nodes.
+    ///
+    /// Not specified if unknown or irrelevant for this object.
     pub fn os_index(&self) -> Option<u32> {
         const HWLOC_UNKNOWN_INDEX: c_uint = c_uint::MAX;
         (self.os_index != HWLOC_UNKNOWN_INDEX).then_some(self.os_index)
@@ -106,12 +84,17 @@ impl TopologyObject {
 
     /// The name of the object
     pub fn name(&self) -> Option<&str> {
-        self.deref_string(self.name)
+        ffi::deref_string(&self.name)
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
     pub fn total_memory(&self) -> u64 {
         self.total_memory
+    }
+
+    /// Object type-specific attributes
+    pub fn attributes(&self) -> Option<ObjectAttributes> {
+        ObjectAttributes::new(self.object_type(), &self.attr)
     }
 
     /// Vertical index in the hierarchy.
@@ -274,14 +257,6 @@ impl TopologyObject {
         unsafe { std::slice::from_raw_parts(self.infos, len) }
     }
 
-    /// Dereference a C-style string with correct lifetime
-    fn deref_string(&self, p: *mut c_char) -> Option<&str> {
-        if p.is_null() {
-            return None;
-        }
-        unsafe { CStr::from_ptr(p) }.to_str().ok()
-    }
-
     /// Dereference a TopologyObject pointer with correct lifetime
     fn deref_topology(&self, p: &*mut TopologyObject) -> Option<&TopologyObject> {
         unsafe {
@@ -290,17 +265,6 @@ impl TopologyObject {
             } else {
                 Some(&**p)
             }
-        }
-    }
-
-    // FIXME: This assumes that the hwloc_obj_attr_u union is always a cache.
-    //        Must check that it is indeed a cache first!
-    fn cache_attributes(&self) -> Option<&TopologyObjectCacheAttributes> {
-        let cache_ptr = unsafe { (*self.attr).cache() };
-        if cache_ptr.is_null() {
-            None
-        } else {
-            unsafe { Some(&*cache_ptr) }
         }
     }
 }
@@ -383,20 +347,12 @@ pub struct TopologyObjectInfo {
 impl TopologyObjectInfo {
     /// The name of the ObjectInfo
     pub fn name(&self) -> Option<&str> {
-        self.deref_string(self.name)
+        ffi::deref_string(&self.name)
     }
 
     /// The value of the ObjectInfo
     pub fn value(&self) -> Option<&str> {
-        self.deref_string(self.value)
-    }
-
-    /// Dereference a C-style string with correct lifetime
-    fn deref_string(&self, p: *mut c_char) -> Option<&str> {
-        if p.is_null() {
-            return None;
-        }
-        unsafe { CStr::from_ptr(p) }.to_str().ok()
+        ffi::deref_string(&self.value)
     }
 }
 
@@ -435,156 +391,5 @@ impl TopologyObjectDistances {
     /// Usually 10 on Linux since ACPI SLIT uses 10 for local latency.
     pub fn base_latency(&self) -> f32 {
         self.latency_base
-    }
-}
-
-#[cfg(not(feature = "32bits_pci_domain"))]
-const TOPOLOGY_OBJECT_ATTRIBUTES_SIZE: usize = 5;
-#[cfg(feature = "32bits_pci_domain")]
-const TOPOLOGY_OBJECT_ATTRIBUTES_SIZE: usize = 6;
-
-#[repr(C)]
-pub struct TopologyObjectAttributes {
-    _bindgen_data_: [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE],
-}
-
-impl TopologyObjectAttributes {
-    pub unsafe fn numa(&mut self) -> *mut TopologyObjectNUMANodeAttributes {
-        let raw: *mut u8 =
-            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
-        ::std::mem::transmute(raw.offset(0))
-    }
-    pub unsafe fn cache(&mut self) -> *mut TopologyObjectCacheAttributes {
-        let raw: *mut u8 =
-            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
-        ::std::mem::transmute(raw.offset(0))
-    }
-    pub unsafe fn group(&mut self) -> *mut TopologyObjectGroupAttributes {
-        let raw: *mut u8 =
-            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
-        ::std::mem::transmute(raw.offset(0))
-    }
-    pub unsafe fn pcidev(&mut self) -> *mut TopologyObjectPCIDevAttributes {
-        let raw: *mut u8 =
-            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
-        ::std::mem::transmute(raw.offset(0))
-    }
-    pub unsafe fn bridge(&mut self) -> *mut TopologyObjectBridgeAttributes {
-        let raw: *mut u8 =
-            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
-        ::std::mem::transmute(raw.offset(0))
-    }
-    pub unsafe fn osdev(&mut self) -> *mut TopologyObjectOSDevAttributes {
-        let raw: *mut u8 =
-            &self._bindgen_data_ as *const [u64; TOPOLOGY_OBJECT_ATTRIBUTES_SIZE] as *mut u8;
-        ::std::mem::transmute(raw.offset(0))
-    }
-}
-
-#[repr(C)]
-pub struct TopologyObjectNUMANodePageTypeAttributes {
-    pub size: u64,
-    pub count: u64,
-}
-
-#[repr(C)]
-pub struct TopologyObjectNUMANodeAttributes {
-    pub local_memory: u64,
-    pub page_types_len: c_uint,
-    pub page_types: *mut TopologyObjectNUMANodePageTypeAttributes,
-}
-
-#[repr(C)]
-pub struct TopologyObjectCacheAttributes {
-    pub size: c_ulonglong,
-    pub depth: c_uint,
-    pub linesize: c_uint,
-    pub associativity: c_int,
-    pub ty: RawCacheType,
-}
-//
-impl TopologyObjectCacheAttributes {
-    /// Cache type
-    pub fn cache_type(&self) -> CacheType {
-        self.ty.try_into().unwrap()
-    }
-}
-
-impl TopologyObjectCacheAttributes {
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    pub fn depth(&self) -> u32 {
-        self.depth
-    }
-}
-
-#[repr(C)]
-pub struct TopologyObjectGroupAttributes {
-    depth: c_uint,
-    kind: c_uint,
-    subkind: c_uint,
-    dont_merge: c_uchar,
-}
-
-#[repr(C)]
-pub struct TopologyObjectPCIDevAttributes {
-    #[cfg(not(feature = "32bits_pci_domain"))]
-    domain: c_ushort,
-    #[cfg(feature = "32bits_pci_domain")]
-    domain: c_uint,
-    bus: c_uchar,
-    dev: c_uchar,
-    func: c_uchar,
-    class_id: c_ushort,
-    vendor_id: c_ushort,
-    device_id: c_ushort,
-    subvendor_id: c_ushort,
-    subdevice_id: c_ushort,
-    revision: c_uchar,
-    linkspeed: c_float,
-}
-
-#[repr(C)]
-pub struct TopologyObjectBridgeDownstreamPCIAttributes {
-    #[cfg(not(feature = "32bits_pci_domain"))]
-    domain: c_ushort,
-    #[cfg(feature = "32bits_pci_domain")]
-    domain: c_uint,
-    secondary_bus: c_uchar,
-    subordinate_bus: c_uchar,
-}
-
-#[repr(C)]
-pub struct TopologyObjectBridgeAttributes {
-    upstream: TopologyObjectPCIDevAttributes,
-    upstream_type: RawBridgeType,
-    downstream: TopologyObjectBridgeDownstreamPCIAttributes,
-    downstream_type: RawBridgeType,
-    depth: c_uint,
-}
-//
-impl TopologyObjectBridgeAttributes {
-    /// Upstream bridge type
-    pub fn upstream_type(&self) -> BridgeType {
-        self.upstream_type.try_into().unwrap()
-    }
-
-    /// Downstreap bridge type
-    pub fn downstream_type(&self) -> BridgeType {
-        self.downstream_type.try_into().unwrap()
-    }
-}
-
-#[repr(C)]
-pub struct TopologyObjectOSDevAttributes {
-    ty: RawOSDeviceType,
-}
-//
-impl TopologyObjectOSDevAttributes {
-    /// OS device type
-    pub fn device_type(&self) -> OSDeviceType {
-        self.ty.try_into().unwrap()
     }
 }

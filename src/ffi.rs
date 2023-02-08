@@ -8,6 +8,14 @@ use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, si
 use num::{FromPrimitive, ToPrimitive};
 use std::ffi::CStr;
 
+/// Dereference a C-style string with correct lifetime
+pub fn deref_string(p: &*mut c_char) -> Option<&str> {
+    if p.is_null() {
+        return None;
+    }
+    unsafe { CStr::from_ptr(*p) }.to_str().ok()
+}
+
 bitflags! {
     /// Process/Thread binding flags.
     ///

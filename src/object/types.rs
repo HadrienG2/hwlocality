@@ -160,7 +160,7 @@ impl ObjectType {
         result == 1
     }
 
-    /// Truth that this is a memory object type
+    /// Truth that this is a memory object type (not Normal, I/O or Misc)
     ///
     /// Memory objects are not listed in the main children list, but rather in
     /// the dedicated memory children list. They have special depth values
@@ -171,7 +171,7 @@ impl ObjectType {
         result == 1
     }
 
-    /// Truth that this is an I/O object type
+    /// Truth that this is an I/O object type (not Normal, Memory or Misc)
     ///
     /// I/O objects are not added to the topology unless I/O discovery is
     /// enabled through the custom flags. They have empty CPU and node sets.

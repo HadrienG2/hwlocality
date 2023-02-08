@@ -77,13 +77,6 @@ mod ffi;
 mod object;
 mod support;
 
-pub use bitmap::{Bitmap, CpuSet, NodeSet};
-pub use ffi::{CpuBindFlags, MemBindPolicy, TopologyFlag, TypeDepthError};
-pub use object::{types::ObjectType, TopologyObject, TopologyObjectMemory};
-pub use support::{
-    TopologyCpuBindSupport, TopologyDiscoverySupport, TopologyMemBindSupport, TopologySupport,
-};
-
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
 use std::convert::TryInto;
