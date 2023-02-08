@@ -1,6 +1,6 @@
 use crate::{
     bitmap::RawBitmap,
-    object::{attributes::RawObjectAttributes, types::RawObjectType, TopologyObject},
+    object::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
     MemBindPolicy, RawTopology,
 };
@@ -47,7 +47,21 @@ macro_rules! extern_c_block {
 
             // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__strings.html ===
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_obj_type_snprintf(
+                into: *mut c_char,
+                size: size_t,
+                object: *const TopologyObject,
+                verbose: c_int,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_obj_attr_snprintf(
+                into: *mut c_char,
+                size: size_t,
+                object: *const TopologyObject,
+                separator: *const c_char,
+                verbose: c_int,
+            ) -> c_int;
 
             // === Consulting and adding key-value attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html ===
 
@@ -458,43 +472,6 @@ macro_rules! extern_c_block {
                 topology: *mut RawTopology,
                 addr: *mut c_void,
                 len: size_t,
-            ) -> c_int;
-
-            // === TopologyObject text I/O ===
-
-            pub(crate) fn hwloc_obj_type_string(object_type: RawObjectType) -> *const c_char;
-            pub(crate) fn hwloc_obj_type_snprintf(
-                into: *mut c_char,
-                size: size_t,
-                object: *const TopologyObject,
-                verbose: c_int,
-            ) -> c_int;
-            pub(crate) fn hwloc_obj_attr_snprintf(
-                into: *mut c_char,
-                size: size_t,
-                object: *const TopologyObject,
-                separator: *const c_char,
-                verbose: c_int,
-            ) -> c_int;
-            pub(crate) fn hwloc_type_sscanf(
-                strng: *const c_char,
-                obj_type: *mut RawObjectType,
-                attrs: *mut RawObjectAttributes,
-                attrs_size: size_t,
-            ) -> c_int;
-            pub(crate) fn hwloc_type_sscanf_as_depth(
-                strng: *const c_char,
-                obj_type: *mut RawObjectType,
-                topology: *mut RawTopology,
-                depthp: *mut c_int,
-            ) -> c_int;
-
-            // === Adding custom metadata to TopologyObject ===
-
-            pub(crate) fn hwloc_obj_add_info(
-                obj: *mut TopologyObject,
-                name: *const c_char,
-                value: *const c_char,
             ) -> c_int;
         }
     };

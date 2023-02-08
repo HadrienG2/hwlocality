@@ -130,7 +130,7 @@ pub enum ObjectType {
     /// A subpart of the physical package, that contains multiple cores.
     Die,
 }
-//
+
 impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     pub fn is_normal(&self) -> bool {

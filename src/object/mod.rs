@@ -331,18 +331,22 @@ impl fmt::Display for TopologyObject {
         let separator_ptr = b"  \0".as_ptr() as *const c_char;
 
         unsafe {
-            ffi::hwloc_obj_type_snprintf(
-                buf_type.as_mut_ptr(),
-                64,
-                self as *const TopologyObject,
-                0,
+            assert!(
+                ffi::hwloc_obj_type_snprintf(
+                    buf_type.as_mut_ptr(),
+                    64,
+                    self as *const TopologyObject,
+                    0,
+                ) >= 0
             );
-            ffi::hwloc_obj_attr_snprintf(
-                buf_attr.as_mut_ptr(),
-                2048,
-                self as *const TopologyObject,
-                separator_ptr,
-                0,
+            assert!(
+                ffi::hwloc_obj_attr_snprintf(
+                    buf_attr.as_mut_ptr(),
+                    2048,
+                    self as *const TopologyObject,
+                    separator_ptr,
+                    0,
+                ) >= 0
             );
 
             write!(

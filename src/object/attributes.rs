@@ -3,12 +3,15 @@
 //! - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 //! - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
-use std::num::NonZeroU32;
-
-use super::types::{
-    BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType, RawOSDeviceType,
+use crate::{
+    ffi,
+    object::types::{
+        BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
+        RawOSDeviceType,
+    },
 };
-use libc::{c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort};
+use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort};
+use std::num::NonZeroU32;
 
 /// hwloc FFI for the hwloc_obj_attr_u union
 #[repr(C)]
