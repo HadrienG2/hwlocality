@@ -777,8 +777,8 @@ mod tests {
         assert_eq!(0, root_obj.depth());
         assert_eq!(0, root_obj.logical_index());
         println!("{root_obj}");
-        assert!(root_obj.first_child().is_some());
-        assert!(root_obj.last_child().is_some());
+        assert!(root_obj.first_normal_child().is_some());
+        assert!(root_obj.last_normal_child().is_some());
     }
 
     #[test]

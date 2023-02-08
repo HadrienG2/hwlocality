@@ -46,8 +46,8 @@ pub type NodeSet = Bitmap;
 impl Bitmap {
     /// Wraps an owned bitmap from hwloc
     ///
-    /// The pointer must target a valid bitmap that we will acquire ownership of
-    /// and automatically free on Drop.
+    /// If non-null, the pointer must target a valid bitmap that we will acquire
+    /// ownership of and automatically free on Drop.
     ///
     pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
         (!bitmap.is_null()).then_some(Self(bitmap))
@@ -55,21 +55,15 @@ impl Bitmap {
 
     /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
     ///
-    /// The pointer must target a valid bitmap, but unlike with from_raw, it
-    /// will not be automatically freed on Drop.
+    /// If non-null, the pointer must target a valid bitmap, but unlike with
+    /// from_raw, it will not be automatically freed on Drop.
     ///
-    pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
-        (!bitmap.is_null()).then_some(std::mem::transmute::<&*const RawBitmap, &Self>(bitmap))
-    }
-
-    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
-    ///
-    /// The pointer must target a valid bitmap, but unlike with from_raw, it
-    /// will not be automatically freed on Drop.
-    ///
-    pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
+    pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
         (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut RawBitmap, &Self>(bitmap))
     }
+
+    // NOTE: There is now borrow_mut_from_raw because it would not be safe as if
+    //       you expose an &mut Bitmap, the user can trigger Drop.
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
     pub(crate) fn as_ptr(&self) -> *const RawBitmap {

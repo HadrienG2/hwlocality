@@ -7,8 +7,16 @@ use crate::{
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, size_t};
 use std::ffi::CStr;
 
+/// Dereference a C pointer with correct lifetime
+pub(crate) unsafe fn deref<T>(p: &*mut T) -> Option<&T> {
+    if p.is_null() {
+        return None;
+    }
+    Some(unsafe { &**p })
+}
+
 /// Dereference a C-style string with correct lifetime
-pub(crate) fn deref_string(p: &*mut c_char) -> Option<&str> {
+pub(crate) unsafe fn deref_string(p: &*mut c_char) -> Option<&str> {
     if p.is_null() {
         return None;
     }
