@@ -7,7 +7,7 @@ use crate::ffi;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::cmp::{Ordering, PartialOrd};
 
-/// Rust mapping of the hwloc_obj_bridge_type_t enum
+/// Rust mapping of the hwloc_obj_bridge_type_e enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
@@ -32,7 +32,35 @@ impl BridgeType {
     }
 }
 
-/// Rust mapping of the hwloc_obj_type_t enum
+/// Rust mapping of the hwloc_obj_cache_type_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawCacheType = u32;
+
+/// Cache type
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, IntoPrimitive, TryFromPrimitive)]
+pub enum CacheType {
+    /// Unified cache
+    Unified,
+
+    /// Data cache
+    Data,
+
+    /// Instruction cache (filtered out by default
+    Instruction,
+}
+//
+impl CacheType {
+    /// Convert to the internal representation used by hwloc
+    pub(crate) fn to_raw(&self) -> RawCacheType {
+        RawCacheType::from(*self)
+    }
+}
+
+/// Rust mapping of the hwloc_obj_type_e enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.

@@ -1,6 +1,6 @@
 pub mod types;
 
-use self::types::{BridgeType, ObjectType, RawBridgeType, RawObjectType};
+use self::types::{BridgeType, CacheType, ObjectType, RawBridgeType, RawCacheType, RawObjectType};
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi,
@@ -447,7 +447,14 @@ pub struct TopologyObjectCacheAttributes {
     pub depth: c_uint,
     pub linesize: c_uint,
     pub associativity: c_int,
-    pub _type: TopologyObjectCacheType,
+    pub ty: RawCacheType,
+}
+//
+impl TopologyObjectCacheAttributes {
+    /// Cache type
+    pub fn cache_type(&self) -> CacheType {
+        self.ty.try_into().unwrap()
+    }
 }
 
 impl TopologyObjectCacheAttributes {
@@ -458,14 +465,6 @@ impl TopologyObjectCacheAttributes {
     pub fn depth(&self) -> u32 {
         self.depth
     }
-}
-
-// FIXME: Should not be a Rust enum
-#[repr(C)]
-pub enum TopologyObjectCacheType {
-    Unified,
-    Data,
-    Instruction,
 }
 
 #[repr(C)]
