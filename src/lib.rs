@@ -74,15 +74,15 @@
 
 mod bitmap;
 mod ffi;
+mod object;
 mod support;
-mod topology_object;
 
 pub use bitmap::{Bitmap, CpuSet, NodeSet};
 pub use ffi::{CpuBindFlags, MemBindPolicy, TopologyFlag, TypeDepthError};
+pub use object::{types::ObjectType, TopologyObject, TopologyObjectMemory};
 pub use support::{
     TopologyCpuBindSupport, TopologyDiscoverySupport, TopologyMemBindSupport, TopologySupport,
 };
-pub use topology_object::{types::ObjectType, TopologyObject, TopologyObjectMemory};
 
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};

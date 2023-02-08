@@ -1,7 +1,7 @@
 use crate::{
     bitmap::RawBitmap,
+    object::{types::RawObjectType, TopologyObject, TopologyObjectAttributes},
     support::TopologySupport,
-    topology_object::{types::RawObjectType, TopologyObject, TopologyObjectAttributes},
 };
 use bitflags::bitflags;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, size_t};
