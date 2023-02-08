@@ -49,9 +49,14 @@ pub struct TopologyObject {
 }
 
 impl TopologyObject {
-    /// The type of the object.
+    /// Type of object.
     pub fn object_type(&self) -> ObjectType {
         self.object_type.try_into().unwrap()
+    }
+
+    /// Subtype string to better describe the type field
+    pub fn subtype(&self) -> Option<&str> {
+        self.deref_string(self.subtype)
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -63,14 +68,14 @@ impl TopologyObject {
     ///
     /// It is not guaranteed unique across the entire machine,
     /// except for PUs and NUMA nodes.
-    pub fn os_index(&self) -> u32 {
-        self.os_index
+    pub fn os_index(&self) -> Option<u32> {
+        const HWLOC_UNKNOWN_INDEX: c_uint = c_uint::MAX;
+        (self.os_index != HWLOC_UNKNOWN_INDEX).then_some(self.os_index)
     }
 
     /// The name of the object, if set.
-    pub fn name(&self) -> String {
-        let c_str = unsafe { CStr::from_ptr(self.name) };
-        c_str.to_str().unwrap().to_string()
+    pub fn name(&self) -> Option<&str> {
+        self.deref_string(self.name)
     }
 
     /// Vertical index in the hierarchy.
@@ -223,6 +228,15 @@ impl TopologyObject {
         unsafe { NodeSet::borrow_from_raw_mut(&self.complete_nodeset) }
     }
 
+    /// Dereference a C-style string with correct lifetime
+    pub fn deref_string(&self, p: *mut c_char) -> Option<&str> {
+        if p.is_null() {
+            return None;
+        }
+        unsafe { CStr::from_ptr(p) }.to_str().ok()
+    }
+
+    /// Dereference a TopologyObject pointer with correct lifetime
     fn deref_topology(&self, p: &*mut TopologyObject) -> Option<&TopologyObject> {
         unsafe {
             if p.is_null() {
@@ -325,28 +339,37 @@ pub struct TopologyObjectInfo {
 }
 
 impl TopologyObjectInfo {
-    pub const NAME_OF_CPU_VENDOR: &'static str = "CPUVendor";
-    pub const NAME_OF_CPU_MODEL: &'static str = "CPUModel";
-    pub const NAME_OF_CPU_FAMILY_NUMBER: &'static str = "CPUFamilyNumber";
-    pub const NAME_OF_CPU_MODEL_NUMBER: &'static str = "CPUModelNumber";
-    pub const NAME_OF_CPU_STEPPING: &'static str = "CPUStepping";
-    pub const NAME_OF_BACKEND: &'static str = "Backend";
-    pub const NAME_OF_OS_NAME: &'static str = "OSName";
-    pub const NAME_OF_OS_RELEASE: &'static str = "OSRelease";
-    pub const NAME_OF_OS_VERSION: &'static str = "OSVersion";
-    pub const NAME_OF_OS_HOST_NAME: &'static str = "HostName";
-    pub const NAME_OF_OS_ARCHITECTURE: &'static str = "Architecture";
-    pub const NAME_OF_OS_HWLOC_VERSION: &'static str = "hwlocVersion";
-    pub const NAME_OF_OS_PROCESS_NAME: &'static str = "ProcessName";
+    // FIXME: Add docs
+    pub const CPU_VENDOR: &'static str = "CPUVendor";
+    pub const CPU_MODEL: &'static str = "CPUModel";
+    pub const CPU_FAMILY_NUMBER: &'static str = "CPUFamilyNumber";
+    pub const CPU_MODEL_NUMBER: &'static str = "CPUModelNumber";
+    pub const CPU_STEPPING: &'static str = "CPUStepping";
+    pub const BACKEND: &'static str = "Backend";
+    pub const OS_NAME: &'static str = "OSName";
+    pub const OS_RELEASE: &'static str = "OSRelease";
+    pub const OS_VERSION: &'static str = "OSVersion";
+    pub const OS_HOST_NAME: &'static str = "HostName";
+    pub const OS_ARCHITECTURE: &'static str = "Architecture";
+    pub const OS_HWLOC_VERSION: &'static str = "hwlocVersion";
+    pub const OS_PROCESS_NAME: &'static str = "ProcessName";
 
     /// The name of the ObjectInfo
-    pub fn name(&self) -> &CStr {
-        unsafe { CStr::from_ptr(self.name) }
+    pub fn name(&self) -> Option<&str> {
+        self.deref_string(self.name)
     }
 
     /// The value of the ObjectInfo
-    pub fn value(&self) -> &CStr {
-        unsafe { CStr::from_ptr(self.value) }
+    pub fn value(&self) -> Option<&str> {
+        self.deref_string(self.value)
+    }
+
+    /// Dereference a C-style string with correct lifetime
+    fn deref_string(&self, p: *mut c_char) -> Option<&str> {
+        if p.is_null() {
+            return None;
+        }
+        unsafe { CStr::from_ptr(p) }.to_str().ok()
     }
 }
 

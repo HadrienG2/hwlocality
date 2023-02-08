@@ -6,6 +6,7 @@ use crate::{
 use bitflags::bitflags;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, size_t};
 use num::{FromPrimitive, ToPrimitive};
+use std::ffi::CStr;
 
 bitflags! {
     /// Process/Thread binding flags.
