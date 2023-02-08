@@ -2,161 +2,17 @@ use crate::{
     bitmap::RawBitmap,
     object::{attributes::RawObjectAttributes, types::RawObjectType, TopologyObject},
     support::TopologySupport,
+    MemBindPolicy, RawTopology,
 };
-use bitflags::bitflags;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, size_t};
-use num::{FromPrimitive, ToPrimitive};
 use std::ffi::CStr;
 
 /// Dereference a C-style string with correct lifetime
-pub fn deref_string(p: &*mut c_char) -> Option<&str> {
+pub(crate) fn deref_string(p: &*mut c_char) -> Option<&str> {
     if p.is_null() {
         return None;
     }
     unsafe { CStr::from_ptr(*p) }.to_str().ok()
-}
-
-bitflags! {
-    /// Process/Thread binding flags.
-    ///
-    /// These bit flags can be used to refine the binding policy.
-    ///
-    /// The default (Process) is to bind the current process, assumed to be
-    /// single-threaded, in a non-strict way.  This is the most portable
-    /// way to bind as all operating systems usually provide it.
-    ///
-    /// **Note:** Not all systems support all kinds of binding.
-    ///
-    /// The following flags (constants) are available:
-    ///
-    /// - **CPUBIND_PROCESS:** Bind all threads of the current (possibly) multithreaded process.
-    /// - **CPUBIND_THREAD:** Bind current thread of current process.
-    /// - **CPUBIND_STRICT:** Request for strict binding from the OS.
-    /// - **CPUBIND_NO_MEMBIND:** Avoid any effect on memory binding.
-    #[repr(C)]
-    pub struct CpuBindFlags: i32 {
-        /// Bind all threads of the current (possibly) multithreaded process.
-        const CPUBIND_PROCESS = (1<<0);
-        /// Bind current thread of current process.
-        const CPUBIND_THREAD  = (1<<1);
-        /// Request for strict binding from the OS.
-        const CPUBIND_STRICT = (1<<2);
-        /// Avoid any effect on memory binding.
-        const CPUBIND_NO_MEMBIND = (1<<3);
-    }
-}
-
-bitflags! {
-    #[repr(C)]
-    pub struct MemBindPolicy: i32 {
-        /// Reset the memory allocation policy to the system default. Depending on the operating
-        /// system, this may correspond to MEMBIND_FIRSTTOUCH (Linux), or MEMBIND_BIND (AIX,
-        /// HP-UX, OSF, Solaris, Windows).
-        const MEMBIND_DEFAULT = 0;
-        /// Allocate memory but do not immediately bind it to a specific locality. Instead,
-        /// each page in the allocation is bound only when it is first touched. Pages are
-        /// individually bound to the local NUMA node of the first thread that touches it. If
-        /// there is not enough memory on the node, allocation may be done in the specified
-        /// cpuset before allocating on other nodes.
-        const MEMBIND_FIRSTTOUCH = 1;
-        /// Allocate memory on the specified nodes.
-        const MEMBIND_BIND = 2;
-        /// Allocate memory on the given nodes in an interleaved / round-robin manner.
-        /// The precise layout of the memory across multiple NUMA nodes is OS/system specific.
-        /// Interleaving can be useful when threads distributed across the specified NUMA nodes
-        /// will all be accessing the whole memory range concurrently, since the interleave will
-        /// then balance the memory references.
-        const MEMBIND_INTERLEAVE = 3;
-        /// For each page bound with this policy, by next time it is touched (and next time
-        /// only), it is moved from its current location to the local NUMA node of the thread
-        /// where the memory reference occurred (if it needs to be moved at all).
-        const MEMBIND_NEXTTOUCH = 4;
-        /// Returned by get_membind() functions when multiple threads or parts of a memory
-        /// area have differing memory binding policies.
-        const MEMBIND_MIXED = -1;
-    }
-}
-
-// FIXME: Should not be a Rust enum
-pub enum HwlocTopology {}
-
-// FIXME: Should not be a Rust enum
-#[derive(Debug, PartialEq)]
-pub enum TypeDepthError {
-    /// No object of given type exists in the topology.
-    TypeDepthUnknown = -1,
-    /// Objects of given type exist at different depth in the topology.
-    TypeDepthMultiple = -2,
-    /// Virtual depth for NUMA node object level.
-    TypeDepthNumaNode = -3,
-    /// Virtual depth for bridge object level.
-    TypeDepthBridge = -4,
-    /// Virtual depth for PCI device object level.
-    TypeDepthPCIDevice = -5,
-    /// Virtual depth for software device object level.
-    TypeDepthOSDevice = -6,
-    /// Virtual depth for misc. entry object level.
-    TypeDepthMisc = -7,
-    /// HWLOC returned a depth error which is not known to the rust binding.
-    Unkown = -99,
-}
-
-// TODO: use num_enum here
-const TOPOLOGY_FLAG_INCLUDE_DISALLOWED: i64 = 1;
-const TOPOLOGY_FLAG_IS_THISSYSTEM: i64 = 2;
-const TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES: i64 = 4;
-//
-#[derive(Debug, PartialEq)]
-pub enum TopologyFlag {
-    IncludeDisallowed = TOPOLOGY_FLAG_INCLUDE_DISALLOWED as isize,
-    IsThisSystem = TOPOLOGY_FLAG_IS_THISSYSTEM as isize,
-    ThisSystemAllowedResources = TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES as isize,
-}
-
-impl ToPrimitive for TopologyFlag {
-    fn to_i64(&self) -> Option<i64> {
-        match *self {
-            TopologyFlag::IncludeDisallowed => Some(TopologyFlag::IncludeDisallowed as i64),
-            TopologyFlag::IsThisSystem => Some(TopologyFlag::IsThisSystem as i64),
-            TopologyFlag::ThisSystemAllowedResources => {
-                Some(TopologyFlag::ThisSystemAllowedResources as i64)
-            }
-        }
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        self.to_i64().and_then(|x| x.to_u64())
-    }
-}
-
-impl FromPrimitive for TopologyFlag {
-    fn from_i64(n: i64) -> Option<Self> {
-        match n {
-            TOPOLOGY_FLAG_INCLUDE_DISALLOWED => Some(TopologyFlag::IncludeDisallowed),
-            TOPOLOGY_FLAG_IS_THISSYSTEM => Some(TopologyFlag::IsThisSystem),
-            TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES => {
-                Some(TopologyFlag::ThisSystemAllowedResources)
-            }
-            _ => None,
-        }
-    }
-
-    fn from_u64(n: u64) -> Option<Self> {
-        FromPrimitive::from_i64(n as i64)
-    }
-}
-
-// FIXME: Should not be a Rust enum
-#[repr(C)]
-pub enum TypeFilter {
-    /// Keep all objects of this type
-    KeepAll = 0,
-    /// Ignore all objects of this type
-    KeepNone = 1,
-    /// Only ignore objects if their entire level does not bring any structure
-    KeepStructure = 2,
-    /// Only keep ilkely-important objects of the given type
-    KeepImportant = 3,
 }
 
 macro_rules! extern_c_block {
@@ -167,6 +23,11 @@ macro_rules! extern_c_block {
 
             // Indicate at runtime which hwloc API version was used at build time.
             pub(crate) fn hwloc_get_api_version() -> c_uint;
+
+            // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html ===
+
+            #[must_use]
+            pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
 
             // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html ===
 
@@ -256,11 +117,6 @@ macro_rules! extern_c_block {
                 right: *const RawBitmap,
             ) -> c_int;
 
-            // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html ===
-
-            #[must_use]
-            pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
-
             // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html ===
 
             #[must_use]
@@ -280,108 +136,107 @@ macro_rules! extern_c_block {
 
             // === Topology Creation and Destruction ===
 
-            pub(crate) fn hwloc_topology_init(topology: *mut *mut HwlocTopology) -> c_int;
-            pub(crate) fn hwloc_topology_load(topology: *mut HwlocTopology) -> c_int;
-            pub(crate) fn hwloc_topology_destroy(topology: *mut HwlocTopology);
+            pub(crate) fn hwloc_topology_init(topology: *mut *mut RawTopology) -> c_int;
+            pub(crate) fn hwloc_topology_load(topology: *mut RawTopology) -> c_int;
+            pub(crate) fn hwloc_topology_destroy(topology: *mut RawTopology);
 
             // === Topology Utilities
             pub(crate) fn hwloc_topology_dup(
-                newtop: *mut *mut HwlocTopology,
-                oldtop: *mut HwlocTopology,
+                newtop: *mut *mut RawTopology,
+                oldtop: *mut RawTopology,
             ) -> c_int;
-            pub(crate) fn hwloc_topology_abi_check(topology: *mut HwlocTopology) -> c_int;
-            pub(crate) fn hwloc_topology_check(topology: *mut HwlocTopology) -> c_int;
+            pub(crate) fn hwloc_topology_abi_check(topology: *mut RawTopology) -> c_int;
+            pub(crate) fn hwloc_topology_check(topology: *mut RawTopology) -> c_int;
 
             // === Topology Detection Configuration and Query ===
-            pub(crate) fn hwloc_topology_set_pid(topology: *mut HwlocTopology, pid: pid_t)
-                -> c_int;
+            pub(crate) fn hwloc_topology_set_pid(topology: *mut RawTopology, pid: pid_t) -> c_int;
             pub(crate) fn hwloc_topology_set_synthetic(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 description: *const c_char,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_xml(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 xmlpath: *const c_char,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_xmlbuffer(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 buffer: *const c_char,
                 size: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_components(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 flags: c_ulong,
                 name: *const c_char,
             ) -> c_int;
 
             pub(crate) fn hwloc_topology_set_flags(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 flags: c_ulong,
             ) -> c_int;
-            pub(crate) fn hwloc_topology_get_flags(topology: *mut HwlocTopology) -> c_ulong;
-            pub(crate) fn hwloc_topology_is_thissystem(topology: *mut HwlocTopology) -> c_int;
+            pub(crate) fn hwloc_topology_get_flags(topology: *mut RawTopology) -> c_ulong;
+            pub(crate) fn hwloc_topology_is_thissystem(topology: *mut RawTopology) -> c_int;
 
             pub(crate) fn hwloc_topology_get_support(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
             ) -> *const TopologySupport;
 
             pub(crate) fn hwloc_topology_set_type_filter(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_get_type_filter(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 otype: RawObjectType,
                 filter: *mut c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_all_types_filter(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_cache_types_filter(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_icache_types_filter(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
             pub(crate) fn hwloc_topology_set_io_types_filter(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 otype: RawObjectType,
                 filter: c_uchar,
             ) -> c_int;
 
             pub(crate) fn hwloc_topology_set_userdata(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 data: *const c_void,
             );
-            pub(crate) fn hwloc_topology_get_userdata(topology: *mut HwlocTopology) -> *mut c_void;
+            pub(crate) fn hwloc_topology_get_userdata(topology: *mut RawTopology) -> *mut c_void;
 
             pub(crate) fn hwloc_topology_restrict(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *const RawBitmap,
                 flags: c_ulong,
             ) -> c_int;
             pub(crate) fn hwloc_topology_allow(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *const RawBitmap,
                 flags: c_ulong,
             ) -> c_int;
 
             pub(crate) fn hwloc_topology_insert_misc_object(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 parent: *mut TopologyObject,
                 name: *const c_char,
             ) -> *mut TopologyObject;
             pub(crate) fn hwloc_topology_alloc_group_object(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
             ) -> *mut TopologyObject;
             pub(crate) fn hwloc_topology_insert_group_object(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 group: *mut TopologyObject,
             ) -> *mut TopologyObject;
 
@@ -392,69 +247,69 @@ macro_rules! extern_c_block {
 
             // === Object levels, depths and types ===
 
-            pub(crate) fn hwloc_topology_get_depth(topology: *mut HwlocTopology) -> c_int;
+            pub(crate) fn hwloc_topology_get_depth(topology: *mut RawTopology) -> c_int;
             pub(crate) fn hwloc_get_type_depth(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 object_type: RawObjectType,
             ) -> c_int;
-            pub(crate) fn hwloc_get_memory_parents_depth(topology: *mut HwlocTopology) -> c_int;
+            pub(crate) fn hwloc_get_memory_parents_depth(topology: *mut RawTopology) -> c_int;
             pub(crate) fn hwloc_get_depth_type(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 depth: c_int,
             ) -> RawObjectType;
             pub(crate) fn hwloc_get_nbobjs_by_depth(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 depth: c_uint,
             ) -> c_uint;
 
             pub(crate) fn hwloc_get_obj_by_depth(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 depth: c_uint,
                 idx: c_uint,
             ) -> *mut TopologyObject;
 
             // === CPU Binding ===
             pub(crate) fn hwloc_set_cpubind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *const RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_cpubind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_set_proc_cpubind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 pid: pid_t,
                 set: *const RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_proc_cpubind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 pid: pid_t,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_set_thread_cpubind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 thread: pthread_t,
                 set: *const RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_thread_cpubind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 pid: pthread_t,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_last_cpu_location(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_proc_last_cpu_location(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 pid: pid_t,
                 set: *mut RawBitmap,
                 flags: c_int,
@@ -462,33 +317,33 @@ macro_rules! extern_c_block {
 
             // === Memory Binding ===
             pub(crate) fn hwloc_set_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *const RawBitmap,
                 policy: MemBindPolicy,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 set: *mut RawBitmap,
                 policy: *mut MemBindPolicy,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_set_proc_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 pid: pid_t,
                 set: *const RawBitmap,
                 policy: MemBindPolicy,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_proc_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 pid: pid_t,
                 set: *mut RawBitmap,
                 policy: *mut MemBindPolicy,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_set_area_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 addr: *const c_void,
                 len: size_t,
                 set: *const RawBitmap,
@@ -496,7 +351,7 @@ macro_rules! extern_c_block {
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_area_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 addr: *const c_void,
                 len: size_t,
                 set: *mut RawBitmap,
@@ -504,22 +359,22 @@ macro_rules! extern_c_block {
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_area_memlocation(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 addr: *const c_void,
                 len: size_t,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
-            pub(crate) fn hwloc_alloc(topology: *mut HwlocTopology, len: size_t) -> *mut c_void;
+            pub(crate) fn hwloc_alloc(topology: *mut RawTopology, len: size_t) -> *mut c_void;
             pub(crate) fn hwloc_alloc_membind(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 len: size_t,
                 set: *const RawBitmap,
                 policy: MemBindPolicy,
                 flags: c_int,
             ) -> *mut c_void;
             pub(crate) fn hwloc_free(
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 addr: *mut c_void,
                 len: size_t,
             ) -> c_int;
@@ -549,7 +404,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_type_sscanf_as_depth(
                 strng: *const c_char,
                 obj_type: *mut RawObjectType,
-                topology: *mut HwlocTopology,
+                topology: *mut RawTopology,
                 depthp: *mut c_int,
             ) -> c_int;
 
@@ -569,15 +424,3 @@ extern_c_block!("libhwloc");
 
 #[cfg(not(target_os = "windows"))]
 extern_c_block!("hwloc");
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn should_convert_flag_to_primitive() {
-        assert_eq!(1, TopologyFlag::IncludeDisallowed as u64);
-        assert_eq!(4, TopologyFlag::ThisSystemAllowedResources as u64);
-    }
-}

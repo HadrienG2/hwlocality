@@ -72,20 +72,23 @@
 // TODO: Remove this once the crate is in a better shape
 #![allow(dead_code)]
 
-mod bitmap;
+pub mod bitmap;
 mod ffi;
-mod object;
-mod support;
+pub mod object;
+pub mod support;
 
 use self::{
     bitmap::CpuSet,
-    ffi::{CpuBindFlags, TopologyFlag, TypeDepthError},
     object::{types::ObjectType, TopologyObject},
     support::TopologySupport,
 };
+use bitflags::bitflags;
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
-use std::convert::TryInto;
+use std::{
+    convert::TryInto,
+    marker::{PhantomData, PhantomPinned},
+};
 
 /// Indicate at runtime which hwloc API version was used at build time.
 /// This number is updated to (X<<16)+(Y<<8)+Z when a new release X.Y.Z
@@ -96,8 +99,18 @@ pub fn get_api_version() -> u32 {
     unsafe { ffi::hwloc_get_api_version() as u32 }
 }
 
+/// Opaque topology struct
+///
+/// Represents the private `hwloc_topology_s` type that `hwloc_topology_t` API
+/// pointers map to.
+#[repr(C)]
+pub(crate) struct RawTopology {
+    _data: [u8; 0],
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
+
 pub struct Topology {
-    topo: *mut ffi::HwlocTopology,
+    topo: *mut RawTopology,
     support: *const TopologySupport,
 }
 
@@ -136,7 +149,7 @@ impl Topology {
     /// Note that the topology implements the Drop trait, so when
     /// it goes out of scope no further cleanup is necessary.
     pub fn new() -> Option<Topology> {
-        let mut topo: *mut ffi::HwlocTopology = std::ptr::null_mut();
+        let mut topo: *mut RawTopology = std::ptr::null_mut();
 
         unsafe {
             if ffi::hwloc_topology_init(&mut topo) == -1 {
@@ -169,7 +182,7 @@ impl Topology {
     /// Note that the topology implements the Drop trait, so when
     /// it goes out of scope no further cleanup is necessary.
     pub fn with_flags(flags: Vec<TopologyFlag>) -> Option<Topology> {
-        let mut topo: *mut ffi::HwlocTopology = std::ptr::null_mut();
+        let mut topo: *mut RawTopology = std::ptr::null_mut();
 
         let final_flag = flags
             .iter()
@@ -566,9 +579,150 @@ impl Drop for Topology {
     }
 }
 
+bitflags! {
+    /// Process/Thread binding flags.
+    ///
+    /// These bit flags can be used to refine the binding policy.
+    ///
+    /// The default (Process) is to bind the current process, assumed to be
+    /// single-threaded, in a non-strict way.  This is the most portable
+    /// way to bind as all operating systems usually provide it.
+    ///
+    /// **Note:** Not all systems support all kinds of binding.
+    ///
+    /// The following flags (constants) are available:
+    ///
+    /// - **CPUBIND_PROCESS:** Bind all threads of the current (possibly) multithreaded process.
+    /// - **CPUBIND_THREAD:** Bind current thread of current process.
+    /// - **CPUBIND_STRICT:** Request for strict binding from the OS.
+    /// - **CPUBIND_NO_MEMBIND:** Avoid any effect on memory binding.
+    #[repr(C)]
+    pub struct CpuBindFlags: i32 {
+        /// Bind all threads of the current (possibly) multithreaded process.
+        const CPUBIND_PROCESS = (1<<0);
+        /// Bind current thread of current process.
+        const CPUBIND_THREAD  = (1<<1);
+        /// Request for strict binding from the OS.
+        const CPUBIND_STRICT = (1<<2);
+        /// Avoid any effect on memory binding.
+        const CPUBIND_NO_MEMBIND = (1<<3);
+    }
+}
+
 #[derive(Debug)]
 pub enum CpuBindError {
     Generic(i32, String),
+}
+
+// FIXME: Should not be bitflags, there's nothing flag-y about it
+bitflags! {
+    #[repr(C)]
+    pub struct MemBindPolicy: i32 {
+        /// Reset the memory allocation policy to the system default. Depending on the operating
+        /// system, this may correspond to MEMBIND_FIRSTTOUCH (Linux), or MEMBIND_BIND (AIX,
+        /// HP-UX, OSF, Solaris, Windows).
+        const MEMBIND_DEFAULT = 0;
+        /// Allocate memory but do not immediately bind it to a specific locality. Instead,
+        /// each page in the allocation is bound only when it is first touched. Pages are
+        /// individually bound to the local NUMA node of the first thread that touches it. If
+        /// there is not enough memory on the node, allocation may be done in the specified
+        /// cpuset before allocating on other nodes.
+        const MEMBIND_FIRSTTOUCH = 1;
+        /// Allocate memory on the specified nodes.
+        const MEMBIND_BIND = 2;
+        /// Allocate memory on the given nodes in an interleaved / round-robin manner.
+        /// The precise layout of the memory across multiple NUMA nodes is OS/system specific.
+        /// Interleaving can be useful when threads distributed across the specified NUMA nodes
+        /// will all be accessing the whole memory range concurrently, since the interleave will
+        /// then balance the memory references.
+        const MEMBIND_INTERLEAVE = 3;
+        /// For each page bound with this policy, by next time it is touched (and next time
+        /// only), it is moved from its current location to the local NUMA node of the thread
+        /// where the memory reference occurred (if it needs to be moved at all).
+        const MEMBIND_NEXTTOUCH = 4;
+        /// Returned by get_membind() functions when multiple threads or parts of a memory
+        /// area have differing memory binding policies.
+        const MEMBIND_MIXED = -1;
+    }
+}
+
+// FIXME: Should not be a Rust enum
+#[derive(Debug, PartialEq)]
+pub enum TypeDepthError {
+    /// No object of given type exists in the topology.
+    TypeDepthUnknown = -1,
+    /// Objects of given type exist at different depth in the topology.
+    TypeDepthMultiple = -2,
+    /// Virtual depth for NUMA node object level.
+    TypeDepthNumaNode = -3,
+    /// Virtual depth for bridge object level.
+    TypeDepthBridge = -4,
+    /// Virtual depth for PCI device object level.
+    TypeDepthPCIDevice = -5,
+    /// Virtual depth for software device object level.
+    TypeDepthOSDevice = -6,
+    /// Virtual depth for misc. entry object level.
+    TypeDepthMisc = -7,
+    /// HWLOC returned a depth error which is not known to the rust binding.
+    Unkown = -99,
+}
+
+// TODO: use num_enum here
+const TOPOLOGY_FLAG_INCLUDE_DISALLOWED: i64 = 1;
+const TOPOLOGY_FLAG_IS_THISSYSTEM: i64 = 2;
+const TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES: i64 = 4;
+//
+#[derive(Debug, PartialEq)]
+pub enum TopologyFlag {
+    IncludeDisallowed = TOPOLOGY_FLAG_INCLUDE_DISALLOWED as isize,
+    IsThisSystem = TOPOLOGY_FLAG_IS_THISSYSTEM as isize,
+    ThisSystemAllowedResources = TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES as isize,
+}
+
+impl ToPrimitive for TopologyFlag {
+    fn to_i64(&self) -> Option<i64> {
+        match *self {
+            TopologyFlag::IncludeDisallowed => Some(TopologyFlag::IncludeDisallowed as i64),
+            TopologyFlag::IsThisSystem => Some(TopologyFlag::IsThisSystem as i64),
+            TopologyFlag::ThisSystemAllowedResources => {
+                Some(TopologyFlag::ThisSystemAllowedResources as i64)
+            }
+        }
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        self.to_i64().and_then(|x| x.to_u64())
+    }
+}
+
+impl FromPrimitive for TopologyFlag {
+    fn from_i64(n: i64) -> Option<Self> {
+        match n {
+            TOPOLOGY_FLAG_INCLUDE_DISALLOWED => Some(TopologyFlag::IncludeDisallowed),
+            TOPOLOGY_FLAG_IS_THISSYSTEM => Some(TopologyFlag::IsThisSystem),
+            TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES => {
+                Some(TopologyFlag::ThisSystemAllowedResources)
+            }
+            _ => None,
+        }
+    }
+
+    fn from_u64(n: u64) -> Option<Self> {
+        FromPrimitive::from_i64(n as i64)
+    }
+}
+
+// FIXME: Should not be a Rust enum
+#[repr(C)]
+pub enum TypeFilter {
+    /// Keep all objects of this type
+    KeepAll = 0,
+    /// Ignore all objects of this type
+    KeepNone = 1,
+    /// Only ignore objects if their entire level does not bring any structure
+    KeepStructure = 2,
+    /// Only keep ilkely-important objects of the given type
+    KeepImportant = 3,
 }
 
 #[cfg(test)]
@@ -666,5 +820,11 @@ mod tests {
                 (CpuBindFlags::CPUBIND_STRICT | CpuBindFlags::CPUBIND_PROCESS).bits()
             )
         );
+    }
+
+    #[test]
+    fn should_convert_flag_to_primitive() {
+        assert_eq!(1, TopologyFlag::IncludeDisallowed as u64);
+        assert_eq!(4, TopologyFlag::ThisSystemAllowedResources as u64);
     }
 }

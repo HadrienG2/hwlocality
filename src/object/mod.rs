@@ -14,7 +14,7 @@ use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     ffi,
 };
-use libc::{c_char, c_float, c_int, c_uint, c_ulonglong, c_void};
+use libc::{c_char, c_float, c_int, c_uint, c_void};
 use std::{ffi::CStr, fmt};
 
 /// Hardware topology object
@@ -28,7 +28,8 @@ pub struct TopologyObject {
     name: *mut c_char,
     total_memory: u64,
     attr: *mut RawObjectAttributes,
-    depth: c_uint,
+    depth: RawTypeDepth,
+    // TODO: Left to check
     logical_index: c_uint,
     next_cousin: *mut TopologyObject,
     prev_cousin: *mut TopologyObject,
@@ -97,14 +98,21 @@ impl TopologyObject {
         unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
     }
 
-    /// Vertical index in the hierarchy.
+    /// Vertical index in the hierarchy
     ///
-    /// If the topology is symmetric, this is equal to the parent
-    /// depth plus one, and also equal to the number of parent/child
-    /// links from the root object to here.
-    pub fn depth(&self) -> u32 {
+    /// For normal objects, this is the depth of the horizontal level that
+    /// contains this object and its cousins of the same type. If the topology
+    /// is symmetric, this is equal to the parent depth plus one, and also equal
+    /// to the number of parent/child links from the root object to here.
+    ///
+    /// For special objects (NUMA nodes, I/O and Misc) that are not in the main
+    /// tree, this is a special negative value that corresponds to their
+    /// dedicated level.
+    pub fn depth(&self) -> TypeDepth {
         self.depth
     }
+
+    // TODO: Left to check
 
     /// Horizontal index in the whole list of similar objects, hence guaranteed
     /// unique across the entire machine.
@@ -306,38 +314,12 @@ impl fmt::Debug for TopologyObject {
     }
 }
 
-#[repr(C)]
-pub struct TopologyObjectMemory {
-    total_memory: c_ulonglong,
-    local_memory: c_ulonglong,
-    page_types_len: c_uint,                        // todo: getter
-    page_types: *mut TopologyObjectMemoryPageType, // todo: getter
-}
-
-impl TopologyObjectMemory {
-    /// The total memory (in bytes) in this object and its children.
-    pub fn total_memory(&self) -> u64 {
-        self.total_memory
-    }
-
-    /// The local memory (in bytes) in this object.
-    pub fn local_memory(&self) -> u64 {
-        self.local_memory
-    }
-}
-
-#[repr(C)]
-pub struct TopologyObjectMemoryPageType {
-    size: c_ulonglong,
-    count: c_ulonglong,
-}
-
 /// Key-value info attributes
 ///
 /// hwloc defines a number of standard info attribute names with associated
-/// semantics, please check
+/// semantics, please check out
 /// https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info for
-/// an up-to-date list.
+/// more information.
 #[repr(C)]
 pub struct TopologyObjectInfo {
     name: *mut c_char,
