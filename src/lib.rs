@@ -218,6 +218,8 @@ impl Topology {
             !ptr.is_null(),
             "Got null pointer from hwloc_topology_get_support"
         );
+        // This is correct because the output reference will be bound the the
+        // lifetime of &self by the borrow checker.
         unsafe { &*ptr }
     }
 
