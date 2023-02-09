@@ -94,13 +94,14 @@ use self::{
 };
 use bitflags::bitflags;
 use errno::{errno, Errno};
-use libc::EINVAL;
+use libc::{EINVAL, ENOSYS, EXDEV};
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
     ptr::NonNull,
 };
+use thiserror::Error;
 
 /// Indicate at runtime which hwloc API version was used at build time.
 /// This number is updated to (X<<16)+(Y<<8)+Z when a new release X.Y.Z
@@ -444,132 +445,146 @@ impl Topology {
         })
     }
 
-    // ### FIXME: Not refactored yet ###
+    // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
 
-    /// Binds the current process or thread on CPUs given in the `CpuSet`.
-    pub fn set_cpubind(&mut self, set: &CpuSet, flags: CpuBindFlags) -> Result<(), CpuBindError> {
+    /// Binds the current process or thread on given CPUs
+    pub fn bind_cpu(
+        &mut self,
+        set: &CpuSet,
+        flags: CpuBindingFlags,
+    ) -> Result<(), CpuBindingError> {
         let result =
             unsafe { ffi::hwloc_set_cpubind(self.as_mut_ptr(), set.as_ptr(), flags.bits()) };
-
         match result {
-            r if r < 0 => {
-                let e = errno();
-                Err(CpuBindError::Generic(e.0, format!("{e}")))
-            }
-            _ => Ok(()),
+            x if x >= 0 => Ok(()),
+            -1 => Err({
+                let errno = errno();
+                match errno.0 {
+                    ENOSYS => CpuBindingError::Unsupported,
+                    EXDEV => CpuBindingError::Ineffective,
+                    _ => CpuBindingError::UnexpectedErrno(errno),
+                }
+            }),
+            negative => Err(CpuBindingError::UnexpectedResult(negative)),
         }
     }
 
-    /// Get current process or thread binding.
-    pub fn get_cpubind(&self, flags: CpuBindFlags) -> Option<CpuSet> {
+    /// Get current process or thread CPU binding
+    pub fn cpu_binding(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
-        let res =
+        let result =
             unsafe { ffi::hwloc_get_cpubind(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits()) };
-        if res >= 0 {
-            Some(cpuset)
+        if result >= 0 {
+            Ok(cpuset)
         } else {
-            None
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
 
-    /// Binds a process (identified by its `pid`) on CPUs identified by the given `CpuSet`.
-    pub fn set_cpubind_for_process(
+    /// Binds a process (identified by its `pid`) on given CPUs
+    pub fn bind_process_cpu(
         &mut self,
-        pid: pid_t,
+        pid: ProcessID,
         set: &CpuSet,
-        flags: CpuBindFlags,
-    ) -> Result<(), CpuBindError> {
+        flags: CpuBindingFlags,
+    ) -> Result<(), CpuBindingError> {
         let result = unsafe {
             ffi::hwloc_set_proc_cpubind(self.as_mut_ptr(), pid, set.as_ptr(), flags.bits())
         };
-
-        match result {
-            r if r < 0 => {
-                let e = errno();
-                Err(CpuBindError::Generic(e.0, format!("{e}")))
-            }
-            _ => Ok(()),
+        if result >= 0 {
+            Ok(())
+        } else {
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
 
     /// Get the current physical binding of a process, identified by its `pid`.
-    pub fn get_cpubind_for_process(&self, pid: pid_t, flags: CpuBindFlags) -> Option<CpuSet> {
+    pub fn process_cpu_binding(
+        &self,
+        pid: ProcessID,
+        flags: CpuBindingFlags,
+    ) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe {
+        let result = unsafe {
             ffi::hwloc_get_proc_cpubind(self.as_ptr(), pid, cpuset.as_mut_ptr(), flags.bits())
         };
-        if res >= 0 {
-            Some(cpuset)
+        if result >= 0 {
+            Ok(cpuset)
         } else {
-            None
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
 
-    /// Bind a thread (by its `tid`) on CPUs given in through the `CpuSet`.
-    pub fn set_cpubind_for_thread(
+    /// Bind a thread (by its `tid`) on given CPUs
+    pub fn bind_thread_cpu(
         &mut self,
-        tid: pthread_t,
+        tid: ThreadID,
         set: &CpuSet,
-        flags: CpuBindFlags,
-    ) -> Result<(), CpuBindError> {
+        flags: CpuBindingFlags,
+    ) -> Result<(), CpuBindingError> {
         let result = unsafe {
             ffi::hwloc_set_thread_cpubind(self.as_mut_ptr(), tid, set.as_ptr(), flags.bits())
         };
-
-        match result {
-            r if r < 0 => {
-                let e = errno();
-                Err(CpuBindError::Generic(e.0, format!("{e}")))
-            }
-            _ => Ok(()),
+        if result >= 0 {
+            Ok(())
+        } else {
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
 
     /// Get the current physical binding of thread `tid`.
-    pub fn get_cpubind_for_thread(&self, tid: pthread_t, flags: CpuBindFlags) -> Option<CpuSet> {
+    pub fn thread_cpu_binding(
+        &self,
+        tid: ThreadID,
+        flags: CpuBindingFlags,
+    ) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe {
+        let result = unsafe {
             ffi::hwloc_get_thread_cpubind(self.as_ptr(), tid, cpuset.as_mut_ptr(), flags.bits())
         };
-        if res >= 0 {
-            Some(cpuset)
+        if result >= 0 {
+            Ok(cpuset)
         } else {
-            None
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
 
-    /// Get the last physical CPU where the current process or thread ran.
+    /// Get the last physical CPUs where the current process or thread ran
     ///
     /// The operating system may move some tasks from one processor
     /// to another at any time according to their binding,
     /// so this function may return something that is already
     /// outdated.
     ///
-    /// Flags can include either `CPUBIND_PROCESS` or `CPUBIND_THREAD` to
-    /// specify whether the query should be for the whole process (union of all CPUs
-    /// on which all threads are running), or only the current thread. If the
-    /// process is single-threaded, flags can be set to zero to let hwloc use
-    /// whichever method is available on the underlying OS.
-    pub fn get_cpu_location(&self, flags: CpuBindFlags) -> Option<CpuSet> {
+    /// Flags can include either `PROCESS` or `THREAD` to specify whether the
+    /// query should be for the whole process (union of all CPUs on which all
+    /// threads are running), or only the current thread. If the process is
+    /// single-threaded, flags can be set to empty() to let hwloc use whichever
+    /// method is available on the underlying OS.
+    pub fn last_cpu_location(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe {
+        let result = unsafe {
             ffi::hwloc_get_last_cpu_location(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         };
-        if res >= 0 {
-            Some(cpuset)
+        if result >= 0 {
+            Ok(cpuset)
         } else {
-            None
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
 
     /// Get the last physical CPU where a process ran.
     ///
-    /// The operating system may move some tasks from one processor to another at any
-    /// time according to their binding, so this function may return something that is
-    /// already outdated.
-    pub fn get_cpu_location_for_process(&self, pid: pid_t, flags: CpuBindFlags) -> Option<CpuSet> {
+    /// The operating system may move some tasks from one processor to another
+    /// at any time according to their binding, so this function may return
+    /// something that is already outdated.
+    pub fn last_process_cpu_location(
+        &self,
+        pid: ProcessID,
+        flags: CpuBindingFlags,
+    ) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe {
+        let result = unsafe {
             ffi::hwloc_get_proc_last_cpu_location(
                 self.as_ptr(),
                 pid,
@@ -577,12 +592,14 @@ impl Topology {
                 flags.bits(),
             )
         };
-        if res >= 0 {
-            Some(cpuset)
+        if result >= 0 {
+            Ok(cpuset)
         } else {
-            None
+            Err(CpuBindingError::UnexpectedResult(result))
         }
     }
+
+    // === Internal utilities ===
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
@@ -613,20 +630,18 @@ impl Clone for Topology {
 unsafe impl Send for Topology {}
 unsafe impl Sync for Topology {}
 
-// ### FIXME: Tidy up the following mess ###
-
-#[allow(non_camel_case_types)]
 #[cfg(target_os = "windows")]
-pub type pthread_t = winapi::winnt::HANDLE;
-#[allow(non_camel_case_types)]
+/// Thread identifier
+pub type ThreadID = winapi::winnt::HANDLE;
 #[cfg(target_os = "windows")]
-pub type pid_t = winapi::minwindef::DWORD;
-#[allow(non_camel_case_types)]
+/// Process identifier
+pub type ProcessID = winapi::minwindef::DWORD;
 #[cfg(not(target_os = "windows"))]
-pub type pthread_t = libc::pthread_t;
-#[allow(non_camel_case_types)]
+/// Thread identifier
+pub type ThreadID = libc::pthread_t;
 #[cfg(not(target_os = "windows"))]
-pub type pid_t = libc::pid_t;
+/// Process identifier
+pub type ProcessID = libc::pid_t;
 
 bitflags! {
     /// Process/Thread binding flags.
@@ -639,25 +654,77 @@ bitflags! {
     ///
     /// **Note:** Not all systems support all kinds of binding.
     #[repr(C)]
-    pub struct CpuBindFlags: i32 {
-        /// Bind all threads of the current (possibly) multithreaded process.
-        const CPUBIND_PROCESS = (1<<0);
+    pub struct CpuBindingFlags: u32 {
+        /// Bind all threads of the current (possibly) multithreaded process
+        const PROCESS = (1<<0);
 
-        /// Bind current thread of current process.
-        const CPUBIND_THREAD  = (1<<1);
+        /// Bind current thread of current process
+        const THREAD  = (1<<1);
 
-        /// Request for strict binding from the OS.
-        const CPUBIND_STRICT = (1<<2);
+        /// Request for strict binding from the OS
+        ///
+        /// By default, when the designated CPUs are all busy while other CPUs
+        /// are idle, operating systems may execute the thread/process on those
+        /// other CPUs instead of the designated CPUs, to let them progress
+        /// anyway. Strict binding means that the thread/process will _never_
+        /// execute on other CPUs than the designated CPUs, even when those are
+        /// busy with other tasks and other CPUs are idle.
+        ///
+        /// Depending on the operating system, strict binding may not be
+        /// possible (e.g. the OS does not implement it) or not allowed (e.g.
+        /// for an administrative reasons), and the binding function will fail
+        /// in that case.
+        ///
+        /// When retrieving the binding of a process, this flag checks whether
+        /// all its threads actually have the same binding. If the flag is not
+        /// given, the binding of each thread will be accumulated.
+        ///
+        /// This flag is meaningless when retrieving the binding of a thread.
+        const STRICT = (1<<2);
 
-        /// Avoid any effect on memory binding.
-        const CPUBIND_NO_MEMBIND = (1<<3);
+        /// Avoid any effect on memory binding
+        ///
+        /// On some operating systems, some CPU binding function would also bind
+        /// the memory on the corresponding NUMA node. It is often not a problem
+        /// for the application, but if it is, setting this flag will make hwloc
+        /// avoid using OS functions that would also bind memory. This will
+        /// however reduce the support of CPU bindings, i.e. potentially
+        /// result in the binding function erroring out with ENOSYS.
+        ///
+        /// This flag is only meaningful when used with functions that set the
+        /// CPU binding. It is ignored when used with functions that get CPU
+        /// binding information.
+        const NO_MEMORY_BINDING = (1<<3);
     }
 }
 
-#[derive(Debug)]
-pub enum CpuBindError {
-    Generic(i32, String),
+impl Default for CpuBindingFlags {
+    fn default() -> Self {
+        Self::PROCESS
+    }
 }
+
+/// Errors that can occur when binding processes or threads to CPUSets
+#[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
+pub enum CpuBindingError {
+    /// Action is not supported
+    #[error("Action is not supported")]
+    Unsupported,
+
+    /// Binding cannot be enforced
+    #[error("Binding cannot be enforced")]
+    Ineffective,
+
+    /// Unexpected errno value
+    #[error("Unexpected errno value {0}")]
+    UnexpectedErrno(Errno),
+
+    /// Unexpected binding function result
+    #[error("Unexpected binding function result {0}")]
+    UnexpectedResult(i32),
+}
+
+// ### FIXME: Tidy up the following mess ###
 
 // FIXME: Should not be bitflags, there's nothing flag-y about it
 bitflags! {
@@ -791,14 +858,14 @@ mod tests {
 
     #[test]
     fn should_produce_cpubind_bitflags() {
-        assert_eq!("1", format!("{:b}", CpuBindFlags::CPUBIND_PROCESS.bits()));
-        assert_eq!("10", format!("{:b}", CpuBindFlags::CPUBIND_THREAD.bits()));
-        assert_eq!("100", format!("{:b}", CpuBindFlags::CPUBIND_STRICT.bits()));
+        assert_eq!("1", format!("{:b}", CpuBindingFlags::PROCESS.bits()));
+        assert_eq!("10", format!("{:b}", CpuBindingFlags::THREAD.bits()));
+        assert_eq!("100", format!("{:b}", CpuBindingFlags::STRICT.bits()));
         assert_eq!(
             "101",
             format!(
                 "{:b}",
-                (CpuBindFlags::CPUBIND_STRICT | CpuBindFlags::CPUBIND_PROCESS).bits()
+                (CpuBindingFlags::STRICT | CpuBindingFlags::PROCESS).bits()
             )
         );
     }

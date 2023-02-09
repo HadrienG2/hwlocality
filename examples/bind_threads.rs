@@ -1,4 +1,4 @@
-use hwloc2::{bitmap::CpuSet, objects::types::ObjectType, CpuBindFlags, Topology};
+use hwloc2::{bitmap::CpuSet, objects::types::ObjectType, CpuBindingFlags, Topology};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -33,7 +33,7 @@ fn main() {
                 let mut locked_topo = child_topo.lock().unwrap();
 
                 // Thread binding before explicit set.
-                let before = locked_topo.get_cpubind_for_thread(tid, CpuBindFlags::CPUBIND_THREAD);
+                let before = locked_topo.thread_cpu_binding(tid, CpuBindingFlags::THREAD);
 
                 // load the cpuset for the given core index.
                 let mut bind_to = cpuset_for_core(&*locked_topo, i).clone();
@@ -43,11 +43,11 @@ fn main() {
 
                 // Set the binding.
                 locked_topo
-                    .set_cpubind_for_thread(tid, &bind_to, CpuBindFlags::CPUBIND_THREAD)
+                    .bind_thread_cpu(tid, &bind_to, CpuBindingFlags::THREAD)
                     .unwrap();
 
                 // Thread binding after explicit set.
-                let after = locked_topo.get_cpubind_for_thread(tid, CpuBindFlags::CPUBIND_THREAD);
+                let after = locked_topo.thread_cpu_binding(tid, CpuBindingFlags::THREAD);
                 println!("Thread {}: Before {:?}, After {:?}", i, before, after);
             })
         })

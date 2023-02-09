@@ -1,6 +1,6 @@
 use hwloc2::{
     objects::{types::ObjectType, TopologyObject},
-    CpuBindFlags, Topology,
+    CpuBindingFlags, Topology,
 };
 
 /// Example which binds an arbitrary process (in this example this very same one) to
@@ -21,27 +21,27 @@ fn main() {
 
     println!(
         "Before Bind: {:?}",
-        topo.get_cpubind_for_process(pid, CpuBindFlags::CPUBIND_PROCESS)
+        topo.process_cpu_binding(pid, CpuBindingFlags::PROCESS)
             .unwrap()
     );
 
     // Last CPU Location for this PID (not implemented on all systems)
-    if let Some(l) = topo.get_cpu_location_for_process(pid, CpuBindFlags::CPUBIND_PROCESS) {
+    if let Ok(l) = topo.last_process_cpu_location(pid, CpuBindingFlags::PROCESS) {
         println!("Last Known CPU Location: {:?}", l);
     }
 
     // Bind to one core.
-    topo.set_cpubind_for_process(pid, &cpuset, CpuBindFlags::CPUBIND_PROCESS)
+    topo.bind_process_cpu(pid, &cpuset, CpuBindingFlags::PROCESS)
         .unwrap();
 
     println!(
         "After Bind: {:?}",
-        topo.get_cpubind_for_process(pid, CpuBindFlags::CPUBIND_PROCESS)
+        topo.process_cpu_binding(pid, CpuBindingFlags::PROCESS)
             .unwrap()
     );
 
     // Last CPU Location for this PID (not implemented on all systems)
-    if let Some(l) = topo.get_cpu_location_for_process(pid, CpuBindFlags::CPUBIND_PROCESS) {
+    if let Ok(l) = topo.last_process_cpu_location(pid, CpuBindingFlags::PROCESS) {
         println!("Last Known CPU Location: {:?}", l);
     }
 }

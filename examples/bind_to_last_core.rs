@@ -1,6 +1,6 @@
 use hwloc2::{
     objects::{types::ObjectType, TopologyObject},
-    CpuBindFlags, Topology,
+    CpuBindingFlags, Topology,
 };
 
 /// Bind to only one thread of the last core of the machine.
@@ -29,15 +29,15 @@ fn main() {
     // Print the current cpu binding before explicit setting
     println!(
         "Cpu Binding before explicit bind: {:?}",
-        topo.get_cpubind(CpuBindFlags::CPUBIND_PROCESS)
+        topo.cpu_binding(CpuBindingFlags::PROCESS)
     );
     println!(
         "Cpu Location before explicit bind: {:?}",
-        topo.get_cpu_location(CpuBindFlags::CPUBIND_PROCESS)
+        topo.last_cpu_location(CpuBindingFlags::PROCESS)
     );
 
     // Try to bind all threads of the current (possibly multithreaded) process.
-    match topo.set_cpubind(&cpuset, CpuBindFlags::CPUBIND_PROCESS) {
+    match topo.bind_cpu(&cpuset, CpuBindingFlags::PROCESS) {
         Ok(_) => println!("Correctly bound to last core"),
         Err(e) => println!("Failed to bind: {:?}", e),
     }
@@ -45,11 +45,11 @@ fn main() {
     // Print the current cpu binding after explicit setting
     println!(
         "Cpu Binding after explicit bind: {:?}",
-        topo.get_cpubind(CpuBindFlags::CPUBIND_PROCESS)
+        topo.cpu_binding(CpuBindingFlags::PROCESS)
     );
     println!(
         "Cpu Location after explicit bind: {:?}",
-        topo.get_cpu_location(CpuBindFlags::CPUBIND_PROCESS)
+        topo.last_cpu_location(CpuBindingFlags::PROCESS)
     );
 }
 

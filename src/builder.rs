@@ -257,3 +257,9 @@ bitflags! {
         const IGNORE_CPU_KINDS = (1<<9); // aka HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS
     }
 }
+
+impl Default for TopologyFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
