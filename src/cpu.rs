@@ -3,7 +3,7 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 
 use bitflags::bitflags;
-use errno::Errno;
+use errno::{errno, Errno};
 use thiserror::Error;
 
 bitflags! {
@@ -83,6 +83,13 @@ pub enum CpuBindingError {
     UnexpectedErrno(Errno),
 
     /// Unexpected binding function result
-    #[error("Unexpected binding function result {0}")]
-    UnexpectedResult(i32),
+    #[error("Unexpected binding function result {0} with errno {1}")]
+    UnexpectedResult(i32, Errno),
+}
+
+/// UnexpectedResult variant shortcut when result semantics are undocumented
+pub(crate) fn ok_or_unexpected<T>(result: i32, ok: T) -> Result<T, CpuBindingError> {
+    (result < 0)
+        .then_some(ok)
+        .ok_or_else(|| CpuBindingError::UnexpectedResult(result, errno()))
 }

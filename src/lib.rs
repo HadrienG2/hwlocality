@@ -475,7 +475,7 @@ impl Topology {
                     _ => CpuBindingError::UnexpectedErrno(errno),
                 }
             }),
-            negative => Err(CpuBindingError::UnexpectedResult(negative)),
+            negative => Err(CpuBindingError::UnexpectedResult(negative, errno())),
         }
     }
 
@@ -484,11 +484,7 @@ impl Topology {
         let mut cpuset = CpuSet::new();
         let result =
             unsafe { ffi::hwloc_get_cpubind(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits()) };
-        if result >= 0 {
-            Ok(cpuset)
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, cpuset)
     }
 
     /// Binds a process (identified by its `pid`) on given CPUs
@@ -501,11 +497,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_set_proc_cpubind(self.as_mut_ptr(), pid, set.as_ptr(), flags.bits())
         };
-        if result >= 0 {
-            Ok(())
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, ())
     }
 
     /// Get the current physical binding of a process, identified by its `pid`.
@@ -518,11 +510,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_proc_cpubind(self.as_ptr(), pid, cpuset.as_mut_ptr(), flags.bits())
         };
-        if result >= 0 {
-            Ok(cpuset)
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, cpuset)
     }
 
     /// Bind a thread (by its `tid`) on given CPUs
@@ -535,11 +523,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_set_thread_cpubind(self.as_mut_ptr(), tid, set.as_ptr(), flags.bits())
         };
-        if result >= 0 {
-            Ok(())
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, ())
     }
 
     /// Get the current physical binding of thread `tid`.
@@ -552,11 +536,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_thread_cpubind(self.as_ptr(), tid, cpuset.as_mut_ptr(), flags.bits())
         };
-        if result >= 0 {
-            Ok(cpuset)
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, cpuset)
     }
 
     /// Get the last physical CPUs where the current process or thread ran
@@ -576,11 +556,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_last_cpu_location(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         };
-        if result >= 0 {
-            Ok(cpuset)
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, cpuset)
     }
 
     /// Get the last physical CPU where a process ran.
@@ -602,11 +578,7 @@ impl Topology {
                 flags.bits(),
             )
         };
-        if result >= 0 {
-            Ok(cpuset)
-        } else {
-            Err(CpuBindingError::UnexpectedResult(result))
-        }
+        cpu::ok_or_unexpected(result, cpuset)
     }
 
     // === Internal utilities ===
