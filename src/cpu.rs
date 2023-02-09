@@ -4,6 +4,7 @@
 
 use bitflags::bitflags;
 use errno::{errno, Errno};
+use libc::{ENOSYS, EXDEV};
 use thiserror::Error;
 
 bitflags! {
@@ -11,9 +12,12 @@ bitflags! {
     ///
     /// These bit flags can be used to refine the binding policy.
     ///
-    /// The default (Process) is to bind the current process, assumed to be
+    /// The default (`PROCESS`) is to bind the current process, assumed to be
     /// single-threaded, in a non-strict way.  This is the most portable
     /// way to bind as all operating systems usually provide it.
+    ///
+    /// For multi-threaded processes, `THREAD` should be used instead as the
+    /// most portable option.
     ///
     /// **Note:** Not all systems support all kinds of binding.
     #[repr(C)]
@@ -71,10 +75,20 @@ impl Default for CpuBindingFlags {
 #[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
 pub enum CpuBindingError {
     /// Action is not supported
+    ///
+    /// This error may not be reported if `CpuBindingFlags::STRICT` is not set.
+    /// Instead, the implementation is allowed to try to use a slightly
+    /// different operation (with side-effects, smaller binding set, etc.) when
+    /// the requested operation is not exactly supported.
     #[error("Action is not supported")]
     Unsupported,
 
     /// Binding cannot be enforced
+    ///
+    /// This error may not be reported if `CpuBindingFlags::STRICT` is not set.
+    /// Instead, the implementation is allowed to try to use a slightly
+    /// different operation (with side-effects, smaller binding set, etc.) when
+    /// the requested operation is not exactly supported.
     #[error("Binding cannot be enforced")]
     Ineffective,
 
@@ -87,9 +101,18 @@ pub enum CpuBindingError {
     UnexpectedResult(i32, Errno),
 }
 
-/// UnexpectedResult variant shortcut when result semantics are undocumented
-pub(crate) fn ok_or_unexpected<T>(result: i32, ok: T) -> Result<T, CpuBindingError> {
-    (result < 0)
-        .then_some(ok)
-        .ok_or_else(|| CpuBindingError::UnexpectedResult(result, errno()))
+/// CPU binding result builder
+pub(crate) fn result<T>(result: i32, ok: T) -> Result<T, CpuBindingError> {
+    match result {
+        x if x >= 0 => Ok(ok),
+        -1 => Err({
+            let errno = errno();
+            match errno.0 {
+                ENOSYS => CpuBindingError::Unsupported,
+                EXDEV => CpuBindingError::Ineffective,
+                _ => CpuBindingError::UnexpectedErrno(errno),
+            }
+        }),
+        negative => Err(CpuBindingError::UnexpectedResult(negative, errno())),
+    }
 }

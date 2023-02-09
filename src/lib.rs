@@ -458,6 +458,33 @@ impl Topology {
     // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
 
     /// Binds the current process or thread on given CPUs
+    ///
+    /// Some operating systems only support binding threads or processes to a
+    /// single PU. Others allow binding to larger sets such as entire Cores or
+    /// Packages or even random sets of individual PUs. In such operating
+    /// systems, the scheduler is free to run the task on one of these PU, then
+    /// migrate it to another PU, etc. It is often useful to call `singlify()`
+    /// on the target CPU set before passing it to the binding function to avoid
+    /// these expensive migrations. See the documentation of
+    /// `Bitmap::singlify()` for details.
+    ///
+    /// Some operating systems do not provide all hwloc-supported mechanisms to
+    /// bind processes, threads, etc. `Topology::support()` may be used to query
+    /// about the actual CPU binding support in the currently used operating
+    /// system.
+    ///
+    /// By default, when the requested binding operation is not available, hwloc
+    /// will go for a similar binding operation (with side-effects, smaller
+    /// binding set, etc). You can inhibit this with `CpuBindingFlags::STRICT`.
+    ///
+    /// To unbind, just call the binding function with either a full cpuset or a
+    /// cpuset equal to the system cpuset.
+    ///
+    /// On some operating systems, CPU binding may have effects on memory
+    /// binding, see `CpuBindingFlags::NO_MEMORY_BINDING`.
+    ///
+    /// Running lstopo --top or hwloc-ps can be a very convenient tool to check
+    /// how binding actually happened.
     pub fn bind_cpu(
         &mut self,
         set: &CpuSet,
@@ -465,18 +492,7 @@ impl Topology {
     ) -> Result<(), CpuBindingError> {
         let result =
             unsafe { ffi::hwloc_set_cpubind(self.as_mut_ptr(), set.as_ptr(), flags.bits()) };
-        match result {
-            x if x >= 0 => Ok(()),
-            -1 => Err({
-                let errno = errno();
-                match errno.0 {
-                    ENOSYS => CpuBindingError::Unsupported,
-                    EXDEV => CpuBindingError::Ineffective,
-                    _ => CpuBindingError::UnexpectedErrno(errno),
-                }
-            }),
-            negative => Err(CpuBindingError::UnexpectedResult(negative, errno())),
-        }
+        cpu::result(result, ())
     }
 
     /// Get current process or thread CPU binding
@@ -484,10 +500,12 @@ impl Topology {
         let mut cpuset = CpuSet::new();
         let result =
             unsafe { ffi::hwloc_get_cpubind(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits()) };
-        cpu::ok_or_unexpected(result, cpuset)
+        cpu::result(result, cpuset)
     }
 
     /// Binds a process (identified by its `pid`) on given CPUs
+    ///
+    /// See `bind_cpu()` for more informations.
     pub fn bind_process_cpu(
         &mut self,
         pid: ProcessID,
@@ -497,7 +515,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_set_proc_cpubind(self.as_mut_ptr(), pid, set.as_ptr(), flags.bits())
         };
-        cpu::ok_or_unexpected(result, ())
+        cpu::result(result, ())
     }
 
     /// Get the current physical binding of a process, identified by its `pid`.
@@ -510,10 +528,12 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_proc_cpubind(self.as_ptr(), pid, cpuset.as_mut_ptr(), flags.bits())
         };
-        cpu::ok_or_unexpected(result, cpuset)
+        cpu::result(result, cpuset)
     }
 
     /// Bind a thread (by its `tid`) on given CPUs
+    ///
+    /// See `bind_cpu()` for more informations.
     pub fn bind_thread_cpu(
         &mut self,
         tid: ThreadID,
@@ -523,7 +543,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_set_thread_cpubind(self.as_mut_ptr(), tid, set.as_ptr(), flags.bits())
         };
-        cpu::ok_or_unexpected(result, ())
+        cpu::result(result, ())
     }
 
     /// Get the current physical binding of thread `tid`.
@@ -536,7 +556,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_thread_cpubind(self.as_ptr(), tid, cpuset.as_mut_ptr(), flags.bits())
         };
-        cpu::ok_or_unexpected(result, cpuset)
+        cpu::result(result, cpuset)
     }
 
     /// Get the last physical CPUs where the current process or thread ran
@@ -556,7 +576,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_last_cpu_location(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         };
-        cpu::ok_or_unexpected(result, cpuset)
+        cpu::result(result, cpuset)
     }
 
     /// Get the last physical CPU where a process ran.
@@ -578,7 +598,7 @@ impl Topology {
                 flags.bits(),
             )
         };
-        cpu::ok_or_unexpected(result, cpuset)
+        cpu::result(result, cpuset)
     }
 
     // === Internal utilities ===
