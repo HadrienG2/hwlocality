@@ -26,7 +26,7 @@
 //! 	for i in 0..topo.depth() {
 //! 		println!("*** Objects at level {}", i);
 //!
-//! 		for (idx, object) in topo.objects_at_depth(i).iter().enumerate() {
+//! 		for (idx, object) in topo.objects_at_depth(i.into()).enumerate() {
 //! 			println!("{}: {}", idx, object);
 //! 		}
 //! 	}
@@ -124,7 +124,7 @@ pub(crate) struct RawTopology {
 pub struct Topology(NonNull<RawTopology>);
 
 impl Topology {
-    // === Topology building ===
+    // === Topology building: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
 
     /// Creates a new Topology.
     ///
@@ -151,24 +151,6 @@ impl Topology {
         TopologyBuilder::new()
     }
 
-    /// Flags that were used to build this topology
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::{Topology,TopologyFlag};
-    ///
-    /// let default_topology = Topology::new().unwrap();
-    /// assert_eq!(0, default_topology.flags().len());
-    ///
-    /// let topology_with_flags = Topology::with_flags(vec![TopologyFlag::IsThisSystem]).unwrap();
-    /// assert_eq!(vec![TopologyFlag::IsThisSystem], topology_with_flags.flags());
-    /// ```
-    pub fn build_flags(&self) -> TopologyFlags {
-        TopologyFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
-            .expect("Encountered unexpected topology flags")
-    }
-
     /// Check that this topology is compatible with the current hwloc library
     ///
     /// This is useful when using the same topology structure (in memory) in
@@ -191,12 +173,47 @@ impl Topology {
         }
     }
 
-    // ### FIXME: Not refactored yet ###
+    // === Topology Detection Configuration and Query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
 
-    /// Retrieve the topology support
+    /// Flags that were used to build this topology
     ///
-    /// This documents which hwloc features are supported by the current
-    /// topology on the current machine
+    /// # Examples
+    ///
+    /// ```
+    /// use hwloc2::{Topology,TopologyFlags};
+    ///
+    /// let default_topology = Topology::new().unwrap();
+    /// assert_eq!(TopologyFlags::empty(), default_topology.build_flags());
+    ///
+    /// let topology_with_flags =
+    ///     Topology::builder().unwrap()
+    ///         .with_flags(TopologyFlags::ASSUME_THIS_SYSTEM).unwrap()
+    ///         .build().unwrap();
+    /// assert_eq!(
+    ///     TopologyFlags::ASSUME_THIS_SYSTEM,
+    ///     topology_with_flags.build_flags()
+    /// );
+    /// ```
+    pub fn build_flags(&self) -> TopologyFlags {
+        TopologyFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+            .expect("Encountered unexpected topology flags")
+    }
+
+    /// Supported hwloc features with this topology on this machine
+    ///
+    /// This is the information that one gets via the `hwloc-info --support` CLI.
+    ///
+    /// The reported features are what the current topology supports on the
+    /// current machine. If the topology was exported to XML from another
+    /// machine and later imported here, support still describes what is
+    /// supported for this imported topology after import. By default, binding
+    /// will be reported as unsupported in this case (see
+    /// `TopologyFlags::ASSUME_THIS_SYSTEM`).
+    ///
+    /// `TopologyFlags::IMPORT_SUPPORT` may be used during topology building to
+    /// report the supported features of the original remote machine instead. If
+    /// it was successfully imported, imported_support will be set in the struct
+    /// hwloc_topology_misc_support array. (TODO: adapt)
     pub fn support(&self) -> &TopologySupport {
         let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
         assert!(
@@ -252,13 +269,13 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology,ObjectType};
+    /// use hwloc2::{Topology, objects::types::ObjectType};
     ///
     /// let topology = Topology::new().unwrap();
     ///
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine).unwrap();
     /// let pu_depth = topology.depth_for_type(ObjectType::PU).unwrap();
-    /// assert!(machine_depth < pu_depth);
+    /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
     /// ```
     ///
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
@@ -285,7 +302,7 @@ impl Topology {
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(DepthError::None) => {
-                let pu_depth = self.depth_for_type(ObjectType::PU)?.assert_normal();
+                let pu_depth = self.depth_for_type(ObjectType::PU)?.assume_normal();
                 for depth in (0..pu_depth).rev() {
                     if self
                         .type_at_depth(depth.into())
@@ -336,14 +353,14 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology,ObjectType};
+    /// use hwloc2::{Topology, objects::types::ObjectType};
     ///
     /// let topology = Topology::new().unwrap();
     ///
     /// // Load depth for PU to assert against
     /// let pu_depth = topology.depth_for_type(ObjectType::PU).unwrap();
     /// // Retrieve the type for the given depth
-    /// assert_eq!(ObjectType::PU, topology.type_at_depth(pu_depth));
+    /// assert_eq!(ObjectType::PU, topology.type_at_depth(pu_depth).unwrap());
     /// ```
     ///
     pub fn type_at_depth(&self, depth: Depth) -> Option<ObjectType> {
@@ -371,7 +388,7 @@ impl Topology {
     /// let topology = Topology::new().unwrap();
     ///
     /// let topo_depth = topology.depth();
-    /// assert!(topology.size_at_depth(topo_depth - 1) > 0);
+    /// assert!(topology.size_at_depth((topo_depth - 1).into()) > 0);
     /// ```
     ///
     pub fn size_at_depth(&self, depth: Depth) -> u32 {
@@ -383,11 +400,14 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology,TopologyObject};
+    /// use hwloc2::Topology;
     ///
     /// let topology = Topology::new().unwrap();
     ///
-    /// assert_eq!(topology.type_at_root(), topology.object_at_root().object_type());
+    /// assert_eq!(
+    ///     topology.type_at_depth(0.into()).unwrap(),
+    ///     topology.root_object().object_type()
+    /// );
     /// ```
     pub fn root_object(&self) -> &TopologyObject {
         self.objects_at_depth(0.into())
@@ -722,7 +742,7 @@ mod tests {
         let topo = Topology::new().unwrap();
 
         let pu_depth = topo.depth_for_type(ObjectType::PU).unwrap();
-        assert!(pu_depth.assert_normal() > 0);
+        assert!(pu_depth.assume_normal() > 0);
         assert_eq!(Some(ObjectType::PU), topo.type_at_depth(pu_depth));
     }
 

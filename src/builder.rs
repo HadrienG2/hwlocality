@@ -37,7 +37,7 @@ impl TopologyBuilder {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, TopologyFlag};
+    /// use hwloc2::{Topology, TopologyFlags};
     ///
     /// let topology = Topology::builder().unwrap()
     ///                         .with_flags(TopologyFlags::ASSUME_THIS_SYSTEM).unwrap()
@@ -57,12 +57,21 @@ impl TopologyBuilder {
 
     /// Load the topology with the previously specified parameters
     pub fn build(mut self) -> Result<Topology, Errno> {
+        // Finalize the topology building
         let result = unsafe { ffi::hwloc_topology_load(self.as_mut_ptr()) };
         assert!(
             result == 0 || result == -1,
             "Unexpected hwloc_topology_load result {result}"
         );
-        (result == 0).then_some(Topology(self.0)).ok_or_else(errno)
+
+        // If that was successful, transfer RawTopology ownership to a Topology
+        if result == 0 {
+            let result = Topology(self.0);
+            std::mem::forget(self);
+            Ok(result)
+        } else {
+            Err(errno())
+        }
     }
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.

@@ -39,7 +39,7 @@ pub enum Depth {
 
 impl Depth {
     /// Assert that this should be a normal object depth
-    pub fn assert_normal(self) -> u32 {
+    pub fn assume_normal(self) -> u32 {
         u32::try_from(self).expect("Not a normal object depth")
     }
 }
