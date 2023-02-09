@@ -119,22 +119,6 @@ pub(crate) struct RawTopology {
 
 pub struct Topology(*mut RawTopology);
 
-#[allow(non_camel_case_types)]
-#[cfg(target_os = "windows")]
-pub type pthread_t = winapi::winnt::HANDLE;
-#[allow(non_camel_case_types)]
-#[cfg(target_os = "windows")]
-pub type pid_t = winapi::minwindef::DWORD;
-#[allow(non_camel_case_types)]
-#[cfg(not(target_os = "windows"))]
-pub type pthread_t = libc::pthread_t;
-#[allow(non_camel_case_types)]
-#[cfg(not(target_os = "windows"))]
-pub type pid_t = libc::pid_t;
-
-unsafe impl Send for Topology {}
-unsafe impl Sync for Topology {}
-
 impl Topology {
     // ### FIXME: Not refactored yet ###
 
@@ -600,7 +584,23 @@ impl Drop for Topology {
     }
 }
 
+unsafe impl Send for Topology {}
+unsafe impl Sync for Topology {}
+
 // ### FIXME: Tidy up the following mess ###
+
+#[allow(non_camel_case_types)]
+#[cfg(target_os = "windows")]
+pub type pthread_t = winapi::winnt::HANDLE;
+#[allow(non_camel_case_types)]
+#[cfg(target_os = "windows")]
+pub type pid_t = winapi::minwindef::DWORD;
+#[allow(non_camel_case_types)]
+#[cfg(not(target_os = "windows"))]
+pub type pthread_t = libc::pthread_t;
+#[allow(non_camel_case_types)]
+#[cfg(not(target_os = "windows"))]
+pub type pid_t = libc::pid_t;
 
 bitflags! {
     /// Process/Thread binding flags.
