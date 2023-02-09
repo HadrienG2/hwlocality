@@ -92,7 +92,7 @@ impl Drop for TopologyBuilder {
 }
 
 bitflags! {
-    /// Topology building configuration flags (aka `hwloc_topology_flags_e`)
+    /// Topology building configuration flags
     #[repr(C)]
     pub struct TopologyFlags: c_ulong {
         /// Detect the whole system, ignore reservations, include disallowed objects
