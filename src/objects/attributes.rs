@@ -103,6 +103,9 @@ impl NUMANodeAttributes {
     }
 }
 
+unsafe impl Send for NUMANodeAttributes {}
+unsafe impl Sync for NUMANodeAttributes {}
+
 /// Local memory page type
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -442,3 +445,6 @@ impl ObjectInfo {
         unsafe { ffi::deref_string(&self.value) }
     }
 }
+
+unsafe impl Send for ObjectInfo {}
+unsafe impl Sync for ObjectInfo {}

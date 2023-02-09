@@ -388,3 +388,6 @@ impl fmt::Debug for TopologyObject {
         self.display(f, true)
     }
 }
+
+unsafe impl Send for TopologyObject {}
+unsafe impl Sync for TopologyObject {}

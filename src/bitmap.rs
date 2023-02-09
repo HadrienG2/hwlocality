@@ -477,6 +477,9 @@ impl Bitmap {
     }
 }
 
+unsafe impl Send for Bitmap {}
+unsafe impl Sync for Bitmap {}
+
 impl Not for Bitmap {
     type Output = Self;
 
