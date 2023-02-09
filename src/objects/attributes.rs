@@ -80,7 +80,7 @@ pub struct NUMANodeAttributes {
     page_types_len: c_uint,
     page_types: *mut MemoryPageType,
 }
-//
+
 impl NUMANodeAttributes {
     /// Local memory in bytes
     pub fn local_memory(&self) -> u64 {
@@ -113,7 +113,7 @@ pub struct MemoryPageType {
     size: u64,
     count: u64,
 }
-//
+
 impl MemoryPageType {
     /// Size of pages
     pub fn size(&self) -> u64 {
@@ -414,7 +414,7 @@ impl<'attr> DownstreamAttributes<'attr> {
 pub struct OSDeviceAttributes {
     ty: RawOSDeviceType,
 }
-//
+
 impl OSDeviceAttributes {
     /// OS device type
     pub fn device_type(&self) -> OSDeviceType {
