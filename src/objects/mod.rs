@@ -68,7 +68,7 @@ impl TopologyObject {
 
     /// Subtype string to better describe the type field
     ///
-    /// See https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
+    /// See <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal>
     /// for a list of subtype strings that hwloc can emit.
     pub fn subtype(&self) -> Option<&str> {
         unsafe { ffi::deref_string(&self.subtype) }

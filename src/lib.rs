@@ -90,7 +90,7 @@ use self::{
     support::TopologySupport,
 };
 use errno::{errno, Errno};
-use libc::{EINVAL, ENOSYS, EXDEV};
+use libc::EINVAL;
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
@@ -130,6 +130,7 @@ pub(crate) struct RawTopology {
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
 
+/// Main entry point to the hwloc API
 pub struct Topology(NonNull<RawTopology>);
 
 impl Topology {

@@ -216,7 +216,10 @@ macro_rules! extern_c_block {
 
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
 
-            // TODO
+            // TODO: If I expose those, do it through some kind of API that takes
+            //       a modifier function as a parameter and calls
+            //       `hwloc_topology_refresh()` at the end. RAII guards can't be
+            //       used here due to the leakpocalypse thing.
 
             // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html ===
 

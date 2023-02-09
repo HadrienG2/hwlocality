@@ -426,7 +426,7 @@ impl OSDeviceAttributes {
 ///
 /// hwloc defines a number of standard info attribute names with associated
 /// semantics, please check out
-/// https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info for
+/// <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info> for
 /// more information.
 #[repr(C)]
 pub struct ObjectInfo {
