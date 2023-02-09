@@ -1,7 +1,6 @@
 //! Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 use crate::ffi;
-use libc::c_char;
 use std::{
     clone::Clone,
     cmp::Ordering,
@@ -62,7 +61,7 @@ impl Bitmap {
         (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut RawBitmap, &Self>(bitmap))
     }
 
-    // NOTE: There is now borrow_mut_from_raw because it would not be safe as if
+    // NOTE: There is no borrow_mut_from_raw because it would not be safe as if
     //       you expose an &mut Bitmap, the user can trigger Drop.
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
@@ -87,7 +86,10 @@ impl Bitmap {
     /// assert_eq!(true, bitmap.is_empty());
     // ```
     pub fn new() -> Self {
-        unsafe { Self::from_raw(ffi::hwloc_bitmap_alloc()).unwrap() }
+        unsafe {
+            Self::from_raw(ffi::hwloc_bitmap_alloc())
+                .expect("Got null pointer from hwloc_bitmap_alloc")
+        }
     }
 
     /// Creates a full `Bitmap`.
@@ -102,7 +104,10 @@ impl Bitmap {
     /// assert_eq!(false, bitmap.is_empty());
     // ```
     pub fn full() -> Self {
-        unsafe { Self::from_raw(ffi::hwloc_bitmap_alloc_full()).unwrap() }
+        unsafe {
+            Self::from_raw(ffi::hwloc_bitmap_alloc_full())
+                .expect("Got null pointer from hwloc_bitmap_alloc_full")
+        }
     }
 
     /// Creates a new `Bitmap` with the given range.
@@ -134,7 +139,11 @@ impl Bitmap {
     /// assert_eq!("0-5", format!("{}", bitmap2));
     // ```
     pub fn copy_from(&mut self, other: &Self) {
-        assert!(unsafe { ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr()) } >= 0);
+        let result = unsafe { ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr()) };
+        assert!(
+            result >= 0,
+            "hwloc_bitmap_copy returned error code {result}"
+        );
     }
 
     /// Set index `id` in this `Bitmap`.
@@ -149,7 +158,8 @@ impl Bitmap {
     /// assert_eq!("4", format!("{}", bitmap));
     // ```
     pub fn set(&mut self, id: u32) {
-        assert!(unsafe { ffi::hwloc_bitmap_set(self.as_mut_ptr(), id) } >= 0)
+        let result = unsafe { ffi::hwloc_bitmap_set(self.as_mut_ptr(), id) };
+        assert!(result >= 0, "hwloc_bitmap_set returned error code {result}");
     }
 
     /// Add indexes from this Rust range to the specified bitmap
@@ -173,7 +183,11 @@ impl Bitmap {
         }
 
         let (begin, end) = Self::hwloc_range(range);
-        assert!(unsafe { ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end) } >= 0)
+        let result = unsafe { ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end) };
+        assert!(
+            result >= 0,
+            "hwloc_bitmap_set_range returned error code {result}"
+        );
     }
 
     /// Remove index `id` from the `Bitmap`.
@@ -188,7 +202,8 @@ impl Bitmap {
     /// assert_eq!("2-3", format!("{}", bitmap));
     // ```
     pub fn unset(&mut self, id: u32) {
-        assert!(unsafe { ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id) } >= 0)
+        let result = unsafe { ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id) };
+        assert!(result >= 0, "hwloc_bitmap_clr returned error code {result}");
     }
 
     /// Remove indexes from `begin` to `end` in this `Bitmap`.
@@ -214,7 +229,11 @@ impl Bitmap {
         }
 
         let (begin, end) = Self::hwloc_range(range);
-        assert!(unsafe { ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end) } >= 0)
+        let result = unsafe { ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end) };
+        assert!(
+            result >= 0,
+            "hwloc_bitmap_clr_range returned error code {result}"
+        );
     }
 
     /// The number of indexes that are set in the bitmap.
@@ -233,7 +252,10 @@ impl Bitmap {
     /// ```
     pub fn weight(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_weight(self.as_ptr()) };
-        assert!(result >= -1);
+        assert!(
+            result >= -1,
+            "hwloc_bitmap_weight returned error code {result}"
+        );
         u32::try_from(result).ok()
     }
 
@@ -291,7 +313,10 @@ impl Bitmap {
     /// ```
     pub fn is_empty(&self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_iszero(self.as_ptr()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_bitmap_iszero returned unexpected result {result}"
+        );
         result == 1
     }
 
@@ -310,7 +335,10 @@ impl Bitmap {
     /// ```
     pub fn is_set(&self, id: u32) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isset(self.as_ptr(), id) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_bitmap_isset returned unexpected result {result}"
+        );
         result == 1
     }
 
@@ -352,7 +380,8 @@ impl Bitmap {
     /// assert_eq!("0-2,4-", format!("{}", !bitmap));
     /// ```
     pub fn invert(&mut self) {
-        assert!(unsafe { ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr()) } >= 0)
+        let result = unsafe { ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr()) };
+        assert!(result >= 0, "hwloc_bitmap_not returned error code {result}");
     }
 
     /// Compute the first index (least significant bit) in this `Bitmap`, if any.
@@ -367,7 +396,10 @@ impl Bitmap {
     /// ```
     pub fn first(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_first(self.as_ptr()) };
-        assert!(result >= -1);
+        assert!(
+            result >= -1,
+            "hwloc_bitmap_first returned error code {result}"
+        );
         u32::try_from(result).ok()
     }
 
@@ -383,7 +415,10 @@ impl Bitmap {
     /// ```
     pub fn last(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_last(self.as_ptr()) };
-        assert!(result >= -1);
+        assert!(
+            result >= -1,
+            "hwloc_bitmap_last returned error code {result}"
+        );
         u32::try_from(result).ok()
     }
 
@@ -402,22 +437,27 @@ impl Bitmap {
     /// ```
     pub fn is_full(&self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isfull(self.as_ptr()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_bitmap_isfull returned unexpected result {result}"
+        );
         result == 1
     }
 
     // Convert a Rust range to an hwloc range
     fn hwloc_range(range: impl RangeBounds<u32>) -> (u32, i32) {
         let start = match range.start_bound() {
-            Bound::Unbounded => 0,
-            Bound::Included(i) => *i,
-            Bound::Excluded(i) => i.checked_add(1).unwrap(),
-        };
+            Bound::Unbounded => Some(0),
+            Bound::Included(i) => Some(*i),
+            Bound::Excluded(i) => i.checked_add(1),
+        }
+        .expect("Range start is too high for hwloc");
         let end = match range.end_bound() {
-            Bound::Unbounded => -1,
-            Bound::Included(i) => i32::try_from(*i).unwrap(),
-            Bound::Excluded(i) => i32::try_from(i.checked_add(1).unwrap()).unwrap(),
-        };
+            Bound::Unbounded => Some(-1),
+            Bound::Included(i) => i32::try_from(*i).ok(),
+            Bound::Excluded(i) => i.checked_add(1).map(|i| i32::try_from(i).ok()).flatten(),
+        }
+        .expect("Range end is too high for hwloc");
         (start, end)
     }
 
@@ -426,10 +466,15 @@ impl Bitmap {
         let result = unsafe {
             ffi::hwloc_bitmap_next(
                 self.as_ptr(),
-                index.map(|v| i32::try_from(v).unwrap()).unwrap_or(-1),
+                index
+                    .map(|v| i32::try_from(v).expect("Index is too high for hwloc"))
+                    .unwrap_or(-1),
             )
         };
-        assert!(result >= -1);
+        assert!(
+            result >= -1,
+            "hwloc_bitmap_next returned error code {result}"
+        );
         u32::try_from(result).ok()
     }
 }
@@ -439,7 +484,8 @@ impl Not for Bitmap {
 
     fn not(self) -> Self {
         let mut result = Self::new();
-        assert!(unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) } >= 0);
+        let code = unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
         result
     }
 }
@@ -449,18 +495,17 @@ impl BitOr for Bitmap {
 
     fn bitor(self, rhs: Self) -> Self {
         let mut result = Self::new();
-        assert!(
-            unsafe { ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
-        );
+        let code =
+            unsafe { ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
         result
     }
 }
 
 impl BitOrAssign for Bitmap {
     fn bitor_assign(&mut self, rhs: Self) {
-        assert!(
-            unsafe { ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
-        )
+        let code = unsafe { ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
     }
 }
 
@@ -469,18 +514,17 @@ impl BitAnd for Bitmap {
 
     fn bitand(self, rhs: Self) -> Self {
         let mut result = Self::new();
-        assert!(
-            unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
-        );
+        let code =
+            unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
         result
     }
 }
 
 impl BitAndAssign for Bitmap {
     fn bitand_assign(&mut self, rhs: Self) {
-        assert!(
-            unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
-        )
+        let code = unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
     }
 }
 
@@ -489,18 +533,17 @@ impl BitXor for Bitmap {
 
     fn bitxor(self, rhs: Self) -> Self {
         let mut result = Self::new();
-        assert!(
-            unsafe { ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
-        );
+        let code =
+            unsafe { ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_xor returned error code {code}");
         result
     }
 }
 
 impl BitXorAssign for Bitmap {
     fn bitxor_assign(&mut self, rhs: Self) {
-        assert!(
-            unsafe { ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) } >= 0
-        )
+        let code = unsafe { ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_xor returned error code {code}");
     }
 }
 
@@ -512,12 +555,23 @@ impl Drop for Bitmap {
 
 impl fmt::Display for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut buf: *mut c_char = ptr::null_mut();
         unsafe {
-            assert!(ffi::hwloc_bitmap_list_asprintf(&mut buf, self.as_ptr()) >= 0);
-            let result = write!(f, "{}", CStr::from_ptr(buf).to_str().unwrap());
-            libc::free(buf as _);
-            result
+            let len_i32 = ffi::hwloc_bitmap_list_snprintf(ptr::null_mut(), 0, self.as_ptr());
+            let len = usize::try_from(len_i32)
+                .expect("Got invalid string length from hwloc_bitmap_list_snprintf");
+            let mut buf = vec![0i8; len + 1];
+            assert_eq!(
+                ffi::hwloc_bitmap_list_snprintf(buf.as_mut_ptr(), buf.len(), self.as_ptr()),
+                len_i32,
+                "Got unexpected string length from hwloc_bitmap_list_snprintf"
+            );
+            write!(
+                f,
+                "{}",
+                CStr::from_ptr(buf.as_ptr())
+                    .to_str()
+                    .expect("Got invalid string from hwloc_bitmap_list_snprintf")
+            )
         }
     }
 }
@@ -530,14 +584,18 @@ impl fmt::Debug for Bitmap {
 
 impl Clone for Bitmap {
     fn clone(&self) -> Bitmap {
-        unsafe { Self::from_raw(ffi::hwloc_bitmap_dup(self.as_ptr())) }.unwrap()
+        unsafe { Self::from_raw(ffi::hwloc_bitmap_dup(self.as_ptr())) }
+            .expect("Got null pointer from hwloc_bitmap_dup")
     }
 }
 
 impl PartialEq for Bitmap {
     fn eq(&self, other: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_bitmap_isequal returned unexpected result {result}"
+        );
         result == 1
     }
 }
@@ -557,7 +615,7 @@ impl Ord for Bitmap {
             -1 => Ordering::Less,
             0 => Ordering::Equal,
             1 => Ordering::Greater,
-            _ => unreachable!(),
+            _ => unreachable!("hwloc_bitmap_compare returned unexpected result {result}"),
         }
     }
 }

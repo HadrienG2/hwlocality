@@ -172,8 +172,9 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_bitmap_copy(dst: *mut RawBitmap, src: *const RawBitmap) -> c_int;
 
             #[must_use]
-            pub(crate) fn hwloc_bitmap_list_asprintf(
-                strp: *mut *mut c_char,
+            pub(crate) fn hwloc_bitmap_list_snprintf(
+                buf: *mut c_char,
+                len: size_t,
                 bitmap: *const RawBitmap,
             ) -> c_int;
 

@@ -136,6 +136,8 @@ unsafe impl Send for Topology {}
 unsafe impl Sync for Topology {}
 
 impl Topology {
+    // ### FIXME: Not refactored yet ###
+
     /// Creates a new Topology.
     ///
     /// If no further customization is needed on init, this method
@@ -238,6 +240,8 @@ impl Topology {
             .filter(|&x| x > 0)
             .map(|x| TopologyFlag::from_u64(x.into()).unwrap())
     }
+
+    // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
 
     /// Full depth of the topology.
     ///
@@ -417,6 +421,8 @@ impl Topology {
             unsafe { &*ptr }
         })
     }
+
+    // ### FIXME: Not refactored yet ###
 
     /// Binds the current process or thread on CPUs given in the `CpuSet`.
     pub fn set_cpubind(&mut self, set: &CpuSet, flags: CpuBindFlags) -> Result<(), CpuBindError> {

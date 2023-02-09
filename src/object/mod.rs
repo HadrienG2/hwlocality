@@ -332,13 +332,14 @@ impl TopologyObject {
             );
             let type_len = usize::try_from(type_len_i32).unwrap();
             let mut buf_type = vec![0 as c_char; type_len + 1];
-            assert!(
+            assert_eq!(
                 ffi::hwloc_obj_type_snprintf(
                     buf_type.as_mut_ptr(),
                     buf_type.len(),
                     self as *const TopologyObject,
                     verbose as c_int,
-                ) == type_len_i32
+                ),
+                type_len_i32
             );
             buf_type
         };
@@ -358,14 +359,15 @@ impl TopologyObject {
             );
             let attr_len = usize::try_from(attr_len_i32).unwrap();
             let mut buf_attr = vec![0 as c_char; attr_len + 1];
-            assert!(
+            assert_eq!(
                 ffi::hwloc_obj_attr_snprintf(
                     buf_attr.as_mut_ptr(),
                     buf_attr.len(),
                     self as *const TopologyObject,
                     separator_ptr,
                     verbose as c_int,
-                ) == attr_len_i32
+                ),
+                attr_len_i32
             );
             buf_attr
         };
