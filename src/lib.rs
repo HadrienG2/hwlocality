@@ -8,11 +8,9 @@
 //!
 //! First, add the following to your `Cargo.toml`:
 //!
-//! FIXME: This is outdated
-//!
 //! ```toml
 //! [dependencies]
-//! hwloc = "0.3.0"
+//! hwloc2 = "2.2.0"
 //! ```
 //!
 //! Here is a quick example which walks the `Topology` and prints it out:
