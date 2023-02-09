@@ -61,7 +61,9 @@ pub struct TopologyObject {
 impl TopologyObject {
     /// Type of object.
     pub fn object_type(&self) -> ObjectType {
-        self.object_type.try_into().unwrap()
+        self.object_type
+            .try_into()
+            .expect("Got unexpected object type")
     }
 
     /// Subtype string to better describe the type field
@@ -108,7 +110,7 @@ impl TopologyObject {
     /// For special objects (NUMA nodes, I/O and Misc) that are not in the main
     /// tree, this is a special value that is unique to their type.
     pub fn depth(&self) -> Depth {
-        self.depth.try_into().unwrap()
+        self.depth.try_into().expect("Got unexpected depth")
     }
 
     /// Horizontal index in the whole list of similar objects, hence guaranteed
@@ -160,11 +162,18 @@ impl TopologyObject {
     /// Normal children of this object (excluding Memory, Misc and I/O)
     pub fn normal_children(&self) -> impl Iterator<Item = &TopologyObject> {
         if self.children.is_null() {
-            assert_eq!(self.normal_arity(), 0);
+            assert_eq!(
+                self.normal_arity(),
+                0,
+                "Got null children pointer with nonzero arity"
+            );
         }
         (0..self.normal_arity()).map(move |i| {
-            let child = unsafe { *self.children.offset(i as isize) };
-            assert!(!child.is_null());
+            // If this fails, it means self.arity does not fit in a
+            // size_t, but by definition of size_t that cannot happen...
+            let offset = isize::try_from(i).expect("Should not happen");
+            let child = unsafe { *self.children.offset(offset) };
+            assert!(!child.is_null(), "Got null child pointer");
             unsafe { &*child }
         })
     }
@@ -301,12 +310,22 @@ impl TopologyObject {
 
     /// Complete list of (key, value) textual info pairs
     pub fn infos(&self) -> &[ObjectInfo] {
-        let len = if self.infos.is_null() {
-            0
-        } else {
-            self.infos_count as usize
-        };
-        unsafe { std::slice::from_raw_parts(self.infos, len) }
+        if self.children.is_null() {
+            assert_eq!(
+                self.infos_count, 0,
+                "Got null infos pointer with nonzero info count"
+            );
+            return &[];
+        }
+
+        unsafe {
+            std::slice::from_raw_parts(
+                self.infos,
+                // If this fails, it means infos_count does not fit in a
+                // size_t, but by definition of size_t that cannot happen...
+                usize::try_from(self.infos_count).expect("Should not happen"),
+            )
+        }
     }
 
     /// Iterate over a C-style linked list of child TopologyObjects
@@ -323,58 +342,32 @@ impl TopologyObject {
 
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
-        let buf_type = unsafe {
-            let type_len_i32 = ffi::hwloc_obj_type_snprintf(
-                std::ptr::null_mut(),
-                0,
-                self as *const TopologyObject,
-                verbose as c_int,
-            );
-            let type_len = usize::try_from(type_len_i32).unwrap();
-            let mut buf_type = vec![0 as c_char; type_len + 1];
-            assert_eq!(
-                ffi::hwloc_obj_type_snprintf(
-                    buf_type.as_mut_ptr(),
-                    buf_type.len(),
-                    self as *const TopologyObject,
-                    verbose as c_int,
-                ),
-                type_len_i32
-            );
-            buf_type
-        };
+        let type_chars = ffi::call_snprintf(|buf, len| unsafe {
+            ffi::hwloc_obj_type_snprintf(buf, len, self as *const TopologyObject, verbose.into())
+        });
 
-        let buf_attr = unsafe {
-            let separator_ptr = if f.alternate() {
-                b"\n  \0".as_ptr()
-            } else {
-                b"  \0".as_ptr()
-            } as *const c_char;
-            let attr_len_i32 = ffi::hwloc_obj_attr_snprintf(
-                std::ptr::null_mut(),
-                0,
+        let separator = if f.alternate() {
+            b"\n  \0".as_ptr()
+        } else {
+            b"  \0".as_ptr()
+        } as *const c_char;
+        let attr_chars = ffi::call_snprintf(|buf, len| unsafe {
+            ffi::hwloc_obj_attr_snprintf(
+                buf,
+                len,
                 self as *const TopologyObject,
-                separator_ptr,
-                verbose as c_int,
-            );
-            let attr_len = usize::try_from(attr_len_i32).unwrap();
-            let mut buf_attr = vec![0 as c_char; attr_len + 1];
-            assert_eq!(
-                ffi::hwloc_obj_attr_snprintf(
-                    buf_attr.as_mut_ptr(),
-                    buf_attr.len(),
-                    self as *const TopologyObject,
-                    separator_ptr,
-                    verbose as c_int,
-                ),
-                attr_len_i32
-            );
-            buf_attr
-        };
+                separator,
+                verbose.into(),
+            )
+        });
 
         unsafe {
-            let type_str = CStr::from_ptr(buf_type.as_ptr()).to_str().unwrap();
-            let attr_str = CStr::from_ptr(buf_attr.as_ptr()).to_str().unwrap();
+            let type_str = CStr::from_ptr(type_chars.as_ptr())
+                .to_str()
+                .expect("Got invalid type string");
+            let attr_str = CStr::from_ptr(attr_chars.as_ptr())
+                .to_str()
+                .expect("Got invalid attributes string");
             if f.alternate() {
                 write!(f, "{type_str} (\n  {attr_str}\n)")
             } else {

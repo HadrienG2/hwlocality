@@ -39,7 +39,7 @@ pub enum Depth {
 impl Depth {
     /// Assert that this should be a normal object depth
     pub fn assert_normal(self) -> u32 {
-        u32::try_from(self).unwrap()
+        u32::try_from(self).expect("Not a normal object depth")
     }
 }
 
@@ -66,7 +66,9 @@ impl TryFrom<RawDepth> for Depth {
 
     fn try_from(value: RawDepth) -> Result<Self, DepthError> {
         match value {
-            d if d >= 0 => Ok(Self::Normal(u32::try_from(d).unwrap())),
+            d if d >= 0 => Ok(Self::Normal(
+                u32::try_from(d).expect("i32 >= 0 -> u32 cannot fail"),
+            )),
             -1 => Err(DepthError::None),
             -2 => Err(DepthError::Multiple),
             -3 => Ok(Self::NUMANode),
@@ -83,7 +85,7 @@ impl TryFrom<RawDepth> for Depth {
 impl From<Depth> for RawDepth {
     fn from(value: Depth) -> Self {
         match value {
-            Depth::Normal(value) => value.try_into().unwrap(),
+            Depth::Normal(value) => value.try_into().expect("Depth is too high for hwloc"),
             Depth::NUMANode => -3,
             Depth::Bridge => -4,
             Depth::PCIDevice => -5,

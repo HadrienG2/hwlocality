@@ -6,7 +6,7 @@ use crate::{
     MemBindPolicy, RawTopology,
 };
 use libc::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void, pid_t, pthread_t, size_t};
-use std::ffi::CStr;
+use std::{ffi::CStr, fmt, ptr};
 
 /// Dereference a C pointer with correct lifetime
 pub(crate) unsafe fn deref<T>(p: &*mut T) -> Option<&T> {
@@ -22,6 +22,35 @@ pub(crate) unsafe fn deref_string(p: &*mut c_char) -> Option<&str> {
         return None;
     }
     unsafe { CStr::from_ptr(*p) }.to_str().ok()
+}
+
+/// Get text output from an snprintf-like function
+pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, size_t) -> i32) -> Box<[c_char]> {
+    let len_i32 = snprintf(ptr::null_mut(), 0);
+    let len =
+        usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
+    let mut buf = vec![0i8; len + 1];
+    assert_eq!(
+        snprintf(buf.as_mut_ptr(), buf.len()),
+        len_i32,
+        "Got inconsistent string length from an snprintf-like API"
+    );
+    buf.into()
+}
+
+/// Send the output of an snprintf-like function to a standard Rust formatter
+pub(crate) fn write_snprintf(
+    f: &mut fmt::Formatter,
+    snprintf: impl FnMut(*mut c_char, size_t) -> i32,
+) -> fmt::Result {
+    let chars = call_snprintf(snprintf);
+    write!(
+        f,
+        "{}",
+        unsafe { CStr::from_ptr(chars.as_ptr()) }
+            .to_str()
+            .expect("Got invalid string from an snprintf-like API")
+    )
 }
 
 macro_rules! extern_c_block {

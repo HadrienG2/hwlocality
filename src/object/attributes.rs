@@ -95,7 +95,9 @@ impl NUMANodeAttributes {
         unsafe {
             std::slice::from_raw_parts(
                 self.page_types as *const MemoryPageType,
-                self.page_types_len.try_into().unwrap(),
+                // If this fails, it means pages_types_len does not fit in a
+                // size_t, but by definition of size_t that cannot happen...
+                self.page_types_len.try_into().expect("Should not happen"),
             )
         }
     }
@@ -153,14 +155,17 @@ impl CacheAttributes {
         match self.associativity {
             -1 => CacheAssociativity::Full,
             0 => CacheAssociativity::Unknown,
-            ways if ways > 0 => CacheAssociativity::Ways(NonZeroU32::new(ways as u32).unwrap()),
-            _ => unreachable!(),
+            ways if ways > 0 => CacheAssociativity::Ways(
+                NonZeroU32::new(u32::try_from(ways).expect("i32 > 0 -> u32 cannot fail"))
+                    .expect("u32 > 0 -> NonZeroU32 cannot fail"),
+            ),
+            unexpected => unreachable!("Got unexpected cache associativity {unexpected}"),
         }
     }
 
     /// Cache type
     pub fn cache_type(&self) -> CacheType {
-        self.ty.try_into().unwrap()
+        self.ty.try_into().expect("Got unexpected cache type")
     }
 }
 
@@ -299,7 +304,9 @@ pub struct BridgeAttributes {
 impl BridgeAttributes {
     /// Bridge upstream type
     pub fn upstream_type(&self) -> BridgeType {
-        self.upstream_type.try_into().unwrap()
+        self.upstream_type
+            .try_into()
+            .expect("Got unexpected upstream type")
     }
 
     /// Upstream attributes
@@ -309,7 +316,9 @@ impl BridgeAttributes {
 
     /// Bridge downstream type
     pub fn downstream_type(&self) -> BridgeType {
-        self.downstream_type.try_into().unwrap()
+        self.downstream_type
+            .try_into()
+            .expect("Got unexpected downstream type")
     }
 
     /// Downstream attributes
@@ -390,7 +399,7 @@ impl<'attr> DownstreamAttributes<'attr> {
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(&attr.pci)),
-                BridgeType::Host => unreachable!(),
+                BridgeType::Host => unreachable!("Host bridge type should not appear downstream"),
             }
         }
     }
@@ -406,7 +415,7 @@ pub struct OSDeviceAttributes {
 impl OSDeviceAttributes {
     /// OS device type
     pub fn device_type(&self) -> OSDeviceType {
-        self.ty.try_into().unwrap()
+        self.ty.try_into().expect("Got unexpected OS device type")
     }
 }
 

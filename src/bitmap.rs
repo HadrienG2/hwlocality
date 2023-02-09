@@ -555,24 +555,9 @@ impl Drop for Bitmap {
 
 impl fmt::Display for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        unsafe {
-            let len_i32 = ffi::hwloc_bitmap_list_snprintf(ptr::null_mut(), 0, self.as_ptr());
-            let len = usize::try_from(len_i32)
-                .expect("Got invalid string length from hwloc_bitmap_list_snprintf");
-            let mut buf = vec![0i8; len + 1];
-            assert_eq!(
-                ffi::hwloc_bitmap_list_snprintf(buf.as_mut_ptr(), buf.len(), self.as_ptr()),
-                len_i32,
-                "Got unexpected string length from hwloc_bitmap_list_snprintf"
-            );
-            write!(
-                f,
-                "{}",
-                CStr::from_ptr(buf.as_ptr())
-                    .to_str()
-                    .expect("Got invalid string from hwloc_bitmap_list_snprintf")
-            )
-        }
+        ffi::write_snprintf(f, |buf, len| unsafe {
+            ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
+        })
     }
 }
 

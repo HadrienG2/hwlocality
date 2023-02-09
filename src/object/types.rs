@@ -138,28 +138,40 @@ impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     pub fn is_normal(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_normal(self.to_raw()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_obj_type_is_normal returned unexpected result {result}"
+        );
         result == 1
     }
 
     /// Truth that this is a CPU-side cache type (not MemCache)
     pub fn is_cpu_cache(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_cache(self.to_raw()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_obj_type_is_cache returned unexpected result {result}"
+        );
         result == 1
     }
 
     /// Truth that this is a CPU-side data or unified cache type (not MemCache)
     pub fn is_cpu_data_cache(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_dcache(self.to_raw()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_obj_type_is_dcache returned unexpected result {result}"
+        );
         result == 1
     }
 
     /// Truth that this is a CPU-side instruction cache type (not MemCache)
     pub fn is_cpu_instruction_cache(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_icache(self.to_raw()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_obj_type_is_icache returned unexpected result {result}"
+        );
         result == 1
     }
 
@@ -170,7 +182,10 @@ impl ObjectType {
     /// instead of normal depths like other objects in the main tree.
     pub fn is_memory(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_memory(self.to_raw()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_obj_type_is_memory returned unexpected result {result}"
+        );
         result == 1
     }
 
@@ -182,7 +197,10 @@ impl ObjectType {
     /// dedicated I/O children list.
     pub fn is_io(&self) -> bool {
         let result = unsafe { ffi::hwloc_obj_type_is_io(self.to_raw()) };
-        assert!(result == 0 || result == 1);
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_obj_type_is_io returned unexpected result {result}"
+        );
         result == 1
     }
 
@@ -220,13 +238,13 @@ impl ObjectType {
 
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let compared = unsafe { ffi::hwloc_compare_types(self.to_raw(), other.to_raw()) };
-        match compared {
+        let result = unsafe { ffi::hwloc_compare_types(self.to_raw(), other.to_raw()) };
+        match result {
             c_int::MAX => None,
             c if c < 0 => Some(Ordering::Less),
             c if c == 0 => Some(Ordering::Equal),
             c if c > 0 => Some(Ordering::Greater),
-            _ => unreachable!(),
+            _ => unreachable!("hwloc_compare_types returned unexpected result {result}"),
         }
     }
 }

@@ -262,7 +262,7 @@ impl Topology {
     pub fn depth(&self) -> u32 {
         unsafe { ffi::hwloc_topology_get_depth(self.topo) }
             .try_into()
-            .unwrap()
+            .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
 
     /// Depth of parents where memory objects are attached
@@ -272,10 +272,15 @@ impl Topology {
 
     /// Depth for the given `ObjectType`
     ///
+    /// # Errors
+    ///
     /// This will return `Err(DepthError::None)` if no object of this type
     /// is present or if the OS doesn't provide this kind of information. If a
     /// similar type is acceptable, consider using `depth_of_below_for_type()`
     /// or `depth_or_above_for_type()` instead.
+    ///
+    /// You will also get `Err(DepthError::Multiple)` if objects of this type
+    /// exist at multiple depths.
     ///
     /// # Examples
     ///
@@ -299,15 +304,27 @@ impl Topology {
     /// function returns the depth of the first "present" object typically found
     /// inside `object_type`.
     ///
+    /// # Errors
+    ///
     /// This function is only meaningful for normal object types.
+    ///
+    /// You will get `Err(DepthError::Multiple)` if objects of this type or
+    /// higher-depth types exist at multiple depths.
     pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
-        assert!(object_type.is_normal());
+        assert!(
+            object_type.is_normal(),
+            "This is only meaningful for normal objects"
+        );
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(DepthError::None) => {
-                let pu_depth = self.depth_for_type(ObjectType::PU).unwrap().assert_normal();
+                let pu_depth = self.depth_for_type(ObjectType::PU)?.assert_normal();
                 for depth in (0..pu_depth).rev() {
-                    if self.type_at_depth(depth.into()).unwrap() < object_type {
+                    if self
+                        .type_at_depth(depth.into())
+                        .expect("Depths above PU depth should exist")
+                        < object_type
+                    {
                         return Ok(Depth::Normal(depth + 1));
                     }
                 }
@@ -325,12 +342,19 @@ impl Topology {
     ///
     /// This function is only meaningful for normal object types.
     pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
-        assert!(object_type.is_normal());
+        assert!(
+            object_type.is_normal(),
+            "This is only meaningful for normal objects"
+        );
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(DepthError::None) => {
                 for depth in (0..self.depth()).rev() {
-                    if self.type_at_depth(depth.into()).unwrap() > object_type {
+                    if self
+                        .type_at_depth(depth.into())
+                        .expect("Depths above bottom depth should exist")
+                        > object_type
+                    {
                         return Ok(Depth::Normal(depth - 1));
                     }
                 }
@@ -399,15 +423,23 @@ impl Topology {
     /// assert_eq!(topology.type_at_root(), topology.object_at_root().object_type());
     /// ```
     pub fn root_object(&self) -> &TopologyObject {
-        self.objects_at_depth(0.into()).next().unwrap()
+        self.objects_at_depth(0.into())
+            .next()
+            .expect("Root object should exist")
     }
 
     /// `TopologyObjects` with the given `ObjectType`.
+    ///
+    /// Like its hwloc equivalent, this operation is currently implemented using
+    /// `depth_for_type()` and will fail for object types where `depth_for_type`
+    /// is not defined.
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
     ) -> impl Iterator<Item = &TopologyObject> {
-        let depth = self.depth_for_type(object_type).unwrap();
+        let depth = self
+            .depth_for_type(object_type)
+            .expect("Type should exist at some depth");
         self.objects_at_depth(depth)
     }
 
@@ -417,7 +449,10 @@ impl Topology {
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
             let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.topo, depth, idx) };
-            assert!(!ptr.is_null());
+            assert!(
+                !ptr.is_null(),
+                "Got null pointer from hwloc_get_obj_by_depth"
+            );
             unsafe { &*ptr }
         })
     }
