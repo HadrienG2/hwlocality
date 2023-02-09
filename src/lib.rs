@@ -94,6 +94,7 @@ use self::{
 };
 use bitflags::bitflags;
 use errno::{errno, Errno};
+use libc::EINVAL;
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
@@ -166,6 +167,28 @@ impl Topology {
     pub fn build_flags(&self) -> TopologyFlags {
         TopologyFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
             .expect("Encountered unexpected topology flags")
+    }
+
+    /// Check that this topology is compatible with the current hwloc library
+    ///
+    /// This is useful when using the same topology structure (in memory) in
+    /// different libraries that may use different hwloc installations (for
+    /// instance if one library embeds a specific version of hwloc, while
+    /// another library uses a default system-wide hwloc installation).
+    ///
+    /// If all libraries/programs use the same hwloc installation, this function
+    /// always returns success.
+    pub fn is_abi_compatible(&self) -> bool {
+        let result = unsafe { ffi::hwloc_topology_abi_check(self.as_ptr()) };
+        match result {
+            0 => true,
+            -1 => {
+                let errno = errno();
+                assert_eq!(errno.0, EINVAL, "Unexpected errno from hwloc {errno}");
+                false
+            }
+            other => unreachable!("Unexpected hwloc return value {other}"),
+        }
     }
 
     // ### FIXME: Not refactored yet ###
@@ -555,6 +578,15 @@ impl Topology {
 impl Drop for Topology {
     fn drop(&mut self) {
         unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
+    }
+}
+
+impl Clone for Topology {
+    fn clone(&self) -> Self {
+        let mut clone = std::ptr::null_mut();
+        let result = unsafe { ffi::hwloc_topology_dup(&mut clone, self.as_ptr()) };
+        assert!(result >= 0, "Topology clone failed with error {result}");
+        Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
     }
 }
 
