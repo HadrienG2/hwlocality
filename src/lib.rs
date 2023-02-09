@@ -638,21 +638,17 @@ bitflags! {
     /// way to bind as all operating systems usually provide it.
     ///
     /// **Note:** Not all systems support all kinds of binding.
-    ///
-    /// The following flags (constants) are available:
-    ///
-    /// - **CPUBIND_PROCESS:** Bind all threads of the current (possibly) multithreaded process.
-    /// - **CPUBIND_THREAD:** Bind current thread of current process.
-    /// - **CPUBIND_STRICT:** Request for strict binding from the OS.
-    /// - **CPUBIND_NO_MEMBIND:** Avoid any effect on memory binding.
     #[repr(C)]
     pub struct CpuBindFlags: i32 {
         /// Bind all threads of the current (possibly) multithreaded process.
         const CPUBIND_PROCESS = (1<<0);
+
         /// Bind current thread of current process.
         const CPUBIND_THREAD  = (1<<1);
+
         /// Request for strict binding from the OS.
         const CPUBIND_STRICT = (1<<2);
+
         /// Avoid any effect on memory binding.
         const CPUBIND_NO_MEMBIND = (1<<3);
     }
