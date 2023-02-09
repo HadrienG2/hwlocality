@@ -126,17 +126,17 @@ impl TopologyObject {
 
     /// Next object of same type and depth
     pub fn next_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.next_cousin) }
+        unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
     }
 
     /// Previous object of same type and depth
     pub fn prev_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.prev_cousin) }
+        unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
     }
 
     /// Parent
     pub fn parent(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.parent) }
+        unsafe { ffi::deref_ptr_mut(&self.parent) }
     }
 
     /// Index in the parent's appropriate child list
@@ -146,12 +146,12 @@ impl TopologyObject {
 
     /// Next object below the same parent in the same child list
     pub fn next_sibling(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.next_sibling) }
+        unsafe { ffi::deref_ptr_mut(&self.next_sibling) }
     }
 
     /// Previous object below the same parent in the same child list
     pub fn prev_sibling(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.prev_sibling) }
+        unsafe { ffi::deref_ptr_mut(&self.prev_sibling) }
     }
 
     /// Number of normal children (excluding Memory, Misc and I/O)
@@ -180,12 +180,12 @@ impl TopologyObject {
 
     /// First normal child
     pub fn first_normal_child(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.first_child) }
+        unsafe { ffi::deref_ptr_mut(&self.first_child) }
     }
 
     /// Last normal child
     pub fn last_normal_child(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref(&self.last_child) }
+        unsafe { ffi::deref_ptr_mut(&self.last_child) }
     }
 
     /// Truth that this object is symmetric, which means all normal children and

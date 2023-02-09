@@ -1,6 +1,7 @@
 use hwloc2::{
+    cpu::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
-    CpuBindingFlags, Topology,
+    Topology,
 };
 
 /// Bind to only one thread of the last core of the machine.

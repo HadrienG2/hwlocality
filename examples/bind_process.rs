@@ -1,6 +1,7 @@
 use hwloc2::{
+    cpu::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
-    CpuBindingFlags, Topology,
+    Topology,
 };
 
 /// Example which binds an arbitrary process (in this example this very same one) to

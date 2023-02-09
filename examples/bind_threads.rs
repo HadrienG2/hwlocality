@@ -1,4 +1,4 @@
-use hwloc2::{bitmap::CpuSet, objects::types::ObjectType, CpuBindingFlags, Topology};
+use hwloc2::{bitmap::CpuSet, cpu::CpuBindingFlags, objects::types::ObjectType, Topology};
 use std::sync::{Arc, Mutex};
 use std::thread;
 

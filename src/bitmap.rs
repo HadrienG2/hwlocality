@@ -1,4 +1,6 @@
-//! Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
+//! Bitmap API
+
+// Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 use crate::ffi;
 use std::{

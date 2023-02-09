@@ -71,11 +71,9 @@
 //! [LICENSE](https://github.com/daschl/hwloc-rs/blob/master/LICENSE) file for more
 //! information.
 
-// TODO: Remove this once the crate is in a better shape
-#![allow(dead_code)]
-
 pub mod bitmap;
 mod builder;
+pub mod cpu;
 pub mod depth;
 mod ffi;
 pub mod objects;
@@ -85,6 +83,7 @@ pub use self::builder::{TopologyBuilder, TopologyFlags};
 
 use self::{
     bitmap::CpuSet,
+    cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     objects::{
         types::{ObjectType, RawObjectType},
@@ -92,7 +91,6 @@ use self::{
     },
     support::TopologySupport,
 };
-use bitflags::bitflags;
 use errno::{errno, Errno};
 use libc::{EINVAL, ENOSYS, EXDEV};
 use num_enum::TryFromPrimitiveError;
@@ -101,7 +99,19 @@ use std::{
     marker::{PhantomData, PhantomPinned},
     ptr::NonNull,
 };
-use thiserror::Error;
+
+#[cfg(target_os = "windows")]
+/// Thread identifier
+pub type ThreadID = winapi::winnt::HANDLE;
+#[cfg(target_os = "windows")]
+/// Process identifier
+pub type ProcessID = winapi::minwindef::DWORD;
+#[cfg(not(target_os = "windows"))]
+/// Thread identifier
+pub type ThreadID = libc::pthread_t;
+#[cfg(not(target_os = "windows"))]
+/// Process identifier
+pub type ProcessID = libc::pid_t;
 
 /// Indicate at runtime which hwloc API version was used at build time.
 /// This number is updated to (X<<16)+(Y<<8)+Z when a new release X.Y.Z
@@ -630,147 +640,6 @@ impl Clone for Topology {
 unsafe impl Send for Topology {}
 unsafe impl Sync for Topology {}
 
-#[cfg(target_os = "windows")]
-/// Thread identifier
-pub type ThreadID = winapi::winnt::HANDLE;
-#[cfg(target_os = "windows")]
-/// Process identifier
-pub type ProcessID = winapi::minwindef::DWORD;
-#[cfg(not(target_os = "windows"))]
-/// Thread identifier
-pub type ThreadID = libc::pthread_t;
-#[cfg(not(target_os = "windows"))]
-/// Process identifier
-pub type ProcessID = libc::pid_t;
-
-bitflags! {
-    /// Process/Thread binding flags.
-    ///
-    /// These bit flags can be used to refine the binding policy.
-    ///
-    /// The default (Process) is to bind the current process, assumed to be
-    /// single-threaded, in a non-strict way.  This is the most portable
-    /// way to bind as all operating systems usually provide it.
-    ///
-    /// **Note:** Not all systems support all kinds of binding.
-    #[repr(C)]
-    pub struct CpuBindingFlags: u32 {
-        /// Bind all threads of the current (possibly) multithreaded process
-        const PROCESS = (1<<0);
-
-        /// Bind current thread of current process
-        const THREAD  = (1<<1);
-
-        /// Request for strict binding from the OS
-        ///
-        /// By default, when the designated CPUs are all busy while other CPUs
-        /// are idle, operating systems may execute the thread/process on those
-        /// other CPUs instead of the designated CPUs, to let them progress
-        /// anyway. Strict binding means that the thread/process will _never_
-        /// execute on other CPUs than the designated CPUs, even when those are
-        /// busy with other tasks and other CPUs are idle.
-        ///
-        /// Depending on the operating system, strict binding may not be
-        /// possible (e.g. the OS does not implement it) or not allowed (e.g.
-        /// for an administrative reasons), and the binding function will fail
-        /// in that case.
-        ///
-        /// When retrieving the binding of a process, this flag checks whether
-        /// all its threads actually have the same binding. If the flag is not
-        /// given, the binding of each thread will be accumulated.
-        ///
-        /// This flag is meaningless when retrieving the binding of a thread.
-        const STRICT = (1<<2);
-
-        /// Avoid any effect on memory binding
-        ///
-        /// On some operating systems, some CPU binding function would also bind
-        /// the memory on the corresponding NUMA node. It is often not a problem
-        /// for the application, but if it is, setting this flag will make hwloc
-        /// avoid using OS functions that would also bind memory. This will
-        /// however reduce the support of CPU bindings, i.e. potentially
-        /// result in the binding function erroring out with ENOSYS.
-        ///
-        /// This flag is only meaningful when used with functions that set the
-        /// CPU binding. It is ignored when used with functions that get CPU
-        /// binding information.
-        const NO_MEMORY_BINDING = (1<<3);
-    }
-}
-
-impl Default for CpuBindingFlags {
-    fn default() -> Self {
-        Self::PROCESS
-    }
-}
-
-/// Errors that can occur when binding processes or threads to CPUSets
-#[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
-pub enum CpuBindingError {
-    /// Action is not supported
-    #[error("Action is not supported")]
-    Unsupported,
-
-    /// Binding cannot be enforced
-    #[error("Binding cannot be enforced")]
-    Ineffective,
-
-    /// Unexpected errno value
-    #[error("Unexpected errno value {0}")]
-    UnexpectedErrno(Errno),
-
-    /// Unexpected binding function result
-    #[error("Unexpected binding function result {0}")]
-    UnexpectedResult(i32),
-}
-
-// ### FIXME: Tidy up the following mess ###
-
-// FIXME: Should not be bitflags, there's nothing flag-y about it
-bitflags! {
-    #[repr(C)]
-    pub struct MemBindPolicy: i32 {
-        /// Reset the memory allocation policy to the system default. Depending on the operating
-        /// system, this may correspond to MEMBIND_FIRSTTOUCH (Linux), or MEMBIND_BIND (AIX,
-        /// HP-UX, OSF, Solaris, Windows).
-        const MEMBIND_DEFAULT = 0;
-        /// Allocate memory but do not immediately bind it to a specific locality. Instead,
-        /// each page in the allocation is bound only when it is first touched. Pages are
-        /// individually bound to the local NUMA node of the first thread that touches it. If
-        /// there is not enough memory on the node, allocation may be done in the specified
-        /// cpuset before allocating on other nodes.
-        const MEMBIND_FIRSTTOUCH = 1;
-        /// Allocate memory on the specified nodes.
-        const MEMBIND_BIND = 2;
-        /// Allocate memory on the given nodes in an interleaved / round-robin manner.
-        /// The precise layout of the memory across multiple NUMA nodes is OS/system specific.
-        /// Interleaving can be useful when threads distributed across the specified NUMA nodes
-        /// will all be accessing the whole memory range concurrently, since the interleave will
-        /// then balance the memory references.
-        const MEMBIND_INTERLEAVE = 3;
-        /// For each page bound with this policy, by next time it is touched (and next time
-        /// only), it is moved from its current location to the local NUMA node of the thread
-        /// where the memory reference occurred (if it needs to be moved at all).
-        const MEMBIND_NEXTTOUCH = 4;
-        /// Returned by get_membind() functions when multiple threads or parts of a memory
-        /// area have differing memory binding policies.
-        const MEMBIND_MIXED = -1;
-    }
-}
-
-// FIXME: Should not be a Rust enum
-#[repr(C)]
-pub enum TypeFilter {
-    /// Keep all objects of this type
-    KeepAll = 0,
-    /// Ignore all objects of this type
-    KeepNone = 1,
-    /// Only ignore objects if their entire level does not bring any structure
-    KeepStructure = 2,
-    /// Only keep ilkely-important objects of the given type
-    KeepImportant = 3,
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -827,33 +696,6 @@ mod tests {
         println!("{root_obj}");
         assert!(root_obj.first_normal_child().is_some());
         assert!(root_obj.last_normal_child().is_some());
-    }
-
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn should_support_cpu_binding_on_linux() {
-        let topo = Topology::new().unwrap();
-
-        assert!(topo.support().cpu().set_current_process());
-        assert!(topo.support().cpu().set_current_thread());
-    }
-
-    #[test]
-    #[cfg(target_os = "freebsd")]
-    fn should_support_cpu_binding_on_freebsd() {
-        let topo = Topology::new().unwrap();
-
-        assert!(topo.support().cpu().set_current_process());
-        assert!(topo.support().cpu().set_current_thread());
-    }
-
-    #[test]
-    #[cfg(target_os = "macos")]
-    fn should_not_support_cpu_binding_on_macos() {
-        let topo = Topology::new().unwrap();
-
-        assert_eq!(false, topo.support().cpu().set_current_process());
-        assert_eq!(false, topo.support().cpu().set_current_thread());
     }
 
     #[test]

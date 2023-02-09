@@ -1,0 +1,88 @@
+//! CPU binding
+
+// Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+
+use bitflags::bitflags;
+use errno::Errno;
+use thiserror::Error;
+
+bitflags! {
+    /// Process/Thread binding flags.
+    ///
+    /// These bit flags can be used to refine the binding policy.
+    ///
+    /// The default (Process) is to bind the current process, assumed to be
+    /// single-threaded, in a non-strict way.  This is the most portable
+    /// way to bind as all operating systems usually provide it.
+    ///
+    /// **Note:** Not all systems support all kinds of binding.
+    #[repr(C)]
+    pub struct CpuBindingFlags: u32 {
+        /// Bind all threads of the current (possibly) multithreaded process
+        const PROCESS = (1<<0);
+
+        /// Bind current thread of current process
+        const THREAD  = (1<<1);
+
+        /// Request for strict binding from the OS
+        ///
+        /// By default, when the designated CPUs are all busy while other CPUs
+        /// are idle, operating systems may execute the thread/process on those
+        /// other CPUs instead of the designated CPUs, to let them progress
+        /// anyway. Strict binding means that the thread/process will _never_
+        /// execute on other CPUs than the designated CPUs, even when those are
+        /// busy with other tasks and other CPUs are idle.
+        ///
+        /// Depending on the operating system, strict binding may not be
+        /// possible (e.g. the OS does not implement it) or not allowed (e.g.
+        /// for an administrative reasons), and the binding function will fail
+        /// in that case.
+        ///
+        /// When retrieving the binding of a process, this flag checks whether
+        /// all its threads actually have the same binding. If the flag is not
+        /// given, the binding of each thread will be accumulated.
+        ///
+        /// This flag is meaningless when retrieving the binding of a thread.
+        const STRICT = (1<<2);
+
+        /// Avoid any effect on memory binding
+        ///
+        /// On some operating systems, some CPU binding function would also bind
+        /// the memory on the corresponding NUMA node. It is often not a problem
+        /// for the application, but if it is, setting this flag will make hwloc
+        /// avoid using OS functions that would also bind memory. This will
+        /// however reduce the support of CPU bindings, i.e. potentially
+        /// result in the binding function erroring out with ENOSYS.
+        ///
+        /// This flag is only meaningful when used with functions that set the
+        /// CPU binding. It is ignored when used with functions that get CPU
+        /// binding information.
+        const NO_MEMORY_BINDING = (1<<3);
+    }
+}
+
+impl Default for CpuBindingFlags {
+    fn default() -> Self {
+        Self::PROCESS
+    }
+}
+
+/// Errors that can occur when binding processes or threads to CPUSets
+#[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
+pub enum CpuBindingError {
+    /// Action is not supported
+    #[error("Action is not supported")]
+    Unsupported,
+
+    /// Binding cannot be enforced
+    #[error("Binding cannot be enforced")]
+    Ineffective,
+
+    /// Unexpected errno value
+    #[error("Unexpected errno value {0}")]
+    UnexpectedErrno(Errno),
+
+    /// Unexpected binding function result
+    #[error("Unexpected binding function result {0}")]
+    UnexpectedResult(i32),
+}

@@ -1,8 +1,8 @@
 //! Topology building
-//!
-//! - Creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
-//! - Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
-//! - Detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+
+// - Creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
+// - Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
+// - Detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 
 use crate::{ffi, RawTopology, Topology};
 use bitflags::bitflags;

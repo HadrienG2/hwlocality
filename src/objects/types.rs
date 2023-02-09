@@ -231,7 +231,7 @@ impl ObjectType {
     }
 
     /// Convert to the internal representation used by hwloc
-    pub(crate) fn to_raw(&self) -> RawObjectType {
+    fn to_raw(&self) -> RawObjectType {
         RawObjectType::from(*self)
     }
 }
@@ -275,13 +275,6 @@ pub enum BridgeType {
     /// PCI-side of a bridge
     PCI,
 }
-//
-impl BridgeType {
-    /// Convert to the internal representation used by hwloc
-    pub(crate) fn to_raw(&self) -> RawBridgeType {
-        RawBridgeType::from(*self)
-    }
-}
 
 /// Rust mapping of the hwloc_obj_cache_type_e enum
 ///
@@ -302,13 +295,6 @@ pub enum CacheType {
 
     /// Instruction cache (filtered out by default
     Instruction,
-}
-//
-impl CacheType {
-    /// Convert to the internal representation used by hwloc
-    pub(crate) fn to_raw(&self) -> RawCacheType {
-        RawCacheType::from(*self)
-    }
 }
 
 /// Rust mapping of the hwloc_obj_osdev_type_e enum
