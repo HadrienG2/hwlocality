@@ -77,35 +77,35 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_dup(
                 newtop: *mut *mut RawTopology,
-                oldtop: *mut RawTopology,
+                oldtop: *const RawTopology,
             ) -> c_int;
             #[must_use]
-            pub(crate) fn hwloc_topology_abi_check(topology: *mut RawTopology) -> c_int;
+            pub(crate) fn hwloc_topology_abi_check(topology: *const RawTopology) -> c_int;
 
             // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
 
             #[must_use]
-            pub(crate) fn hwloc_topology_get_depth(topology: *mut RawTopology) -> RawDepth;
+            pub(crate) fn hwloc_topology_get_depth(topology: *const RawTopology) -> RawDepth;
             #[must_use]
-            pub(crate) fn hwloc_get_memory_parents_depth(topology: *mut RawTopology) -> RawDepth;
+            pub(crate) fn hwloc_get_memory_parents_depth(topology: *const RawTopology) -> RawDepth;
             #[must_use]
             pub(crate) fn hwloc_get_type_depth(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 object_type: RawObjectType,
             ) -> RawDepth;
             #[must_use]
             pub(crate) fn hwloc_get_depth_type(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 depth: RawDepth,
             ) -> RawObjectType;
             #[must_use]
             pub(crate) fn hwloc_get_nbobjs_by_depth(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 depth: RawDepth,
             ) -> c_uint;
             #[must_use]
             pub(crate) fn hwloc_get_obj_by_depth(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 depth: RawDepth,
                 idx: c_uint,
             ) -> *mut TopologyObject;
@@ -142,7 +142,13 @@ macro_rules! extern_c_block {
 
             // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_flags(
+                topology: *mut RawTopology,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_flags(topology: *const RawTopology) -> c_ulong;
 
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
 
@@ -313,16 +319,10 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
                 name: *const c_char,
             ) -> c_int;
-
-            pub(crate) fn hwloc_topology_set_flags(
-                topology: *mut RawTopology,
-                flags: c_ulong,
-            ) -> c_int;
-            pub(crate) fn hwloc_topology_get_flags(topology: *mut RawTopology) -> c_ulong;
             pub(crate) fn hwloc_topology_is_thissystem(topology: *mut RawTopology) -> c_int;
 
             pub(crate) fn hwloc_topology_get_support(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
             ) -> *const TopologySupport;
 
             pub(crate) fn hwloc_topology_set_type_filter(
@@ -397,7 +397,7 @@ macro_rules! extern_c_block {
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_cpubind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
@@ -408,7 +408,7 @@ macro_rules! extern_c_block {
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_proc_cpubind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 pid: pid_t,
                 set: *mut RawBitmap,
                 flags: c_int,
@@ -420,18 +420,18 @@ macro_rules! extern_c_block {
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_thread_cpubind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 pid: pthread_t,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_last_cpu_location(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 set: *mut RawBitmap,
                 flags: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_get_proc_last_cpu_location(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 pid: pid_t,
                 set: *mut RawBitmap,
                 flags: c_int,

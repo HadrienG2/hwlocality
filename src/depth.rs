@@ -3,6 +3,7 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 
 use std::ffi::c_int;
+use thiserror::Error;
 
 /// Rust mapping of the hwloc_get_type_depth_e enum
 ///
@@ -97,15 +98,18 @@ impl From<Depth> for RawDepth {
 }
 
 /// Error from an hwloc depth query
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum DepthError {
-    /// No object of given type exists in the topology.
+    /// No object of given type exists in the topology
+    #[error("No object of given type exists in the topology")]
     None,
 
-    /// Objects of given type exist at different depths in the topology.
+    /// Objects of given type exist at different depths in the topology
+    #[error("Objects of given type exist at different depths in the topology")]
     Multiple,
 
     /// Unexpected hwloc error or special depth value
+    #[error("Unexpected hwloc error or special depth value {0}")]
     Unknown(i32),
 }
 
