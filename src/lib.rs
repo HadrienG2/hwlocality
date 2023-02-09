@@ -117,10 +117,7 @@ pub(crate) struct RawTopology {
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
 
-pub struct Topology {
-    topo: *mut RawTopology,
-    support: *const TopologySupport,
-}
+pub struct Topology(*mut RawTopology);
 
 #[allow(non_camel_case_types)]
 #[cfg(target_os = "windows")]
@@ -171,9 +168,7 @@ impl Topology {
             }
         }
 
-        let support = unsafe { ffi::hwloc_topology_get_support(topo) };
-
-        Some(Topology { topo, support })
+        Some(Topology(topo))
     }
 
     /// Creates a new Topology with custom flags.
@@ -210,13 +205,20 @@ impl Topology {
             }
         }
 
-        let support = unsafe { ffi::hwloc_topology_get_support(topo) };
-
-        Some(Topology { topo, support })
+        Some(Topology(topo))
     }
 
+    /// Retrieve the topology support
+    ///
+    /// This documents which hwloc features are supported by the current
+    /// topology on the current machine
     pub fn support(&self) -> &TopologySupport {
-        unsafe { &*self.support }
+        let ptr = unsafe { ffi::hwloc_topology_get_support(self.0) };
+        assert!(
+            !ptr.is_null(),
+            "Got null pointer from hwloc_topology_get_support"
+        );
+        unsafe { &*ptr }
     }
 
     /// Flags currently set for this topology.
@@ -236,7 +238,7 @@ impl Topology {
     /// assert_eq!(vec![TopologyFlag::IsThisSystem], topology_with_flags.flags());
     /// ```
     pub fn flags(&self) -> impl Iterator<Item = TopologyFlag> {
-        let stored_flags = unsafe { ffi::hwloc_topology_get_flags(self.topo) };
+        let stored_flags = unsafe { ffi::hwloc_topology_get_flags(self.0) };
 
         (0..64)
             .map(move |x| (1 << x) & stored_flags)
@@ -263,14 +265,14 @@ impl Topology {
     /// assert!(topology.depth() > 0);
     /// ```
     pub fn depth(&self) -> u32 {
-        unsafe { ffi::hwloc_topology_get_depth(self.topo) }
+        unsafe { ffi::hwloc_topology_get_depth(self.0) }
             .try_into()
             .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
 
     /// Depth of parents where memory objects are attached
     pub fn memory_parents_depth(&self) -> DepthResult {
-        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.topo) })
+        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.0) })
     }
 
     /// Depth for the given `ObjectType`
@@ -298,7 +300,7 @@ impl Topology {
     /// ```
     ///
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
-        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.topo, object_type.into()) })
+        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.0, object_type.into()) })
     }
 
     /// Depth for the given `ObjectType` or below
@@ -388,7 +390,7 @@ impl Topology {
                 return None;
             }
         }
-        match unsafe { ffi::hwloc_get_depth_type(self.topo, depth.into()) }.try_into() {
+        match unsafe { ffi::hwloc_get_depth_type(self.0, depth.into()) }.try_into() {
             Ok(depth) => Some(depth),
             Err(TryFromPrimitiveError {
                 number: RawObjectType::MAX,
@@ -411,7 +413,7 @@ impl Topology {
     /// ```
     ///
     pub fn size_at_depth(&self, depth: Depth) -> u32 {
-        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.topo, depth.into()) }
+        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.0, depth.into()) }
     }
 
     /// `TopologyObject` at the root of the topology.
@@ -451,7 +453,7 @@ impl Topology {
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
-            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.topo, depth, idx) };
+            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.0, depth, idx) };
             assert!(
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
@@ -464,7 +466,7 @@ impl Topology {
 
     /// Binds the current process or thread on CPUs given in the `CpuSet`.
     pub fn set_cpubind(&mut self, set: &CpuSet, flags: CpuBindFlags) -> Result<(), CpuBindError> {
-        let result = unsafe { ffi::hwloc_set_cpubind(self.topo, set.as_ptr(), flags.bits()) };
+        let result = unsafe { ffi::hwloc_set_cpubind(self.0, set.as_ptr(), flags.bits()) };
 
         match result {
             r if r < 0 => {
@@ -478,7 +480,7 @@ impl Topology {
     /// Get current process or thread binding.
     pub fn get_cpubind(&self, flags: CpuBindFlags) -> Option<CpuSet> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe { ffi::hwloc_get_cpubind(self.topo, cpuset.as_mut_ptr(), flags.bits()) };
+        let res = unsafe { ffi::hwloc_get_cpubind(self.0, cpuset.as_mut_ptr(), flags.bits()) };
         if res >= 0 {
             Some(cpuset)
         } else {
@@ -494,7 +496,7 @@ impl Topology {
         flags: CpuBindFlags,
     ) -> Result<(), CpuBindError> {
         let result =
-            unsafe { ffi::hwloc_set_proc_cpubind(self.topo, pid, set.as_ptr(), flags.bits()) };
+            unsafe { ffi::hwloc_set_proc_cpubind(self.0, pid, set.as_ptr(), flags.bits()) };
 
         match result {
             r if r < 0 => {
@@ -508,9 +510,8 @@ impl Topology {
     /// Get the current physical binding of a process, identified by its `pid`.
     pub fn get_cpubind_for_process(&self, pid: pid_t, flags: CpuBindFlags) -> Option<CpuSet> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe {
-            ffi::hwloc_get_proc_cpubind(self.topo, pid, cpuset.as_mut_ptr(), flags.bits())
-        };
+        let res =
+            unsafe { ffi::hwloc_get_proc_cpubind(self.0, pid, cpuset.as_mut_ptr(), flags.bits()) };
         if res >= 0 {
             Some(cpuset)
         } else {
@@ -526,7 +527,7 @@ impl Topology {
         flags: CpuBindFlags,
     ) -> Result<(), CpuBindError> {
         let result =
-            unsafe { ffi::hwloc_set_thread_cpubind(self.topo, tid, set.as_ptr(), flags.bits()) };
+            unsafe { ffi::hwloc_set_thread_cpubind(self.0, tid, set.as_ptr(), flags.bits()) };
 
         match result {
             r if r < 0 => {
@@ -541,7 +542,7 @@ impl Topology {
     pub fn get_cpubind_for_thread(&self, tid: pthread_t, flags: CpuBindFlags) -> Option<CpuSet> {
         let mut cpuset = CpuSet::new();
         let res = unsafe {
-            ffi::hwloc_get_thread_cpubind(self.topo, tid, cpuset.as_mut_ptr(), flags.bits())
+            ffi::hwloc_get_thread_cpubind(self.0, tid, cpuset.as_mut_ptr(), flags.bits())
         };
         if res >= 0 {
             Some(cpuset)
@@ -564,9 +565,8 @@ impl Topology {
     /// whichever method is available on the underlying OS.
     pub fn get_cpu_location(&self, flags: CpuBindFlags) -> Option<CpuSet> {
         let mut cpuset = CpuSet::new();
-        let res = unsafe {
-            ffi::hwloc_get_last_cpu_location(self.topo, cpuset.as_mut_ptr(), flags.bits())
-        };
+        let res =
+            unsafe { ffi::hwloc_get_last_cpu_location(self.0, cpuset.as_mut_ptr(), flags.bits()) };
         if res >= 0 {
             Some(cpuset)
         } else {
@@ -582,7 +582,7 @@ impl Topology {
     pub fn get_cpu_location_for_process(&self, pid: pid_t, flags: CpuBindFlags) -> Option<CpuSet> {
         let mut cpuset = CpuSet::new();
         let res = unsafe {
-            ffi::hwloc_get_proc_last_cpu_location(self.topo, pid, cpuset.as_mut_ptr(), flags.bits())
+            ffi::hwloc_get_proc_last_cpu_location(self.0, pid, cpuset.as_mut_ptr(), flags.bits())
         };
         if res >= 0 {
             Some(cpuset)
@@ -594,9 +594,11 @@ impl Topology {
 
 impl Drop for Topology {
     fn drop(&mut self) {
-        unsafe { ffi::hwloc_topology_destroy(self.topo) }
+        unsafe { ffi::hwloc_topology_destroy(self.0) }
     }
 }
+
+// ### FIXME: Tidy up the following mess ###
 
 bitflags! {
     /// Process/Thread binding flags.

@@ -69,7 +69,18 @@ macro_rules! extern_c_block {
 
             // === Topology creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_init(topology: *mut *mut RawTopology) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_load(topology: *mut RawTopology) -> c_int;
+            pub(crate) fn hwloc_topology_destroy(topology: *mut RawTopology);
+            #[must_use]
+            pub(crate) fn hwloc_topology_dup(
+                newtop: *mut *mut RawTopology,
+                oldtop: *mut RawTopology,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_abi_check(topology: *mut RawTopology) -> c_int;
 
             // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
 
@@ -281,20 +292,6 @@ macro_rules! extern_c_block {
 
             // ### FIXME: The following FFIs have not yet been refactored
             // ###        Clean them up and insert them above
-
-            // === Topology Creation and Destruction ===
-
-            pub(crate) fn hwloc_topology_init(topology: *mut *mut RawTopology) -> c_int;
-            pub(crate) fn hwloc_topology_load(topology: *mut RawTopology) -> c_int;
-            pub(crate) fn hwloc_topology_destroy(topology: *mut RawTopology);
-
-            // === Topology Utilities
-            pub(crate) fn hwloc_topology_dup(
-                newtop: *mut *mut RawTopology,
-                oldtop: *mut RawTopology,
-            ) -> c_int;
-            pub(crate) fn hwloc_topology_abi_check(topology: *mut RawTopology) -> c_int;
-            pub(crate) fn hwloc_topology_check(topology: *mut RawTopology) -> c_int;
 
             // === Topology Detection Configuration and Query ===
             pub(crate) fn hwloc_topology_set_pid(topology: *mut RawTopology, pid: pid_t) -> c_int;

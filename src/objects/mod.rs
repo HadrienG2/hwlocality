@@ -54,7 +54,7 @@ pub struct TopologyObject {
     complete_nodeset: *mut RawBitmap,
     infos: *mut ObjectInfo,
     infos_count: c_uint,
-    userdata: *mut c_void,
+    __userdata: *mut c_void, // BEWARE: Topology duplication blindly duplicates this!
     gp_index: u64,
 }
 
