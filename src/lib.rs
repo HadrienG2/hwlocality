@@ -223,8 +223,7 @@ impl Topology {
     ///
     /// `TopologyFlags::IMPORT_SUPPORT` may be used during topology building to
     /// report the supported features of the original remote machine instead. If
-    /// it was successfully imported, imported_support will be set in the struct
-    /// hwloc_topology_misc_support array. (TODO: adapt)
+    /// it was successfully imported, `MiscSupport::imported()` will be set.
     pub fn support(&self) -> &TopologySupport {
         let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
         assert!(

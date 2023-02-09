@@ -122,7 +122,7 @@ bitflags! {
         /// Assume that the selected backend provides the topology for the
         /// system on which we are running
         ///
-        /// This forces hwloc_topology_is_thissystem() to return 1, i.e. makes
+        /// This forces `Topology::is_this_system()` to return true, i.e. makes
         /// hwloc assume that the selected backend provides the topology for the
         /// system on which we are running, even if it is not the OS-specific
         /// backend but the XML backend for instance. This means making the
@@ -166,10 +166,9 @@ bitflags! {
         /// bits reported by `Topology::support()`.
         ///
         /// The flag `IMPORT_SUPPORT` allows you to actually import support bits
-        /// from the remote machine. It also sets the flag imported_support in
-        /// the struct hwloc_topology_misc_support array (TODO: adapt to binding).
-        /// If the imported XML did not contain any support information
-        /// (exporter hwloc is too old), this flag is not set.
+        /// from the remote machine. It also sets the `MiscSupport::imported()`
+        /// support flag. If the imported XML did not contain any support
+        /// information (exporter hwloc is too old), this flag is not set.
         ///
         /// Note that these supported features are only relevant for the hwloc
         /// installation that actually exported the XML topology (it may vary
