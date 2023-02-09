@@ -17,16 +17,12 @@ impl TopologyBuilder {
     ///
     /// Returns None if hwloc failled to allocate a topology context.
     ///
-    pub fn new() -> Option<Self> {
+    pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
         let result = unsafe { ffi::hwloc_topology_init(&mut topology) };
-        assert!(
-            result == 0 || result == -1,
-            "Unexpected hwloc_topology_init result {result}"
-        );
-        (result == 0).then(|| {
-            Self(NonNull::new(topology).expect("Got null pointer from hwloc_topology_init"))
-        })
+        assert_ne!(result, -1, "Failed to allocate topology");
+        assert_eq!(result, 0, "Unexpected hwloc_topology_init result {result}");
+        Self(NonNull::new(topology).expect("Got null pointer from hwloc_topology_init"))
     }
 
     /// Set topology building flags
@@ -39,7 +35,7 @@ impl TopologyBuilder {
     /// ```
     /// use hwloc2::{Topology, TopologyFlags};
     ///
-    /// let topology = Topology::builder().unwrap()
+    /// let topology = Topology::builder()
     ///                         .with_flags(TopologyFlags::ASSUME_THIS_SYSTEM).unwrap()
     ///                         .build().unwrap();
     /// ```

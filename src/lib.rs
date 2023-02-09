@@ -152,12 +152,11 @@ impl Topology {
     /// ```
     ///
     pub fn new() -> Result<Topology, Errno> {
-        let builder = TopologyBuilder::new().expect("Failed to allocate topology");
-        builder.build()
+        TopologyBuilder::new().build()
     }
 
     /// Prepare to create a Topology with custom configuration
-    pub fn builder() -> Option<TopologyBuilder> {
+    pub fn builder() -> TopologyBuilder {
         TopologyBuilder::new()
     }
 
@@ -196,7 +195,7 @@ impl Topology {
     /// assert_eq!(TopologyFlags::empty(), default_topology.build_flags());
     ///
     /// let topology_with_flags =
-    ///     Topology::builder().unwrap()
+    ///     Topology::builder()
     ///         .with_flags(TopologyFlags::ASSUME_THIS_SYSTEM).unwrap()
     ///         .build().unwrap();
     /// assert_eq!(
@@ -638,7 +637,6 @@ mod tests {
     #[test]
     fn should_set_and_get_flags() {
         let topo = Topology::builder()
-            .unwrap()
             .with_flags(
                 TopologyFlags::INCLUDE_DISALLOWED
                     | TopologyFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
