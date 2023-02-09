@@ -8,6 +8,8 @@
 //!
 //! First, add the following to your `Cargo.toml`:
 //!
+//! FIXME: This is outdated
+//!
 //! ```toml
 //! [dependencies]
 //! hwloc = "0.3.0"
@@ -75,21 +77,22 @@
 pub mod bitmap;
 pub mod depth;
 mod ffi;
-pub mod object;
+pub mod objects;
 pub mod support;
 
 use self::{
     bitmap::CpuSet,
-    depth::{Depth, DepthError, DepthResult},
-    object::{types::ObjectType, TopologyObject},
+    depth::{Depth, DepthError, DepthResult, RawDepth},
+    objects::{
+        types::{ObjectType, RawObjectType},
+        TopologyObject,
+    },
     support::TopologySupport,
 };
 use bitflags::bitflags;
-use depth::RawDepth;
 use errno::errno;
 use num::{FromPrimitive, ToPrimitive};
 use num_enum::TryFromPrimitiveError;
-use object::types::RawObjectType;
 use std::{
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},

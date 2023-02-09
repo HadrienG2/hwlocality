@@ -1,4 +1,7 @@
-use hwloc2::{CpuBindFlags, ObjectType, Topology, TopologyObject};
+use hwloc2::{
+    objects::{types::ObjectType, TopologyObject},
+    CpuBindFlags, Topology,
+};
 
 /// Example which binds an arbitrary process (in this example this very same one) to
 /// the last core.

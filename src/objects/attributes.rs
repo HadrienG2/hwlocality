@@ -5,7 +5,7 @@
 
 use crate::{
     ffi,
-    object::types::{
+    objects::types::{
         BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
         RawOSDeviceType,
     },

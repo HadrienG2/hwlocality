@@ -1,4 +1,4 @@
-use hwloc2::{Topology, TopologyObject};
+use hwloc2::{objects::TopologyObject, Topology};
 
 /// Walk the topology in a tree-style and print it.
 fn main() {
@@ -10,9 +10,9 @@ fn main() {
 
 fn print_children(topo: &Topology, obj: &TopologyObject, depth: usize) {
     let padding = std::iter::repeat(" ").take(depth).collect::<String>();
-    println!("{}{}: #{}", padding, obj, obj.os_index());
+    println!("{padding}{obj}: #{:?}", obj.os_index());
 
-    for child in obj.children() {
+    for child in obj.normal_children() {
         print_children(topo, child, depth + 1);
     }
 }

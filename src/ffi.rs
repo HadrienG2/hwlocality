@@ -1,7 +1,7 @@
 use crate::{
     bitmap::RawBitmap,
     depth::RawDepth,
-    object::{types::RawObjectType, TopologyObject},
+    objects::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
     MemBindPolicy, RawTopology,
 };

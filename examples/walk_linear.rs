@@ -8,7 +8,7 @@ fn main() {
     for i in 0..topo.depth() {
         println!("*** Objects at level {}", i);
 
-        for (idx, object) in topo.objects_at_depth(i).iter().enumerate() {
+        for (idx, object) in topo.objects_at_depth(i.into()).enumerate() {
             println!("{}: {}", idx, object);
         }
     }

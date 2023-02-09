@@ -5,14 +5,12 @@ use std::{
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
-    ffi::CStr,
     fmt,
     iter::FromIterator,
     marker::{PhantomData, PhantomPinned},
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
     },
-    ptr,
 };
 
 /// Opaque bitmap struct
