@@ -101,15 +101,15 @@ impl From<Depth> for RawDepth {
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum DepthError {
     /// No object of given type exists in the topology
-    #[error("No object of given type exists in the topology")]
+    #[error("no object of given type exists in the topology")]
     None,
 
     /// Objects of given type exist at different depths in the topology
-    #[error("Objects of given type exist at different depths in the topology")]
+    #[error("objects of given type exist at different depths in the topology")]
     Multiple,
 
     /// Unexpected hwloc error or special depth value
-    #[error("Unexpected hwloc error or special depth value {0}")]
+    #[error("unexpected hwloc error or special depth value {0}")]
     Unknown(i32),
 }
 

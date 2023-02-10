@@ -80,7 +80,7 @@ pub enum CpuBindingError {
     /// Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
-    #[error("Action is not supported")]
+    #[error("action is not supported")]
     Unsupported,
 
     /// Binding cannot be enforced
@@ -89,15 +89,15 @@ pub enum CpuBindingError {
     /// Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
-    #[error("Binding cannot be enforced")]
+    #[error("binding cannot be enforced")]
     Ineffective,
 
     /// Unexpected errno value
-    #[error("Unexpected errno value {0}")]
+    #[error("unexpected errno value {0}")]
     UnexpectedErrno(Errno),
 
     /// Unexpected binding function result
-    #[error("Unexpected binding function result {0} with errno {1}")]
+    #[error("unexpected binding function result {0} with errno {1}")]
     UnexpectedResult(i32, Errno),
 }
 

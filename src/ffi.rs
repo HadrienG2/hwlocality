@@ -141,7 +141,7 @@ macro_rules! extern_c_block {
 
             #[must_use]
             pub(crate) fn hwloc_set_cpubind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 set: *const RawBitmap,
                 flags: c_uint,
             ) -> c_int;
@@ -153,7 +153,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_proc_cpubind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 pid: ProcessID,
                 set: *const RawBitmap,
                 flags: c_uint,
@@ -167,7 +167,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_thread_cpubind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 thread: ThreadID,
                 set: *const RawBitmap,
                 flags: c_uint,
@@ -197,7 +197,7 @@ macro_rules! extern_c_block {
 
             #[must_use]
             pub(crate) fn hwloc_set_membind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
@@ -211,7 +211,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_proc_membind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 pid: ProcessID,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
@@ -227,7 +227,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_area_membind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 addr: *const c_void,
                 len: size_t,
                 set: *const RawBitmap,
@@ -252,17 +252,21 @@ macro_rules! extern_c_block {
                 flags: MemoryBindingFlags,
             ) -> c_int;
             #[must_use]
-            pub(crate) fn hwloc_alloc(topology: *mut RawTopology, len: size_t) -> *mut c_void;
+            pub(crate) fn hwloc_alloc(topology: *const RawTopology, len: size_t) -> *mut c_void;
             #[must_use]
             pub(crate) fn hwloc_alloc_membind(
-                topology: *mut RawTopology,
+                topology: *const RawTopology,
                 len: size_t,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
             ) -> *mut c_void;
             #[must_use]
-            pub(crate) fn hwloc_free(topology: *mut RawTopology, addr: *mut c_void, len: size_t);
+            pub(crate) fn hwloc_free(
+                topology: *const RawTopology,
+                addr: *mut c_void,
+                len: size_t,
+            ) -> c_int;
 
             // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html ===
 
