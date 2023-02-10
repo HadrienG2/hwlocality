@@ -33,7 +33,9 @@ fn main() {
                 let mut locked_topo = child_topo.lock().unwrap();
 
                 // Thread binding before explicit set.
-                let before = locked_topo.thread_cpu_binding(tid, CpuBindingFlags::THREAD);
+                let before = locked_topo
+                    .thread_cpu_binding(tid, CpuBindingFlags::THREAD)
+                    .unwrap();
 
                 // load the cpuset for the given core index.
                 let mut bind_to = cpuset_for_core(&*locked_topo, i).clone();
@@ -47,7 +49,9 @@ fn main() {
                     .unwrap();
 
                 // Thread binding after explicit set.
-                let after = locked_topo.thread_cpu_binding(tid, CpuBindingFlags::THREAD);
+                let after = locked_topo
+                    .thread_cpu_binding(tid, CpuBindingFlags::THREAD)
+                    .unwrap();
                 println!("Thread {}: Before {:?}, After {:?}", i, before, after);
             })
         })

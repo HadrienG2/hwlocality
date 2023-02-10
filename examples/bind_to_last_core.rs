@@ -30,11 +30,11 @@ fn main() {
     // Print the current cpu binding before explicit setting
     println!(
         "Cpu Binding before explicit bind: {:?}",
-        topo.cpu_binding(CpuBindingFlags::PROCESS)
+        topo.cpu_binding(CpuBindingFlags::PROCESS).unwrap()
     );
     println!(
         "Cpu Location before explicit bind: {:?}",
-        topo.last_cpu_location(CpuBindingFlags::PROCESS)
+        topo.last_cpu_location(CpuBindingFlags::PROCESS).unwrap()
     );
 
     // Try to bind all threads of the current (possibly multithreaded) process.
@@ -46,11 +46,11 @@ fn main() {
     // Print the current cpu binding after explicit setting
     println!(
         "Cpu Binding after explicit bind: {:?}",
-        topo.cpu_binding(CpuBindingFlags::PROCESS)
+        topo.cpu_binding(CpuBindingFlags::PROCESS).unwrap()
     );
     println!(
         "Cpu Location after explicit bind: {:?}",
-        topo.last_cpu_location(CpuBindingFlags::PROCESS)
+        topo.last_cpu_location(CpuBindingFlags::PROCESS).unwrap()
     );
 }
 

@@ -368,10 +368,14 @@ impl TopologyObject {
             let attr_str = CStr::from_ptr(attr_chars.as_ptr())
                 .to_str()
                 .expect("Got invalid attributes string");
-            if f.alternate() {
-                write!(f, "{type_str} (\n  {attr_str}\n)")
+            if attr_str.is_empty() {
+                write!(f, "{type_str}")
             } else {
-                write!(f, "{type_str} ({attr_str})")
+                if f.alternate() {
+                    write!(f, "{type_str} (\n  {attr_str}\n)")
+                } else {
+                    write!(f, "{type_str} ({attr_str})")
+                }
             }
         }
     }

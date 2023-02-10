@@ -10,7 +10,7 @@ fn main() {
 
 fn print_children(topo: &Topology, obj: &TopologyObject, depth: usize) {
     let padding = std::iter::repeat(" ").take(depth).collect::<String>();
-    println!("{padding}{obj}: #{:?}", obj.os_index());
+    println!("{padding}{obj}: #{:?}", obj.os_index().unwrap());
 
     for child in obj.normal_children() {
         print_children(topo, child, depth + 1);

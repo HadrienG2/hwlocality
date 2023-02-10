@@ -34,5 +34,5 @@ fn main() {
     );
 
     // Debug Print all the Support Flags
-    println!("All Flags:\n{:?}", topo.support());
+    println!("All Flags:\n{:#?}", topo.support());
 }
