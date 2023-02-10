@@ -3,6 +3,7 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 use crate::ffi;
+use derive_more::*;
 use std::{
     clone::Clone,
     cmp::Ordering,
@@ -11,9 +12,149 @@ use std::{
     iter::FromIterator,
     marker::{PhantomData, PhantomPinned},
     ops::{
-        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
+        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Deref, DerefMut,
+        Not, RangeBounds,
     },
 };
+
+/// Trait for manipulating specialized bitmaps in a homogeneous way
+pub trait SpecializedBitmap:
+    Deref<Target = Bitmap> + DerefMut<Target = Bitmap> + From<Bitmap>
+{
+    /// What kind of bitmap is this?
+    const BITMAP_KIND: BitmapKind;
+}
+//
+/// Kind of bitmap (see types with matching names for more info)
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BitmapKind {
+    CpuSet,
+    NodeSet,
+}
+
+/// A `CpuSet` is a `Bitmap` whose bits are set according to CPU physical OS indexes.
+#[derive(
+    AsMut,
+    AsRef,
+    BitAnd,
+    BitAndAssign,
+    BitOr,
+    BitOrAssign,
+    BitXor,
+    BitXorAssign,
+    Clone,
+    Debug,
+    Default,
+    Deref,
+    DerefMut,
+    Display,
+    Eq,
+    From,
+    Into,
+    IntoIterator,
+    Not,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[repr(transparent)]
+pub struct CpuSet(Bitmap);
+
+impl SpecializedBitmap for CpuSet {
+    const BITMAP_KIND: BitmapKind = BitmapKind::CpuSet;
+}
+
+impl CpuSet {
+    /// Wraps an owned `CpuSet` from hwloc (see `Bitmap::from_raw`)
+    #[allow(unused)]
+    pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
+        Bitmap::from_raw(bitmap).map(Self::from)
+    }
+
+    /// Wraps an hwloc-originated borrowed `CpuSet` pointer into the `Bitmap`
+    /// representation (see `Bitmap::borrow_from_raw`)
+    #[allow(unused)]
+    pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
+        std::mem::transmute::<Option<&Bitmap>, Option<&Self>>(Bitmap::borrow_from_raw(bitmap))
+    }
+
+    /// Creates an empty `CpuSet`
+    pub fn new() -> Self {
+        Self::from(Bitmap::new())
+    }
+
+    /// Creates a full `CpuSet`
+    pub fn full() -> Self {
+        Self::from(Bitmap::full())
+    }
+
+    /// Creates a new `CpuSet` with the given range
+    pub fn from_range(range: impl RangeBounds<u32>) -> Self {
+        Self::from(Bitmap::from_range(range))
+    }
+}
+
+/// A `NodeSet` is a `Bitmap` whose bits are set according to NUMA memory node physical OS indexes.
+#[derive(
+    AsMut,
+    AsRef,
+    BitAnd,
+    BitAndAssign,
+    BitOr,
+    BitOrAssign,
+    BitXor,
+    BitXorAssign,
+    Clone,
+    Debug,
+    Default,
+    Deref,
+    DerefMut,
+    Display,
+    Eq,
+    From,
+    Into,
+    IntoIterator,
+    Not,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[repr(transparent)]
+pub struct NodeSet(Bitmap);
+
+impl SpecializedBitmap for NodeSet {
+    const BITMAP_KIND: BitmapKind = BitmapKind::NodeSet;
+}
+
+impl NodeSet {
+    /// Wraps an owned `NodeSet` from hwloc (see `Bitmap::from_raw`)
+    #[allow(unused)]
+    pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
+        Bitmap::from_raw(bitmap).map(Self::from)
+    }
+
+    /// Wraps an hwloc-originated borrowed `NodeSet` pointer into the `Bitmap`
+    /// representation (see `Bitmap::borrow_from_raw`)
+    #[allow(unused)]
+    pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
+        std::mem::transmute::<Option<&Bitmap>, Option<&Self>>(Bitmap::borrow_from_raw(bitmap))
+    }
+
+    /// Creates an empty `NodeSet`
+    pub fn new() -> Self {
+        Self::from(Bitmap::new())
+    }
+
+    /// Creates a full `NodeSet`
+    pub fn full() -> Self {
+        Self::from(Bitmap::full())
+    }
+
+    /// Creates a new `NodeSet` with the given range
+    pub fn from_range(range: impl RangeBounds<u32>) -> Self {
+        Self::from(Bitmap::from_range(range))
+    }
+}
 
 /// Opaque bitmap struct
 ///
@@ -36,11 +177,6 @@ pub(crate) struct RawBitmap {
 /// A `Bitmap` may be of infinite size.
 #[repr(transparent)]
 pub struct Bitmap(*mut RawBitmap);
-
-/// A `CpuSet` is a `Bitmap` whose bits are set according to CPU physical OS indexes.
-pub type CpuSet = Bitmap;
-/// A `NodeSet` is a `Bitmap` whose bits are set according to NUMA memory node physical OS indexes.
-pub type NodeSet = Bitmap;
 
 impl Bitmap {
     /// Wraps an owned bitmap from hwloc
@@ -125,6 +261,8 @@ impl Bitmap {
         bitmap.set_range(range);
         bitmap
     }
+
+    // NOTE: When adding new constructors, add them to *Set too for consistency
 
     /// Turn this bitmap into a copy of another bitmap
     ///

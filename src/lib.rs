@@ -78,10 +78,10 @@ pub mod memory;
 pub mod objects;
 pub mod support;
 
-use crate::{ffi::hwloc_get_membind, memory::RawMemoryBindingPolicy};
+use crate::ffi::hwloc_get_membind;
 
 use self::{
-    bitmap::{CpuSet, RawBitmap},
+    bitmap::CpuSet,
     builder::{BuildFlags, TopologyBuilder},
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
@@ -91,7 +91,7 @@ use self::{
     },
     support::TopologySupport,
 };
-use bitmap::Bitmap;
+use bitmap::{Bitmap, BitmapKind, SpecializedBitmap};
 use errno::{errno, Errno};
 use libc::EINVAL;
 use memory::{
@@ -626,22 +626,25 @@ impl Topology {
         unsafe { Bytes::wrap(self, ffi::hwloc_alloc(self.as_ptr(), len), len) }
     }
 
-    /// Allocate some memory on NUMA nodes specified by `set` and `flags`
+    // FIXME: Make CpuSet and NodeSet a newtype of Bitmap, use that to
+    //        autoset the `BY_NODE_SET` flag, and hide this flag from the docs.
+
+    /// Allocate some memory on NUMA nodes specified by `set`
     ///
-    /// If the `BY_NODE_SET` flag is set (which is the default), `set` is
-    /// interpreted as a `NodeSet`. Otherwise, it is interpreted as a `CpuSet`.
-    /// Binding by `NodeSet` is preferred because some NUMA memory nodes are not
-    /// attached to CPUs, and thus cannot be bound by `CpuSet`.
+    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
     ///
     /// If you do not care about changing the binding of the current process or
     /// thread, you can maximize portability by using `binding_allocate_memory()`.
-    pub fn allocate_bound_memory(
+    pub fn allocate_bound_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
-        set: &Bitmap,
+        set: &Set,
         policy: MemoryBindingPolicy,
-        flags: MemoryBindingFlags,
+        mut flags: MemoryBindingFlags,
     ) -> Result<Bytes, MemoryBindingSetupError> {
+        Self::adjust_flags_for::<Set>(&mut flags);
         unsafe {
             let base =
                 ffi::hwloc_alloc_membind(self.as_ptr(), len, set.as_ptr(), policy.into(), flags);
@@ -659,10 +662,10 @@ impl Topology {
     /// Allocating memory that matches the current process/thread configuration
     /// is supported on more operating systems, so this is the most portable way
     /// to obtain a bound memory buffer.
-    pub fn binding_allocate_memory(
+    pub fn binding_allocate_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
-        set: &Bitmap,
+        set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<Bytes, MemoryBindingSetupError> {
@@ -672,7 +675,7 @@ impl Topology {
         }
 
         // If that doesn't work, try binding the current process
-        self.bind_memory(Some((set, policy)), flags)?;
+        self.bind_memory(set, policy, flags)?;
 
         // If that succeeds, try allocating more memory
         let mut bytes = self
@@ -693,11 +696,7 @@ impl Topology {
     }
 
     /// Set the default memory binding policy of the current process or thread
-    /// to prefer the NUMA node(s) specified by `config` and `flags`.
-    ///
-    /// If `config` is set to None, the memory allocation policy is reset to the
-    /// system default. Depending on the operating system, this may correspond
-    /// to `FirstTouch` (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    /// to prefer the NUMA node(s) specified by `set`.
     ///
     /// If neither `MemoryBindingFlags::PROCESS` nor `MemoryBindingFlags::THREAD`
     /// is specified, the current process is assumed to be single-threaded. This
@@ -705,18 +704,36 @@ impl Topology {
     /// process-based OS functions or thread-based OS functions, depending on
     /// which are available.
     ///
-    /// If the `BY_NODE_SET` flag is set (which is the default), the `Bitmap` is
-    /// interpreted as a `NodeSet`. Otherwise, it is interpreted as a `CpuSet`.
-    /// Binding by `NodeSet` is preferred because some NUMA memory nodes are not
-    /// attached to CPUs, and thus cannot be bound by `CpuSet`.
-    pub fn bind_memory(
+    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
-        config: Option<(&Bitmap, MemoryBindingPolicy)>,
-        flags: MemoryBindingFlags,
+        set: &Set,
+        policy: MemoryBindingPolicy,
+        mut flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingSetupError> {
         // TODO: Generalize to all binding actions
-        let (set, policy) = Self::decode_binding_config(config);
-        let result = unsafe { ffi::hwloc_set_membind(self.as_ptr(), set, policy, flags) };
+        Self::adjust_flags_for::<Set>(&mut flags);
+        let result =
+            unsafe { ffi::hwloc_set_membind(self.as_ptr(), set.as_ptr(), policy.into(), flags) };
+        memory::setup_result(result)
+    }
+
+    /// Reset the memory allocation policy of the current process or thread to
+    /// the system default
+    ///
+    /// Depending on the operating system, this may correspond to `FirstTouch`
+    /// (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    ///
+    /// If neither `MemoryBindingFlags::PROCESS` nor `MemoryBindingFlags::THREAD`
+    /// is specified, the current process is assumed to be single-threaded. This
+    /// is the most portable form as it permits hwloc to use either
+    /// process-based OS functions or thread-based OS functions, depending on
+    /// which are available.
+    pub fn unbind_memory(&self, flags: MemoryBindingFlags) -> Result<(), MemoryBindingSetupError> {
+        // TODO: Generalize to all unbinding actions
+        let result = unsafe { ffi::hwloc_set_membind(self.as_ptr(), std::ptr::null(), 0, flags) };
         memory::setup_result(result)
     }
 
@@ -748,17 +765,17 @@ impl Topology {
     /// In the `MemoryBindingFlags::THREAD` case (or when neither `PROCESS` or
     /// `THREAD` is specified), there is only one set and policy, they are returned.
     ///
-    /// If `MemoryBindingFlags::BY_NODE_SET` is specified (which is the default),
-    /// a `NodeSet` is returned, otherwise a `CpuSet` is returned. You should
-    /// prefer `NodeSet`s whenever possible because some NUMA nodes may not be
-    /// attached to CPUs and thus be skipped from `CpuSet`s.
-    pub fn memory_binding(
+    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
-        flags: MemoryBindingFlags,
-    ) -> Result<(Bitmap, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
+        mut flags: MemoryBindingFlags,
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
         // TODO: Generalize to all binding queries
         let mut set = Bitmap::new();
         let mut raw_policy = 0;
+        Self::adjust_flags_for::<Set>(&mut flags);
         let result =
             unsafe { hwloc_get_membind(self.as_ptr(), set.as_mut_ptr(), &mut raw_policy, flags) };
         memory::query_result_lazy(result, move || {
@@ -769,7 +786,7 @@ impl Topology {
                     panic!("Got unexpected memory policy #{number}")
                 }
             };
-            (set, policy)
+            (set.into(), policy)
         })
     }
 
@@ -818,14 +835,11 @@ impl Topology {
                 ) -> c_int;
     */
 
-    /// Decode a memory binding configuration
-    fn decode_binding_config(
-        config: Option<(&Bitmap, MemoryBindingPolicy)>,
-    ) -> (*const RawBitmap, RawMemoryBindingPolicy) {
-        if let Some((set, policy)) = config {
-            (set.as_ptr(), policy.into())
-        } else {
-            (std::ptr::null(), 0)
+    /// Adjust binding flags for a certain kind of Set
+    fn adjust_flags_for<Set: SpecializedBitmap>(flags: &mut MemoryBindingFlags) {
+        match Set::BITMAP_KIND {
+            BitmapKind::NodeSet => *flags |= MemoryBindingFlags::BY_NODE_SET,
+            BitmapKind::CpuSet => *flags &= !MemoryBindingFlags::BY_NODE_SET,
         }
     }
 

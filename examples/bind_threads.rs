@@ -1,5 +1,5 @@
 use hwloc2::{bitmap::CpuSet, cpu::CpuBindingFlags, objects::types::ObjectType, Topology};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 /// Example which spawns one thread per core and then assigns it to each.
@@ -12,44 +12,38 @@ use std::thread;
 /// Thread 1: Before Some(0-1), After Some(1)
 /// ```
 fn main() {
-    let topo = Arc::new(Mutex::new(Topology::new().unwrap()));
+    let topo = Arc::new(Topology::new().unwrap());
 
     // Grab the number of cores in a block so that the lock is removed once
     // the end of the block is reached.
-    let num_cores = {
-        let topo_rc = topo.clone();
-        let topo_locked = topo_rc.lock().unwrap();
-        (*topo_locked).objects_with_type(ObjectType::Core).len()
-    };
+    let num_cores = topo.objects_with_type(ObjectType::Core).len();
     println!("Found {} cores.", num_cores);
 
     // Spawn one thread for each and pass the topology down into scope.
     let handles: Vec<_> = (0..num_cores)
         .map(|i| {
-            let child_topo = topo.clone();
+            let topo = topo.clone();
             thread::spawn(move || {
                 // Get the current thread id and lock the topology to use.
                 let tid = get_thread_id();
-                let mut locked_topo = child_topo.lock().unwrap();
 
                 // Thread binding before explicit set.
-                let before = locked_topo
+                let before = topo
                     .thread_cpu_binding(tid, CpuBindingFlags::THREAD)
                     .unwrap();
 
                 // load the cpuset for the given core index.
-                let mut bind_to = cpuset_for_core(&*locked_topo, i).clone();
+                let mut bind_to = cpuset_for_core(&topo, i).clone();
 
                 // Get only one logical processor (in case the core is SMT/hyper-threaded).
                 bind_to.singlify();
 
                 // Set the binding.
-                locked_topo
-                    .bind_thread_cpu(tid, &bind_to, CpuBindingFlags::THREAD)
+                topo.bind_thread_cpu(tid, &bind_to, CpuBindingFlags::THREAD)
                     .unwrap();
 
                 // Thread binding after explicit set.
-                let after = locked_topo
+                let after = topo
                     .thread_cpu_binding(tid, CpuBindingFlags::THREAD)
                     .unwrap();
                 println!("Thread {}: Before {:?}, After {:?}", i, before, after);
