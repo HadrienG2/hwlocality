@@ -19,7 +19,7 @@ fn main() {
     let num_cores = {
         let topo_rc = topo.clone();
         let topo_locked = topo_rc.lock().unwrap();
-        (*topo_locked).objects_with_type(ObjectType::Core).count()
+        (*topo_locked).objects_with_type(ObjectType::Core).len()
     };
     println!("Found {} cores.", num_cores);
 
@@ -61,11 +61,8 @@ fn main() {
 
 /// Load the `CpuSet` for the given core index.
 fn cpuset_for_core(topology: &Topology, idx: usize) -> &CpuSet {
-    let core = (*topology)
-        .objects_with_type(ObjectType::Core)
-        .skip(idx)
-        .next();
-    match core {
+    let cores = topology.objects_with_type(ObjectType::Core);
+    match cores.get(idx) {
         Some(val) => val.cpuset().unwrap(),
         None => panic!("No Core found with id {}", idx),
     }

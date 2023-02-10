@@ -77,11 +77,9 @@ mod ffi;
 pub mod objects;
 pub mod support;
 
-pub use builder::TopologyFlags;
-
 use self::{
     bitmap::CpuSet,
-    builder::TopologyBuilder,
+    builder::{BuildFlags, TopologyBuilder},
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     objects::{
@@ -190,22 +188,22 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, TopologyFlags};
+    /// use hwloc2::{Topology, builder::BuildFlags};
     ///
     /// let default_topology = Topology::new().unwrap();
-    /// assert_eq!(TopologyFlags::empty(), default_topology.build_flags());
+    /// assert_eq!(BuildFlags::empty(), default_topology.build_flags());
     ///
     /// let topology_with_flags =
     ///     Topology::builder()
-    ///         .with_flags(TopologyFlags::ASSUME_THIS_SYSTEM).unwrap()
+    ///         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
     ///         .build().unwrap();
     /// assert_eq!(
-    ///     TopologyFlags::ASSUME_THIS_SYSTEM,
+    ///     BuildFlags::ASSUME_THIS_SYSTEM,
     ///     topology_with_flags.build_flags()
     /// );
     /// ```
-    pub fn build_flags(&self) -> TopologyFlags {
-        TopologyFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+    pub fn build_flags(&self) -> BuildFlags {
+        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
             .expect("Encountered unexpected topology flags")
     }
 
@@ -218,9 +216,9 @@ impl Topology {
     /// machine and later imported here, support still describes what is
     /// supported for this imported topology after import. By default, binding
     /// will be reported as unsupported in this case (see
-    /// `TopologyFlags::ASSUME_THIS_SYSTEM`).
+    /// `BuildFlags::ASSUME_THIS_SYSTEM`).
     ///
-    /// `TopologyFlags::IMPORT_SUPPORT` may be used during topology building to
+    /// `BuildFlags::IMPORT_SUPPORT` may be used during topology building to
     /// report the supported features of the original remote machine instead. If
     /// it was successfully imported, `MiscSupport::imported()` will be set.
     pub fn support(&self) -> &TopologySupport {
@@ -655,15 +653,13 @@ mod tests {
     fn should_set_and_get_flags() {
         let topo = Topology::builder()
             .with_flags(
-                TopologyFlags::INCLUDE_DISALLOWED
-                    | TopologyFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
+                BuildFlags::INCLUDE_DISALLOWED | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
             )
             .unwrap()
             .build()
             .unwrap();
         assert_eq!(
-            TopologyFlags::INCLUDE_DISALLOWED
-                | TopologyFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
+            BuildFlags::INCLUDE_DISALLOWED | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
             topo.build_flags()
         );
     }

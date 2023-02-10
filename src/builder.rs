@@ -35,21 +35,21 @@ impl TopologyBuilder {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, TopologyFlags};
+    /// use hwloc2::{Topology, builder::BuildFlags};
     ///
     /// let topology = Topology::builder()
-    ///                         .with_flags(TopologyFlags::ASSUME_THIS_SYSTEM).unwrap()
+    ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
     ///                         .build().unwrap();
     /// ```
     ///
-    pub fn with_flags(mut self, flags: TopologyFlags) -> Result<Self, InvalidFlags> {
+    pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidBuildFlags> {
         let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
         match result {
             0 => Ok(self),
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidFlags),
+                    EINVAL => Err(InvalidBuildFlags),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -58,8 +58,8 @@ impl TopologyBuilder {
     }
 
     /// Check current topology building flags
-    pub fn flags(&self) -> TopologyFlags {
-        TopologyFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+    pub fn flags(&self) -> BuildFlags {
+        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
             .expect("Encountered unexpected topology flags")
     }
 
@@ -106,7 +106,7 @@ impl Drop for TopologyBuilder {
 bitflags! {
     /// Topology building configuration flags
     #[repr(C)]
-    pub struct TopologyFlags: c_ulong {
+    pub struct BuildFlags: c_ulong {
         /// Detect the whole system, ignore reservations, include disallowed objects
         ///
         /// Gather all online resources, even if some were disabled by the
@@ -269,7 +269,7 @@ bitflags! {
     }
 }
 
-impl Default for TopologyFlags {
+impl Default for BuildFlags {
     fn default() -> Self {
         Self::empty()
     }
@@ -277,5 +277,5 @@ impl Default for TopologyFlags {
 
 /// Error returned when the requested flag set is invalid
 #[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("invalid TopologyFlags specified")]
-pub struct InvalidFlags;
+#[error("invalid BuildFlags specified")]
+pub struct InvalidBuildFlags;
