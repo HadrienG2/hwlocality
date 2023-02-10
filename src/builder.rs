@@ -7,7 +7,9 @@
 use crate::{ffi, RawTopology, Topology};
 use bitflags::bitflags;
 use errno::{errno, Errno};
+use libc::EINVAL;
 use std::{ffi::c_ulong, ptr::NonNull};
+use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
 pub struct TopologyBuilder(NonNull<RawTopology>);
@@ -40,9 +42,19 @@ impl TopologyBuilder {
     ///                         .build().unwrap();
     /// ```
     ///
-    pub fn with_flags(mut self, flags: TopologyFlags) -> Result<Self, Errno> {
+    pub fn with_flags(mut self, flags: TopologyFlags) -> Result<Self, InvalidFlags> {
         let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
-        (result >= 0).then_some(self).ok_or_else(errno)
+        match result {
+            0 => Ok(self),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => Err(InvalidFlags),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
     }
 
     /// Check current topology building flags
@@ -52,12 +64,16 @@ impl TopologyBuilder {
     }
 
     /// Load the topology with the previously specified parameters
+    ///
+    /// hwloc does not specify how this function can error out, but it usually
+    /// sets Errno, hopefully you will find its value insightful...
     pub fn build(mut self) -> Result<Topology, Errno> {
         // Finalize the topology building
         let result = unsafe { ffi::hwloc_topology_load(self.as_mut_ptr()) };
         assert!(
             result == 0 || result == -1,
-            "Unexpected hwloc_topology_load result {result}"
+            "Unexpected hwloc_topology_load result {result} with errno {}",
+            errno()
         );
 
         // If that was successful, transfer RawTopology ownership to a Topology
@@ -258,3 +274,8 @@ impl Default for TopologyFlags {
         Self::empty()
     }
 }
+
+/// Error returned when the requested flag set is invalid
+#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
+#[error("invalid TopologyFlags specified")]
+pub struct InvalidFlags;

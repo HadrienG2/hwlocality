@@ -70,17 +70,18 @@
 //! information.
 
 pub mod bitmap;
-mod builder;
+pub mod builder;
 pub mod cpu;
 pub mod depth;
 mod ffi;
 pub mod objects;
 pub mod support;
 
-pub use self::builder::{TopologyBuilder, TopologyFlags};
+pub use builder::TopologyFlags;
 
 use self::{
     bitmap::CpuSet,
+    builder::TopologyBuilder,
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     objects::{
@@ -189,7 +190,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology,TopologyFlags};
+    /// use hwloc2::{Topology, TopologyFlags};
     ///
     /// let default_topology = Topology::new().unwrap();
     /// assert_eq!(TopologyFlags::empty(), default_topology.build_flags());
@@ -271,7 +272,7 @@ impl Topology {
     /// similar type is acceptable, consider using `depth_of_below_for_type()`
     /// or `depth_or_above_for_type()` instead.
     ///
-    /// You will also get `Err(DepthError::Multiple)` if objects of this type
+    /// You will get `Err(DepthError::Multiple)` if objects of this type
     /// exist at multiple depths.
     ///
     /// # Examples
@@ -301,7 +302,7 @@ impl Topology {
     /// This function is only meaningful for normal object types.
     ///
     /// You will get `Err(DepthError::Multiple)` if objects of this type or
-    /// higher-depth types exist at multiple depths.
+    /// exist at multiple depths.
     pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
             object_type.is_normal(),
@@ -310,7 +311,10 @@ impl Topology {
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(DepthError::None) => {
-                let pu_depth = self.depth_for_type(ObjectType::PU)?.assume_normal();
+                let pu_depth = self
+                    .depth_for_type(ObjectType::PU)
+                    .expect("PU objects should be present")
+                    .assume_normal();
                 for depth in (0..pu_depth).rev() {
                     if self
                         .type_at_depth(depth.into())
@@ -332,7 +336,12 @@ impl Topology {
     /// function returns the depth of the first "present" object typically
     /// containing `object_type`.
     ///
+    /// # Errors
+    ///
     /// This function is only meaningful for normal object types.
+    ///
+    /// You will get `Err(DepthError::Multiple)` if objects of this type or
+    /// exist at multiple depths.
     pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
             object_type.is_normal(),
@@ -424,18 +433,26 @@ impl Topology {
     }
 
     /// `TopologyObjects` with the given `ObjectType`.
-    ///
-    /// Like its hwloc equivalent, this operation is currently implemented using
-    /// `depth_for_type()` and will fail for object types where `depth_for_type`
-    /// is not defined.
-    pub fn objects_with_type(
-        &self,
-        object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject> {
-        let depth = self
-            .depth_for_type(object_type)
-            .expect("Type should exist at some depth");
-        self.objects_at_depth(depth)
+    pub fn objects_with_type(&self, object_type: ObjectType) -> Vec<&TopologyObject> {
+        match self.depth_for_type(object_type) {
+            Ok(depth) => {
+                // Fast path where the type only exists at one depth
+                self.objects_at_depth(depth).collect()
+            }
+            Err(DepthError::None) => Vec::new(),
+            Err(DepthError::Multiple) => {
+                // Slow path where all depths must be probed
+                let mut result = Vec::new();
+                for depth in 0..self.depth() {
+                    let depth = Depth::from(depth);
+                    if self.type_at_depth(depth).expect("Depth should exist") == object_type {
+                        result.extend(self.objects_at_depth(depth));
+                    }
+                }
+                result
+            }
+            Err(e @ DepthError::Unknown(_)) => panic!("{e}"),
+        }
     }
 
     /// `TopologyObject`s at the given depth.
