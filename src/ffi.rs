@@ -412,6 +412,8 @@ macro_rules! extern_c_block {
                 left: *const RawBitmap,
                 right: *const RawBitmap,
             ) -> c_int;
+
+            // TODO: Cover more later: distances, interop, CPU kinds, etc...
         }
     };
 }

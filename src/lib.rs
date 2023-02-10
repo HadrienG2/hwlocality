@@ -624,9 +624,6 @@ impl Topology {
         unsafe { Bytes::wrap(self, ffi::hwloc_alloc(self.as_ptr(), len), len) }
     }
 
-    // FIXME: Make CpuSet and NodeSet a newtype of Bitmap, use that to
-    //        autoset the `BY_NODE_SET` flag, and hide this flag from the docs.
-
     /// Allocate some memory on NUMA nodes specified by `set`
     ///
     /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
