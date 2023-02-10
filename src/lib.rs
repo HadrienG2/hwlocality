@@ -74,6 +74,7 @@ pub mod builder;
 pub mod cpu;
 pub mod depth;
 mod ffi;
+pub mod memory;
 pub mod objects;
 pub mod support;
 
@@ -612,6 +613,10 @@ impl Topology {
         };
         cpu::result(result, cpuset)
     }
+
+    // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html ===
+
+    // TODO
 
     // === Internal utilities ===
 

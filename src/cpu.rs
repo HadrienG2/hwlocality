@@ -67,7 +67,7 @@ bitflags! {
 
 impl Default for CpuBindingFlags {
     fn default() -> Self {
-        Self::PROCESS
+        Self::empty()
     }
 }
 
