@@ -78,8 +78,6 @@ pub mod memory;
 pub mod objects;
 pub mod support;
 
-use crate::ffi::hwloc_get_membind;
-
 use self::{
     bitmap::CpuSet,
     builder::{BuildFlags, TopologyBuilder},
@@ -91,12 +89,12 @@ use self::{
     },
     support::TopologySupport,
 };
-use bitmap::{Bitmap, BitmapKind, SpecializedBitmap};
+use bitmap::{Bitmap, BitmapKind, RawBitmap, SpecializedBitmap};
 use errno::{errno, Errno};
-use libc::EINVAL;
+use libc::{c_int, c_void, EINVAL};
 use memory::{
     Bytes, MemoryBindingFlags, MemoryBindingPolicy, MemoryBindingQueryError,
-    MemoryBindingSetupError,
+    MemoryBindingSetupError, RawMemoryBindingPolicy,
 };
 use num_enum::TryFromPrimitiveError;
 use std::{
@@ -108,16 +106,16 @@ use std::{
 
 #[cfg(target_os = "windows")]
 /// Thread identifier
-pub type ThreadID = winapi::winnt::HANDLE;
+pub type ThreadId = winapi::winnt::HANDLE;
 #[cfg(target_os = "windows")]
 /// Process identifier
-pub type ProcessID = winapi::minwindef::DWORD;
+pub type ProcessId = winapi::minwindef::DWORD;
 #[cfg(not(target_os = "windows"))]
 /// Thread identifier
-pub type ThreadID = libc::pthread_t;
+pub type ThreadId = libc::pthread_t;
 #[cfg(not(target_os = "windows"))]
 /// Process identifier
-pub type ProcessID = libc::pid_t;
+pub type ProcessId = libc::pid_t;
 
 /// Indicate at runtime which hwloc API version was used at build time.
 /// This number is updated to (X<<16)+(Y<<8)+Z when a new release X.Y.Z
@@ -504,8 +502,8 @@ impl Topology {
     /// On some operating systems, CPU binding may have effects on memory
     /// binding, see `CpuBindingFlags::NO_MEMORY_BINDING`.
     ///
-    /// Running lstopo --top or hwloc-ps can be a very convenient tool to check
-    /// how binding actually happened.
+    /// Running `lstopo --top` or `hwloc-ps` can be a very convenient tool to
+    /// check how binding actually happened.
     pub fn bind_cpu(&self, set: &CpuSet, flags: CpuBindingFlags) -> Result<(), CpuBindingError> {
         let result = unsafe { ffi::hwloc_set_cpubind(self.as_ptr(), set.as_ptr(), flags.bits()) };
         cpu::result(result, ())
@@ -524,7 +522,7 @@ impl Topology {
     /// See `bind_cpu()` for more informations.
     pub fn bind_process_cpu(
         &self,
-        pid: ProcessID,
+        pid: ProcessId,
         set: &CpuSet,
         flags: CpuBindingFlags,
     ) -> Result<(), CpuBindingError> {
@@ -536,7 +534,7 @@ impl Topology {
     /// Get the current physical binding of a process, identified by its `pid`.
     pub fn process_cpu_binding(
         &self,
-        pid: ProcessID,
+        pid: ProcessId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
@@ -551,7 +549,7 @@ impl Topology {
     /// See `bind_cpu()` for more informations.
     pub fn bind_thread_cpu(
         &self,
-        tid: ThreadID,
+        tid: ThreadId,
         set: &CpuSet,
         flags: CpuBindingFlags,
     ) -> Result<(), CpuBindingError> {
@@ -564,7 +562,7 @@ impl Topology {
     /// Get the current physical binding of thread `tid`.
     pub fn thread_cpu_binding(
         &self,
-        tid: ThreadID,
+        tid: ThreadId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
@@ -601,7 +599,7 @@ impl Topology {
     /// something that is already outdated.
     pub fn last_process_cpu_location(
         &self,
-        pid: ProcessID,
+        pid: ProcessId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
@@ -711,13 +709,11 @@ impl Topology {
         &self,
         set: &Set,
         policy: MemoryBindingPolicy,
-        mut flags: MemoryBindingFlags,
+        flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingSetupError> {
-        // TODO: Generalize to all binding actions
-        Self::adjust_flags_for::<Set>(&mut flags);
-        let result =
-            unsafe { ffi::hwloc_set_membind(self.as_ptr(), set.as_ptr(), policy.into(), flags) };
-        memory::setup_result(result)
+        self.bind_memory_impl(set, policy, flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_set_membind(topology, set, policy, flags)
+        })
     }
 
     /// Reset the memory allocation policy of the current process or thread to
@@ -732,9 +728,9 @@ impl Topology {
     /// process-based OS functions or thread-based OS functions, depending on
     /// which are available.
     pub fn unbind_memory(&self, flags: MemoryBindingFlags) -> Result<(), MemoryBindingSetupError> {
-        // TODO: Generalize to all unbinding actions
-        let result = unsafe { ffi::hwloc_set_membind(self.as_ptr(), std::ptr::null(), 0, flags) };
-        memory::setup_result(result)
+        self.unbind_memory_impl(flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_set_membind(topology, set, policy, flags)
+        })
     }
 
     /// Query the default memory binding policy and physical locality of the
@@ -770,14 +766,280 @@ impl Topology {
     /// and thus cannot be bound by `CpuSet`.
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
-        mut flags: MemoryBindingFlags,
+        flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
-        // TODO: Generalize to all binding queries
+        self.memory_binding_impl(flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_get_membind(topology, set, policy, flags)
+        })
+    }
+
+    /// Set the default memory binding policy of the specified process to prefer
+    /// the NUMA node(s) specified by `set`.
+    ///
+    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn bind_process_memory<Set: SpecializedBitmap>(
+        &self,
+        pid: ProcessId,
+        set: &Set,
+        policy: MemoryBindingPolicy,
+        flags: MemoryBindingFlags,
+    ) -> Result<(), MemoryBindingSetupError> {
+        self.bind_memory_impl(set, policy, flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+        })
+    }
+
+    /// Reset the memory allocation policy of the specified process to the
+    /// system default
+    ///
+    /// Depending on the operating system, this may correspond to `FirstTouch`
+    /// (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    pub fn unbind_process_memory(
+        &self,
+        pid: ProcessId,
+        flags: MemoryBindingFlags,
+    ) -> Result<(), MemoryBindingSetupError> {
+        self.unbind_memory_impl(flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+        })
+    }
+
+    /// Query the default memory binding policy and physical locality of the
+    /// specified process
+    ///
+    /// Passing the `MemoryBindingFlags::PROCESS` flag specifies that the query
+    /// target is the current policies and nodesets for all the threads in the
+    /// current process. If `PROCESS` is not specified (which is the most
+    /// portable method), the process is assumed to be single threaded. This
+    /// allows hwloc to use either process-based OS functions or thread-based OS
+    /// functions, depending on which are available.
+    ///
+    /// Note that it does not make sense to pass `MemoryBindingFlags::THREAD` to
+    /// this function.
+    ///
+    /// If `MemoryBindingFlags::STRICT` is specified, hwloc will check the
+    /// default memory policies and nodesets for all threads in the process. If
+    /// they are not identical, `Err(MemoryBindingQueryError::MixedResults)` is
+    /// returned. Otherwise, the shared configuration is returned.
+    ///
+    /// If `STRICT` is not specified, the default set from each thread is
+    /// logically OR'ed together. If all threads' default policies are the same,
+    /// that shared policy is returned, otherwise no policy is returned.
+    ///
+    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn process_memory_binding<Set: SpecializedBitmap>(
+        &self,
+        pid: ProcessId,
+        flags: MemoryBindingFlags,
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
+        self.memory_binding_impl(flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_get_proc_membind(topology, pid, set, policy, flags)
+        })
+    }
+
+    /// Bind the memory identified by `target` to the NUMA node(s) specified by
+    /// `set`
+    ///
+    /// Beware that only the memory directly targeted by the `target` reference
+    /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
+    /// expect the contents to be covered, instead you must pass in the `&[T]`
+    /// corresponding to the Vec's contents. You may also want to manually
+    /// specify the `Target` type via turbofish to make sure that you don't
+    /// get tripped up by references of references like `&&[T]`.
+    ///
+    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
+        &self,
+        target: &Target,
+        set: &Set,
+        policy: MemoryBindingPolicy,
+        flags: MemoryBindingFlags,
+    ) -> Result<(), MemoryBindingSetupError> {
+        self.bind_memory_impl(set, policy, flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_set_area_membind(
+                topology,
+                target as *const Target as *const c_void,
+                std::mem::size_of_val(target),
+                set,
+                policy,
+                flags,
+            )
+        })
+    }
+
+    /// Reset the memory allocation policy of the memory identified by `target`
+    /// to the system default
+    ///
+    /// Depending on the operating system, this may correspond to `FirstTouch`
+    /// (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    ///
+    /// Beware that only the memory directly targeted by the `target` reference
+    /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
+    /// expect the contents to be covered, instead you must pass in the `&[T]`
+    /// corresponding to the Vec's contents. You may also want to manually
+    /// specify the `Target` type via turbofish to make sure that you don't
+    /// get tripped up by references of references like `&&[T]`.
+    pub fn unbind_memory_area<Target: ?Sized>(
+        &self,
+        target: &Target,
+        flags: MemoryBindingFlags,
+    ) -> Result<(), MemoryBindingSetupError> {
+        self.unbind_memory_impl(flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_set_area_membind(
+                topology,
+                target as *const Target as *const c_void,
+                std::mem::size_of_val(target),
+                set,
+                policy,
+                flags,
+            )
+        })
+    }
+
+    /// Query the memory binding policy and physical locality of the
+    /// memory identified by `target`
+    ///
+    /// Beware that only the memory directly targeted by the `target` reference
+    /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
+    /// expect the contents to be covered, instead you must pass in the `&[T]`
+    /// corresponding to the Vec's contents. You may also want to manually
+    /// specify the `Target` type via turbofish to make sure that you don't
+    /// get tripped up by references of references like `&&[T]`.
+    ///
+    /// If `MemoryBindingFlags::STRICT` is specified, hwloc will check the
+    /// default memory policies and nodesets for all memory pages covered by
+    /// `target`. If these are not identical,
+    /// `Err(MemoryBindingQueryError::MixedResults)` is returned. Otherwise, the
+    /// shared configuration is returned.
+    ///
+    /// If `STRICT` is not specified, the union of all NUMA nodes containing
+    /// pages in the address range is calculated. If all pages in the target
+    /// have the same policy, it is returned, otherwise no policy is returned.
+    ///
+    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn area_memory_binding<Set: SpecializedBitmap, Target: ?Sized>(
+        &self,
+        target: &Target,
+        flags: MemoryBindingFlags,
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
+        assert!(
+            std::mem::size_of_val(target) > 0,
+            "Zero-sized target covers no memory!"
+        );
+        self.memory_binding_impl(flags, |topology, set, policy, flags| unsafe {
+            ffi::hwloc_get_area_membind(
+                topology,
+                target as *const Target as *const c_void,
+                std::mem::size_of_val(target),
+                set,
+                policy,
+                flags,
+            )
+        })
+    }
+
+    /// Get the NUMA nodes where the memory identified by `target` is physically
+    /// allocated
+    ///
+    /// Beware that only the memory directly targeted by the `target` reference
+    /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
+    /// expect the contents to be covered, instead you must pass in the `&[T]`
+    /// corresponding to the Vec's contents. You may also want to manually
+    /// specify the `Target` type via turbofish to make sure that you don't
+    /// get tripped up by references of references like `&&[T]`.
+    ///
+    /// If pages spread to multiple nodes, it is not specified whether they
+    /// spread equitably, or whether most of them are on a single node, etc.
+    ///
+    /// The operating system may move memory pages from one processor to another
+    /// at any time according to their binding, so this function may return
+    /// something that is already outdated.
+    ///
+    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
+    /// is preferred because some NUMA memory nodes are not attached to CPUs,
+    /// and thus cannot be bound by `CpuSet`.
+    pub fn area_memory_location<Set: SpecializedBitmap, Target: ?Sized>(
+        &self,
+        target: &Target,
+        flags: MemoryBindingFlags,
+    ) -> Result<Set, MemoryBindingQueryError> {
+        self.memory_binding_impl(flags, |topology, set, policy, flags| unsafe {
+            *policy = -1;
+            ffi::hwloc_get_area_memlocation(
+                topology,
+                target as *const Target as *const c_void,
+                std::mem::size_of_val(target),
+                set,
+                flags,
+            )
+        })
+        .map(|(set, _policy)| set)
+    }
+
+    /// Adjust binding flags for a certain kind of Set
+    fn adjust_flags_for<Set: SpecializedBitmap>(flags: &mut MemoryBindingFlags) {
+        match Set::BITMAP_KIND {
+            BitmapKind::NodeSet => *flags |= MemoryBindingFlags::BY_NODE_SET,
+            BitmapKind::CpuSet => *flags &= !MemoryBindingFlags::BY_NODE_SET,
+        }
+    }
+
+    /// Call an hwloc memory binding function to bind some memory
+    fn bind_memory_impl<Set: SpecializedBitmap>(
+        &self,
+        set: &Set,
+        policy: MemoryBindingPolicy,
+        mut flags: MemoryBindingFlags,
+        set_membind_like: impl FnOnce(
+            *const RawTopology,
+            *const RawBitmap,
+            RawMemoryBindingPolicy,
+            MemoryBindingFlags,
+        ) -> c_int,
+    ) -> Result<(), MemoryBindingSetupError> {
+        Self::adjust_flags_for::<Set>(&mut flags);
+        let result = set_membind_like(self.as_ptr(), set.as_ptr(), policy.into(), flags);
+        memory::setup_result(result)
+    }
+
+    /// Call an hwloc memory binding function to unbind some memory
+    fn unbind_memory_impl(
+        &self,
+        flags: MemoryBindingFlags,
+        set_membind_like: impl FnOnce(
+            *const RawTopology,
+            *const RawBitmap,
+            RawMemoryBindingPolicy,
+            MemoryBindingFlags,
+        ) -> c_int,
+    ) -> Result<(), MemoryBindingSetupError> {
+        let result = set_membind_like(self.as_ptr(), std::ptr::null(), 0, flags);
+        memory::setup_result(result)
+    }
+
+    /// Call an hwloc memory binding query function
+    fn memory_binding_impl<Set: SpecializedBitmap>(
+        &self,
+        mut flags: MemoryBindingFlags,
+        get_membind_like: impl FnOnce(
+            *const RawTopology,
+            *mut RawBitmap,
+            *mut RawMemoryBindingPolicy,
+            MemoryBindingFlags,
+        ) -> c_int,
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
         let mut set = Bitmap::new();
         let mut raw_policy = 0;
         Self::adjust_flags_for::<Set>(&mut flags);
-        let result =
-            unsafe { hwloc_get_membind(self.as_ptr(), set.as_mut_ptr(), &mut raw_policy, flags) };
+        let result = get_membind_like(self.as_ptr(), set.as_mut_ptr(), &mut raw_policy, flags);
         memory::query_result_lazy(result, move || {
             let policy = match MemoryBindingPolicy::try_from(raw_policy) {
                 Ok(policy) => Some(policy),
@@ -788,59 +1050,6 @@ impl Topology {
             };
             (set.into(), policy)
         })
-    }
-
-    /* TODO:
-                #[must_use]
-                pub(crate) fn hwloc_set_proc_membind(
-                    topology: *const RawTopology,
-                    pid: ProcessID,
-                    set: *const RawBitmap,
-                    policy: RawMemoryBindingPolicy,
-                    flags: MemoryBindingFlags,
-                ) -> c_int;
-                #[must_use]
-                pub(crate) fn hwloc_get_proc_membind(
-                    topology: *const RawTopology,
-                    pid: ProcessID,
-                    set: *mut RawBitmap,
-                    policy: *mut RawMemoryBindingPolicy,
-                    flags: MemoryBindingFlags,
-                ) -> c_int;
-                #[must_use]
-                pub(crate) fn hwloc_set_area_membind(
-                    topology: *const RawTopology,
-                    addr: *const c_void,
-                    len: size_t,
-                    set: *const RawBitmap,
-                    policy: RawMemoryBindingPolicy,
-                    flags: MemoryBindingFlags,
-                ) -> c_int;
-                #[must_use]
-                pub(crate) fn hwloc_get_area_membind(
-                    topology: *const RawTopology,
-                    addr: *const c_void,
-                    len: size_t,
-                    set: *mut RawBitmap,
-                    policy: *mut RawMemoryBindingPolicy,
-                    flags: MemoryBindingFlags,
-                ) -> c_int;
-                #[must_use]
-                pub(crate) fn hwloc_get_area_memlocation(
-                    topology: *const RawTopology,
-                    addr: *const c_void,
-                    len: size_t,
-                    set: *mut RawBitmap,
-                    flags: MemoryBindingFlags,
-                ) -> c_int;
-    */
-
-    /// Adjust binding flags for a certain kind of Set
-    fn adjust_flags_for<Set: SpecializedBitmap>(flags: &mut MemoryBindingFlags) {
-        match Set::BITMAP_KIND {
-            BitmapKind::NodeSet => *flags |= MemoryBindingFlags::BY_NODE_SET,
-            BitmapKind::CpuSet => *flags &= !MemoryBindingFlags::BY_NODE_SET,
-        }
     }
 
     // === General-purpose internal utilities ===

@@ -4,7 +4,7 @@ use crate::{
     memory::{MemoryBindingFlags, RawMemoryBindingPolicy},
     objects::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
-    ProcessID, RawTopology, ThreadID,
+    ProcessId, RawTopology, ThreadId,
 };
 use libc::{c_char, c_int, c_uint, c_ulong, c_void, size_t};
 use std::{ffi::CStr, fmt, ptr};
@@ -154,28 +154,28 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_set_proc_cpubind(
                 topology: *const RawTopology,
-                pid: ProcessID,
+                pid: ProcessId,
                 set: *const RawBitmap,
                 flags: c_uint,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_proc_cpubind(
                 topology: *const RawTopology,
-                pid: ProcessID,
+                pid: ProcessId,
                 set: *mut RawBitmap,
                 flags: c_uint,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_thread_cpubind(
                 topology: *const RawTopology,
-                thread: ThreadID,
+                thread: ThreadId,
                 set: *const RawBitmap,
                 flags: c_uint,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_thread_cpubind(
                 topology: *const RawTopology,
-                pid: ThreadID,
+                pid: ThreadId,
                 set: *mut RawBitmap,
                 flags: c_uint,
             ) -> c_int;
@@ -188,7 +188,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_get_proc_last_cpu_location(
                 topology: *const RawTopology,
-                pid: ProcessID,
+                pid: ProcessId,
                 set: *mut RawBitmap,
                 flags: c_uint,
             ) -> c_int;
@@ -212,7 +212,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_set_proc_membind(
                 topology: *const RawTopology,
-                pid: ProcessID,
+                pid: ProcessId,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
@@ -220,7 +220,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_get_proc_membind(
                 topology: *const RawTopology,
-                pid: ProcessID,
+                pid: ProcessId,
                 set: *mut RawBitmap,
                 policy: *mut RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
