@@ -651,8 +651,8 @@ impl Topology {
     /// possibly rebinding current process or thread if needed
     ///
     /// This works like `allocate_bound_memory()` unless the allocation fails,
-    /// in which case he current process or thread memory binding policy is
-    /// changed before retrying.
+    /// in which case hwloc will attempt to change the current process or thread
+    /// memory binding policy as directed instead before retrying the allocation.
     ///
     /// Allocating memory that matches the current process/thread configuration
     /// is supported on more operating systems, so this is the most portable way
@@ -922,7 +922,7 @@ impl Topology {
     /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
     /// is preferred because some NUMA memory nodes are not attached to CPUs,
     /// and thus cannot be bound by `CpuSet`.
-    pub fn area_memory_binding<Set: SpecializedBitmap, Target: ?Sized>(
+    pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
@@ -963,7 +963,7 @@ impl Topology {
     /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
     /// is preferred because some NUMA memory nodes are not attached to CPUs,
     /// and thus cannot be bound by `CpuSet`.
-    pub fn area_memory_location<Set: SpecializedBitmap, Target: ?Sized>(
+    pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
