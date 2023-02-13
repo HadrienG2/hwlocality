@@ -103,6 +103,11 @@ impl TopologyObject {
         unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
     }
 
+    /// Unsafe access to object type-specific attributes
+    pub(crate) fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
+        unsafe { ffi::deref_mut_ptr(&mut self.attr) }
+    }
+
     /// Vertical index in the hierarchy
     ///
     /// For normal objects, this is the depth of the horizontal level that

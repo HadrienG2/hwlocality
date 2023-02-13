@@ -19,7 +19,7 @@ use std::num::NonZeroU32;
 pub(crate) union RawObjectAttributes {
     numa: NUMANodeAttributes,
     cache: CacheAttributes,
-    group: GroupAttributes,
+    pub(crate) group: GroupAttributes,
     pcidev: PCIDeviceAttributes,
     bridge: BridgeAttributes,
     osdev: OSDeviceAttributes,
@@ -208,6 +208,12 @@ impl GroupAttributes {
         self.kind
     }
 
+    /// Tell hwloc that this group object should always be discarded in favor of
+    /// any existing `Group` with the same locality.
+    pub(crate) fn favor_merging(&mut self) {
+        self.kind = c_uint::MAX
+    }
+
     /// Internally-used subkind to distinguish different levels of groups with
     /// the same kind
     // TODO: Consider hiding depending on what "internal" we're talking about
@@ -217,9 +223,18 @@ impl GroupAttributes {
 
     /// Flag preventing groups from being automatically merged with identical
     /// parent or children
-    // TODO: Consider casting to bool
-    pub fn do_not_merge(&self) -> u8 {
-        self.dont_merge
+    pub fn do_not_merge(&self) -> bool {
+        assert!(
+            self.dont_merge == 0 || self.dont_merge == 1,
+            "Unexpected bool value"
+        );
+        self.dont_merge != 0
+    }
+
+    /// Tell hwloc that it should not merge this group object with other
+    /// hierarchically-identical objects.
+    pub(crate) fn prevent_merging(&mut self) {
+        self.dont_merge = 1
     }
 }
 

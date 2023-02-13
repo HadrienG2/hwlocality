@@ -137,6 +137,66 @@ impl<'topology> TopologyEditor<'topology> {
         assert!(result >= 0, "Unexpected result from hwloc_topology_allow");
     }
 
+    /// Add more structure to the topology by adding an intermediate `Group`
+    ///
+    /// Use the `find_children` callback to specify which `TopologyObject`s
+    /// should be made children of the newly created `Group` object. The cpuset
+    /// and nodeset of the final `Group` object will be the union of the cpuset
+    /// and nodeset of all children respectively. Empty groups are not allowed,
+    /// so at least one of these sets must be non-empty, or no `Group` object
+    /// will be created.
+    ///
+    /// Use the `merge` option to control hwloc's propension to merge groups
+    /// with hierarchically-identical topology objects.
+    //
+    // NOTE: In the future, find_children will be an
+    //       impl FnOnce(&Topology) -> impl IntoIterator<Item = &TopologyObject>
+    //       but impl Trait is not yet allowed on function return types.
+    pub fn insert_group_object(
+        &mut self,
+        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
+        merge: Option<GroupMerge>,
+    ) -> GroupInsertResult {
+        // Allocate group object
+        let group = unsafe { ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr()) };
+        assert!(!group.is_null(), "Failed to allocate group object");
+
+        // Expand cpu sets and node sets to cover designated children
+        let children = find_children(self.topology());
+        for child in children {
+            let result = unsafe { ffi::hwloc_obj_add_other_obj_sets(group, child) };
+            assert!(
+                result >= 0,
+                "Unexpected result from hwloc_obj_add_other_obj_sets"
+            );
+        }
+
+        // Adjust hwloc's propension to merge groups if instructed to do so
+        if let Some(merge) = merge {
+            let group_attributes = unsafe {
+                &mut (*group)
+                    .raw_attributes()
+                    .expect("Expected group attributes")
+                    .group
+            };
+            match merge {
+                GroupMerge::Never => group_attributes.prevent_merging(),
+                GroupMerge::Always => group_attributes.favor_merging(),
+            }
+        }
+
+        // Insert the group object into the topology
+        let result =
+            unsafe { ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group) };
+        if result == group {
+            GroupInsertResult::New(unsafe { &mut *group })
+        } else if !result.is_null() {
+            GroupInsertResult::Existing(unsafe { &mut *result })
+        } else {
+            GroupInsertResult::Failed
+        }
+    }
+
     /// Add a `Misc` object as a leaf of the topology
     ///
     /// A new `Misc` object will be created and inserted into the topology as
@@ -192,9 +252,6 @@ impl<'topology> TopologyEditor<'topology> {
             (!ptr.is_null()).then(|| &mut *ptr)
         }
     }
-
-    // TODO: insert_xyz_objects will require weird tricks because by design they
-    //       violate Rust's shared XOR mutability rules.
 }
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
@@ -268,6 +325,42 @@ pub enum AllowSet<'set> {
         cpuset: Option<&'set CpuSet>,
         nodeset: Option<&'set NodeSet>,
     },
+}
+
+/// Control merging of newly inserted groups with existing objects
+pub enum GroupMerge {
+    /// Prevent the hwloc core from ever merging this `Group` with another
+    /// hierarchically-identical object
+    ///
+    /// This is useful when the Group itself describes an important feature that
+    /// cannot be exposed anywhere else in the hierarchy.
+    Never,
+
+    /// Always discard this new group in favor of any existing `Group` with the
+    /// same locality
+    Always,
+}
+
+/// Result of inserting a group object
+pub enum GroupInsertResult<'topology> {
+    /// New Group that was properly inserted
+    New(&'topology mut TopologyObject),
+
+    /// Existing object that already fulfilled the role of the proposed Group
+    ///
+    /// If the Group adds no hierarchy information, hwloc may merge or discard
+    /// it in favor of existing topology object at the same location.
+    Existing(&'topology mut TopologyObject),
+
+    /// Insertion failed
+    ///
+    /// This can happen for several reasons
+    ///
+    /// - Conflicting sets in the topology tree
+    /// - Group objects are filtered out of the topology (`TypeFilter::KeepNone`)
+    /// - The union of the cpusets and nodeset of all proposed children of the
+    ///   Group object is empty.
+    Failed,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]

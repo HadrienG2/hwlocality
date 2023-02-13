@@ -11,7 +11,7 @@ use crate::{
 use libc::{c_char, c_int, c_uint, c_ulong, c_void, size_t};
 use std::{ffi::CStr, fmt, ptr};
 
-/// Dereference a C pointer with correct lifetime (*const version)
+/// Dereference a C pointer with correct lifetime (*const -> & version)
 pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     if p.is_null() {
         return None;
@@ -19,12 +19,20 @@ pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     Some(unsafe { &**p })
 }
 
-/// Dereference a C pointer with correct lifetime (*mut version)
+/// Dereference a C pointer with correct lifetime (*mut -> & version)
 pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
     if p.is_null() {
         return None;
     }
     Some(unsafe { &**p })
+}
+
+/// Dereference a C pointer with correct lifetime (*mut -> &mut version)
+pub(crate) unsafe fn deref_mut_ptr<T>(p: &mut *mut T) -> Option<&mut T> {
+    if p.is_null() {
+        return None;
+    }
+    Some(unsafe { &mut **p })
 }
 
 /// Dereference a C-style string with correct lifetime
@@ -382,6 +390,20 @@ macro_rules! extern_c_block {
                 parent: *mut TopologyObject,
                 name: *const c_char,
             ) -> *mut TopologyObject;
+            #[must_use]
+            pub(crate) fn hwloc_topology_alloc_group_object(
+                topology: *mut RawTopology,
+            ) -> *mut TopologyObject;
+            #[must_use]
+            pub(crate) fn hwloc_topology_insert_group_object(
+                topology: *mut RawTopology,
+                group: *mut TopologyObject,
+            ) -> *mut TopologyObject;
+            #[must_use]
+            pub(crate) fn hwloc_obj_add_other_obj_sets(
+                dst: *mut TopologyObject,
+                src: *const TopologyObject,
+            ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_topology_refresh(topology: *mut RawTopology) -> c_int;
 
