@@ -16,9 +16,6 @@ pub struct TopologyBuilder(NonNull<RawTopology>);
 
 impl TopologyBuilder {
     /// Start building a `Topology`
-    ///
-    /// Returns None if hwloc failled to allocate a topology context.
-    ///
     pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
         let result = unsafe { ffi::hwloc_topology_init(&mut topology) };
