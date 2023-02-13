@@ -137,6 +137,7 @@ macro_rules! extern_c_block {
                 separator: *const c_char,
                 verbose: c_int,
             ) -> c_int;
+            // NOTE: Not exposing type printf/scanf for now
 
             // === Consulting and adding Key-Value info attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html ===
 
