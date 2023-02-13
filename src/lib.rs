@@ -73,34 +73,36 @@ pub mod bitmap;
 pub mod builder;
 pub mod cpu;
 pub mod depth;
+pub mod editor;
 mod ffi;
 pub mod memory;
 pub mod objects;
 pub mod support;
 
 use self::{
-    bitmap::CpuSet,
+    bitmap::{Bitmap, BitmapKind, CpuSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
+    editor::TopologyEditor,
+    memory::{
+        Bytes, MemoryBindingFlags, MemoryBindingPolicy, MemoryBindingQueryError,
+        MemoryBindingSetupError, RawMemoryBindingPolicy,
+    },
     objects::{
         types::{ObjectType, RawObjectType},
         TopologyObject,
     },
     support::TopologySupport,
 };
-use bitmap::{Bitmap, BitmapKind, RawBitmap, SpecializedBitmap};
 use errno::{errno, Errno};
 use libc::{c_int, c_void, EINVAL};
-use memory::{
-    Bytes, MemoryBindingFlags, MemoryBindingPolicy, MemoryBindingQueryError,
-    MemoryBindingSetupError, RawMemoryBindingPolicy,
-};
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
+    panic::{AssertUnwindSafe, UnwindSafe},
     ptr::NonNull,
 };
 
@@ -1074,6 +1076,35 @@ impl Topology {
         TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
     }
 
+    // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
+
+    /// Modify this topology
+    ///
+    /// This API lets you modify the active `Topology`, with the guarantee that
+    /// by the time it terminates, the `Topology` will be left in a state where
+    /// it is safe to query from multiple threads again.
+    pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
+        // Set up topology editing
+        let mut editor = TopologyEditor::new(self);
+        let mut editor = AssertUnwindSafe(&mut editor);
+
+        // Run the user-provided edit callback, catching panics
+        let edit_result = std::panic::catch_unwind(move || edit(&mut editor));
+
+        // Force eager evaluation of all caches, abort if that fails as we must
+        // not let an invalid `Topology` state escape, not even via unwinding
+        let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
+        if refresh_result < 0 {
+            eprintln!("Topology stuck in a state that violates Sync invariant, must abort");
+            std::process::abort();
+        }
+
+        // Return user callback result or resume unwinding as appropriate
+        match edit_result {
+            Ok(result) => result,
+            Err(e) => std::panic::resume_unwind(e),
+        }
+    }
     // === General-purpose internal utilities ===
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
@@ -1082,7 +1113,7 @@ impl Topology {
     }
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
-    fn as_mut_ptr(&mut self) -> *mut RawTopology {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut RawTopology {
         self.0.as_ptr()
     }
 }

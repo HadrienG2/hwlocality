@@ -362,12 +362,8 @@ macro_rules! extern_c_block {
 
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
 
-            // TODO: If I expose those, do it through some kind of
-            //       `Topology::edit(&mut self, edit: impl FnOnce(TopologyEditor<'self>)) -> Topology`
-            //       API that wraps the whole thing in catch_unwind, calls
-            //       `hwloc_topology_refresh()` at the end, then rethrows any
-            //       panic. RAII guards can't be used due to the leakpocalypse
-            //       problem.
+            #[must_use]
+            pub(crate) fn hwloc_topology_refresh(topology: *mut RawTopology) -> c_int;
 
             // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html ===
 
