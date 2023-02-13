@@ -422,9 +422,9 @@ bitflags! {
         /// ignore the other cores during discovery.
         ///
         /// The resulting topology is identical to what a call to
-        /// hwloc_topology_restrict() (TODO: adapt to binding) would generate,
-        /// but this flag also prevents hwloc from ever touching other resources
-        /// during the discovery.
+        /// `TopologyEditor::restrict()` would generate, but this flag also
+        /// prevents hwloc from ever touching other resources during the
+        /// discovery.
         ///
         /// This flag especially tells the x86 backend to never temporarily
         /// rebind a thread on any excluded core. This is useful on Windows
@@ -446,9 +446,9 @@ bitflags! {
         /// ignore the other NUMA nodes during discovery.
         ///
         /// The resulting topology is identical to what a call to
-        /// hwloc_topology_restrict() (TODO: adapt to binding) would generate,
-        /// but this flag also prevents hwloc from ever touching other resources
-        /// during the discovery.
+        /// `TopologyEditor::restrict()` would generate, but this flag also
+        /// prevents hwloc from ever touching other resources during the
+        /// discovery.
         ///
         /// This flag is meant to be used together with
         /// `RESTRICT_CPU_TO_THIS_PROCESS` when both cores and NUMA nodes should

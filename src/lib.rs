@@ -935,8 +935,8 @@ impl Topology {
     /// Adjust binding flags for a certain kind of Set
     fn adjust_flags_for<Set: SpecializedBitmap>(flags: &mut MemoryBindingFlags) {
         match Set::BITMAP_KIND {
-            BitmapKind::NodeSet => *flags |= MemoryBindingFlags::BY_NODE_SET,
-            BitmapKind::CpuSet => *flags &= !MemoryBindingFlags::BY_NODE_SET,
+            BitmapKind::CpuSet => flags.remove(MemoryBindingFlags::BY_NODE_SET),
+            BitmapKind::NodeSet => flags.insert(MemoryBindingFlags::BY_NODE_SET),
         }
     }
 
@@ -1144,7 +1144,6 @@ unsafe impl Sync for Topology {}
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]

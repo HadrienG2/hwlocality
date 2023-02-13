@@ -6,8 +6,17 @@
 //! modifications must be carried out through a proxy object that does not
 //! permit shared references to unevaluated caches to escape.
 
-use crate::{ffi, objects::TopologyObject, RawTopology, Topology};
+use crate::{
+    bitmap::{BitmapKind, SpecializedBitmap},
+    ffi,
+    objects::TopologyObject,
+    RawTopology, Topology,
+};
+use bitflags::bitflags;
+use errno::errno;
+use libc::{c_ulong, EINVAL, ENOMEM};
 use std::ffi::CString;
+use thiserror::Error;
 
 /// Proxy for modifying a `Topology`
 pub struct TopologyEditor<'topology>(&'topology mut Topology);
@@ -40,6 +49,60 @@ impl<'topology> TopologyEditor<'topology> {
     }
 
     // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
+
+    /// Restrict the topology to the given CPU set or nodeset
+    ///
+    /// The topology is modified so as to remove all objects that are not
+    /// included (or partially included) in the specified CPU or NUMANode set.
+    /// All objects CPU and node sets are restricted accordingly.
+    ///
+    /// This call may not be reverted by restricting back to a larger set. Once
+    /// dropped during restriction, objects may not be brought back, except by
+    /// loading another topology with `Topology::new()` or `TopologyBuilder`.
+    ///
+    /// # Errors
+    ///
+    /// `Err(InvalidParameter)` will be returned if the input set is invalid.
+    /// The topology is not modified in this case.
+    ///
+    /// # Panics
+    ///
+    /// Failure to allocate internal data will lead to a panic. The topology is
+    /// reinitialized in this case and should not be used again.
+    pub fn restrict<Set: SpecializedBitmap>(
+        &mut self,
+        set: &Set,
+        mut flags: RestrictFlags,
+    ) -> Result<(), InvalidParameter> {
+        // Configure restrict flags correctly depending on the node set type
+        match Set::BITMAP_KIND {
+            BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
+            BitmapKind::NodeSet => flags.insert(RestrictFlags::BY_NODE_SET),
+        }
+        if flags.contains(RestrictFlags::REMOVE_EMPTIED) {
+            flags.remove(RestrictFlags::REMOVE_EMPTIED);
+            match Set::BITMAP_KIND {
+                BitmapKind::CpuSet => flags.insert(RestrictFlags::REMOVE_CPULESS),
+                BitmapKind::NodeSet => flags.insert(RestrictFlags::REMOVE_MEMLESS),
+            }
+        }
+
+        // Apply requested restriction
+        let result =
+            unsafe { ffi::hwloc_topology_restrict(self.topology_mut_ptr(), set.as_ptr(), flags) };
+        match result {
+            0 => Ok(()),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => Err(InvalidParameter),
+                    ENOMEM => panic!("Topology was reinitialized and must be dropped"),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
+    }
 
     /// Add a `Misc` object as a leaf of the topology
     ///
@@ -103,3 +166,57 @@ impl<'topology> TopologyEditor<'topology> {
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
 //       as it would expose &Topology with unevaluated lazy hwloc caches.
+
+bitflags! {
+    /// Flags to be given to `TopologyEditor::restrict()`
+    #[repr(C)]
+    pub struct RestrictFlags: c_ulong {
+        /// Remove all objects that lost all resources of the target type
+        ///
+        /// By default, only objects that contain no PU and no memory are
+        /// removed. This flag allows you to remove all objects that...
+        ///
+        /// - Do not have access to any CPU anymore when restricting by CpuSet
+        /// - Do not have access to any memory anymore when restricting by NodeSet
+        //
+        // NOTE: This is a virtual flag that is cleared and mapped into
+        //       `REMOVE_CPULESS` or `REMOVE_MEMLESS` as appropriate.
+        const REMOVE_EMPTIED = c_ulong::MAX;
+
+        /// Remove all objects that became CPU-less
+        ///
+        /// This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
+        #[doc(hidden)]
+        const REMOVE_CPULESS = (1<<0);
+
+        /// Restrict by NodeSet insted of by `CpuSet`
+        ///
+        /// This is automatically set when restricting by `NodeSet`.
+        #[doc(hidden)]
+        const BY_NODE_SET = (1<<3);
+
+        /// Remove all objects that became memory-less
+        ///
+        /// This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
+        #[doc(hidden)]
+        const REMOVE_MEMLESS = (1<<4);
+
+        /// Move Misc objects to ancestors if their parents are removed during
+        /// restriction
+        ///
+        /// If this flag is not set, Misc objects are removed when their parents
+        /// are removed.
+        const ADAPT_MISC = (1<<1);
+
+        /// Move I/O objects to ancestors if their parents are removed
+        /// during restriction
+        ///
+        /// If this flag is not set, I/O devices and bridges are removed when
+        /// their parents are removed.
+        const ADAPT_IO = (1<<2);
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
+#[error("invalid parameter specified")]
+pub struct InvalidParameter;

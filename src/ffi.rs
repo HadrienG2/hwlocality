@@ -2,6 +2,7 @@ use crate::{
     bitmap::RawBitmap,
     builder::{BuildFlags, ComponentsFlags, RawTypeFilter},
     depth::RawDepth,
+    editor::RestrictFlags,
     memory::{MemoryBindingFlags, RawMemoryBindingPolicy},
     objects::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
@@ -362,6 +363,12 @@ macro_rules! extern_c_block {
 
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
 
+            #[must_use]
+            pub(crate) fn hwloc_topology_restrict(
+                topology: *mut RawTopology,
+                set: *const RawBitmap,
+                flags: RestrictFlags,
+            ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_topology_insert_misc_object(
                 topology: *mut RawTopology,
