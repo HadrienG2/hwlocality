@@ -1080,9 +1080,11 @@ impl Topology {
 
     /// Modify this topology
     ///
-    /// This API lets you modify the active `Topology`, with the guarantee that
-    /// by the time it returns, the `Topology` will be left in a state where
-    /// it is safe to use `&self` from Rust again.
+    /// `hwloc` employs lazy caching patterns which do not mix well with
+    /// Rust's shared XOR mutable aliasing model. This API lets you safely
+    /// modify the active `Topology` through a `TopologyEditor` proxy object,
+    /// with the guarantee that by the time `Topology::edit()` returns, the
+    /// `Topology` will be back in a state where it is safe to use `&self` again.
     pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
         // Set up topology editing
         let mut editor = TopologyEditor::new(self);
@@ -1091,8 +1093,7 @@ impl Topology {
         // Run the user-provided edit callback, catching panics
         let result = std::panic::catch_unwind(move || edit(&mut editor));
 
-        // Force eager evaluation of all caches, abort if that fails as we must
-        // not let an invalid `Topology` state escape, not even via unwinding
+        // Force eager evaluation of all caches
         self.refresh();
 
         // Return user callback result or resume unwinding as appropriate
@@ -1102,7 +1103,12 @@ impl Topology {
         }
     }
 
-    /// Force eager evaluation of all lazily evaluated caches
+    /// Force eager evaluation of all lazily evaluated caches in preparation for
+    /// using or exposing &self
+    ///
+    /// Abort if this fails as we must not let an invalid `Topology` state
+    /// escape, not even via unwinding, as that would result in undefined
+    /// behavior (mutation which the compiler assumes will not happen).
     pub(crate) fn refresh(&mut self) {
         let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
         if refresh_result < 0 {
