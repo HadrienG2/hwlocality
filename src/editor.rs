@@ -29,10 +29,10 @@ impl<'topology> TopologyEditor<'topology> {
         Self(topology)
     }
 
-    /// Get a shared reference to the inner Topology that follows Rust invariants
+    /// Get a shared reference to the inner Topology
     ///
-    /// This operation may be costly, you may want to consider doing it before
-    /// or after starting the topology editing process if possible.
+    /// This requires rebuilding inner caches, which can be costly. Prefer
+    /// accessing the topology before or after editing it if possible.
     pub fn topology(&mut self) -> &Topology {
         self.topology_mut().refresh();
         self.topology_mut()
