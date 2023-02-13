@@ -188,70 +188,6 @@ impl Topology {
         }
     }
 
-    // === Topology Detection Configuration and Query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
-
-    /// Flags that were used to build this topology
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::{Topology, builder::BuildFlags};
-    ///
-    /// let default_topology = Topology::new().unwrap();
-    /// assert_eq!(BuildFlags::empty(), default_topology.build_flags());
-    ///
-    /// let topology_with_flags =
-    ///     Topology::builder()
-    ///         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
-    ///         .build().unwrap();
-    /// assert_eq!(
-    ///     BuildFlags::ASSUME_THIS_SYSTEM,
-    ///     topology_with_flags.build_flags()
-    /// );
-    /// ```
-    pub fn build_flags(&self) -> BuildFlags {
-        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
-            .expect("Encountered unexpected topology flags")
-    }
-
-    /// Was the topology built using the system running this program?
-    ///
-    /// It may not have been if, for instance, it was built using another
-    /// file-system root or loaded from a synthetic or XML textual description.
-    pub fn is_this_system(&self) -> bool {
-        let result = unsafe { ffi::hwloc_topology_is_thissystem(self.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "Unexpected result from hwloc_topology_is_thissystem"
-        );
-        result == 1
-    }
-
-    /// Supported hwloc features with this topology on this machine
-    ///
-    /// This is the information that one gets via the `hwloc-info --support` CLI.
-    ///
-    /// The reported features are what the current topology supports on the
-    /// current machine. If the topology was exported to XML from another
-    /// machine and later imported here, support still describes what is
-    /// supported for this imported topology after import. By default, binding
-    /// will be reported as unsupported in this case (see
-    /// `BuildFlags::ASSUME_THIS_SYSTEM`).
-    ///
-    /// `BuildFlags::IMPORT_SUPPORT` may be used during topology building to
-    /// report the supported features of the original remote machine instead. If
-    /// it was successfully imported, `MiscSupport::imported()` will be set.
-    pub fn support(&self) -> &TopologySupport {
-        let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
-        assert!(
-            !ptr.is_null(),
-            "Got null pointer from hwloc_topology_get_support"
-        );
-        // This is correct because the output reference will be bound the the
-        // lifetime of &self by the borrow checker.
-        unsafe { &*ptr }
-    }
-
     // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
 
     /// Full depth of the topology.
@@ -1060,6 +996,70 @@ impl Topology {
             };
             (set.into(), policy)
         })
+    }
+
+    // === Topology Detection Configuration and Query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
+
+    /// Flags that were used to build this topology
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hwloc2::{Topology, builder::BuildFlags};
+    ///
+    /// let default_topology = Topology::new().unwrap();
+    /// assert_eq!(BuildFlags::empty(), default_topology.build_flags());
+    ///
+    /// let topology_with_flags =
+    ///     Topology::builder()
+    ///         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
+    ///         .build().unwrap();
+    /// assert_eq!(
+    ///     BuildFlags::ASSUME_THIS_SYSTEM,
+    ///     topology_with_flags.build_flags()
+    /// );
+    /// ```
+    pub fn build_flags(&self) -> BuildFlags {
+        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+            .expect("Encountered unexpected topology flags")
+    }
+
+    /// Was the topology built using the system running this program?
+    ///
+    /// It may not have been if, for instance, it was built using another
+    /// file-system root or loaded from a synthetic or XML textual description.
+    pub fn is_this_system(&self) -> bool {
+        let result = unsafe { ffi::hwloc_topology_is_thissystem(self.as_ptr()) };
+        assert!(
+            result == 0 || result == 1,
+            "Unexpected result from hwloc_topology_is_thissystem"
+        );
+        result == 1
+    }
+
+    /// Supported hwloc features with this topology on this machine
+    ///
+    /// This is the information that one gets via the `hwloc-info --support` CLI.
+    ///
+    /// The reported features are what the current topology supports on the
+    /// current machine. If the topology was exported to XML from another
+    /// machine and later imported here, support still describes what is
+    /// supported for this imported topology after import. By default, binding
+    /// will be reported as unsupported in this case (see
+    /// `BuildFlags::ASSUME_THIS_SYSTEM`).
+    ///
+    /// `BuildFlags::IMPORT_SUPPORT` may be used during topology building to
+    /// report the supported features of the original remote machine instead. If
+    /// it was successfully imported, `MiscSupport::imported()` will be set.
+    pub fn support(&self) -> &TopologySupport {
+        let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
+        assert!(
+            !ptr.is_null(),
+            "Got null pointer from hwloc_topology_get_support"
+        );
+        // This is correct because the output reference will be bound the the
+        // lifetime of &self by the borrow checker.
+        unsafe { &*ptr }
     }
 
     // === General-purpose internal utilities ===
