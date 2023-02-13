@@ -227,6 +227,8 @@ impl TopologyBuilder {
             .expect("Encountered unexpected topology flags")
     }
 
+    // === General-purpose internal utilities ===
+
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
         self.0.as_ptr() as *const RawTopology
