@@ -370,6 +370,13 @@ macro_rules! extern_c_block {
                 flags: RestrictFlags,
             ) -> c_int;
             #[must_use]
+            pub(crate) fn hwloc_topology_allow(
+                topology: *mut RawTopology,
+                cpuset: *const RawBitmap,
+                nodeset: *const RawBitmap,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
             pub(crate) fn hwloc_topology_insert_misc_object(
                 topology: *mut RawTopology,
                 parent: *mut TopologyObject,

@@ -7,7 +7,7 @@
 //! permit shared references to unevaluated caches to escape.
 
 use crate::{
-    bitmap::{BitmapKind, SpecializedBitmap},
+    bitmap::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
     ffi,
     objects::TopologyObject,
     RawTopology, Topology,
@@ -15,7 +15,7 @@ use crate::{
 use bitflags::bitflags;
 use errno::errno;
 use libc::{c_ulong, EINVAL, ENOMEM};
-use std::ffi::CString;
+use std::{ffi::CString, ptr};
 use thiserror::Error;
 
 /// Proxy for modifying a `Topology`
@@ -102,6 +102,39 @@ impl<'topology> TopologyEditor<'topology> {
             }
             other => panic!("Unexpected result {other} with errno {}", errno()),
         }
+    }
+
+    /// Change the sets of allowed PUs and NUMA nodes in the topology
+    ///
+    /// This function only works if `BuildFlags::INCLUDE_DISALLOWED` was set
+    /// during topology building. It does not modify any object, it only changes
+    /// the sets returned by hwloc_topology_get_allowed_cpuset() (TODO wrap) and
+    /// hwloc_topology_get_allowed_nodeset() (TODO wrap).
+    ///
+    /// It is notably useful when importing a topology from another process
+    /// running in a different Linux Cgroup.
+    ///
+    /// Removing objects from a topology should rather be performed with
+    /// `restrict()`.
+    pub fn allow(&mut self, allow_set: AllowSet) {
+        // Convert AllowSet into a valid `hwloc_topology_allow` configuration
+        let (cpuset, nodeset, flags) = match allow_set {
+            AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
+            AllowSet::LocalRestrictions => (ptr::null(), ptr::null(), 1 << 1),
+            AllowSet::Custom { cpuset, nodeset } => {
+                let cpuset = cpuset.map(|cpuset| cpuset.as_ptr()).unwrap_or(ptr::null());
+                let nodeset = nodeset
+                    .map(|nodeset| nodeset.as_ptr())
+                    .unwrap_or(ptr::null());
+                assert!(!(cpuset.is_null() && nodeset.is_null()));
+                (cpuset, nodeset, 1 << 2)
+            }
+        };
+
+        // Call `hwloc_topology_allow`
+        let result =
+            unsafe { ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags) };
+        assert!(result >= 0, "Unexpected result from hwloc_topology_allow");
     }
 
     /// Add a `Misc` object as a leaf of the topology
@@ -215,6 +248,26 @@ bitflags! {
         /// their parents are removed.
         const ADAPT_IO = (1<<2);
     }
+}
+
+/// Requested adjustment to the allowed set of PUs and NUMA nodes
+pub enum AllowSet<'set> {
+    /// Mark all objects as allowed in the topology
+    All,
+
+    /// Only allow objects that are available to the current process
+    ///
+    /// Requires `BuildFlags::ASSUME_THIS_SYSTEM` so that the set of available
+    /// resources can actually be retrieved from the operating system.
+    LocalRestrictions,
+
+    /// Allow a custom set of objects
+    ///
+    /// You should provide at least one of `cpu` and `mem`, you can provide both.
+    Custom {
+        cpuset: Option<&'set CpuSet>,
+        nodeset: Option<&'set NodeSet>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
