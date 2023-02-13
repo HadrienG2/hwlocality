@@ -1081,30 +1081,36 @@ impl Topology {
     /// Modify this topology
     ///
     /// This API lets you modify the active `Topology`, with the guarantee that
-    /// by the time it terminates, the `Topology` will be left in a state where
-    /// it is safe to query from multiple threads again.
+    /// by the time it returns, the `Topology` will be left in a state where
+    /// it is safe to use `&self` from Rust again.
     pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
         // Set up topology editing
         let mut editor = TopologyEditor::new(self);
         let mut editor = AssertUnwindSafe(&mut editor);
 
         // Run the user-provided edit callback, catching panics
-        let edit_result = std::panic::catch_unwind(move || edit(&mut editor));
+        let result = std::panic::catch_unwind(move || edit(&mut editor));
 
         // Force eager evaluation of all caches, abort if that fails as we must
         // not let an invalid `Topology` state escape, not even via unwinding
-        let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
-        if refresh_result < 0 {
-            eprintln!("Topology stuck in a state that violates Sync invariant, must abort");
-            std::process::abort();
-        }
+        self.refresh();
 
         // Return user callback result or resume unwinding as appropriate
-        match edit_result {
+        match result {
             Ok(result) => result,
             Err(e) => std::panic::resume_unwind(e),
         }
     }
+
+    /// Force eager evaluation of all lazily evaluated caches
+    pub(crate) fn refresh(&mut self) {
+        let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
+        if refresh_result < 0 {
+            eprintln!("Topology stuck in a state that violates Rust aliasing rules, must abort");
+            std::process::abort();
+        }
+    }
+
     // === General-purpose internal utilities ===
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.

@@ -363,6 +363,12 @@ macro_rules! extern_c_block {
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
 
             #[must_use]
+            pub(crate) fn hwloc_topology_insert_misc_object(
+                topology: *mut RawTopology,
+                parent: *mut TopologyObject,
+                name: *const c_char,
+            ) -> *mut TopologyObject;
+            #[must_use]
             pub(crate) fn hwloc_topology_refresh(topology: *mut RawTopology) -> c_int;
 
             // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html ===
