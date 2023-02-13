@@ -16,7 +16,10 @@ use crate::{
     ffi,
 };
 use libc::{c_char, c_int, c_uint, c_void};
-use std::{ffi::CStr, fmt};
+use std::{
+    ffi::{CStr, CString},
+    fmt,
+};
 
 /// Hardware topology object
 //
@@ -326,6 +329,43 @@ impl TopologyObject {
                 usize::try_from(self.infos_count).expect("Should not happen"),
             )
         }
+    }
+
+    /// Search the given key name in object infos and return the corresponding value
+    ///
+    /// If multiple keys match the given name, only the first one is returned.
+    ///
+    /// Calling this operation multiple times will result in duplicate work. If
+    /// you need to do this sort of search many times, you should collect
+    /// `infos()` into a `HashMap` or `BTreeMap` for increased lookup efficiency.
+    pub fn info(&self, key: &str) -> Option<&str> {
+        self.infos()
+            .iter()
+            .find(|info| info.name() == key)
+            .map(|info| info.value())
+    }
+
+    /// Add the given info name and value pair to the given object
+    ///
+    /// The info is appended to the existing info array even if another key with
+    /// the same name already exists.
+    ///
+    /// The input strings are copied before being added in the object infos.
+    ///
+    /// This function may be used to enforce object colors in the lstopo
+    /// graphical output by using "lstopoStyle" as a name and "Background=#rrggbb"
+    /// as a value. See CUSTOM COLORS in the lstopo(1) manpage for details.
+    ///
+    /// If value contains some non-printable characters, they will be dropped
+    /// when exporting to XML.
+    pub fn add_info(&mut self, name: &str, value: &str) {
+        let name = CString::new(name).expect("Name is not supported by hwloc");
+        let value = CString::new(value).expect("Value is not supported by hwloc");
+        let result = unsafe {
+            ffi::hwloc_obj_add_info(self as *mut TopologyObject, name.as_ptr(), value.as_ptr())
+        };
+        assert_ne!(result, -1, "Failed to add info to object");
+        assert_eq!(result, 0, "Unexpected result from hwloc_obj_add_info");
     }
 
     /// Iterate over a C-style linked list of child TopologyObjects

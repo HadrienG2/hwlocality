@@ -436,13 +436,13 @@ pub struct ObjectInfo {
 
 impl ObjectInfo {
     /// The name of the ObjectInfo
-    pub fn name(&self) -> Option<&str> {
-        unsafe { ffi::deref_string(&self.name) }
+    pub fn name(&self) -> &str {
+        unsafe { ffi::deref_string(&self.name) }.expect("Infos should have names")
     }
 
     /// The value of the ObjectInfo
-    pub fn value(&self) -> Option<&str> {
-        unsafe { ffi::deref_string(&self.value) }
+    pub fn value(&self) -> &str {
+        unsafe { ffi::deref_string(&self.value) }.expect("Infos should have values")
     }
 }
 

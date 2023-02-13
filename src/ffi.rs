@@ -97,12 +97,12 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_get_depth(topology: *const RawTopology) -> RawDepth;
             #[must_use]
-            pub(crate) fn hwloc_get_memory_parents_depth(topology: *const RawTopology) -> RawDepth;
-            #[must_use]
             pub(crate) fn hwloc_get_type_depth(
                 topology: *const RawTopology,
                 object_type: RawObjectType,
             ) -> RawDepth;
+            #[must_use]
+            pub(crate) fn hwloc_get_memory_parents_depth(topology: *const RawTopology) -> RawDepth;
             #[must_use]
             pub(crate) fn hwloc_get_depth_type(
                 topology: *const RawTopology,
@@ -136,6 +136,15 @@ macro_rules! extern_c_block {
                 object: *const TopologyObject,
                 separator: *const c_char,
                 verbose: c_int,
+            ) -> c_int;
+
+            // === Consulting and adding Key-Value info attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html ===
+
+            #[must_use]
+            pub(crate) fn hwloc_obj_add_info(
+                obj: *mut TopologyObject,
+                name: *const c_char,
+                value: *const c_char,
             ) -> c_int;
 
             // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
