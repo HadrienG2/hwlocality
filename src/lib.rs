@@ -80,7 +80,7 @@ pub mod support;
 
 use self::{
     bitmap::CpuSet,
-    builder::{BuildFlags, TopologyBuilder},
+    builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     objects::{
@@ -1060,6 +1060,18 @@ impl Topology {
         // This is correct because the output reference will be bound the the
         // lifetime of &self by the borrow checker.
         unsafe { &*ptr }
+    }
+
+    /// Filtering that was applied for the given object type
+    pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
+        let mut filter = RawTypeFilter::MAX;
+        let result =
+            unsafe { ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_get_type_filter"
+        );
+        TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
     }
 
     // === General-purpose internal utilities ===

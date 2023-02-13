@@ -1,6 +1,6 @@
 use crate::{
     bitmap::RawBitmap,
-    builder::ComponentsFlags,
+    builder::{BuildFlags, ComponentsFlags, RawTypeFilter},
     depth::RawDepth,
     memory::{MemoryBindingFlags, RawMemoryBindingPolicy},
     objects::{types::RawObjectType, TopologyObject},
@@ -304,7 +304,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_set_flags(
                 topology: *mut RawTopology,
-                flags: c_ulong,
+                flags: BuildFlags,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_topology_get_flags(topology: *const RawTopology) -> c_ulong;
@@ -314,6 +314,41 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_topology_get_support(
                 topology: *const RawTopology,
             ) -> *const TopologySupport;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_type_filter(
+                topology: *mut RawTopology,
+                ty: RawObjectType,
+                filter: RawTypeFilter,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_type_filter(
+                topology: *const RawTopology,
+                ty: RawObjectType,
+                filter: *mut RawTypeFilter,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_all_types_filter(
+                topology: *mut RawTopology,
+                filter: RawTypeFilter,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_cache_types_filter(
+                topology: *mut RawTopology,
+                filter: RawTypeFilter,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_icache_types_filter(
+                topology: *mut RawTopology,
+                filter: RawTypeFilter,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_io_types_filter(
+                topology: *mut RawTopology,
+                filter: RawTypeFilter,
+            ) -> c_int;
+            // NOTE: set_userdata and get_userdata are NOT exposed because they
+            //       are hard to make work with copying, persistence and thread
+            //       safety and are not so useful as to justify the effort.
 
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
 

@@ -4,10 +4,11 @@
 // - Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 // - Detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 
-use crate::{ffi, ProcessId, RawTopology, Topology};
+use crate::{ffi, objects::types::ObjectType, ProcessId, RawTopology, Topology};
 use bitflags::bitflags;
 use errno::{errno, Errno};
-use libc::{EINVAL, ENOSYS};
+use libc::{c_int, EINVAL, ENOSYS};
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     ffi::{c_ulong, CString},
     fmt::Debug,
@@ -207,7 +208,7 @@ impl TopologyBuilder {
     /// ```
     ///
     pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidParameter> {
-        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
+        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags) };
         match result {
             0 => Ok(self),
             -1 => {
@@ -225,6 +226,81 @@ impl TopologyBuilder {
     pub fn flags(&self) -> BuildFlags {
         BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
             .expect("Encountered unexpected topology flags")
+    }
+
+    /// Set the filtering for the given object type
+    pub fn with_type_filter(mut self, ty: ObjectType, filter: TypeFilter) -> Self {
+        let result = unsafe {
+            ffi::hwloc_topology_set_type_filter(self.as_mut_ptr(), ty.into(), filter.into())
+        };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_set_type_filter"
+        );
+        self
+    }
+
+    /// Set the filtering for all object types
+    ///
+    /// If some types do not support this filtering, they are silently ignored.
+    pub fn with_common_type_filter(mut self, filter: TypeFilter) -> Self {
+        let result =
+            unsafe { ffi::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into()) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_set_all_types_filter"
+        );
+        self
+    }
+
+    /// Set the filtering for all CPU cache object types
+    ///
+    /// Memory-side caches are not involved since they are not CPU caches.
+    pub fn with_cache_type_filter(mut self, filter: TypeFilter) -> Self {
+        let result =
+            unsafe { ffi::hwloc_topology_set_cache_types_filter(self.as_mut_ptr(), filter.into()) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_set_cache_types_filter"
+        );
+        self
+    }
+
+    /// Set the filtering for all CPU instruction cache object types
+    ///
+    /// Memory-side caches are not involved since they are not CPU caches.
+    pub fn with_icache_type_filter(mut self, filter: TypeFilter) -> Self {
+        let result = unsafe {
+            ffi::hwloc_topology_set_icache_types_filter(self.as_mut_ptr(), filter.into())
+        };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_set_icache_types_filter"
+        );
+        self
+    }
+
+    /// Set the filtering for all I/O object types
+    pub fn with_io_type_filter(mut self, filter: TypeFilter) -> Self {
+        let result =
+            unsafe { ffi::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into()) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_set_io_types_filter"
+        );
+        self
+    }
+
+    /// Current filtering for the given object type
+    pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
+        let mut filter = RawTypeFilter::MAX;
+        let result =
+            unsafe { ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_get_type_filter"
+        );
+        TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
     }
 
     // === General-purpose internal utilities ===
@@ -431,6 +507,68 @@ bitflags! {
         /// Blacklist the target component from being used
         const BLACKLIST = (1<<0);
     }
+}
+
+/// Rust mapping of the hwloc_type_filter_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawTypeFilter = c_int;
+
+/// Type filtering flags
+///
+/// By default...
+///
+/// - Most objects are kept (`KeepAll`)
+/// - Instruction caches, I/O and Misc objects are ignored by (`KeepNone`).
+/// - Die and Group levels are ignored unless they bring structure (`KeepStructure`).
+///
+/// Note that group objects are also ignored individually (without the entire
+/// level) when they do not bring structure.
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, IntoPrimitive, TryFromPrimitive)]
+pub enum TypeFilter {
+    /// Keep all objects of this type
+    ///
+    /// Cannot be set for `ObjectType::Group` (groups are designed only to add
+    /// more structure to the topology).
+    KeepAll = 0,
+
+    /// Ignore all objects of this type
+    ///
+    /// The bottom-level type `ObjectType::PU`, the `ObjectType::NUMANode` type,
+    /// and the top-level type `ObjectType::Machine` may not be ignored.
+    KeepNone = 1,
+
+    /// Only ignore objects if their entire level does not bring any structure
+    ///
+    /// Keep the entire level of objects if at least one of these objects adds
+    /// structure to the topology. An object brings structure when it has
+    /// multiple children and it is not the only child of its parent.
+    ///
+    /// If all objects in the level are the only child of their parent, and if
+    /// none of them has multiple children, the entire level is removed.
+    ///
+    /// Cannot be set for I/O and Misc objects since the topology structure does
+    /// not matter there.
+    KeepStructure = 2,
+
+    /// Only keep likely-important objects of the given type.
+    ///
+    /// This is only useful for I/O object types.
+    ///
+    /// For `ObjectType::PCIDevice` and `ObjectType::OSDevice`, it means that
+    /// only objects of major/common kinds are kept (storage, network,
+    /// OpenFabrics, CUDA, OpenCL, RSMI, NVML, and displays).
+    /// Also, only OS devices directly attached on PCI (e.g. no USB) are reported.
+    ///
+    /// For `ObjectType::Bridge`, it means that bridges are kept only if they
+    /// have children.
+    ///
+    /// This flag is equivalent to `KeepAll` for Normal, Memory and Misc types
+    /// since they are likely important.
+    KeepImportant = 3,
 }
 
 /// Error returned when an invalid parameter was passed
