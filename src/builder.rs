@@ -4,17 +4,24 @@
 // - Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 // - Detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 
-use crate::{ffi, RawTopology, Topology};
+use crate::{ffi, ProcessId, RawTopology, Topology};
 use bitflags::bitflags;
 use errno::{errno, Errno};
-use libc::EINVAL;
-use std::{ffi::c_ulong, ptr::NonNull};
+use libc::{EINVAL, ENOSYS};
+use std::{
+    ffi::{c_ulong, CString},
+    fmt::Debug,
+    path::Path,
+    ptr::NonNull,
+};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
 pub struct TopologyBuilder(NonNull<RawTopology>);
 
 impl TopologyBuilder {
+    // === Topology building: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
+
     /// Start building a `Topology`
     pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
@@ -22,42 +29,6 @@ impl TopologyBuilder {
         assert_ne!(result, -1, "Failed to allocate topology");
         assert_eq!(result, 0, "Unexpected hwloc_topology_init result {result}");
         Self(NonNull::new(topology).expect("Got null pointer from hwloc_topology_init"))
-    }
-
-    /// Set topology building flags
-    ///
-    /// If this function is called multiple times, the last invocation will
-    /// erase and replace the set of flags that was previously set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::{Topology, builder::BuildFlags};
-    ///
-    /// let topology = Topology::builder()
-    ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
-    ///                         .build().unwrap();
-    /// ```
-    ///
-    pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidBuildFlags> {
-        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
-        match result {
-            0 => Ok(self),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EINVAL => Err(InvalidBuildFlags),
-                    _ => panic!("Unexpected errno {errno}"),
-                }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
-        }
-    }
-
-    /// Check current topology building flags
-    pub fn flags(&self) -> BuildFlags {
-        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
-            .expect("Encountered unexpected topology flags")
     }
 
     /// Load the topology with the previously specified parameters
@@ -83,6 +54,179 @@ impl TopologyBuilder {
         }
     }
 
+    // === Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html ===
+
+    /// Change which process the topology is viewed from
+    ///
+    /// On some systems, processes may have different views of the machine, for
+    /// instance the set of allowed CPUs. By default, hwloc exposes the view
+    /// from the current process. Calling this method permits to make it expose
+    /// the topology of the machine from the point of view of another process.
+    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, Unsupported> {
+        let result = unsafe { ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid) };
+        match result {
+            0 => Ok(self),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    ENOSYS => Err(Unsupported(self)),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
+    }
+
+    /// Read the topology from a synthetic textual description
+    ///
+    /// Instead of being probed from the host system, topology information will
+    /// be read from the given
+    /// [textual description](https://hwloc.readthedocs.io/en/v2.9/synthetic.html).
+    ///
+    /// Setting the environment variable `HWLOC_SYNTHETIC` may also result in
+    /// this behavior.
+    ///
+    /// CPU and memory binding operations will be ineffective with this backend.
+    pub fn from_synthetic(mut self, description: &str) -> Result<Self, InvalidParameter> {
+        let Ok(description) = CString::new(description) else { return Err(InvalidParameter(self)) };
+        let result =
+            unsafe { ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.as_ptr()) };
+        match result {
+            0 => Ok(self),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => Err(InvalidParameter(self)),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
+    }
+
+    /// Read the topology from an XML description
+    ///
+    /// Instead of being probed from the host system, topology information will
+    /// be read from the given
+    /// [XML description](https://hwloc.readthedocs.io/en/v2.9/xml.html).
+    ///
+    /// CPU and memory binding operations will be ineffective with this backend,
+    /// unless `BuildFlags::ASSUME_THIS_SYSTEM` is set to assert that the loaded
+    /// XML file truly matches the underlying system.
+    pub fn from_xml(mut self, xml: &str) -> Result<Self, InvalidParameter> {
+        let Ok(xml) = CString::new(xml) else { return Err(InvalidParameter(self)) };
+        let result = unsafe {
+            ffi::hwloc_topology_set_xmlbuffer(
+                self.as_mut_ptr(),
+                xml.as_ptr(),
+                xml.as_bytes()
+                    .len()
+                    .try_into()
+                    .expect("XML buffer is too big for hwloc"),
+            )
+        };
+        match result {
+            0 => Ok(self),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => Err(InvalidParameter(self)),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
+    }
+
+    /// Read the topology from an XML file
+    ///
+    /// This works a lot like `from_xml()`, but takes a file name as a parameter
+    /// instead of an XML string. The same effect can be achieved by setting the
+    /// `HWLOC_XMLFILE` environment variable.
+    pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, InvalidParameter> {
+        let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter(self)) };
+        let Ok(path) = CString::new(path) else { return Err(InvalidParameter(self)) };
+        let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.as_ptr()) };
+        match result {
+            0 => Ok(self),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => Err(InvalidParameter(self)),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
+    }
+
+    /// Prevent a discovery component from being used for a topology
+    ///
+    /// `name` is the name of the discovery component that should not be used
+    /// when loading topology topology. The name is a string such as "cuda".
+    /// For components with multiple phases, it may also be suffixed with the
+    /// name of a phase, for instance "linux:io". A list of components
+    /// distributed with hwloc can be found
+    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/plugins.html#plugins_list).
+    ///
+    /// This may be used to avoid expensive parts of the discovery process. For
+    /// instance, CUDA-specific discovery may be expensive and unneeded while
+    /// generic I/O discovery could still be useful.
+    pub fn blacklist_component(mut self, name: &str) -> Result<Self, InvalidParameter> {
+        let Ok(name) = CString::new(name) else { return Err(InvalidParameter(self)) };
+        let result = unsafe {
+            ffi::hwloc_topology_set_components(
+                self.as_mut_ptr(),
+                ComponentsFlags::BLACKLIST,
+                name.as_ptr(),
+            )
+        };
+        assert!(
+            result >= 0,
+            "Unexpected result {result} with errno {}",
+            errno()
+        );
+        Ok(self)
+    }
+
+    // === Detection config/query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
+
+    /// Set topology building flags
+    ///
+    /// If this function is called multiple times, the last invocation will
+    /// erase and replace the set of flags that was previously set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hwloc2::{Topology, builder::BuildFlags};
+    ///
+    /// let topology = Topology::builder()
+    ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
+    ///                         .build().unwrap();
+    /// ```
+    ///
+    pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidParameter> {
+        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
+        match result {
+            0 => Ok(self),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => Err(InvalidParameter(self)),
+                    _ => panic!("Unexpected errno {errno}"),
+                }
+            }
+            other => panic!("Unexpected result {other} with errno {}", errno()),
+        }
+    }
+
+    /// Check current topology building flags
+    pub fn flags(&self) -> BuildFlags {
+        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+            .expect("Encountered unexpected topology flags")
+    }
+
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
         self.0.as_ptr() as *const RawTopology
@@ -91,6 +235,12 @@ impl TopologyBuilder {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_mut_ptr(&mut self) -> *mut RawTopology {
         self.0.as_ptr()
+    }
+}
+
+impl Debug for TopologyBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TopologyBuilder")
     }
 }
 
@@ -272,7 +422,21 @@ impl Default for BuildFlags {
     }
 }
 
-/// Error returned when the requested flag set is invalid
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("invalid BuildFlags specified")]
-pub struct InvalidBuildFlags;
+bitflags! {
+    /// Flags to be passed to `hwloc_topology_set_components()`
+    #[repr(C)]
+    pub(crate) struct ComponentsFlags: c_ulong {
+        /// Blacklist the target component from being used
+        const BLACKLIST = (1<<0);
+    }
+}
+
+/// Error returned when an invalid parameter was passed
+#[derive(Debug, Error)]
+#[error("invalid parameter specified")]
+pub struct InvalidParameter(TopologyBuilder);
+
+/// Error returned when the platform does not support this feature
+#[derive(Debug, Error)]
+#[error("platform does not support this feature")]
+pub struct Unsupported(TopologyBuilder);

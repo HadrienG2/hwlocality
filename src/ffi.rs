@@ -1,5 +1,6 @@
 use crate::{
     bitmap::RawBitmap,
+    builder::ComponentsFlags,
     depth::RawDepth,
     memory::{MemoryBindingFlags, RawMemoryBindingPolicy},
     objects::{types::RawObjectType, TopologyObject},
@@ -270,7 +271,33 @@ macro_rules! extern_c_block {
 
             // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html ===
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_pid(
+                topology: *mut RawTopology,
+                pid: ProcessId,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_synthetic(
+                topology: *mut RawTopology,
+                description: *const c_char,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_xml(
+                topology: *mut RawTopology,
+                xmlpath: *const c_char,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_xmlbuffer(
+                topology: *mut RawTopology,
+                buffer: *const c_char,
+                size: c_int,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_set_components(
+                topology: *mut RawTopology,
+                flags: ComponentsFlags,
+                name: *const c_char,
+            ) -> c_int;
 
             // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
 
