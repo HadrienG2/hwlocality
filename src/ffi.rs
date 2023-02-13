@@ -309,6 +309,8 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_get_flags(topology: *const RawTopology) -> c_ulong;
             #[must_use]
+            pub(crate) fn hwloc_topology_is_thissystem(topology: *const RawTopology) -> c_int;
+            #[must_use]
             pub(crate) fn hwloc_topology_get_support(
                 topology: *const RawTopology,
             ) -> *const TopologySupport;

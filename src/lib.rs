@@ -214,6 +214,19 @@ impl Topology {
             .expect("Encountered unexpected topology flags")
     }
 
+    /// Was the topology built using the system running this program?
+    ///
+    /// It may not have been if, for instance, it was built using another
+    /// file-system root or loaded from a synthetic or XML textual description.
+    pub fn is_this_system(&self) -> bool {
+        let result = unsafe { ffi::hwloc_topology_is_thissystem(self.as_ptr()) };
+        assert!(
+            result == 0 || result == 1,
+            "Unexpected result from hwloc_topology_is_thissystem"
+        );
+        result == 1
+    }
+
     /// Supported hwloc features with this topology on this machine
     ///
     /// This is the information that one gets via the `hwloc-info --support` CLI.
