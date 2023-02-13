@@ -478,6 +478,10 @@ macro_rules! extern_c_block {
             ) -> c_int;
 
             // TODO: Cover more later: distances, interop, CPU kinds, etc...
+            //       Beware that primitives that modify the topology should be
+            //       exposed in the TopologyEditor, not Topology, because per
+            //       hwloc documentation hwloc_topology_refresh() must be called
+            //       before multithreaded access is thread-safe again.
         }
     };
 }
