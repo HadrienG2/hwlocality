@@ -32,17 +32,9 @@ First, add the following to your `Cargo.toml`:
 hwloc2 = "2.2.0"
 ```
 
-Next, add this to your crate root:
-
-```rust
-extern crate hwloc2;
-```
-
 Here is a quick example which walks the `Topology` and prints it out:
 
 ```rust
-extern crate hwloc2;
-
 use hwloc2::Topology;
 
 fn main() {
