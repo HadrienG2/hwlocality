@@ -233,8 +233,8 @@ impl ObjectType {
     }
 
     /// Convert to the internal representation used by hwloc
-    fn to_raw(&self) -> RawObjectType {
-        RawObjectType::from(*self)
+    fn to_raw(self) -> RawObjectType {
+        RawObjectType::from(self)
     }
 }
 
@@ -253,10 +253,7 @@ impl PartialOrd for ObjectType {
 
 impl PartialEq for ObjectType {
     fn eq(&self, other: &Self) -> bool {
-        match self.partial_cmp(other) {
-            Some(Ordering::Equal) => true,
-            _ => false,
-        }
+        matches!(self.partial_cmp(other), Some(Ordering::Equal))
     }
 }
 

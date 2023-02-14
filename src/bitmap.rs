@@ -441,7 +441,7 @@ impl Bitmap {
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
     pub(crate) fn as_ptr(&self) -> *const RawBitmap {
-        self.0 as *const RawBitmap
+        self.0
     }
 
     /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
@@ -1060,7 +1060,7 @@ impl Bitmap {
         let end = match range.end_bound() {
             Bound::Unbounded => Some(-1),
             Bound::Included(i) => i32::try_from(*i).ok(),
-            Bound::Excluded(i) => i.checked_sub(1).map(|i| i32::try_from(i).ok()).flatten(),
+            Bound::Excluded(i) => i.checked_sub(1).and_then(|i| i32::try_from(i).ok()),
         }
         .expect("Range end is too high for hwloc");
         (start, end)

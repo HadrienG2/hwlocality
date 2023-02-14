@@ -94,7 +94,7 @@ impl NUMANodeAttributes {
         }
         unsafe {
             std::slice::from_raw_parts(
-                self.page_types as *const MemoryPageType,
+                self.page_types,
                 // If this fails, it means pages_types_len does not fit in a
                 // size_t, but by definition of size_t that cannot happen...
                 self.page_types_len.try_into().expect("Should not happen"),

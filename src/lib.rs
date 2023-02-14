@@ -5,7 +5,7 @@ pub mod builder;
 pub mod cpu;
 pub mod depth;
 pub mod editor;
-mod ffi;
+pub(crate) mod ffi;
 pub mod memory;
 pub mod objects;
 pub mod support;
@@ -58,7 +58,7 @@ pub type ProcessId = libc::pid_t;
 ///
 /// Users may check for available features at build time using this number
 pub fn get_api_version() -> u32 {
-    unsafe { ffi::hwloc_get_api_version() as u32 }
+    unsafe { ffi::hwloc_get_api_version() }
 }
 
 /// Opaque topology struct
@@ -851,7 +851,7 @@ impl Topology {
         self.bind_memory_impl(set, policy, flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_set_area_membind(
                 topology,
-                target as *const Target as *const c_void,
+                target as *const _ as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 policy,
@@ -881,7 +881,7 @@ impl Topology {
         self.unbind_memory_impl(flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_set_area_membind(
                 topology,
-                target as *const Target as *const c_void,
+                target as *const _ as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 policy,
@@ -925,7 +925,7 @@ impl Topology {
         self.memory_binding_impl(flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_get_area_membind(
                 topology,
-                target as *const Target as *const c_void,
+                target as *const _ as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 policy,
@@ -963,7 +963,7 @@ impl Topology {
             *policy = -1;
             ffi::hwloc_get_area_memlocation(
                 topology,
-                target as *const Target as *const c_void,
+                target as *const _ as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 flags,
@@ -1089,7 +1089,7 @@ impl Topology {
 impl Topology {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
-        self.0.as_ptr() as *const RawTopology
+        self.0.as_ptr()
     }
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.

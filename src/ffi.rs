@@ -9,7 +9,12 @@ use crate::{
     ProcessId, RawTopology, ThreadId,
 };
 use libc::{c_char, c_int, c_uint, c_ulong, c_void, size_t};
-use std::{ffi::CStr, fmt, ptr};
+use std::{
+    ffi::CStr,
+    fmt,
+    ptr::{self, NonNull},
+};
+use thiserror::Error;
 
 /// Dereference a C pointer with correct lifetime (*const -> & version)
 pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
@@ -71,6 +76,78 @@ pub(crate) fn write_snprintf(
             .expect("Got invalid string from an snprintf-like API")
     )
 }
+
+/// Less error-prone CString alternative
+///
+/// This fulfills the same goal as CString (go from Rust &str to C *char)
+/// but with a less error-prone API and a libc-backed allocation whose ownership
+/// can safely be transferred to C libraries that manage memory using
+/// malloc/free like hwloc.
+///
+pub(crate) struct LibcString(NonNull<[c_char]>);
+
+impl LibcString {
+    /// Convert a Rust string to a C-compatible representation
+    ///
+    /// Returns `None` if the Rust string cannot be converted to a C
+    /// representation because it contains null chars.
+    pub fn new(s: impl AsRef<str>) -> Result<Self, NulError> {
+        // Check input string for inner null chars
+        let s = s.as_ref();
+        if s.find('\0').is_some() {
+            return Err(NulError);
+        }
+
+        // Allocate C string and wrap it in Self
+        let len = s.len() + 1;
+        let data = unsafe { libc::malloc(len) } as *mut c_char;
+        let data = NonNull::new(data).expect("Failed to allocate string buffer");
+        let buf = NonNull::from(unsafe { std::slice::from_raw_parts_mut(data.as_ptr(), len) });
+        let result = Self(buf);
+
+        // Fill the string and return it
+        let bytes = unsafe { std::slice::from_raw_parts_mut(buf.as_ptr() as *mut u8, len) };
+        let (last, elements) = bytes
+            .split_last_mut()
+            .expect("Cannot happen, len >= 1 by construction");
+        elements.copy_from_slice(s.as_bytes());
+        *last = b'\0';
+        Ok(result)
+    }
+
+    /// Check the length of the string, including NUL terminator
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Make the string momentarily available to a C API that expects `const char*`
+    ///
+    /// Make sure the C API does not retain any pointer to the string after
+    /// this LibcString is deallocated!
+    pub fn borrow(&self) -> *const c_char {
+        self.0.as_ptr() as *const c_char
+    }
+
+    /// Transfer ownership of the string to a C API
+    ///
+    /// Unlike with regular CString, it is safe to pass this string to a C API
+    /// that may later free it using `libc::free()`.
+    pub fn into_raw(self) -> *mut c_char {
+        let ptr = self.0.as_ptr() as *mut c_char;
+        std::mem::forget(self);
+        ptr
+    }
+}
+
+impl Drop for LibcString {
+    fn drop(&mut self) {
+        unsafe { libc::free(self.0.as_ptr() as *mut c_void) }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Error, Eq, PartialEq)]
+#[error("string cannot be used by C because it contains NUL chars")]
+pub(crate) struct NulError;
 
 macro_rules! extern_c_block {
     ($link_name:literal) => {

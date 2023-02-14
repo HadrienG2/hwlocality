@@ -15,13 +15,10 @@ use crate::builder::BuildFlags;
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     depth::{Depth, RawDepth},
-    ffi,
+    ffi::{self, LibcString},
 };
 use libc::{c_char, c_int, c_uint, c_void};
-use std::{
-    ffi::{CStr, CString},
-    fmt,
-};
+use std::{ffi::CStr, fmt};
 
 /// Hardware topology object
 //
@@ -79,6 +76,21 @@ impl TopologyObject {
         unsafe { ffi::deref_string(&self.subtype) }
     }
 
+    /// Set the subtype string
+    ///
+    /// This is something you'll often want to do when creating Group or Misc
+    /// objects in order to make them more descriptive.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the requested string contains NUL bytes, as
+    /// hwloc, like all C libraries, doesn't handle that well.
+    pub fn set_subtype(&mut self, subtype: &str) {
+        self.subtype = LibcString::new(subtype)
+            .expect("Can't have NUL bytes in subtype string")
+            .into_raw()
+    }
+
     /// The OS-provided physical index number.
     ///
     /// It is not guaranteed unique across the entire machine,
@@ -93,6 +105,21 @@ impl TopologyObject {
     /// The name of the object
     pub fn name(&self) -> Option<&str> {
         unsafe { ffi::deref_string(&self.name) }
+    }
+
+    /// Set the object name
+    ///
+    /// This is something you'll often want to do when creating Group or Misc
+    /// objects in order to make them more descriptive.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the requested string contains NUL bytes, as
+    /// hwloc, like all C libraries, doesn't handle that well.
+    pub fn set_name(&mut self, name: &str) {
+        self.name = LibcString::new(name)
+            .expect("Can't have NUL bytes in name string")
+            .into_raw()
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -371,10 +398,10 @@ impl TopologyObject {
     /// If value contains some non-printable characters, they will be dropped
     /// when exporting to XML.
     pub fn add_info(&mut self, name: &str, value: &str) {
-        let name = CString::new(name).expect("Name is not supported by hwloc");
-        let value = CString::new(value).expect("Value is not supported by hwloc");
+        let name = LibcString::new(name).expect("Name is not supported by hwloc");
+        let value = LibcString::new(value).expect("Value is not supported by hwloc");
         let result = unsafe {
-            ffi::hwloc_obj_add_info(self as *mut TopologyObject, name.as_ptr(), value.as_ptr())
+            ffi::hwloc_obj_add_info(self as *mut TopologyObject, name.borrow(), value.borrow())
         };
         assert_ne!(result, -1, "Failed to add info to object");
         assert_eq!(result, 0, "Unexpected result from hwloc_obj_add_info");
@@ -422,12 +449,10 @@ impl TopologyObject {
                 .expect("Got invalid attributes string");
             if attr_str.is_empty() {
                 write!(f, "{type_str}")
+            } else if f.alternate() {
+                write!(f, "{type_str} (\n  {attr_str}\n)")
             } else {
-                if f.alternate() {
-                    write!(f, "{type_str} (\n  {attr_str}\n)")
-                } else {
-                    write!(f, "{type_str} ({attr_str})")
-                }
+                write!(f, "{type_str} ({attr_str})")
             }
         }
     }

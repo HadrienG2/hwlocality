@@ -266,7 +266,7 @@ impl<'topology> Bytes<'topology> {
 
         // Wrap the allocation
         let base = base as *mut MaybeUninit<u8>;
-        let data = unsafe { std::slice::from_raw_parts_mut(base, len) } as *mut [MaybeUninit<u8>];
+        let data = std::ptr::slice_from_raw_parts_mut(base, len);
         NonNull::new(data).map(|data| Self { topology, data })
     }
 }

@@ -6,17 +6,16 @@
 
 #[cfg(doc)]
 use crate::{editor::TopologyEditor, support::MiscSupport};
-use crate::{ffi, objects::types::ObjectType, ProcessId, RawTopology, Topology};
+use crate::{
+    ffi::{self, LibcString},
+    objects::types::ObjectType,
+    ProcessId, RawTopology, Topology,
+};
 use bitflags::bitflags;
 use errno::{errno, Errno};
 use libc::{c_int, EINVAL, ENOSYS};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::{
-    ffi::{c_ulong, CString},
-    fmt::Debug,
-    path::Path,
-    ptr::NonNull,
-};
+use std::{ffi::c_ulong, fmt::Debug, path::Path, ptr::NonNull};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
@@ -95,9 +94,9 @@ impl TopologyBuilder {
     ///
     /// CPU and memory binding operations will be ineffective with this backend.
     pub fn from_synthetic(mut self, description: &str) -> Result<Self, InvalidParameter> {
-        let Ok(description) = CString::new(description) else { return Err(InvalidParameter(self)) };
+        let Ok(description) = LibcString::new(description) else { return Err(InvalidParameter(self)) };
         let result =
-            unsafe { ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.as_ptr()) };
+            unsafe { ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow()) };
         match result {
             0 => Ok(self),
             -1 => {
@@ -121,13 +120,12 @@ impl TopologyBuilder {
     /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
     /// loaded XML file truly matches the underlying system.
     pub fn from_xml(mut self, xml: &str) -> Result<Self, InvalidParameter> {
-        let Ok(xml) = CString::new(xml) else { return Err(InvalidParameter(self)) };
+        let Ok(xml) = LibcString::new(xml) else { return Err(InvalidParameter(self)) };
         let result = unsafe {
             ffi::hwloc_topology_set_xmlbuffer(
                 self.as_mut_ptr(),
-                xml.as_ptr(),
-                xml.as_bytes()
-                    .len()
+                xml.borrow(),
+                xml.len()
                     .try_into()
                     .expect("XML buffer is too big for hwloc"),
             )
@@ -152,8 +150,8 @@ impl TopologyBuilder {
     /// achieved by setting the `HWLOC_XMLFILE` environment variable.
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, InvalidParameter> {
         let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter(self)) };
-        let Ok(path) = CString::new(path) else { return Err(InvalidParameter(self)) };
-        let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.as_ptr()) };
+        let Ok(path) = LibcString::new(path) else { return Err(InvalidParameter(self)) };
+        let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow()) };
         match result {
             0 => Ok(self),
             -1 => {
@@ -180,12 +178,12 @@ impl TopologyBuilder {
     /// instance, CUDA-specific discovery may be expensive and unneeded while
     /// generic I/O discovery could still be useful.
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, InvalidParameter> {
-        let Ok(name) = CString::new(name) else { return Err(InvalidParameter(self)) };
+        let Ok(name) = LibcString::new(name) else { return Err(InvalidParameter(self)) };
         let result = unsafe {
             ffi::hwloc_topology_set_components(
                 self.as_mut_ptr(),
                 ComponentsFlags::BLACKLIST,
-                name.as_ptr(),
+                name.borrow(),
             )
         };
         assert!(
@@ -317,7 +315,7 @@ impl TopologyBuilder {
 impl TopologyBuilder {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
-        self.0.as_ptr() as *const RawTopology
+        self.0.as_ptr()
     }
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
@@ -329,6 +327,12 @@ impl TopologyBuilder {
 impl Debug for TopologyBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "TopologyBuilder")
+    }
+}
+
+impl Default for TopologyBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
