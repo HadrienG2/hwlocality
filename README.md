@@ -1,4 +1,5 @@
-# hwloc2-rs
+# hwloc2-rs: Rust bindings for the hwloc library
+
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![crates.io](http://meritbadge.herokuapp.com/hwloc2)](https://crates.io/crates/hwloc2)
 
@@ -20,7 +21,7 @@ A system installed with hwloc >=2.2.0 and associated development packages instal
 Beware that some Linux distributions provide older hwloc versions. You may have
 to install it from source.
 
-You can download the source from https://www.open-mpi.org/projects/hwloc/
+You can download the source from <https://www.open-mpi.org/projects/hwloc/>.
 
 ## Usage
 
@@ -64,7 +65,7 @@ more examples, if you want to run them check out the next section below.
 The library ships with examples, and to run them you need to clone the repository
 and then run them through `cargo run --example=`.
 
-```
+```text
 $ git clone https://github.com/ichbinjoe/hwloc2-rs.git
 $ cd hwloc-rs
 ```
@@ -72,7 +73,7 @@ $ cd hwloc-rs
 To run an example (which will download the dependencies and build it) you can
 use `cargo run -example=`:
 
-```
+```text
 $ cargo run --example=walk_tree
    Compiling hwloc v2.2.0 (/directory/hwloc2-rs)
     Finished dev [unoptimized + debuginfo] target(s) in 0.54s
