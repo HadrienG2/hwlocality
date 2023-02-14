@@ -43,7 +43,7 @@ fn main() {
 	for i in 0..topo.depth() {
 		println!("*** Objects at level {}", i);
 
-		for (idx, object) in topo.objects_at_depth(i).iter().enumerate() {
+		for (idx, object) in topo.objects_at_depth(i.into()).enumerate() {
 			println!("{}: {}", idx, object);
 		}
 	}
@@ -67,54 +67,63 @@ use `cargo run -example=`:
 
 ```text
 $ cargo run --example=walk_tree
-   Compiling hwloc v2.2.0 (/directory/hwloc2-rs)
-    Finished dev [unoptimized + debuginfo] target(s) in 0.54s
+   Compiling hwloc2 v2.2.0 (/home/hadrien/Bureau/Programmation/hwloc2-rs)
+    Finished dev [unoptimized + debuginfo] target(s) in 0.45s
      Running `target/debug/examples/walk_tree`
 *** Printing overall tree
-Machine (): #0
- Package (): #0
-  L3 (8192KB): #4294967295
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #0
-      PU (): #0
-      PU (): #8
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #1
-      PU (): #1
-      PU (): #9
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #2
-      PU (): #2
-      PU (): #10
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #3
-      PU (): #3
-      PU (): #11
-  L3 (8192KB): #4294967295
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #4
-      PU (): #4
-      PU (): #12
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #5
-      PU (): #5
-      PU (): #13
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #6
-      PU (): #6
-      PU (): #14
-   L2 (512KB): #4294967295
-    L1d (32KB): #4294967295
-     Core (): #7
-      PU (): #7
-      PU (): #15
+Machine: #0
+ Package: #0
+  L3 (20MB): #0
+   L2 (256KB): #0
+    L1d (32KB): #0
+     Core: #0
+      PU: #0
+      PU: #10
+   L2 (256KB): #1
+    L1d (32KB): #1
+     Core: #1
+      PU: #1
+      PU: #11
+   L2 (256KB): #2
+    L1d (32KB): #2
+     Core: #2
+      PU: #2
+      PU: #12
+   L2 (256KB): #3
+    L1d (32KB): #3
+     Core: #3
+      PU: #3
+      PU: #13
+   L2 (256KB): #4
+    L1d (32KB): #4
+     Core: #4
+      PU: #4
+      PU: #14
+   L2 (256KB): #5
+    L1d (32KB): #5
+     Core: #5
+      PU: #5
+      PU: #15
+   L2 (256KB): #6
+    L1d (32KB): #6
+     Core: #6
+      PU: #6
+      PU: #16
+   L2 (256KB): #7
+    L1d (32KB): #7
+     Core: #7
+      PU: #7
+      PU: #17
+   L2 (256KB): #8
+    L1d (32KB): #8
+     Core: #8
+      PU: #8
+      PU: #18
+   L2 (256KB): #9
+    L1d (32KB): #9
+     Core: #9
+      PU: #9
+      PU: #19
 ```
 
 ## License

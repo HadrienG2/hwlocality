@@ -10,6 +10,8 @@ pub mod memory;
 pub mod objects;
 pub mod support;
 
+#[cfg(doc)]
+use self::{bitmap::NodeSet, support::MiscSupport};
 use self::{
     bitmap::{Bitmap, BitmapKind, CpuSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
@@ -70,11 +72,28 @@ pub(crate) struct RawTopology {
 }
 
 /// Main entry point to the hwloc API
+///
+/// A `Topology` contains everything hwloc knows about the hardware and software
+/// structure of a system. It can be used to query the system topology and to
+/// bind threads and processes to hardware CPU cores and NUMA nodes.
+///
+/// Since there are **many** things you can do with a `Topology`, the API is
+/// broken down into sections roughly following the structure of the upstream
+/// hwloc documentation:
+///
+/// - [Topology building](#topology-building)
+/// - [Object levels, depths and types](#object-levels-depths-and-types)
+/// - [CPU binding](#cpu-binding)
+/// - [Memory binding](#memory-binding)
+/// - [Modifying a loaded topology](#modifying-a-loaded-topology)
 pub struct Topology(NonNull<RawTopology>);
 
+/// # Topology building
+//
+// Upstream docs:
+// - Creation: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
+// - Build queries: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 impl Topology {
-    // === Topology building: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
-
     /// Creates a new Topology.
     ///
     /// If no further customization is needed on init, this method
@@ -121,12 +140,89 @@ impl Topology {
         }
     }
 
-    // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
+    /// Flags that were used to build this topology
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hwloc2::{Topology, builder::BuildFlags};
+    ///
+    /// let default_topology = Topology::new().unwrap();
+    /// assert_eq!(BuildFlags::empty(), default_topology.build_flags());
+    ///
+    /// let topology_with_flags =
+    ///     Topology::builder()
+    ///         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
+    ///         .build().unwrap();
+    /// assert_eq!(
+    ///     BuildFlags::ASSUME_THIS_SYSTEM,
+    ///     topology_with_flags.build_flags()
+    /// );
+    /// ```
+    pub fn build_flags(&self) -> BuildFlags {
+        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+            .expect("Encountered unexpected topology flags")
+    }
 
+    /// Was the topology built using the system running this program?
+    ///
+    /// It may not have been if, for instance, it was built using another
+    /// file-system root or loaded from a synthetic or XML textual description.
+    pub fn is_this_system(&self) -> bool {
+        let result = unsafe { ffi::hwloc_topology_is_thissystem(self.as_ptr()) };
+        assert!(
+            result == 0 || result == 1,
+            "Unexpected result from hwloc_topology_is_thissystem"
+        );
+        result == 1
+    }
+
+    /// Supported hwloc features with this topology on this machine
+    ///
+    /// This is the information that one gets via the `hwloc-info --support` CLI.
+    ///
+    /// The reported features are what the current topology supports on the
+    /// current machine. If the topology was exported to XML from another
+    /// machine and later imported here, support still describes what is
+    /// supported for this imported topology after import. By default, binding
+    /// will be reported as unsupported in this case (see
+    /// [`BuildFlags::ASSUME_THIS_SYSTEM`].
+    ///
+    /// [`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to
+    /// report the supported features of the original remote machine instead. If
+    /// it was successfully imported, [`MiscSupport::imported()`] will be set.
+    pub fn support(&self) -> &TopologySupport {
+        let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
+        assert!(
+            !ptr.is_null(),
+            "Got null pointer from hwloc_topology_get_support"
+        );
+        // This is correct because the output reference will be bound the the
+        // lifetime of &self by the borrow checker.
+        unsafe { &*ptr }
+    }
+
+    /// Filtering that was applied for the given object type
+    pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
+        let mut filter = RawTypeFilter::MAX;
+        let result =
+            unsafe { ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_topology_get_type_filter"
+        );
+        TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
+    }
+}
+
+/// # Object levels, depths and types
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
+impl Topology {
     /// Full depth of the topology.
     ///
     /// In practice, the full depth of the topology equals the depth of the
-    /// `ObjectType::PU` plus one.
+    /// [`ObjectType::PU`] plus one.
     ///
     /// The full topology depth is useful to know if one needs to manually
     /// traverse the complete topology.
@@ -150,16 +246,17 @@ impl Topology {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
     }
 
-    /// Depth for the given `ObjectType`
+    /// Depth for the given [`ObjectType`]
     ///
     /// # Errors
     ///
-    /// This will return `Err(DepthError::None)` if no object of this type
+    /// This will return Err([`DepthError::None`]) if no object of this type
     /// is present or if the OS doesn't provide this kind of information. If a
-    /// similar type is acceptable, consider using `depth_of_below_for_type()`
-    /// or `depth_or_above_for_type()` instead.
+    /// similar type is acceptable, consider using
+    /// [`depth_or_below_for_type()`](#method.depth_or_below_for_type)
+    /// or [`depth_or_above_for_type()`](#method.depth_or_above_for_type) instead.
     ///
-    /// You will get `Err(DepthError::Multiple)` if objects of this type
+    /// You will get Err([`DepthError::Multiple`]) if objects of this type
     /// exist at multiple depths.
     ///
     /// # Examples
@@ -178,17 +275,17 @@ impl Topology {
         Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
     }
 
-    /// Depth for the given `ObjectType` or below
+    /// Depth for the given [`ObjectType`] or below
     ///
     /// If no object of this type is present on the underlying architecture, the
-    /// function returns the depth of the first "present" object typically found
+    /// function returns the depth of the first present object typically found
     /// inside `object_type`.
     ///
     /// # Errors
     ///
     /// This function is only meaningful for normal object types.
     ///
-    /// You will get `Err(DepthError::Multiple)` if objects of this type or
+    /// You will get Err([`DepthError::Multiple`]) if objects of this type or
     /// exist at multiple depths.
     pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
@@ -217,17 +314,17 @@ impl Topology {
         }
     }
 
-    /// Depth for the given `ObjectType` or above
+    /// Depth for the given [`ObjectType`] or above
     ///
     /// If no object of this type is present on the underlying architecture, the
-    /// function returns the depth of the first "present" object typically
+    /// function returns the depth of the first present object typically
     /// containing `object_type`.
     ///
     /// # Errors
     ///
     /// This function is only meaningful for normal object types.
     ///
-    /// You will get `Err(DepthError::Multiple)` if objects of this type or
+    /// You will get Err([`DepthError::Multiple`]) if objects of this type or
     /// exist at multiple depths.
     pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
@@ -252,7 +349,7 @@ impl Topology {
         }
     }
 
-    /// `ObjectType` at the given depth.
+    /// [`ObjectType`] at the given depth.
     ///
     /// # Examples
     ///
@@ -299,7 +396,7 @@ impl Topology {
         unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into()) }
     }
 
-    /// `TopologyObject` at the root of the topology.
+    /// [`TopologyObject`] at the root of the topology.
     ///
     /// # Examples
     ///
@@ -319,7 +416,7 @@ impl Topology {
             .expect("Root object should exist")
     }
 
-    /// `TopologyObjects` with the given `ObjectType`.
+    /// [`TopologyObject`]s with the given [`ObjectType`].
     pub fn objects_with_type(&self, object_type: ObjectType) -> Vec<&TopologyObject> {
         match self.depth_for_type(object_type) {
             Ok(depth) => {
@@ -342,7 +439,7 @@ impl Topology {
         }
     }
 
-    /// `TopologyObject`s at the given depth.
+    /// [`TopologyObject`]s at the given depth.
     pub fn objects_at_depth(&self, depth: Depth) -> impl Iterator<Item = &TopologyObject> {
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
@@ -355,9 +452,12 @@ impl Topology {
             unsafe { &*ptr }
         })
     }
+}
 
-    // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
-
+/// # CPU binding
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+impl Topology {
     /// Binds the current process or thread on given CPUs
     ///
     /// Some operating systems only support binding threads or processes to a
@@ -367,22 +467,22 @@ impl Topology {
     /// migrate it to another PU, etc. It is often useful to call `singlify()`
     /// on the target CPU set before passing it to the binding function to avoid
     /// these expensive migrations. See the documentation of
-    /// `Bitmap::singlify()` for details.
+    /// [`Bitmap::singlify()`] for details.
     ///
     /// Some operating systems do not provide all hwloc-supported mechanisms to
-    /// bind processes, threads, etc. `Topology::support()` may be used to query
-    /// about the actual CPU binding support in the currently used operating
-    /// system.
+    /// bind processes, threads, etc. [`Topology::support()`] may be used to
+    /// query about the actual CPU binding support in the currently used
+    /// operating system.
     ///
     /// By default, when the requested binding operation is not available, hwloc
     /// will go for a similar binding operation (with side-effects, smaller
-    /// binding set, etc). You can inhibit this with `CpuBindingFlags::STRICT`.
+    /// binding set, etc). You can inhibit this with [`CpuBindingFlags::STRICT`].
     ///
     /// To unbind, just call the binding function with either a full cpuset or a
     /// cpuset equal to the system cpuset.
     ///
     /// On some operating systems, CPU binding may have effects on memory
-    /// binding, see `CpuBindingFlags::NO_MEMORY_BINDING`.
+    /// binding, see [`CpuBindingFlags::NO_MEMORY_BINDING`].
     ///
     /// Running `lstopo --top` or `hwloc-ps` can be a very convenient tool to
     /// check how binding actually happened.
@@ -401,7 +501,7 @@ impl Topology {
 
     /// Binds a process (identified by its `pid`) on given CPUs
     ///
-    /// See `bind_cpu()` for more informations.
+    /// See [`Topology::bind_cpu()`] for more informations.
     pub fn bind_process_cpu(
         &self,
         pid: ProcessId,
@@ -428,7 +528,7 @@ impl Topology {
 
     /// Bind a thread (by its `tid`) on given CPUs
     ///
-    /// See `bind_cpu()` for more informations.
+    /// See [`Topology::bind_cpu()`] for more informations.
     pub fn bind_thread_cpu(
         &self,
         tid: ThreadId,
@@ -461,11 +561,12 @@ impl Topology {
     /// so this function may return something that is already
     /// outdated.
     ///
-    /// Flags can include either `PROCESS` or `THREAD` to specify whether the
-    /// query should be for the whole process (union of all CPUs on which all
-    /// threads are running), or only the current thread. If the process is
-    /// single-threaded, flags can be set to empty() to let hwloc use whichever
-    /// method is available on the underlying OS.
+    /// `flags` can include either [`CpuBindingFlags::PROCESS`] or
+    /// [`CpuBindingFlags::THREAD`] to specify whether the query should be for
+    /// the whole process (union of all CPUs on which all threads are running),
+    /// or only the current thread. If the process is single-threaded, `flags`
+    /// can be left empty to let hwloc use whichever method is available on the
+    /// underlying OS, which increases portability.
     pub fn last_cpu_location(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         let mut cpuset = CpuSet::new();
         let result = unsafe {
@@ -495,25 +596,29 @@ impl Topology {
         };
         cpu::result(result, cpuset)
     }
+}
 
-    // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html ===
-
+/// # Memory binding
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
+impl Topology {
     /// Allocate some memory
     ///
-    /// This is equivalent to `malloc()`, except that it tries to allocated
-    /// page-aligned memory from the OS.
+    /// This is equivalent to [`libc::malloc()`], except that it tries to
+    /// allocate page-aligned memory from the OS.
     pub fn allocate_memory(&self, len: usize) -> Option<Bytes> {
         unsafe { Bytes::wrap(self, ffi::hwloc_alloc(self.as_ptr(), len), len) }
     }
 
     /// Allocate some memory on NUMA nodes specified by `set`
     ///
-    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     ///
     /// If you do not care about changing the binding of the current process or
-    /// thread, you can maximize portability by using `binding_allocate_memory()`.
+    /// thread, you can maximize portability by using
+    /// [`Topology::binding_allocate_memory()`] instead.
     pub fn allocate_bound_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -532,9 +637,10 @@ impl Topology {
     /// Allocate some memory on NUMA nodes specified by `set` and `flags`,
     /// possibly rebinding current process or thread if needed
     ///
-    /// This works like `allocate_bound_memory()` unless the allocation fails,
-    /// in which case hwloc will attempt to change the current process or thread
-    /// memory binding policy as directed instead before retrying the allocation.
+    /// This works like [`Topology::allocate_bound_memory()`] unless the
+    /// allocation fails, in which case hwloc will attempt to change the current
+    /// process or thread memory binding policy as directed instead before
+    /// retrying the allocation.
     ///
     /// Allocating memory that matches the current process/thread configuration
     /// is supported on more operating systems, so this is the most portable way
@@ -575,15 +681,15 @@ impl Topology {
     /// Set the default memory binding policy of the current process or thread
     /// to prefer the NUMA node(s) specified by `set`.
     ///
-    /// If neither `MemoryBindingFlags::PROCESS` nor `MemoryBindingFlags::THREAD`
-    /// is specified, the current process is assumed to be single-threaded. This
-    /// is the most portable form as it permits hwloc to use either
-    /// process-based OS functions or thread-based OS functions, depending on
-    /// which are available.
+    /// If neither [`MemoryBindingFlags::PROCESS`] nor
+    /// [`MemoryBindingFlags::THREAD`] is specified, the current process is
+    /// assumed to be single-threaded. This is the most portable form as it
+    /// permits hwloc to use either process-based OS functions or thread-based
+    /// OS functions, depending on which are available.
     ///
-    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
         set: &Set,
@@ -598,14 +704,15 @@ impl Topology {
     /// Reset the memory allocation policy of the current process or thread to
     /// the system default
     ///
-    /// Depending on the operating system, this may correspond to `FirstTouch`
-    /// (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    /// Depending on the operating system, this may correspond to
+    /// [`MemoryBindingPolicy::FirstTouch`] (Linux, FreeBSD) or
+    /// [`MemoryBindingPolicy::Bind`] (AIX, HP-UX, Solaris, Windows).
     ///
-    /// If neither `MemoryBindingFlags::PROCESS` nor `MemoryBindingFlags::THREAD`
-    /// is specified, the current process is assumed to be single-threaded. This
-    /// is the most portable form as it permits hwloc to use either
-    /// process-based OS functions or thread-based OS functions, depending on
-    /// which are available.
+    /// If neither [`MemoryBindingFlags::PROCESS`] nor
+    /// [`MemoryBindingFlags::THREAD`] is specified, the current process is
+    /// assumed to be single-threaded. This is the most portable form as it
+    /// permits hwloc to use either process-based OS functions or thread-based
+    /// OS functions, depending on which are available.
     pub fn unbind_memory(&self, flags: MemoryBindingFlags) -> Result<(), MemoryBindingSetupError> {
         self.unbind_memory_impl(flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_set_membind(topology, set, policy, flags)
@@ -615,34 +722,34 @@ impl Topology {
     /// Query the default memory binding policy and physical locality of the
     /// current process or thread
     ///
-    /// Passing the `MemoryBindingFlags::PROCESS` flag specifies that the query
-    /// target is the current policies and nodesets for all the threads in the
-    /// current process. Passing `THREAD` instead specifies that the query
-    /// target is the current policy and nodeset for only the thread invoking
-    /// this function.
+    /// Passing the [`MemoryBindingFlags::PROCESS`] flag specifies that the
+    /// query target is the current policies and nodesets for all the threads
+    /// in the current process. Passing [`MemoryBindingFlags::THREAD`] instead
+    /// specifies that the query target is the current policy and nodeset for
+    /// only the thread invoking this function.
     ///
     /// If neither of these flags are passed (which is the most portable
     /// method), the process is assumed to be single threaded. This allows hwloc
     /// to use either process-based OS functions or thread-based OS functions,
     /// depending on which are available.
     ///
-    /// `MemoryBindingFlags::STRICT` is only meaningful when `PROCESS` is also
-    /// specified. In this case, hwloc will check the default memory policies
-    /// and nodesets for all threads in the process. If they are not identical,
-    /// `Err(MemoryBindingQueryError::MixedResults)` is returned. Otherwise, the
-    /// shared configuration is returned.
+    /// [`MemoryBindingFlags::STRICT`] is only meaningful when
+    /// `PROCESS` is also specified. In this case, hwloc will check the default
+    /// memory policies and nodesets for all threads in the process. If they are
+    /// not identical, Err([`MemoryBindingQueryError::MixedResults`]) is
+    /// returned. Otherwise, the shared configuration is returned.
     ///
-    /// Otherwise, if `MemoryBindingFlags::PROCESS` is specified and `STRICT` is
-    /// not specified, the default set from each thread is logically OR'ed
-    /// together. If all threads' default policies are the same, that shared
-    /// policy is returned, otherwise no policy is returned.
+    /// Otherwise, if `PROCESS` is specified and `STRICT` is not specified, the
+    /// default sets from each thread are logically OR'ed together. If all
+    /// threads' default policies are the same, that shared policy is returned,
+    /// otherwise no policy is returned.
     ///
-    /// In the `MemoryBindingFlags::THREAD` case (or when neither `PROCESS` or
-    /// `THREAD` is specified), there is only one set and policy, they are returned.
+    /// In the `THREAD` case (or when neither `PROCESS` nor `THREAD` is
+    /// specified), there is only one set and policy, they are returned.
     ///
-    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Bindings can be queried as [`CpuSet`] or [`NodeSet`]. Querying by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
@@ -655,9 +762,9 @@ impl Topology {
     /// Set the default memory binding policy of the specified process to prefer
     /// the NUMA node(s) specified by `set`.
     ///
-    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn bind_process_memory<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -673,8 +780,9 @@ impl Topology {
     /// Reset the memory allocation policy of the specified process to the
     /// system default
     ///
-    /// Depending on the operating system, this may correspond to `FirstTouch`
-    /// (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    /// Depending on the operating system, this may correspond to
+    /// [`MemoryBindingPolicy::FirstTouch`] (Linux, FreeBSD) or
+    /// [`MemoryBindingPolicy::Bind`] (AIX, HP-UX, Solaris, Windows).
     pub fn unbind_process_memory(
         &self,
         pid: ProcessId,
@@ -688,28 +796,28 @@ impl Topology {
     /// Query the default memory binding policy and physical locality of the
     /// specified process
     ///
-    /// Passing the `MemoryBindingFlags::PROCESS` flag specifies that the query
-    /// target is the current policies and nodesets for all the threads in the
-    /// current process. If `PROCESS` is not specified (which is the most
+    /// Passing the [`MemoryBindingFlags::PROCESS`] flag specifies that the
+    /// query target is the current policies and nodesets for all the threads in
+    /// the current process. If `PROCESS` is not specified (which is the most
     /// portable method), the process is assumed to be single threaded. This
     /// allows hwloc to use either process-based OS functions or thread-based OS
     /// functions, depending on which are available.
     ///
-    /// Note that it does not make sense to pass `MemoryBindingFlags::THREAD` to
-    /// this function.
+    /// Note that it does not make sense to pass [`MemoryBindingFlags::THREAD`]
+    /// to this function.
     ///
-    /// If `MemoryBindingFlags::STRICT` is specified, hwloc will check the
+    /// If [`MemoryBindingFlags::STRICT`] is specified, hwloc will check the
     /// default memory policies and nodesets for all threads in the process. If
-    /// they are not identical, `Err(MemoryBindingQueryError::MixedResults)` is
-    /// returned. Otherwise, the shared configuration is returned.
+    /// they are not identical, Err([`MemoryBindingQueryError::MixedResults`])
+    /// is returned. Otherwise, the shared configuration is returned.
     ///
     /// If `STRICT` is not specified, the default set from each thread is
     /// logically OR'ed together. If all threads' default policies are the same,
     /// that shared policy is returned, otherwise no policy is returned.
     ///
-    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Bindings can be queried as [`CpuSet`] or [`NodeSet`]. Querying by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -725,14 +833,14 @@ impl Topology {
     ///
     /// Beware that only the memory directly targeted by the `target` reference
     /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
-    /// expect the contents to be covered, instead you must pass in the `&[T]`
-    /// corresponding to the Vec's contents. You may also want to manually
-    /// specify the `Target` type via turbofish to make sure that you don't
-    /// get tripped up by references of references like `&&[T]`.
+    /// expect the Vec's contents to be covered, instead you must pass in the
+    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may want
+    /// to manually specify the `Target` type via turbofish to make sure that
+    /// you don't get tripped up by references of references like `&&[T]`.
     ///
-    /// Memory can be bound by either `CpuSet` or `NodeSet`. Binding by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -755,15 +863,16 @@ impl Topology {
     /// Reset the memory allocation policy of the memory identified by `target`
     /// to the system default
     ///
-    /// Depending on the operating system, this may correspond to `FirstTouch`
-    /// (Linux, FreeBSD) or `Bind` (AIX, HP-UX, Solaris, Windows).
+    /// Depending on the operating system, this may correspond to
+    /// [`MemoryBindingPolicy::FirstTouch`] (Linux, FreeBSD) or
+    /// [`MemoryBindingPolicy::Bind`] (AIX, HP-UX, Solaris, Windows).
     ///
     /// Beware that only the memory directly targeted by the `target` reference
     /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
-    /// expect the contents to be covered, instead you must pass in the `&[T]`
-    /// corresponding to the Vec's contents. You may also want to manually
-    /// specify the `Target` type via turbofish to make sure that you don't
-    /// get tripped up by references of references like `&&[T]`.
+    /// expect the Vec's contents to be covered, instead you must pass in the
+    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may want
+    /// to manually specify the `Target` type via turbofish to make sure that
+    /// you don't get tripped up by references of references like `&&[T]`.
     pub fn unbind_memory_area<Target: ?Sized>(
         &self,
         target: &Target,
@@ -786,24 +895,24 @@ impl Topology {
     ///
     /// Beware that only the memory directly targeted by the `target` reference
     /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
-    /// expect the contents to be covered, instead you must pass in the `&[T]`
-    /// corresponding to the Vec's contents. You may also want to manually
-    /// specify the `Target` type via turbofish to make sure that you don't
-    /// get tripped up by references of references like `&&[T]`.
+    /// expect the Vec's contents to be covered, instead you must pass in the
+    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may want
+    /// to manually specify the `Target` type via turbofish to make sure that
+    /// you don't get tripped up by references of references like `&&[T]`.
     ///
-    /// If `MemoryBindingFlags::STRICT` is specified, hwloc will check the
+    /// If [`MemoryBindingFlags::STRICT`] is specified, hwloc will check the
     /// default memory policies and nodesets for all memory pages covered by
     /// `target`. If these are not identical,
-    /// `Err(MemoryBindingQueryError::MixedResults)` is returned. Otherwise, the
-    /// shared configuration is returned.
+    /// Err([`MemoryBindingQueryError::MixedResults`]) is returned. Otherwise,
+    /// the shared configuration is returned.
     ///
     /// If `STRICT` is not specified, the union of all NUMA nodes containing
     /// pages in the address range is calculated. If all pages in the target
     /// have the same policy, it is returned, otherwise no policy is returned.
     ///
-    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Bindings can be queried as [`CpuSet`] or [`NodeSet`]. Querying by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -830,10 +939,10 @@ impl Topology {
     ///
     /// Beware that only the memory directly targeted by the `target` reference
     /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
-    /// expect the contents to be covered, instead you must pass in the `&[T]`
-    /// corresponding to the Vec's contents. You may also want to manually
-    /// specify the `Target` type via turbofish to make sure that you don't
-    /// get tripped up by references of references like `&&[T]`.
+    /// expect the Vec's contents to be covered, instead you must pass in the
+    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may want
+    /// to manually specify the `Target` type via turbofish to make sure that
+    /// you don't get tripped up by references of references like `&&[T]`.
     ///
     /// If pages spread to multiple nodes, it is not specified whether they
     /// spread equitably, or whether most of them are on a single node, etc.
@@ -842,9 +951,9 @@ impl Topology {
     /// at any time according to their binding, so this function may return
     /// something that is already outdated.
     ///
-    /// Bindings can be queried as `CpuSet` or `NodeSet`. Querying by `NodeSet`
-    /// is preferred because some NUMA memory nodes are not attached to CPUs,
-    /// and thus cannot be bound by `CpuSet`.
+    /// Bindings can be queried as [`CpuSet`] or [`NodeSet`]. Querying by
+    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
+    /// to CPUs, and thus cannot be bound by [`CpuSet`].
     pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -930,90 +1039,17 @@ impl Topology {
             (set.into(), policy)
         })
     }
+}
 
-    // === Topology Detection Configuration and Query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
-
-    /// Flags that were used to build this topology
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::{Topology, builder::BuildFlags};
-    ///
-    /// let default_topology = Topology::new().unwrap();
-    /// assert_eq!(BuildFlags::empty(), default_topology.build_flags());
-    ///
-    /// let topology_with_flags =
-    ///     Topology::builder()
-    ///         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
-    ///         .build().unwrap();
-    /// assert_eq!(
-    ///     BuildFlags::ASSUME_THIS_SYSTEM,
-    ///     topology_with_flags.build_flags()
-    /// );
-    /// ```
-    pub fn build_flags(&self) -> BuildFlags {
-        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
-            .expect("Encountered unexpected topology flags")
-    }
-
-    /// Was the topology built using the system running this program?
-    ///
-    /// It may not have been if, for instance, it was built using another
-    /// file-system root or loaded from a synthetic or XML textual description.
-    pub fn is_this_system(&self) -> bool {
-        let result = unsafe { ffi::hwloc_topology_is_thissystem(self.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "Unexpected result from hwloc_topology_is_thissystem"
-        );
-        result == 1
-    }
-
-    /// Supported hwloc features with this topology on this machine
-    ///
-    /// This is the information that one gets via the `hwloc-info --support` CLI.
-    ///
-    /// The reported features are what the current topology supports on the
-    /// current machine. If the topology was exported to XML from another
-    /// machine and later imported here, support still describes what is
-    /// supported for this imported topology after import. By default, binding
-    /// will be reported as unsupported in this case (see
-    /// `BuildFlags::ASSUME_THIS_SYSTEM`).
-    ///
-    /// `BuildFlags::IMPORT_SUPPORT` may be used during topology building to
-    /// report the supported features of the original remote machine instead. If
-    /// it was successfully imported, `MiscSupport::imported()` will be set.
-    pub fn support(&self) -> &TopologySupport {
-        let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
-        assert!(
-            !ptr.is_null(),
-            "Got null pointer from hwloc_topology_get_support"
-        );
-        // This is correct because the output reference will be bound the the
-        // lifetime of &self by the borrow checker.
-        unsafe { &*ptr }
-    }
-
-    /// Filtering that was applied for the given object type
-    pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
-        let mut filter = RawTypeFilter::MAX;
-        let result =
-            unsafe { ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter) };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_get_type_filter"
-        );
-        TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
-    }
-
-    // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
-
+/// # Modifying a loaded `Topology`
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+impl Topology {
     /// Modify this topology
     ///
-    /// `hwloc` employs lazy caching patterns which do not mix well with
+    /// hwloc employs lazy caching patterns that do not interact well with
     /// Rust's shared XOR mutable aliasing model. This API lets you safely
-    /// modify the active `Topology` through a `TopologyEditor` proxy object,
+    /// modify the active `Topology` through a [`TopologyEditor`] proxy object,
     /// with the guarantee that by the time `Topology::edit()` returns, the
     /// `Topology` will be back in a state where it is safe to use `&self` again.
     pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
@@ -1047,9 +1083,10 @@ impl Topology {
             std::process::abort();
         }
     }
+}
 
-    // === General-purpose internal utilities ===
-
+/// # General-purpose internal utilities
+impl Topology {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
         self.0.as_ptr() as *const RawTopology

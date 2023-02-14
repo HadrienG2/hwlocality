@@ -56,7 +56,8 @@ bitflags! {
         /// for the application, but if it is, setting this flag will make hwloc
         /// avoid using OS functions that would also bind memory. This will
         /// however reduce the support of CPU bindings, i.e. potentially
-        /// result in the binding function erroring out with ENOSYS.
+        /// result in the binding function erroring out with
+        /// [`CpuBindingError::Unsupported`].
         ///
         /// This flag is only meaningful when used with functions that set the
         /// CPU binding. It is ignored when used with functions that get CPU
@@ -76,8 +77,8 @@ impl Default for CpuBindingFlags {
 pub enum CpuBindingError {
     /// Action is not supported
     ///
-    /// This error may not be reported if `CpuBindingFlags::STRICT` is not set.
-    /// Instead, the implementation is allowed to try to use a slightly
+    /// This error might not be reported if [`CpuBindingFlags::STRICT`] is not
+    /// set. Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
     #[error("action is not supported")]
@@ -85,8 +86,8 @@ pub enum CpuBindingError {
 
     /// Binding cannot be enforced
     ///
-    /// This error may not be reported if `CpuBindingFlags::STRICT` is not set.
-    /// Instead, the implementation is allowed to try to use a slightly
+    /// This error might not be reported if [`CpuBindingFlags::STRICT`] is not
+    /// set. Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
     #[error("binding cannot be enforced")]

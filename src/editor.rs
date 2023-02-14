@@ -6,6 +6,8 @@
 //! modifications must be carried out through a proxy object that does not
 //! permit shared references to unevaluated caches to escape.
 
+#[cfg(doc)]
+use crate::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
     bitmap::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
     ffi,
@@ -19,11 +21,14 @@ use std::{ffi::CString, ptr};
 use thiserror::Error;
 
 /// Proxy for modifying a `Topology`
+///
+/// This proxy object is carefully crafted to only allow operations that are
+/// safe while modifying a topology and minimize the number of times the hwloc
+/// lazy caches will need to be refreshed.
 pub struct TopologyEditor<'topology>(&'topology mut Topology);
 
+/// # General-purpose utilities
 impl<'topology> TopologyEditor<'topology> {
-    // === General-purpose internal utilities ===
-
     /// Wrap an `&mut Topology` into a topology editor
     pub(crate) fn new(topology: &'topology mut Topology) -> Self {
         Self(topology)
@@ -47,9 +52,12 @@ impl<'topology> TopologyEditor<'topology> {
     fn topology_mut_ptr(&mut self) -> *mut RawTopology {
         self.topology_mut().as_mut_ptr()
     }
+}
 
-    // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
-
+/// # Modifying a loaded Topology
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+impl TopologyEditor<'_> {
     /// Restrict the topology to the given CPU set or nodeset
     ///
     /// The topology is modified so as to remove all objects that are not
@@ -58,11 +66,11 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// This call may not be reverted by restricting back to a larger set. Once
     /// dropped during restriction, objects may not be brought back, except by
-    /// loading another topology with `Topology::new()` or `TopologyBuilder`.
+    /// loading another topology with [`Topology::new()`] or [`TopologyBuilder`].
     ///
     /// # Errors
     ///
-    /// `Err(InvalidParameter)` will be returned if the input set is invalid.
+    /// Err([`InvalidParameter`]) will be returned if the input set is invalid.
     /// The topology is not modified in this case.
     ///
     /// # Panics
@@ -106,7 +114,7 @@ impl<'topology> TopologyEditor<'topology> {
 
     /// Change the sets of allowed PUs and NUMA nodes in the topology
     ///
-    /// This function only works if `BuildFlags::INCLUDE_DISALLOWED` was set
+    /// This function only works if [`BuildFlags::INCLUDE_DISALLOWED`] was set
     /// during topology building. It does not modify any object, it only changes
     /// the sets returned by hwloc_topology_get_allowed_cpuset() (TODO wrap) and
     /// hwloc_topology_get_allowed_nodeset() (TODO wrap).
@@ -115,7 +123,7 @@ impl<'topology> TopologyEditor<'topology> {
     /// running in a different Linux Cgroup.
     ///
     /// Removing objects from a topology should rather be performed with
-    /// `restrict()`.
+    /// [`TopologyEditor::restrict()`].
     pub fn allow(&mut self, allow_set: AllowSet) {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
@@ -137,13 +145,13 @@ impl<'topology> TopologyEditor<'topology> {
         assert!(result >= 0, "Unexpected result from hwloc_topology_allow");
     }
 
-    /// Add more structure to the topology by adding an intermediate `Group`
+    /// Add more structure to the topology by adding an intermediate Group
     ///
-    /// Use the `find_children` callback to specify which `TopologyObject`s
-    /// should be made children of the newly created `Group` object. The cpuset
-    /// and nodeset of the final `Group` object will be the union of the cpuset
+    /// Use the `find_children` callback to specify which [`TopologyObject`]s
+    /// should be made children of the newly created Group object. The cpuset
+    /// and nodeset of the final Group object will be the union of the cpuset
     /// and nodeset of all children respectively. Empty groups are not allowed,
-    /// so at least one of these sets must be non-empty, or no `Group` object
+    /// so at least one of these sets must be non-empty, or no Group object
     /// will be created.
     ///
     /// Use the `merge` option to control hwloc's propension to merge groups
@@ -197,11 +205,11 @@ impl<'topology> TopologyEditor<'topology> {
         }
     }
 
-    /// Add a `Misc` object as a leaf of the topology
+    /// Add a Misc object as a leaf of the topology
     ///
-    /// A new `Misc` object will be created and inserted into the topology as
+    /// A new Misc object will be created and inserted into the topology as
     /// a child of the node selected by `find_parent`. It is appended to the
-    /// list of existing `Misc` children, without ever adding any intermediate
+    /// list of existing Misc children, without ever adding any intermediate
     /// hierarchy level. This is useful for annotating the topology without
     /// actually changing the hierarchy.
     ///
@@ -214,8 +222,8 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// None will be returned if an error occurs or if `Misc` objects are
-    /// filtered out of the topology via `TypeFilter::KeepNone`.
+    /// None will be returned if an error occurs or if Misc objects are
+    /// filtered out of the topology via [`TypeFilter::KeepNone`].
     pub fn insert_misc_object(
         &mut self,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
@@ -258,7 +266,7 @@ impl<'topology> TopologyEditor<'topology> {
 //       as it would expose &Topology with unevaluated lazy hwloc caches.
 
 bitflags! {
-    /// Flags to be given to `TopologyEditor::restrict()`
+    /// Flags to be given to [`TopologyEditor::restrict()`]
     #[repr(C)]
     pub struct RestrictFlags: c_ulong {
         /// Remove all objects that lost all resources of the target type
@@ -281,7 +289,7 @@ bitflags! {
 
         /// Restrict by NodeSet insted of by `CpuSet`
         ///
-        /// This is automatically set when restricting by `NodeSet`.
+        /// This flag is automatically set when restricting by `NodeSet`.
         #[doc(hidden)]
         const BY_NODE_SET = (1<<3);
 
@@ -314,13 +322,13 @@ pub enum AllowSet<'set> {
 
     /// Only allow objects that are available to the current process
     ///
-    /// Requires `BuildFlags::ASSUME_THIS_SYSTEM` so that the set of available
+    /// Requires [`BuildFlags::ASSUME_THIS_SYSTEM`] so that the set of available
     /// resources can actually be retrieved from the operating system.
     LocalRestrictions,
 
     /// Allow a custom set of objects
     ///
-    /// You should provide at least one of `cpu` and `mem`, you can provide both.
+    /// You should provide at least one of `cpuset` and `memset`.
     Custom {
         cpuset: Option<&'set CpuSet>,
         nodeset: Option<&'set NodeSet>,
@@ -329,19 +337,19 @@ pub enum AllowSet<'set> {
 
 /// Control merging of newly inserted groups with existing objects
 pub enum GroupMerge {
-    /// Prevent the hwloc core from ever merging this `Group` with another
+    /// Prevent the hwloc core from ever merging this Group with another
     /// hierarchically-identical object
     ///
     /// This is useful when the Group itself describes an important feature that
     /// cannot be exposed anywhere else in the hierarchy.
     Never,
 
-    /// Always discard this new group in favor of any existing `Group` with the
+    /// Always discard this new group in favor of any existing Group with the
     /// same locality
     Always,
 }
 
-/// Result of inserting a group object
+/// Result of inserting a Group object
 pub enum GroupInsertResult<'topology> {
     /// New Group that was properly inserted
     New(&'topology mut TopologyObject),
@@ -357,12 +365,14 @@ pub enum GroupInsertResult<'topology> {
     /// This can happen for several reasons
     ///
     /// - Conflicting sets in the topology tree
-    /// - Group objects are filtered out of the topology (`TypeFilter::KeepNone`)
+    /// - Group objects are filtered out of the topology with
+    ///   [`TypeFilter::KeepNone`]
     /// - The union of the cpusets and nodeset of all proposed children of the
     ///   Group object is empty.
     Failed,
 }
 
+/// A method was passed an invalid parameter
 #[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
 #[error("invalid parameter specified")]
 pub struct InvalidParameter;

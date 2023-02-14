@@ -76,17 +76,17 @@ macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]
         extern "C" {
-            // === API versioning: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__api__version.html ===
+            // === API versioning: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__api__version.html
 
             #[must_use]
             pub(crate) fn hwloc_get_api_version() -> c_uint;
 
-            // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html ===
+            // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
 
             #[must_use]
             pub(crate) fn hwloc_compare_types(type1: RawObjectType, type2: RawObjectType) -> c_int;
 
-            // === Topology creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
+            // === Topology creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 
             #[must_use]
             pub(crate) fn hwloc_topology_init(topology: *mut *mut RawTopology) -> c_int;
@@ -101,7 +101,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_abi_check(topology: *const RawTopology) -> c_int;
 
-            // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html ===
+            // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 
             #[must_use]
             pub(crate) fn hwloc_topology_get_depth(topology: *const RawTopology) -> RawDepth;
@@ -129,7 +129,7 @@ macro_rules! extern_c_block {
                 idx: c_uint,
             ) -> *mut TopologyObject;
 
-            // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__strings.html ===
+            // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__strings.html
 
             #[must_use]
             pub(crate) fn hwloc_obj_type_snprintf(
@@ -148,7 +148,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             // NOTE: Not exposing type printf/scanf for now
 
-            // === Consulting and adding Key-Value info attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html ===
+            // === Consulting and adding Key-Value info attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html
 
             #[must_use]
             pub(crate) fn hwloc_obj_add_info(
@@ -157,7 +157,7 @@ macro_rules! extern_c_block {
                 value: *const c_char,
             ) -> c_int;
 
-            // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html ===
+            // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 
             #[must_use]
             pub(crate) fn hwloc_set_cpubind(
@@ -213,7 +213,7 @@ macro_rules! extern_c_block {
                 flags: c_uint,
             ) -> c_int;
 
-            // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html ===
+            // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
 
             #[must_use]
             pub(crate) fn hwloc_set_membind(
@@ -288,7 +288,7 @@ macro_rules! extern_c_block {
                 len: size_t,
             ) -> c_int;
 
-            // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html ===
+            // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 
             #[must_use]
             pub(crate) fn hwloc_topology_set_pid(
@@ -318,7 +318,7 @@ macro_rules! extern_c_block {
                 name: *const c_char,
             ) -> c_int;
 
-            // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
+            // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 
             #[must_use]
             pub(crate) fn hwloc_topology_set_flags(
@@ -369,7 +369,7 @@ macro_rules! extern_c_block {
             //       are hard to make work with copying, persistence and thread
             //       safety and are not so useful as to justify the effort.
 
-            // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html ===
+            // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 
             #[must_use]
             pub(crate) fn hwloc_topology_restrict(
@@ -407,11 +407,11 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_refresh(topology: *mut RawTopology) -> c_int;
 
-            // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html ===
+            // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
 
             // TODO
 
-            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html ===
+            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
             #[must_use]
             pub(crate) fn hwloc_obj_type_is_normal(ty: RawObjectType) -> c_int;
@@ -426,15 +426,15 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_obj_type_is_icache(ty: RawObjectType) -> c_int;
 
-            // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html ===
+            // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
 
             // TODO
 
-            // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html ===
+            // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
 
             // TODO
 
-            // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html ===
+            // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
             #[must_use]
             pub(crate) fn hwloc_bitmap_alloc() -> *mut RawBitmap;
@@ -452,9 +452,15 @@ macro_rules! extern_c_block {
                 len: size_t,
                 bitmap: *const RawBitmap,
             ) -> c_int;
+            // NOTE: Not exposing other printfs and scanfs for now
 
             pub(crate) fn hwloc_bitmap_zero(bitmap: *mut RawBitmap);
             pub(crate) fn hwloc_bitmap_fill(bitmap: *mut RawBitmap);
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_only(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_allbut(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
+            // NOTE: Not exposing ulong-based APIs for now, so no from_ulong, from_ith_ulong, from_ulongs
             #[must_use]
             pub(crate) fn hwloc_bitmap_set(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
             #[must_use]
@@ -463,6 +469,7 @@ macro_rules! extern_c_block {
                 begin: c_uint,
                 end: c_int,
             ) -> c_int;
+            // NOTE: Not exposing ulong-based APIs for now, so no set_ith_ulong
             #[must_use]
             pub(crate) fn hwloc_bitmap_clr(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
             #[must_use]
@@ -472,6 +479,7 @@ macro_rules! extern_c_block {
                 end: c_int,
             ) -> c_int;
             pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut RawBitmap);
+            // NOTE: Not exposing ulong-based APIs for now, so no to_ulong, to_ith_ulong, to_ulongs and nr_ulongs
 
             #[must_use]
             pub(crate) fn hwloc_bitmap_isset(bitmap: *const RawBitmap, id: c_uint) -> c_int;
@@ -491,6 +499,13 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_bitmap_weight(bitmap: *const RawBitmap) -> c_int;
 
             #[must_use]
+            pub(crate) fn hwloc_bitmap_first_unset(bitmap: *const RawBitmap) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_next_unset(bitmap: *const RawBitmap, prev: c_int) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_last_unset(bitmap: *const RawBitmap) -> c_int;
+
+            #[must_use]
             pub(crate) fn hwloc_bitmap_or(
                 result: *mut RawBitmap,
                 bitmap1: *const RawBitmap,
@@ -498,6 +513,12 @@ macro_rules! extern_c_block {
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_bitmap_and(
+                result: *mut RawBitmap,
+                bitmap1: *const RawBitmap,
+                bitmap2: *const RawBitmap,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_andnot(
                 result: *mut RawBitmap,
                 bitmap1: *const RawBitmap,
                 bitmap2: *const RawBitmap,
@@ -515,15 +536,29 @@ macro_rules! extern_c_block {
             ) -> c_int;
 
             #[must_use]
+            pub(crate) fn hwloc_bitmap_intersects(
+                left: *const RawBitmap,
+                right: *const RawBitmap,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_isincluded(
+                left: *const RawBitmap,
+                right: *const RawBitmap,
+            ) -> c_int;
+            #[must_use]
             pub(crate) fn hwloc_bitmap_isequal(
                 left: *const RawBitmap,
                 right: *const RawBitmap,
             ) -> c_int;
+            // NOTE: Not providing compare_first since it trivially follows from
+            //       first_set and seems obscure.
             #[must_use]
             pub(crate) fn hwloc_bitmap_compare(
                 left: *const RawBitmap,
                 right: *const RawBitmap,
             ) -> c_int;
+
+            // === TODO: Other APIs
 
             // TODO: Cover more later: distances, interop, CPU kinds, etc...
             //       Beware that primitives that modify the topology should be

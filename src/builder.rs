@@ -4,6 +4,8 @@
 // - Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 // - Detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 
+#[cfg(doc)]
+use crate::{editor::TopologyEditor, support::MiscSupport};
 use crate::{ffi, objects::types::ObjectType, ProcessId, RawTopology, Topology};
 use bitflags::bitflags;
 use errno::{errno, Errno};
@@ -20,10 +22,11 @@ use thiserror::Error;
 /// Mechanism to build a `Topology` with custom configuration
 pub struct TopologyBuilder(NonNull<RawTopology>);
 
+/// # Topology building
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 impl TopologyBuilder {
-    // === Topology building: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html ===
-
-    /// Start building a `Topology`
+    /// Start building a [`Topology`]
     pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
         let result = unsafe { ffi::hwloc_topology_init(&mut topology) };
@@ -54,9 +57,12 @@ impl TopologyBuilder {
             Err(errno())
         }
     }
+}
 
-    // === Discovery source: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html ===
-
+/// # Discovery source
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
+impl TopologyBuilder {
     /// Change which process the topology is viewed from
     ///
     /// On some systems, processes may have different views of the machine, for
@@ -112,8 +118,8 @@ impl TopologyBuilder {
     /// [XML description](https://hwloc.readthedocs.io/en/v2.9/xml.html).
     ///
     /// CPU and memory binding operations will be ineffective with this backend,
-    /// unless `BuildFlags::ASSUME_THIS_SYSTEM` is set to assert that the loaded
-    /// XML file truly matches the underlying system.
+    /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
+    /// loaded XML file truly matches the underlying system.
     pub fn from_xml(mut self, xml: &str) -> Result<Self, InvalidParameter> {
         let Ok(xml) = CString::new(xml) else { return Err(InvalidParameter(self)) };
         let result = unsafe {
@@ -141,9 +147,9 @@ impl TopologyBuilder {
 
     /// Read the topology from an XML file
     ///
-    /// This works a lot like `from_xml()`, but takes a file name as a parameter
-    /// instead of an XML string. The same effect can be achieved by setting the
-    /// `HWLOC_XMLFILE` environment variable.
+    /// This works a lot like [`TopologyBuilder::from_xml()`], but takes a file
+    /// name as a parameter instead of an XML string. The same effect can be
+    /// achieved by setting the `HWLOC_XMLFILE` environment variable.
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, InvalidParameter> {
         let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter(self)) };
         let Ok(path) = CString::new(path) else { return Err(InvalidParameter(self)) };
@@ -189,9 +195,12 @@ impl TopologyBuilder {
         );
         Ok(self)
     }
+}
 
-    // === Detection config/query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html ===
-
+/// # Detection configuration and query
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+impl TopologyBuilder {
     /// Set topology building flags
     ///
     /// If this function is called multiple times, the last invocation will
@@ -302,9 +311,10 @@ impl TopologyBuilder {
         );
         TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
     }
+}
 
-    // === General-purpose internal utilities ===
-
+/// # General-purpose internal utilities
+impl TopologyBuilder {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
         self.0.as_ptr() as *const RawTopology
@@ -343,13 +353,14 @@ bitflags! {
         /// are not added to the topology. Parent objects (package, core, cache,
         /// etc.) are added only if some of their children are allowed. All
         /// existing PUs and NUMA nodes in the topology are allowed.
-        /// `Topology::allowed_cpuset()` and `Topology::allowed_nodeset()` are
+        /// `Topology::allowed_cpuset()` (TODO: wrap and link) and
+        /// `Topology::allowed_nodeset()` (TODO: wrap and link) are
         /// equal to the root object cpuset and nodeset.
         ///
         /// When this flag is set, the actual sets of allowed PUs and NUMA nodes
-        /// are given by `Topology::allowed_cpuset()` and
-        /// `Topology::allowed_nodeset()`. They may be smaller than the root
-        /// object cpuset and nodeset.
+        /// are given by `Topology::allowed_cpuset()` (TODO: wrap and link) and
+        /// `Topology::allowed_nodeset()` (TODO: wrap and link). They may be
+        /// smaller than the root object cpuset and nodeset.
         ///
         /// If the current topology is exported to XML and reimported later,
         /// this flag should be set again in the reimported topology so that
@@ -359,16 +370,16 @@ bitflags! {
         /// Assume that the selected backend provides the topology for the
         /// system on which we are running
         ///
-        /// This forces `Topology::is_this_system()` to return true, i.e. makes
-        /// hwloc assume that the selected backend provides the topology for the
-        /// system on which we are running, even if it is not the OS-specific
-        /// backend but the XML backend for instance. This means making the
-        /// binding functions actually call the OS-specific system calls and
-        /// really do binding, while the XML backend would otherwise provide
-        /// empty hooks just returning success.
+        /// This forces [`Topology::is_this_system()`] to return true, i.e.
+        /// makes hwloc assume that the selected backend provides the topology
+        /// for the system on which we are running, even if it is not the
+        /// OS-specific backend but the XML backend for instance. This means
+        /// making the binding functions actually call the OS-specific system
+        /// calls and really do binding, while the XML backend would otherwise
+        /// provide empty hooks just returning success.
         ///
-        /// Setting the environment variable HWLOC_THISSYSTEM may also result in
-        /// the same behavior.
+        /// Setting the environment variable `HWLOC_THISSYSTEM` may also result
+        /// in the same behavior.
         ///
         /// This can be used for efficiency reasons to first detect the topology
         /// once, save it to an XML file, and quickly reload it later through
@@ -391,7 +402,7 @@ bitflags! {
         /// the loaded topology must match the underlying machine where
         /// restrictions will be gathered from.
         ///
-        /// Setting the environment variable HWLOC_THISSYSTEM_ALLOWED_RESOURCES
+        /// Setting the environment variable `HWLOC_THISSYSTEM_ALLOWED_RESOURCES`
         /// would result in the same behavior.
         const GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM = (1<<2); // aka HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES
 
@@ -400,10 +411,10 @@ bitflags! {
         /// When importing a XML topology from a remote machine, binding is
         /// disabled by default (see `ASSUME_THIS_SYSTEM`). This disabling is
         /// also marked by putting zeroes in the corresponding supported feature
-        /// bits reported by `Topology::support()`.
+        /// bits reported by [`Topology::support()`].
         ///
         /// The flag `IMPORT_SUPPORT` allows you to actually import support bits
-        /// from the remote machine. It also sets the `MiscSupport::imported()`
+        /// from the remote machine. It also sets the [`MiscSupport::imported()`]
         /// support flag. If the imported XML did not contain any support
         /// information (exporter hwloc is too old), this flag is not set.
         ///
@@ -422,7 +433,7 @@ bitflags! {
         /// ignore the other cores during discovery.
         ///
         /// The resulting topology is identical to what a call to
-        /// `TopologyEditor::restrict()` would generate, but this flag also
+        /// [`TopologyEditor::restrict()`] would generate, but this flag also
         /// prevents hwloc from ever touching other resources during the
         /// discovery.
         ///
@@ -436,7 +447,7 @@ bitflags! {
         /// If process CPU binding is not supported, the thread CPU binding is
         /// considered instead if supported, or the flag is ignored.
         ///
-        /// This flag requires `ASSUME_THIS_SYSTEM as well since binding support
+        /// This flag requires `ASSUME_THIS_SYSTEM` as well since binding support
         /// is required.
         const RESTRICT_CPU_TO_THIS_PROCESS = (1<<4); // aka HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING
 
@@ -446,7 +457,7 @@ bitflags! {
         /// ignore the other NUMA nodes during discovery.
         ///
         /// The resulting topology is identical to what a call to
-        /// `TopologyEditor::restrict()` would generate, but this flag also
+        /// [`TopologyEditor::restrict()`] would generate, but this flag also
         /// prevents hwloc from ever touching other resources during the
         /// discovery.
         ///
@@ -467,7 +478,7 @@ bitflags! {
         /// of the process or thread binding. This currently only affects the
         /// x86 backend which gets entirely disabled.
         ///
-        /// This is useful when a `Topology` is loaded while the application
+        /// This is useful when a [`Topology`] is loaded while the application
         /// also creates additional threads or modifies the binding.
         ///
         /// This flag is also a strict way to make sure the process binding will
@@ -521,7 +532,7 @@ pub(crate) type RawTypeFilter = c_int;
 /// By default...
 ///
 /// - Most objects are kept (`KeepAll`)
-/// - Instruction caches, I/O and Misc objects are ignored by (`KeepNone`).
+/// - Instruction caches, I/O and Misc objects are ignored (`KeepNone`).
 /// - Die and Group levels are ignored unless they bring structure (`KeepStructure`).
 ///
 /// Note that group objects are also ignored individually (without the entire
@@ -531,14 +542,14 @@ pub(crate) type RawTypeFilter = c_int;
 pub enum TypeFilter {
     /// Keep all objects of this type
     ///
-    /// Cannot be set for `ObjectType::Group` (groups are designed only to add
+    /// Cannot be set for [`ObjectType::Group`] (groups are designed only to add
     /// more structure to the topology).
     KeepAll = 0,
 
     /// Ignore all objects of this type
     ///
-    /// The bottom-level type `ObjectType::PU`, the `ObjectType::NUMANode` type,
-    /// and the top-level type `ObjectType::Machine` may not be ignored.
+    /// The bottom-level type [`ObjectType::PU`], the [`ObjectType::NUMANode`]
+    /// type, and the top-level type [`ObjectType::Machine`] may not be ignored.
     KeepNone = 1,
 
     /// Only ignore objects if their entire level does not bring any structure
@@ -558,12 +569,12 @@ pub enum TypeFilter {
     ///
     /// This is only useful for I/O object types.
     ///
-    /// For `ObjectType::PCIDevice` and `ObjectType::OSDevice`, it means that
+    /// For [`ObjectType::PCIDevice`] and [`ObjectType::OSDevice`], it means that
     /// only objects of major/common kinds are kept (storage, network,
     /// OpenFabrics, CUDA, OpenCL, RSMI, NVML, and displays).
     /// Also, only OS devices directly attached on PCI (e.g. no USB) are reported.
     ///
-    /// For `ObjectType::Bridge`, it means that bridges are kept only if they
+    /// For [`ObjectType::Bridge`], it means that bridges are kept only if they
     /// have children.
     ///
     /// This flag is equivalent to `KeepAll` for Normal, Memory and Misc types

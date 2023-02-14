@@ -17,18 +17,22 @@ pub struct TopologySupport {
 }
 
 impl TopologySupport {
+    /// Flags describing actual discovery support for this topology
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
         unsafe { ffi::deref_ptr(&self.discovery) }
     }
 
+    /// Flags describing actual CPU binding support for this topology
     pub fn cpu_binding(&self) -> Option<&CpuBindingSupport> {
         unsafe { ffi::deref_ptr(&self.cpubind) }
     }
 
+    /// Flags describing actual memory binding support for this topology
     pub fn memory_binding(&self) -> Option<&MemoryBindingSupport> {
         unsafe { ffi::deref_ptr(&self.membind) }
     }
 
+    /// Flags describing miscellaneous features
     pub fn misc(&self) -> Option<&MiscSupport> {
         unsafe { ffi::deref_ptr(&self.misc) }
     }
@@ -45,6 +49,7 @@ impl fmt::Debug for TopologySupport {
     }
 }
 
+/// Flags describing actual discovery support for this topology
 #[repr(C)]
 #[derive(Debug)]
 pub struct DiscoverySupport {

@@ -10,6 +10,8 @@ use self::{
     attributes::{ObjectAttributes, ObjectInfo, RawObjectAttributes},
     types::{ObjectType, RawObjectType},
 };
+#[cfg(doc)]
+use crate::builder::BuildFlags;
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     depth::{Depth, RawDepth},
@@ -118,7 +120,7 @@ impl TopologyObject {
     /// For special objects (NUMA nodes, I/O and Misc) that are not in the main
     /// tree, this is a special value that is unique to their type.
     pub fn depth(&self) -> Depth {
-        self.depth.try_into().expect("Got unexpected depth")
+        self.depth.try_into().expect("Got unexpected depth value")
     }
 
     /// Horizontal index in the whole list of similar objects, hence guaranteed
@@ -142,7 +144,7 @@ impl TopologyObject {
         unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
     }
 
-    /// Parent
+    /// Parent object
     pub fn parent(&self) -> Option<&TopologyObject> {
         unsafe { ffi::deref_ptr_mut(&self.parent) }
     }
@@ -212,7 +214,8 @@ impl TopologyObject {
     /// Memory children of this object
     ///
     /// NUMA nodes and Memory-side caches are listed here instead of in the
-    /// normal `children()` list. See also `ObjectType::is_memory()`.
+    /// [`TopologyObject::normal_children()`] list. See also
+    /// [`ObjectType::is_memory()`].
     ///
     /// A memory hierarchy starts from a normal CPU-side object (e.g. Package)
     /// and ends with NUMA nodes as leaves. There might exist some memory-side
@@ -228,8 +231,9 @@ impl TopologyObject {
 
     /// I/O children of this object
     ///
-    /// Bridges, PCI and OS devices are listed here instead of in the normal
-    /// `children()` list. See also `ObjectType::is_io()`.
+    /// Bridges, PCI and OS devices are listed here instead of in the
+    /// [`TopologyObject::normal_children()`] list. See also
+    /// [`ObjectType::is_io()`].
     pub fn io_children(&self) -> impl Iterator<Item = &TopologyObject> {
         unsafe { Self::iter_linked_children(&self.io_first_child) }
     }
@@ -241,7 +245,8 @@ impl TopologyObject {
 
     /// Misc children of this object
     ///
-    /// Mist objects are listed here instead of in the normal `children()` list.
+    /// Mist objects are listed here instead of in the
+    /// [`TopologyObject::normal_children()`] list.
     pub fn misc_children(&self) -> impl Iterator<Item = &TopologyObject> {
         unsafe { Self::iter_linked_children(&self.io_first_child) }
     }
@@ -253,9 +258,9 @@ impl TopologyObject {
     /// contained in this object and known how (the children path between this
     /// object and the PU objects).
     ///
-    /// If the HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED configuration flag is
-    /// set, some of these CPUs may be online but not allowed for binding,
-    /// see `Topology::get_allowed_cpuset()`.
+    /// If the [`BuildFlags::INCLUDE_DISALLOWED`] topology building
+    /// configuration flag is set, some of these CPUs may be online but not
+    /// allowed for binding, see `Topology::get_allowed_cpuset()` (TODO: wrap and link).
     ///
     /// All objects have CPU and node sets except Misc and I/O objects.
     pub fn cpuset(&self) -> Option<&CpuSet> {
@@ -267,7 +272,8 @@ impl TopologyObject {
     /// This includes not only the same as the cpuset field, but also the
     /// CPUs for which topology information is unknown or incomplete, some
     /// offline CPUs, and the CPUs that are ignored when the
-    /// HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED flag is not set.
+    /// [`BuildFlags::INCLUDE_DISALLOWED`] topology building configuration flag
+    /// is not set.
     ///
     /// Thus no corresponding PU object may be found in the topology, because
     /// the precise position is undefined. It is however known that it would be
@@ -284,12 +290,12 @@ impl TopologyObject {
     /// children path between this object and the NODE objects).
     ///
     /// In the end, these nodes are those that are close to the current object.
-    /// Function hwloc_get_local_numanode_objs() (TODO wrap) may be used to list
+    /// Function hwloc_get_local_numanode_objs() (TODO wrap and link) may be used to list
     /// those NUMA nodes more precisely.
     ///
-    /// If the HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED configuration flag is set,
-    /// some of these nodes may not be allowed for allocation, see
-    /// `Topology::allowed_nodeset()`.
+    /// If the [`BuildFlags::INCLUDE_DISALLOWED`] topology building
+    /// configuration flag is set, some of these nodes may not be allowed for
+    /// allocation, see `Topology::allowed_nodeset()` (TODO wrap and link).
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to
     /// this object, so the nodeset is full.
@@ -304,7 +310,8 @@ impl TopologyObject {
     /// This includes not only the same as the nodeset field, but also the NUMA
     /// nodes for which topology information is unknown or incomplete, some
     /// offline nodes, and the nodes that are ignored when the
-    /// HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED flag is not set.
+    /// [`BuildFlags::INCLUDE_DISALLOWED`] topology building configuration flag
+    /// is not set.
     ///
     /// Thus no corresponding NUMANode object may be found in the topology,
     /// because the precise position is undefined. It is however known that it
@@ -359,7 +366,7 @@ impl TopologyObject {
     ///
     /// This function may be used to enforce object colors in the lstopo
     /// graphical output by using "lstopoStyle" as a name and "Background=#rrggbb"
-    /// as a value. See CUSTOM COLORS in the lstopo(1) manpage for details.
+    /// as a value. See `CUSTOM COLORS` in the `lstopo(1)` manpage for details.
     ///
     /// If value contains some non-printable characters, they will be dropped
     /// when exporting to XML.

@@ -2,6 +2,8 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 
+#[cfg(doc)]
+use crate::objects::types::ObjectType;
 use std::ffi::c_int;
 use thiserror::Error;
 
@@ -18,22 +20,22 @@ pub enum Depth {
     /// Depth of a normal object (not Memory, I/O or Misc)
     Normal(u32),
 
-    /// Virtual depth for NUMA nodes
+    /// Virtual depth for [`ObjectType::NUMANode`]
     NUMANode,
 
-    /// Virtual depth for bridge objects
+    /// Virtual depth for [`ObjectType::Bridge`]
     Bridge,
 
-    /// Virtual depth for PCI devices
+    /// Virtual depth for [`ObjectType::PCIDevice`]
     PCIDevice,
 
-    /// Virtual depth for OS devices
+    /// Virtual depth for [`ObjectType::OSDevice`]
     OSDevice,
 
-    /// Virtual depth for Misc objects
+    /// Virtual depth for [`ObjectType::Misc`]
     Misc,
 
-    /// Virtual depth for near-memory caches
+    /// Virtual depth for [`ObjectType::MemCache`]
     MemCache,
 }
 

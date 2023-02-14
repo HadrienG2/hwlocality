@@ -24,7 +24,7 @@ bitflags! {
     /// these two flags are mutually exclusive.
     ///
     /// Not all systems support all kinds of binding.
-    /// `Topology::support().memory_binding()` may be used to query about the
+    /// [`Topology::support().memory_binding()`] may be used to query the
     /// actual memory binding support in the currently used operating system.
     #[repr(C)]
     pub struct MemoryBindingFlags: u32 {
@@ -94,7 +94,7 @@ pub(crate) type RawMemoryBindingPolicy = c_int;
 /// Memory binding policy.
 ///
 /// Not all systems support all kinds of binding.
-/// `Topology::support().memory_binding()` may be used to query about the
+/// [`Topology::support().memory_binding()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
 #[repr(i32)]
 #[derive(Copy, Clone, Debug, Default, IntoPrimitive, TryFromPrimitive)]
@@ -102,8 +102,9 @@ pub enum MemoryBindingPolicy {
     /// Allocate each memory page individually on the local NUMA
     /// node of the thread that touches it
     ///
-    /// The given nodeset should usually be `Topology::nodeset()` so that the
-    /// touching thread may run and allocate on any node in the system.
+    /// The given nodeset should usually be `Topology::nodeset()`
+    /// (TODO: wrap and add doc link) so that the touching thread may run and
+    /// allocate on any node in the system.
     ///
     /// On AIX, if the nodeset is smaller, pages are allocated locally (if the
     /// local node is in the nodeset) or from a random non-local node (otherwise).
@@ -137,8 +138,8 @@ pub enum MemoryBindingPolicy {
 pub enum MemoryBindingSetupError {
     /// Requested action or policy is not supported
     ///
-    /// This error may not be reported if `MemoryBindingFlags::STRICT` is not
-    /// set. Instead, the implementation is allowed to try to use a slightly
+    /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
+    /// not set. Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
     #[error("action is not supported")]
@@ -146,9 +147,9 @@ pub enum MemoryBindingSetupError {
 
     /// Cannot bind to the target CPU or node set
     ///
-    /// This error may not be reported if `MemoryBindingFlags::STRICT` is not
-    /// set. Instead, the implementation is allowed to try using a smaller or
-    /// larger set to make the operation succeed.
+    /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
+    /// not set. Instead, the implementation is allowed to try using a smaller
+    /// or larger set to make the operation succeed.
     #[error("binding cannot be enforced")]
     BadSet,
 
@@ -196,16 +197,18 @@ pub(crate) fn setup_result(result: i32) -> Result<(), MemoryBindingSetupError> {
 pub enum MemoryBindingQueryError {
     /// Memory policies and nodesets vary from one thread to another
     ///
-    /// This error is returned when `MemoryBindingFlags::PROCESS` and `STRICT`
-    /// are specified and the default memory policies and nodesets are not
-    /// homogeneous across all threads of the target process.
+    /// This error is returned when [`MemoryBindingFlags::PROCESS`] and
+    /// [`MemoryBindingFlags::STRICT`] are both specified and the default memory
+    /// policies and nodesets are not homogeneous across all threads of the
+    /// target process.
     #[error("result varies from one thread of the process to another")]
     MixedResults,
 
     /// An invalid flag was specified
     ///
-    /// Some memory binding flags like `MIGRATE` don't make sense in the context
-    /// of querying the current memory binding status and should not be used then.
+    /// Some memory binding flags like [`MemoryBindingFlags::MIGRATE`] do not
+    /// make sense in the context of querying the current memory binding status
+    /// and should not be used then.
     #[error("invalid request")]
     InvalidRequest,
 
@@ -238,6 +241,9 @@ pub(crate) fn query_result_lazy<T>(
 }
 
 /// Bytes allocated through hwloc
+///
+/// This behaves like a `Box[MaybeUninit<u8>]` and will similarly automatically
+/// liberate the allocated memory when it goes out of scope.
 pub struct Bytes<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,

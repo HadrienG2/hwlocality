@@ -4,6 +4,8 @@
 // - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
 use crate::ffi;
+#[cfg(doc)]
+use crate::objects::TopologyObject;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     cmp::{Ordering, PartialOrd},
@@ -17,7 +19,7 @@ use std::{
 ///
 pub(crate) type RawObjectType = c_uint;
 
-/// Represents the type of a topology object.
+/// Represents the type of a [`TopologyObject`].
 ///
 /// Note that (partial) ordering for object types is implemented as a call
 /// into the `hwloc` library which defines ordering as follows:
