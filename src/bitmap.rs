@@ -93,6 +93,7 @@ impl CpuSet {
     /// assert_eq!("", format!("{}", cpuset));
     /// assert_eq!(true, cpuset.is_empty());
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn new() -> Self {
         Self::from(Bitmap::new())
     }
@@ -108,6 +109,7 @@ impl CpuSet {
     /// assert_eq!("0-", format!("{}", cpuset));
     /// assert_eq!(false, cpuset.is_empty());
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn full() -> Self {
         Self::from(Bitmap::full())
     }
@@ -122,6 +124,7 @@ impl CpuSet {
     /// let cpuset = CpuSet::from_range(0..=5);
     /// assert_eq!("0-5", format!("{}", cpuset));
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn from_range(range: impl RangeBounds<u32>) -> Self {
         Self::from(Bitmap::from_range(range))
     }
@@ -138,11 +141,12 @@ impl CpuSet {
     /// cpuset2.copy_from(&cpuset);
     /// assert_eq!("0-5", format!("{}", cpuset2));
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn copy_from(&mut self, other: &Self) {
         self.0.copy_from(&other.0)
     }
 
-    /// Optimized (self & !rhs)
+    /// Optimized `self & !rhs`
     ///
     /// # Examples
     ///
@@ -154,11 +158,12 @@ impl CpuSet {
     /// let result = cpuset.and_not(&cpuset2);
     /// assert_eq!(cpuset.and_not(&cpuset2), cpuset & !cpuset2);
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not(&self, rhs: &Self) -> Self {
         Self(self.0.and_not(&rhs.0))
     }
 
-    /// Optimized *self &= !rhs
+    /// Optimized `*self &= !rhs`
     ///
     /// # Examples
     ///
@@ -171,6 +176,7 @@ impl CpuSet {
     /// cpuset2.and_not_assign(&rhs);
     /// assert_eq!(cpuset2, cpuset.and_not(&rhs));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not_assign(&mut self, rhs: &Self) {
         self.0.and_not_assign(&rhs.0)
     }
@@ -190,6 +196,7 @@ impl CpuSet {
     /// assert!(cpuset1.intersects(&cpuset3));
     /// assert!(cpuset2.intersects(&cpuset3));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn intersects(&self, rhs: &Self) -> bool {
         self.0.intersects(&rhs.0)
     }
@@ -209,6 +216,7 @@ impl CpuSet {
     /// assert!(cpuset1.includes(&cpuset3));
     /// assert!(!cpuset2.includes(&cpuset3));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn includes(&self, inner: &Self) -> bool {
         self.0.includes(&inner.0)
     }
@@ -271,7 +279,8 @@ impl NodeSet {
     /// let nodeset = NodeSet::new();
     /// assert_eq!("", format!("{}", nodeset));
     /// assert_eq!(true, nodeset.is_empty());
-    // ```
+    /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn new() -> Self {
         Self::from(Bitmap::new())
     }
@@ -287,6 +296,7 @@ impl NodeSet {
     /// assert_eq!("0-", format!("{}", nodeset));
     /// assert_eq!(false, nodeset.is_empty());
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn full() -> Self {
         Self::from(Bitmap::full())
     }
@@ -301,6 +311,7 @@ impl NodeSet {
     /// let nodeset = NodeSet::from_range(0..=5);
     /// assert_eq!("0-5", format!("{}", nodeset));
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn from_range(range: impl RangeBounds<u32>) -> Self {
         Self::from(Bitmap::from_range(range))
     }
@@ -317,11 +328,12 @@ impl NodeSet {
     /// nodeset2.copy_from(&nodeset);
     /// assert_eq!("0-5", format!("{}", nodeset2));
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn copy_from(&mut self, other: &Self) {
         self.0.copy_from(&other.0)
     }
 
-    /// Optimized (self & !rhs)
+    /// Optimized `self & !rhs`
     ///
     /// # Examples
     ///
@@ -333,11 +345,12 @@ impl NodeSet {
     /// let result = nodeset.and_not(&nodeset2);
     /// assert_eq!(nodeset.and_not(&nodeset2), nodeset & !nodeset2);
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not(&self, rhs: &Self) -> Self {
         Self(self.0.and_not(&rhs.0))
     }
 
-    /// Optimized *self &= !rhs
+    /// Optimized `*self &= !rhs`
     ///
     /// # Examples
     ///
@@ -350,6 +363,7 @@ impl NodeSet {
     /// nodeset2.and_not_assign(&rhs);
     /// assert_eq!(nodeset2, nodeset.and_not(&rhs));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not_assign(&mut self, rhs: &Self) {
         self.0.and_not_assign(&rhs.0)
     }
@@ -369,6 +383,7 @@ impl NodeSet {
     /// assert!(nodeset1.intersects(&nodeset3));
     /// assert!(nodeset2.intersects(&nodeset3));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn intersects(&self, rhs: &Self) -> bool {
         self.0.intersects(&rhs.0)
     }
@@ -388,6 +403,7 @@ impl NodeSet {
     /// assert!(nodeset1.includes(&nodeset3));
     /// assert!(!nodeset2.includes(&nodeset3));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn includes(&self, inner: &Self) -> bool {
         self.0.includes(&inner.0)
     }
@@ -462,6 +478,7 @@ impl Bitmap {
     /// assert_eq!("", format!("{}", bitmap));
     /// assert_eq!(true, bitmap.is_empty());
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn new() -> Self {
         unsafe {
             Self::from_raw(ffi::hwloc_bitmap_alloc())
@@ -480,6 +497,7 @@ impl Bitmap {
     /// assert_eq!("0-", format!("{}", bitmap));
     /// assert_eq!(false, bitmap.is_empty());
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn full() -> Self {
         unsafe {
             Self::from_raw(ffi::hwloc_bitmap_alloc_full())
@@ -497,6 +515,7 @@ impl Bitmap {
     /// let bitmap = Bitmap::from_range(0..=5);
     /// assert_eq!("0-5", format!("{}", bitmap));
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn from_range(range: impl RangeBounds<u32>) -> Self {
         let mut bitmap = Self::new();
         bitmap.set_range(range);
@@ -519,6 +538,7 @@ impl Bitmap {
     /// bitmap2.copy_from(&bitmap);
     /// assert_eq!("0-5", format!("{}", bitmap2));
     // ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn copy_from(&mut self, other: &Self) {
         let result = unsafe { ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr()) };
         assert!(
@@ -938,7 +958,7 @@ impl Bitmap {
         u32::try_from(result).ok()
     }
 
-    /// Optimized (self & !rhs)
+    /// Optimized `self & !rhs`
     ///
     /// # Examples
     ///
@@ -950,6 +970,7 @@ impl Bitmap {
     /// let result = bitmap.and_not(&bitmap2);
     /// assert_eq!(bitmap.and_not(&bitmap2), bitmap & !bitmap2);
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not(&self, rhs: &Self) -> Self {
         let mut result = Self::new();
         let code =
@@ -958,7 +979,7 @@ impl Bitmap {
         result
     }
 
-    /// Optimized *self &= !rhs
+    /// Optimized `*self &= !rhs`
     ///
     /// # Examples
     ///
@@ -971,6 +992,7 @@ impl Bitmap {
     /// bitmap2.and_not_assign(&rhs);
     /// assert_eq!(bitmap2, bitmap.and_not(&rhs));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not_assign(&mut self, rhs: &Self) {
         let code =
             unsafe { ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
@@ -1012,6 +1034,7 @@ impl Bitmap {
     /// assert!(bitmap1.intersects(&bitmap3));
     /// assert!(bitmap2.intersects(&bitmap3));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn intersects(&self, rhs: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr()) };
         assert!(
@@ -1036,6 +1059,7 @@ impl Bitmap {
     /// assert!(bitmap1.includes(&bitmap3));
     /// assert!(!bitmap2.includes(&bitmap3));
     /// ```
+    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn includes(&self, inner: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr()) };
         assert!(
