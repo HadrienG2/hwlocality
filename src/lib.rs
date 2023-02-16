@@ -86,6 +86,7 @@ pub(crate) struct RawTopology {
 /// - [CPU binding](#cpu-binding)
 /// - [Memory binding](#memory-binding)
 /// - [Modifying a loaded topology](#modifying-a-loaded-topology)
+/// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
@@ -1082,6 +1083,170 @@ impl Topology {
             eprintln!("Topology stuck in a state that violates Rust aliasing rules, must abort");
             std::process::abort();
         }
+    }
+}
+
+/// # Finding objects inside a CPU set
+//
+// This is inspired by the upstream functionality described at
+// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
+// but the code had to be ported to Rust as most C code is inline and thus
+// cannot be called from Rust, and the only function that's not inline does not
+// fit Rust's design (assumes caller has allocated large enough storage with no
+// way to tell what is large enough)
+impl Topology {
+    /// Enumerate the largest objects included in the given cpuset `set`
+    ///
+    /// Objects with empty CPU sets are ignored (otherwise they would be
+    /// considered included in any given set).
+    ///
+    /// In the common case where `set` is a subset of the root cpuset, this
+    /// operation can be more efficiently performed by using
+    /// `coarsest_cpuset_partition()`.
+    pub fn largest_objects_inside_cpuset(
+        &self,
+        mut set: CpuSet,
+    ) -> impl Iterator<Item = &TopologyObject> {
+        std::iter::from_fn(move || {
+            let object = self.first_largest_object_inside_cpuset(&set)?;
+            let object_cpuset = object
+                .cpuset()
+                .expect("Output of first_largest_object_inside_cpuset should have a cpuset");
+            set.and_not_assign(&object_cpuset);
+            Some(object)
+        })
+    }
+
+    /// Get the largest objects exactly covering the given cpuset `set`
+    ///
+    /// Objects with empty CPU sets are ignored (otherwise they would be
+    /// considered included in any given set).
+    ///
+    /// # Panics
+    ///
+    /// If the requested cpuset is not a subset of the root cpuset, we can't
+    /// find children covering the indices outside of the root cpuset
+    pub fn coarsest_cpuset_partition(&self, set: &CpuSet) -> Vec<&TopologyObject> {
+        // Make sure each set index actually maps into a hardware PU
+        let root = self.root_object();
+        assert!(
+            set.includes(root.cpuset().expect("Root should have a CPU set")),
+            "Requested set has indices outside the root cpuset"
+        );
+
+        // Start recursion
+        let mut result = Vec::new();
+        fn process_object<'a>(
+            parent: &'a TopologyObject,
+            set: &CpuSet,
+            result: &mut Vec<&'a TopologyObject>,
+        ) {
+            // If the current object does not have a cpuset, ignore it
+            let Some(parent_cpuset) = parent.cpuset() else { return };
+
+            // If it exactly covers the target cpuset, we're done
+            if parent_cpuset == set {
+                result.push(parent);
+                return;
+            }
+
+            // Otherwise, look for children that cover the target cpuset
+            for child in parent.normal_children() {
+                // Ignore children without a cpuset, or with a cpuset that
+                // doesn't intersect the target cpuset
+                let Some(child_cpuset) = child.cpuset() else { continue };
+                if !child_cpuset.intersects(set) {
+                    continue;
+                }
+
+                // Split out the cpuset part corresponding to this child and recurse
+                let subset = set & child_cpuset;
+                process_object(child, &subset, result);
+            }
+        }
+        process_object(root, set, &mut result);
+        result
+    }
+
+    /// Enumerate objects included in the given cpuset `set` at a certain depth
+    ///
+    /// Objects with empty CPU sets are ignored (otherwise they would be
+    /// considered included in any given set). Therefore, an empty iterator will
+    /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    pub fn objects_inside_cpuset_at_depth<'result>(
+        &'result self,
+        set: &'result CpuSet,
+        depth: Depth,
+    ) -> impl Iterator<Item = &TopologyObject> + 'result {
+        self.objects_at_depth(depth)
+            .filter(|object| object.is_inside_cpuset(set))
+    }
+
+    /// Get objects included in the given cpuset `set` with a certain type
+    ///
+    /// Objects with empty CPU sets are ignored (otherwise they would be
+    /// considered included in any given set). Therefore, an empty Vec will
+    /// always be returned for I/O or Misc objects as they don't have cpusets.
+    pub fn objects_inside_cpuset_with_type(
+        &self,
+        set: &CpuSet,
+        ty: ObjectType,
+    ) -> Vec<&TopologyObject> {
+        let mut objects = self.objects_with_type(ty);
+        objects.retain(|object| object.is_inside_cpuset(set));
+        objects
+    }
+
+    /// Get the first largest object included in the given cpuset `set`
+    ///
+    /// Returns the first object that is included in `set` and whose parent is
+    /// not, in descending depth and children iteration order.
+    ///
+    /// This is convenient for iterating over all largest objects within a CPU
+    /// set by doing a loop getting the first largest object and clearing its
+    /// CPU set from the remaining CPU set. This very pattern is exposed by
+    /// the `largest_objects_inside_cpuset` method, which is why this method is
+    /// not publicly exposed.
+    ///
+    /// That being said, if the cpuset is a strict subset of the root cpuset of
+    /// this `Topology`, the work may be more efficiently done by
+    /// `largest_cpuset_partition()`, which only needs to walk the topology
+    /// tree once.
+    ///
+    /// Objects with empty CPU sets are ignored (otherwise they would be
+    /// considered included in any given set).
+    fn first_largest_object_inside_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+        // If root object doesn't intersect this CPU set then no child will
+        let root = self.root_object();
+        let root_cpuset = root.cpuset().expect("Root should have a CPU set");
+        if !root_cpuset.intersects(set) {
+            return None;
+        }
+
+        // Walk the topoogy tree until we find an object included into set
+        let mut parent = root;
+        let mut parent_cpuset = root_cpuset;
+        while !set.includes(&parent_cpuset) {
+            // While the object intersects without being included, look at children
+            let old_parent = parent;
+            for child in parent.normal_children() {
+                if let Some(child_cpuset) = child.cpuset() {
+                    // This child intersects, make it the new parent and recurse
+                    if set.intersects(&child_cpuset) {
+                        parent = child;
+                        parent_cpuset = child_cpuset;
+                    }
+                }
+            }
+            assert!(
+                !std::ptr::eq(parent, old_parent),
+                "This should not happen because...\n\
+                - The root intersects, so it has at least one index from the set\n\
+                - The lowest-level children are PUs, which have only one index set,\
+                  so one of them should pass the includes() test"
+            );
+        }
+        Some(parent)
     }
 }
 

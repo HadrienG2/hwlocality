@@ -294,6 +294,15 @@ impl TopologyObject {
         unsafe { CpuSet::borrow_from_raw(&self.cpuset) }
     }
 
+    /// Truth that this object is inside of the given cpuset `set`
+    ///
+    /// Objects are considered to be inside `set` if they have a non-empty
+    /// cpuset which verifies `set.includes(&object_cpuset)`
+    pub fn is_inside_cpuset(&self, set: &CpuSet) -> bool {
+        let Some(object_cpuset) = self.cpuset() else { return false };
+        set.includes(object_cpuset) && !object_cpuset.is_empty()
+    }
+
     /// The complete CPU set of logical processors of this object.
     ///
     /// This includes not only the same as the cpuset field, but also the

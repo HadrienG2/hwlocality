@@ -484,10 +484,6 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_refresh(topology: *mut RawTopology) -> c_int;
 
-            // === Finding objects inside a CPUset: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
-
-            // TODO
-
             // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
             #[must_use]
