@@ -18,7 +18,7 @@ use crate::{
     ffi::{self, LibcString},
 };
 use libc::{c_char, c_int, c_uint, c_void};
-use std::{ffi::CStr, fmt};
+use std::{ffi::CStr, fmt, ptr};
 
 /// Hardware topology object
 //
@@ -176,6 +176,101 @@ impl TopologyObject {
         unsafe { ffi::deref_ptr_mut(&self.parent) }
     }
 
+    /// Chain of parent object up to the tree root
+    pub fn ancestors(&self) -> impl Iterator<Item = &TopologyObject> {
+        let mut parent = self.parent();
+        std::iter::from_fn(move || {
+            let curr_parent = parent?;
+            parent = curr_parent.parent();
+            Some(curr_parent)
+        })
+    }
+
+    /// Search for an ancestor at a certain depth
+    ///
+    /// This will return None if the requested depth is deeper than the
+    /// depth of the current object.
+    pub fn ancestor_at_depth(&self, depth: Depth) -> Option<&TopologyObject> {
+        // Fast failure path when depth is comparable
+        let self_depth = self.depth();
+        if let (Ok(self_depth), Ok(depth)) = (u32::try_from(self_depth), u32::try_from(depth)) {
+            if self_depth <= depth {
+                return None;
+            }
+        }
+
+        // Otherwise, walk parents looking for the right depth
+        self.ancestors().find(|ancestor| ancestor.depth() == depth)
+    }
+
+    /// Search for the first ancestor with a certain type in ascending order
+    ///
+    /// This will return None if the requested type appears deeper than the
+    /// current object (e.g. PU) or doesn't appear in the topology.
+    pub fn first_ancestor_with_type(&self, ty: ObjectType) -> Option<&TopologyObject> {
+        self.ancestors()
+            .find(|ancestor| ancestor.object_type() == ty)
+    }
+
+    /// Search for an ancestor that is shared with another object
+    ///
+    /// # Panics
+    ///
+    /// If one of the objects has a special depth (memory, I/O...).
+    pub fn common_ancestor(&self, other: &TopologyObject) -> Option<&TopologyObject> {
+        // Handle degenerate case
+        if ptr::eq(self, other) {
+            return self.parent();
+        }
+
+        // Otherwise, follow hwloc's example, but restrict it to normal depths
+        // as I don't think their algorithm is correct for special depths.
+        let u32_depth = |obj: &TopologyObject| {
+            u32::try_from(obj.depth()).expect("Need normal depth for this algorithm")
+        };
+        let mut parent1 = self.parent()?;
+        let mut parent2 = other.parent()?;
+        loop {
+            // Walk up parent1 and parent2 ancestors, try to reach the same depth
+            let depth2 = u32_depth(parent2);
+            while u32_depth(parent1) > depth2 {
+                parent1 = parent1.parent()?;
+            }
+            let depth1 = u32_depth(parent1);
+            while u32_depth(parent2) > depth1 {
+                parent2 = parent2.parent()?;
+            }
+
+            // If we reached the same parent, we're done
+            if ptr::eq(parent1, parent2) {
+                return Some(parent1);
+            }
+
+            // Otherwise, either parent2 jumped above parent1 (which can happen
+            // as hwloc topology may "skip" depths on hybrid plaforms like
+            // Adler Lake or in the presence of complicated allowed cpusets), or
+            // we reached cousin objects and must go up one level.
+            if parent1.depth == parent2.depth {
+                parent1 = parent1.parent()?;
+                parent2 = parent2.parent()?;
+            }
+        }
+    }
+
+    /// Truth that this object is in the subtree beginning with ancestor
+    /// object `subtree_root`
+    pub fn is_in_subtree(&self, subtree_root: &TopologyObject) -> bool {
+        // Take a cpuset-based shortcut on normal objects
+        if let (Some(self_cpuset), Some(subtree_cpuset)) = (self.cpuset(), subtree_root.cpuset()) {
+            return subtree_cpuset.includes(self_cpuset);
+        }
+
+        // Otherwise, walk the ancestor chain
+        self.ancestors()
+            .find(|&ancestor| ptr::eq(ancestor, subtree_root))
+            .is_some()
+    }
+
     /// Index in the parent's appropriate child list
     pub fn sibling_rank(&self) -> u32 {
         self.sibling_rank
@@ -281,10 +376,18 @@ impl TopologyObject {
 
     /// Misc children of this object
     ///
-    /// Mist objects are listed here instead of in the
+    /// Misc objects are listed here instead of in the
     /// [`TopologyObject::normal_children()`] list.
     pub fn misc_children(&self) -> impl Iterator<Item = &TopologyObject> {
-        unsafe { Self::iter_linked_children(&self.io_first_child) }
+        unsafe { Self::iter_linked_children(&self.misc_first_child) }
+    }
+
+    /// Full list of children (normal, then memory, then I/O, then Misc)
+    pub fn all_children(&self) -> impl Iterator<Item = &TopologyObject> {
+        self.normal_children()
+            .chain(self.memory_children())
+            .chain(self.io_children())
+            .chain(self.misc_children())
     }
 
     /// CPUs covered by this object.
