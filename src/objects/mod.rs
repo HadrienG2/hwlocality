@@ -206,6 +206,10 @@ impl TopologyObject {
     /// # Panics
     ///
     /// If one of the objects has a special depth (memory, I/O...).
+    // FIXME: It should actually be possible to handle that without panicking
+    //        by collecting the list of ancestors up to the first ancestor that
+    //        has a normal depth, then looking up common patterns, and if that
+    //        fails resuming the normal algorithm.
     pub fn common_ancestor(&self, other: &TopologyObject) -> Option<&TopologyObject> {
         // Handle degenerate case
         if ptr::eq(self, other) {
