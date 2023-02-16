@@ -1136,10 +1136,12 @@ impl Topology {
 
         // Start recursion
         let mut result = Vec::new();
+        let mut cpusets = Vec::new();
         fn process_object<'a>(
             parent: &'a TopologyObject,
             set: &CpuSet,
             result: &mut Vec<&'a TopologyObject>,
+            cpusets: &mut Vec<CpuSet>,
         ) {
             // If the current object does not have a cpuset, ignore it
             let Some(parent_cpuset) = parent.cpuset() else { return };
@@ -1151,7 +1153,7 @@ impl Topology {
             }
 
             // Otherwise, look for children that cover the target cpuset
-            let mut subset = CpuSet::new();
+            let mut subset = cpusets.pop().unwrap_or_default();
             for child in parent.normal_children() {
                 // Ignore children without a cpuset, or with a cpuset that
                 // doesn't intersect the target cpuset
@@ -1163,10 +1165,11 @@ impl Topology {
                 // Split out the cpuset part corresponding to this child and recurse
                 subset.copy_from(set);
                 subset &= child_cpuset;
-                process_object(child, &subset, result);
+                process_object(child, &subset, result, cpusets);
             }
+            cpusets.push(subset);
         }
-        process_object(root, set, &mut result);
+        process_object(root, set, &mut result, &mut cpusets);
         result
     }
 
