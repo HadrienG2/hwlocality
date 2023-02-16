@@ -21,6 +21,17 @@ use libc::{c_char, c_int, c_uint, c_void};
 use std::{ffi::CStr, fmt, ptr};
 
 /// Hardware topology object
+///
+/// Like `Topology`, this is a pretty big struct, so the documentation is
+/// sliced into smaller parts:
+///
+/// - [Basic identity](#basic-identity)
+/// - [Depth and ancestors](#depth-and-ancestors)
+/// - [Cousins and siblings](#cousins-and-siblings)
+/// - [Children](#children)
+/// - [CPU set](#cpu-set)
+/// - [NUMA node set](#numa-node-set)
+/// - [Key-value information](#key-value-information)
 //
 // See the matching method names for more details on field semantics
 #[repr(C)]
@@ -60,6 +71,7 @@ pub struct TopologyObject {
     gp_index: u64,
 }
 
+/// # Basic identity
 impl TopologyObject {
     /// Type of object.
     pub fn object_type(&self) -> ObjectType {
@@ -122,11 +134,6 @@ impl TopologyObject {
             .into_raw()
     }
 
-    /// Total memory (in bytes) in NUMA nodes below this object
-    pub fn total_memory(&self) -> u64 {
-        self.total_memory
-    }
-
     /// Object type-specific attributes
     pub fn attributes(&self) -> Option<ObjectAttributes> {
         unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
@@ -136,7 +143,10 @@ impl TopologyObject {
     pub(crate) fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
         unsafe { ffi::deref_mut_ptr(&mut self.attr) }
     }
+}
 
+/// # Depth and ancestors
+impl TopologyObject {
     /// Vertical index in the hierarchy
     ///
     /// For normal objects, this is the depth of the horizontal level that
@@ -150,33 +160,12 @@ impl TopologyObject {
         self.depth.try_into().expect("Got unexpected depth value")
     }
 
-    /// Horizontal index in the whole list of similar objects, hence guaranteed
-    /// unique across the entire machine.
-    ///
-    /// Could be a "cousin_rank" since it's the rank within the "cousin" list below.
-    ///
-    /// Note that this index may change when restricting the topology
-    /// or when inserting a group.
-    pub fn logical_index(&self) -> u32 {
-        self.logical_index
-    }
-
-    /// Next object of same type and depth
-    pub fn next_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
-    }
-
-    /// Previous object of same type and depth
-    pub fn prev_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
-    }
-
     /// Parent object
     pub fn parent(&self) -> Option<&TopologyObject> {
         unsafe { ffi::deref_ptr_mut(&self.parent) }
     }
 
-    /// Chain of parent object up to the tree root
+    /// Chain of parent objects up to the topology root
     pub fn ancestors(&self) -> impl Iterator<Item = &TopologyObject> {
         let mut parent = self.parent();
         std::iter::from_fn(move || {
@@ -188,8 +177,8 @@ impl TopologyObject {
 
     /// Search for an ancestor at a certain depth
     ///
-    /// This will return None if the requested depth is deeper than the
-    /// depth of the current object.
+    /// Will return `None` if the requested depth is deeper than the depth of
+    /// the current object.
     pub fn ancestor_at_depth(&self, depth: Depth) -> Option<&TopologyObject> {
         // Fast failure path when depth is comparable
         let self_depth = self.depth();
@@ -205,8 +194,8 @@ impl TopologyObject {
 
     /// Search for the first ancestor with a certain type in ascending order
     ///
-    /// This will return None if the requested type appears deeper than the
-    /// current object (e.g. PU) or doesn't appear in the topology.
+    /// Will return `None` if the requested type appears deeper than the
+    /// current object (e.g. `PU`) or doesn't appear in the topology.
     pub fn first_ancestor_with_type(&self, ty: ObjectType) -> Option<&TopologyObject> {
         self.ancestors()
             .find(|ancestor| ancestor.object_type() == ty)
@@ -270,6 +259,30 @@ impl TopologyObject {
             .find(|&ancestor| ptr::eq(ancestor, subtree_root))
             .is_some()
     }
+}
+
+/// # Cousins and siblings
+impl TopologyObject {
+    /// Horizontal index in the whole list of similar objects, hence guaranteed
+    /// unique across the entire machine.
+    ///
+    /// Could be a "cousin_rank" since it's the rank within the "cousin" list below.
+    ///
+    /// Note that this index may change when restricting the topology
+    /// or when inserting a group.
+    pub fn logical_index(&self) -> u32 {
+        self.logical_index
+    }
+
+    /// Next object of same type and depth
+    pub fn next_cousin(&self) -> Option<&TopologyObject> {
+        unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
+    }
+
+    /// Previous object of same type and depth
+    pub fn prev_cousin(&self) -> Option<&TopologyObject> {
+        unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
+    }
 
     /// Index in the parent's appropriate child list
     pub fn sibling_rank(&self) -> u32 {
@@ -285,7 +298,10 @@ impl TopologyObject {
     pub fn prev_sibling(&self) -> Option<&TopologyObject> {
         unsafe { ffi::deref_ptr_mut(&self.prev_sibling) }
     }
+}
 
+/// # Children
+impl TopologyObject {
     /// Number of normal children (excluding Memory, Misc and I/O)
     pub fn normal_arity(&self) -> u32 {
         self.arity
@@ -330,7 +346,7 @@ impl TopologyObject {
 
     /// Get the child covering at least the given cpuset `set`
     ///
-    /// This function will always return None if the given set is empty or
+    /// This function will always return `None` if the given set is empty or
     /// this TopologyObject doesn't have a cpuset (I/O or Misc objects).
     pub fn normal_child_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
         self.normal_children()
@@ -353,6 +369,11 @@ impl TopologyObject {
     /// caches between them in the middle of the memory subtree.
     pub fn memory_children(&self) -> impl Iterator<Item = &TopologyObject> {
         unsafe { Self::iter_linked_children(&self.memory_first_child) }
+    }
+
+    /// Total memory (in bytes) in NUMA nodes below this object
+    pub fn total_memory(&self) -> u64 {
+        self.total_memory
     }
 
     /// Number of I/O children.
@@ -389,7 +410,10 @@ impl TopologyObject {
             .chain(self.io_children())
             .chain(self.misc_children())
     }
+}
 
+/// # CPU set
+impl TopologyObject {
     /// CPUs covered by this object.
     ///
     /// This is the set of CPUs for which there are PU objects in the
@@ -438,7 +462,10 @@ impl TopologyObject {
     pub fn complete_cpuset(&self) -> Option<&CpuSet> {
         unsafe { CpuSet::borrow_from_raw(&self.complete_cpuset) }
     }
+}
 
+/// # NUMA node set
+impl TopologyObject {
     /// NUMA nodes covered by this object or containing this object.
     ///
     /// This is the set of NUMA nodes for which there are NODE objects in the
@@ -479,7 +506,10 @@ impl TopologyObject {
     pub fn complete_nodeset(&self) -> Option<&NodeSet> {
         unsafe { NodeSet::borrow_from_raw(&self.complete_nodeset) }
     }
+}
 
+/// # Key-value information
+impl TopologyObject {
     /// Complete list of (key, value) textual info pairs
     pub fn infos(&self) -> &[ObjectInfo] {
         if self.children.is_null() {
@@ -536,7 +566,10 @@ impl TopologyObject {
         assert_ne!(result, -1, "Failed to add info to object");
         assert_eq!(result, 0, "Unexpected result from hwloc_obj_add_info");
     }
+}
 
+// Internal utilities
+impl TopologyObject {
     /// Iterate over a C-style linked list of child TopologyObjects
     unsafe fn iter_linked_children(
         start: &*mut TopologyObject,
