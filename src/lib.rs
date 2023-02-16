@@ -1151,6 +1151,7 @@ impl Topology {
             }
 
             // Otherwise, look for children that cover the target cpuset
+            let mut subset = CpuSet::new();
             for child in parent.normal_children() {
                 // Ignore children without a cpuset, or with a cpuset that
                 // doesn't intersect the target cpuset
@@ -1160,7 +1161,8 @@ impl Topology {
                 }
 
                 // Split out the cpuset part corresponding to this child and recurse
-                let subset = set & child_cpuset;
+                subset.copy_from(set);
+                subset &= child_cpuset;
                 process_object(child, &subset, result);
             }
         }
