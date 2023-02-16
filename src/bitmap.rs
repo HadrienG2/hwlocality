@@ -36,6 +36,108 @@ pub enum BitmapKind {
     NodeSet,
 }
 
+macro_rules! impl_newtype_ops {
+    ($newtype:ident) => {
+        impl Not for &$newtype {
+            type Output = $newtype;
+
+            fn not(self) -> $newtype {
+                $newtype(!&self.0)
+            }
+        }
+
+        impl BitOr<&$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitor(self, rhs: &$newtype) -> $newtype {
+                $newtype(&self.0 | &rhs.0)
+            }
+        }
+
+        impl BitOr<$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitor(self, rhs: $newtype) -> $newtype {
+                $newtype(&self.0 | &rhs.0)
+            }
+        }
+
+        impl BitOr<&$newtype> for $newtype {
+            type Output = $newtype;
+
+            fn bitor(self, rhs: &$newtype) -> $newtype {
+                $newtype(&self.0 | &rhs.0)
+            }
+        }
+
+        impl BitOrAssign<&$newtype> for $newtype {
+            fn bitor_assign(&mut self, rhs: &$newtype) {
+                self.0 |= &rhs.0
+            }
+        }
+
+        impl BitAnd<&$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitand(self, rhs: &$newtype) -> $newtype {
+                $newtype((&self.0) & (&rhs.0))
+            }
+        }
+
+        impl BitAnd<$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitand(self, rhs: $newtype) -> $newtype {
+                $newtype((&self.0) & (&rhs.0))
+            }
+        }
+
+        impl BitAnd<&$newtype> for $newtype {
+            type Output = $newtype;
+
+            fn bitand(self, rhs: &$newtype) -> $newtype {
+                $newtype((&self.0) & (&rhs.0))
+            }
+        }
+
+        impl BitAndAssign<&$newtype> for $newtype {
+            fn bitand_assign(&mut self, rhs: &$newtype) {
+                self.0 &= &rhs.0
+            }
+        }
+
+        impl BitXor<&$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitxor(self, rhs: &$newtype) -> $newtype {
+                $newtype((&self.0) ^ (&rhs.0))
+            }
+        }
+
+        impl BitXor<$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitxor(self, rhs: $newtype) -> $newtype {
+                $newtype((&self.0) ^ (&rhs.0))
+            }
+        }
+
+        impl BitXor<&$newtype> for $newtype {
+            type Output = $newtype;
+
+            fn bitxor(self, rhs: &$newtype) -> $newtype {
+                $newtype((&self.0) ^ (&rhs.0))
+            }
+        }
+
+        impl BitXorAssign<&$newtype> for $newtype {
+            fn bitxor_assign(&mut self, rhs: &$newtype) {
+                self.0 ^= &rhs.0
+            }
+        }
+    };
+}
+
 /// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical OS indexes.
 #[derive(
     AsMut,
@@ -221,6 +323,8 @@ impl CpuSet {
         self.0.includes(&inner.0)
     }
 }
+
+impl_newtype_ops!(CpuSet);
 
 /// A `NodeSet` is a [`Bitmap`] whose bits are set according to NUMA memory node
 /// physical OS indexes.
@@ -408,6 +512,8 @@ impl NodeSet {
         self.0.includes(&inner.0)
     }
 }
+
+impl_newtype_ops!(NodeSet);
 
 /// Opaque bitmap struct
 ///
@@ -1120,22 +1226,30 @@ impl Bitmap {
 unsafe impl Send for Bitmap {}
 unsafe impl Sync for Bitmap {}
 
-impl Not for Bitmap {
-    type Output = Self;
+impl Not for &Bitmap {
+    type Output = Bitmap;
 
-    fn not(self) -> Self {
-        let mut result = Self::new();
+    fn not(self) -> Bitmap {
+        let mut result = Bitmap::new();
         let code = unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
         result
     }
 }
 
-impl BitOr for Bitmap {
-    type Output = Self;
+impl Not for Bitmap {
+    type Output = Bitmap;
 
-    fn bitor(self, rhs: Self) -> Self {
-        let mut result = Self::new();
+    fn not(self) -> Self {
+        !&self
+    }
+}
+
+impl BitOr<&Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn bitor(self, rhs: &Bitmap) -> Bitmap {
+        let mut result = Bitmap::new();
         let code =
             unsafe { ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
@@ -1143,18 +1257,48 @@ impl BitOr for Bitmap {
     }
 }
 
-impl BitOrAssign for Bitmap {
-    fn bitor_assign(&mut self, rhs: Self) {
+impl BitOr<Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn bitor(self, rhs: Bitmap) -> Bitmap {
+        self | &rhs
+    }
+}
+
+impl BitOr<&Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitor(self, rhs: &Bitmap) -> Bitmap {
+        &self | rhs
+    }
+}
+
+impl BitOr<Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitor(self, rhs: Bitmap) -> Bitmap {
+        &self | &rhs
+    }
+}
+
+impl BitOrAssign<&Bitmap> for Bitmap {
+    fn bitor_assign(&mut self, rhs: &Bitmap) {
         let code = unsafe { ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
     }
 }
 
-impl BitAnd for Bitmap {
-    type Output = Self;
+impl BitOrAssign<Bitmap> for Bitmap {
+    fn bitor_assign(&mut self, rhs: Bitmap) {
+        *self |= &rhs
+    }
+}
 
-    fn bitand(self, rhs: Self) -> Self {
-        let mut result = Self::new();
+impl BitAnd<&Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: &Bitmap) -> Bitmap {
+        let mut result = Bitmap::new();
         let code =
             unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
@@ -1162,18 +1306,48 @@ impl BitAnd for Bitmap {
     }
 }
 
-impl BitAndAssign for Bitmap {
-    fn bitand_assign(&mut self, rhs: Self) {
+impl BitAnd<Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: Bitmap) -> Bitmap {
+        self & (&rhs)
+    }
+}
+
+impl BitAnd<&Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: &Bitmap) -> Bitmap {
+        (&self) & rhs
+    }
+}
+
+impl BitAnd<Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: Bitmap) -> Bitmap {
+        (&self) & (&rhs)
+    }
+}
+
+impl BitAndAssign<&Bitmap> for Bitmap {
+    fn bitand_assign(&mut self, rhs: &Bitmap) {
         let code = unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
     }
 }
 
-impl BitXor for Bitmap {
-    type Output = Self;
+impl BitAndAssign<Bitmap> for Bitmap {
+    fn bitand_assign(&mut self, rhs: Bitmap) {
+        *self &= &rhs
+    }
+}
 
-    fn bitxor(self, rhs: Self) -> Self {
-        let mut result = Self::new();
+impl BitXor<&Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn bitxor(self, rhs: &Bitmap) -> Bitmap {
+        let mut result = Bitmap::new();
         let code =
             unsafe { ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_xor returned error code {code}");
@@ -1181,10 +1355,40 @@ impl BitXor for Bitmap {
     }
 }
 
-impl BitXorAssign for Bitmap {
-    fn bitxor_assign(&mut self, rhs: Self) {
+impl BitXor<Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn bitxor(self, rhs: Bitmap) -> Bitmap {
+        self ^ (&rhs)
+    }
+}
+
+impl BitXor<&Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitxor(self, rhs: &Bitmap) -> Bitmap {
+        (&self) ^ rhs
+    }
+}
+
+impl BitXor<Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitxor(self, rhs: Bitmap) -> Bitmap {
+        (&self) ^ (&rhs)
+    }
+}
+
+impl BitXorAssign<&Bitmap> for Bitmap {
+    fn bitxor_assign(&mut self, rhs: &Bitmap) {
         let code = unsafe { ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_xor returned error code {code}");
+    }
+}
+
+impl BitXorAssign<Bitmap> for Bitmap {
+    fn bitxor_assign(&mut self, rhs: Bitmap) {
+        *self ^= &rhs
     }
 }
 
