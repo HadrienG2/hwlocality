@@ -233,6 +233,15 @@ impl TopologyObject {
         self.symmetric_subtree != 0
     }
 
+    /// Get the child covering at least the given cpuset `set`
+    ///
+    /// This function will always return None if the given set is empty or
+    /// this TopologyObject doesn't have a cpuset (I/O or Misc objects).
+    pub fn normal_child_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+        self.normal_children()
+            .find(|child| child.covers_cpuset(set))
+    }
+
     /// Number of memory children
     pub fn memory_arity(&self) -> u32 {
         self.memory_arity
@@ -297,10 +306,19 @@ impl TopologyObject {
     /// Truth that this object is inside of the given cpuset `set`
     ///
     /// Objects are considered to be inside `set` if they have a non-empty
-    /// cpuset which verifies `set.includes(&object_cpuset)`
+    /// cpuset which verifies `set.includes(object_cpuset)`
     pub fn is_inside_cpuset(&self, set: &CpuSet) -> bool {
         let Some(object_cpuset) = self.cpuset() else { return false };
         set.includes(object_cpuset) && !object_cpuset.is_empty()
+    }
+
+    /// Truth that this object covers the given cpuset `set`
+    ///
+    /// Objects are considered to cover `set` if it is non-empty and the object
+    /// has a cpuset which verifies `object_cpuset.includes(set)
+    pub fn covers_cpuset(&self, set: &CpuSet) -> bool {
+        let Some(object_cpuset) = self.cpuset() else { return false };
+        object_cpuset.includes(set) && !set.is_empty()
     }
 
     /// The complete CPU set of logical processors of this object.

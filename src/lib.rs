@@ -87,6 +87,7 @@ pub(crate) struct RawTopology {
 /// - [Memory binding](#memory-binding)
 /// - [Modifying a loaded topology](#modifying-a-loaded-topology)
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
+/// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
@@ -1252,6 +1253,59 @@ impl Topology {
             );
         }
         Some(parent)
+    }
+}
+
+/// # Finding objects covering at least a CPU set
+//
+// This is inspired by the upstream functionality described at
+// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
+// but the code had to be ported to Rust because it's inline
+impl Topology {
+    /// Get the lowest object covering at least the given cpuset `set`
+    ///
+    /// No object is considered to cover the empty cpuset, therefore such a
+    /// request will always return None, as if a set going outside of the root
+    /// cpuset were passed as input.
+    pub fn smallest_object_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+        let root = self.root_object();
+        if !root.covers_cpuset(set) || set.is_empty() {
+            return None;
+        }
+        let mut parent = root;
+        while let Some(child) = parent.normal_child_covering_cpuset(set) {
+            parent = child;
+        }
+        Some(parent)
+    }
+
+    /// Enumerate objects covering the given cpuset `set` at a certain depth
+    ///
+    /// Objects are not considered to cover the empty CPU set (otherwise a list
+    /// of all objects would be returned). Therefore, an empty iterator will
+    /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    pub fn objects_covering_cpuset_at_depth<'result>(
+        &'result self,
+        set: &'result CpuSet,
+        depth: Depth,
+    ) -> impl Iterator<Item = &TopologyObject> + 'result {
+        self.objects_at_depth(depth)
+            .filter(|object| object.covers_cpuset(set))
+    }
+
+    /// Get objects included in the given cpuset `set` with a certain type
+    ///
+    /// Objects are not considered to cover the empty CPU set (otherwise a list
+    /// of all objects would be returned). Therefore, an empty iterator will
+    /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    pub fn objects_covering_cpuset_with_type(
+        &self,
+        set: &CpuSet,
+        ty: ObjectType,
+    ) -> Vec<&TopologyObject> {
+        let mut objects = self.objects_with_type(ty);
+        objects.retain(|object| object.covers_cpuset(set));
+        objects
     }
 }
 
