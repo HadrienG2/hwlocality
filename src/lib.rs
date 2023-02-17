@@ -1390,7 +1390,7 @@ impl Topology {
             .filter(|object| object.covers_cpuset(set))
     }
 
-    /// Get objects included in the given cpuset `set` with a certain type
+    /// Get objects covering the given cpuset `set` with a certain type
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). Therefore, an empty iterator will
@@ -1458,7 +1458,7 @@ impl Topology {
     ///
     /// # Panics
     ///
-    /// `obj` should have a cpuset, this function will panic if that is not true.
+    /// `obj` must have a cpuset, otherwise this function will panic.
     pub fn closest_objects<'result>(
         &'result self,
         obj: &'result TopologyObject,
@@ -1476,7 +1476,7 @@ impl Topology {
         }
 
         // Find the first ancestor of an object that knows about more objects
-        // than that object, and return it along with its cpuset
+        // than that object (if any), and return it along with its cpuset
         fn find_larger_parent<'obj>(
             known_obj: &'obj TopologyObject,
             known_cpuset: &CpuSet,
@@ -1507,9 +1507,9 @@ impl Topology {
 
         // Emit the final iterator
         std::iter::from_fn(move || {
-            let (ancestor, ancestor_cpuset) = ancestor_and_cpuset?;
             loop {
                 // Look for a cousin that is part of ancestor_cpuset but not known_cpuset
+                let (ancestor, ancestor_cpuset) = ancestor_and_cpuset?;
                 while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.get(cousin_idx) {
                     cousin_idx += 1;
                     if ancestor_cpuset.includes(cousin_cpuset)
@@ -1519,7 +1519,8 @@ impl Topology {
                     }
                 }
 
-                // We ran out of cousins and must go up one ancestor level
+                // We ran out of cousins, go up one ancestor level or end
+                // iteration if we reached the top of the tree.
                 let known_obj = ancestor;
                 known_cpuset = ancestor_cpuset;
                 let (ancestor, ancestor_cpuset) = find_larger_parent(&known_obj, &known_cpuset)?;
@@ -1528,6 +1529,35 @@ impl Topology {
             }
         })
     }
+
+    /// Find an object via a parent->child chain specified by types and indices
+    ///
+    /// For example, if called with `&[(NUMANode, 0), (Package, 1), (Core, 2)]`,
+    /// this will return the third core object below the second package below
+    /// the first NUMA node.
+    ///
+    /// This function does a fair amount of work, avoid calling it in a loop.
+    ///
+    /// # Panics
+    ///
+    /// All objects must have a cpuset, otherwise this function will panic.
+    pub fn object_by_type_index_path(
+        &self,
+        path: &[(ObjectType, usize)],
+    ) -> Option<&TopologyObject> {
+        let mut obj = self.root_object();
+        for &(ty, idx) in path {
+            let children = self.objects_inside_cpuset_with_type(
+                obj.cpuset()
+                    .expect("All objects in path should have a cpuset"),
+                ty,
+            );
+            obj = children.get(idx)?;
+        }
+        Some(obj)
+    }
+
+    // TODO: Wrap get_obj_with_same_locality
 }
 
 // # General-purpose internal utilities
