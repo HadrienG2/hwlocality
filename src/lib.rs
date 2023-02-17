@@ -31,6 +31,7 @@ use self::{
 use errno::{errno, Errno};
 use libc::{c_int, c_void, EINVAL};
 use num_enum::TryFromPrimitiveError;
+use objects::{attributes::ObjectAttributes, types::CacheType};
 use std::{
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
@@ -349,6 +350,76 @@ impl Topology {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Depth for the given cache type and level
+    ///
+    /// Return the depth of the topology level that contains cache objects whose
+    /// attributes match `cache_level` and `cache_type`.
+    ///
+    /// This function is similar to calling [`Topology::depth_for_type()`] with
+    /// the corresponding type such as [`ObjectType::L1ICache`], except that it
+    /// may also return a unified cache when looking for an instruction cache.
+    ///
+    /// If `cache_type` is `None`, it is ignored and multiple levels may match.
+    /// The function returns either the depth of a uniquely matching level or
+    /// Err([`DepthError::Multiple`]).
+    ///
+    /// If `cache_type` is Some([`CacheType::Unified`]), the depth of the unique
+    /// matching unified cache level is returned.
+    ///
+    /// If `cache_type` is Some([`CacheType::Data`]) or
+    /// Some([`CacheType::Instruction`]), either a matching cache, or a
+    /// unified cache is returned.
+    ///
+    /// # Errors
+    ///
+    /// - If no cache level matches, Err([`DepthError::None`]) is returned.
+    /// - If multiple cache levels match, Err([`DepthError::Multiple`]) is
+    ///   returned. This can only happen if `cache_type` is `None`.
+    pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
+        let mut result = Err(DepthError::None);
+        for depth in 0..self.depth() {
+            // Cache level and type are homogeneous across a depth level so we
+            // only need to look at one object
+            for obj in self.objects_at_depth(depth.into()).take(1) {
+                // Is this a cache?
+                if let Some(ObjectAttributes::Cache(cache)) = obj.attributes() {
+                    // Check cache level
+                    if cache.depth() != cache_level {
+                        continue;
+                    }
+
+                    // Check cache type if instructed to do so
+                    if let Some(cache_type) = cache_type {
+                        if cache.cache_type() == cache_type
+                            || cache.cache_type() == CacheType::Unified
+                        {
+                            // If both cache type + level are specified, then
+                            // multiple matches cannot occur: stop here.
+                            return Ok(depth.into());
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        // Without a cache type check, multiple matches may occur
+                        match result {
+                            Err(DepthError::None) => result = Ok(depth.into()),
+                            Ok(_) => {
+                                return Err(DepthError::Multiple);
+                            }
+                            Err(DepthError::Multiple) => {
+                                unreachable!("Setting this triggers a loop break")
+                            }
+                            Err(DepthError::Unknown(_)) => {
+                                unreachable!("This value is never set")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
     }
 
     /// [`ObjectType`] at the given depth.
@@ -1277,6 +1348,14 @@ impl Topology {
             parent = child;
         }
         Some(parent)
+    }
+
+    /// Get the first data (or unified) cache covering the given cpuset
+    pub fn first_cache_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+        let first_obj = self.smallest_object_covering_cpuset(set)?;
+        std::iter::once(first_obj)
+            .chain(first_obj.ancestors())
+            .find(|obj| obj.object_type().is_cpu_data_cache())
     }
 
     /// Enumerate objects covering the given cpuset `set` at a certain depth

@@ -263,6 +263,18 @@ impl TopologyObject {
             .find(|&ancestor| ptr::eq(ancestor, subtree_root))
             .is_some()
     }
+
+    /// Get the first data (or unified) CPU cache shared between this object and
+    /// another object, if any.
+    ///
+    /// Will always return `None` if called on an I/O or Misc object that does
+    /// not contain CPUs.
+    pub fn first_shared_cache(&self) -> Option<&TopologyObject> {
+        let cpuset = self.cpuset()?;
+        self.ancestors()
+            .skip_while(|ancestor| ancestor.cpuset() == Some(cpuset))
+            .find(|ancestor| ancestor.object_type().is_cpu_data_cache())
+    }
 }
 
 /// # Cousins and siblings
