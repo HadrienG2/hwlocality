@@ -68,6 +68,7 @@ pub enum ObjectType {
     L4Cache,
 
     /// Level 5 Data (or Unified) Cache.
+    // NOTE: If hwloc adds more cache levels, update the cache module accordingly
     L5Cache,
 
     /// Level 1 Instruction cache (filtered out by default)

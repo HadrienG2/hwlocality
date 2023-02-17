@@ -584,7 +584,7 @@ impl TopologyObject {
     }
 }
 
-// Internal utilities
+// # Internal utilities
 impl TopologyObject {
     /// Iterate over a C-style linked list of child TopologyObjects
     unsafe fn iter_linked_children(

@@ -2,6 +2,7 @@
 
 pub mod bitmap;
 pub mod builder;
+pub mod cache;
 pub mod cpu;
 pub mod depth;
 pub mod editor;
@@ -15,6 +16,7 @@ use self::{bitmap::NodeSet, support::MiscSupport};
 use self::{
     bitmap::{Bitmap, BitmapKind, CpuSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
+    cache::CPUCacheStats,
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     editor::TopologyEditor,
@@ -89,6 +91,7 @@ pub(crate) struct RawTopology {
 /// - [Modifying a loaded topology](#modifying-a-loaded-topology)
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
+/// - [Cache object statistics](#cache-object-statistics)
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
@@ -1388,7 +1391,21 @@ impl Topology {
     }
 }
 
-/// # General-purpose internal utilities
+/// # Cache objects statistics
+impl Topology {
+    /// Get high-level CPU cache statistics
+    ///
+    /// These statistics can be used in scenarios where you're not yet ready for
+    /// full locality handling but just want to make sure that your algorithm
+    /// will use CPU caches sensibly no matter which CPU core it's running on.
+    ///
+    /// This API is unique to the Rust hwloc bindings.
+    pub fn cpu_cache_stats(&self) -> CPUCacheStats {
+        CPUCacheStats::new(self)
+    }
+}
+
+// # General-purpose internal utilities
 impl Topology {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_ptr(&self) -> *const RawTopology {
