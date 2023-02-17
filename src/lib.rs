@@ -12,7 +12,7 @@ pub mod objects;
 pub mod support;
 
 #[cfg(doc)]
-use self::{bitmap::NodeSet, support::MiscSupport};
+use self::support::MiscSupport;
 use self::{
     bitmap::{Bitmap, BitmapKind, CpuSet, NodeSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
