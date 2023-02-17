@@ -501,6 +501,22 @@ macro_rules! extern_c_block {
 
             // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
 
+            #[must_use]
+            pub(crate) fn hwloc_bitmap_singlify_per_core(
+                topology: *const RawTopology,
+                cpuset: *mut RawBitmap,
+                which: c_uint,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_get_obj_with_same_locality(
+                topology: *const RawTopology,
+                src: *const TopologyObject,
+                ty: RawObjectType,
+                subtype: *const c_char,
+                nameprefix: *const c_char,
+                flags: c_ulong,
+            ) -> *const TopologyObject;
+
             // TODO
 
             // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html

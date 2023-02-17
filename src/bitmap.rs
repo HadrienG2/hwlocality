@@ -2,7 +2,7 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
-use crate::ffi;
+use crate::{ffi, Topology};
 use derive_more::*;
 use libc::c_int;
 use std::{
@@ -170,6 +170,32 @@ impl SpecializedBitmap for CpuSet {
     const BITMAP_KIND: BitmapKind = BitmapKind::CpuSet;
 }
 
+/// # CpuSet-specific API
+impl CpuSet {
+    /// Remove simultaneous multithreading PUs from a CPU set
+    ///
+    /// For each core in `topology`, if this cpuset contains several PUs of that
+    /// core, modify it to only keep a single PU for that core.
+    ///
+    /// `which` specifies which PU will be kept, in physical index order. If it
+    /// is set to 0, for each core, the function keeps the first PU that was
+    /// originally set in `cpuset`. If it is larger than the number of PUs in a
+    /// core there were originally set in `cpuset`, no PU is kept for that core.
+    ///
+    /// PUs that are not below a Core object (for instance if the topology does
+    /// not contain any Core object) are kept in the cpuset.
+    pub fn singlify_per_core(&mut self, topology: &Topology, which: u32) {
+        let result = unsafe {
+            ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
+        };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_bitmap_singlify_per_core"
+        )
+    }
+}
+
+/// # CpuSet port of the Bitmap API
 impl CpuSet {
     /// Wraps an owned `CpuSet` from hwloc (see [`Bitmap::from_raw`])
     #[allow(unused)]

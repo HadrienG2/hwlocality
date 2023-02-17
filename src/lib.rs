@@ -14,7 +14,7 @@ pub mod support;
 #[cfg(doc)]
 use self::{bitmap::NodeSet, support::MiscSupport};
 use self::{
-    bitmap::{Bitmap, BitmapKind, CpuSet, RawBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, CpuSet, NodeSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
     cache::CPUCacheStats,
     cpu::{CpuBindingError, CpuBindingFlags},
@@ -25,7 +25,8 @@ use self::{
         MemoryBindingSetupError, RawMemoryBindingPolicy,
     },
     objects::{
-        types::{ObjectType, RawObjectType},
+        attributes::ObjectAttributes,
+        types::{CacheType, ObjectType, RawObjectType},
         TopologyObject,
     },
     support::TopologySupport,
@@ -33,8 +34,8 @@ use self::{
 use errno::{errno, Errno};
 use libc::{c_int, c_void, EINVAL};
 use num_enum::TryFromPrimitiveError;
-use objects::{attributes::ObjectAttributes, types::CacheType};
 use std::{
+    collections::HashMap,
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
@@ -86,12 +87,13 @@ pub(crate) struct RawTopology {
 ///
 /// - [Topology building](#topology-building)
 /// - [Object levels, depths and types](#object-levels-depths-and-types)
+/// - [CPU cache statistics](#cpu-cache-statistics)
 /// - [CPU binding](#cpu-binding)
 /// - [Memory binding](#memory-binding)
 /// - [Modifying a loaded topology](#modifying-a-loaded-topology)
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
-/// - [CPU cache statistics](#cpu-cache-statistics)
+/// - [Finding other objects](#finding-other-objects)
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
@@ -527,6 +529,20 @@ impl Topology {
             );
             unsafe { &*ptr }
         })
+    }
+}
+
+/// # CPU cache statistics
+impl Topology {
+    /// Compute high-level CPU cache statistics
+    ///
+    /// These statistics can be used in scenarios where you're not yet ready for
+    /// full locality-aware scheduling but just want to make sure that your code
+    /// will use CPU caches sensibly no matter which CPU core it's running on.
+    ///
+    /// This API is unique to the Rust hwloc bindings.
+    pub fn cpu_cache_stats(&self) -> CPUCacheStats {
+        CPUCacheStats::new(self)
     }
 }
 
@@ -1391,17 +1407,138 @@ impl Topology {
     }
 }
 
-/// # CPU cache statistics
+/// # Finding other objects
+//
+// This is inspired by the upstream functionality described at
+// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
+// but the code had to be ported to Rust because it's inline
 impl Topology {
-    /// Compute high-level CPU cache statistics
+    /// Get the object of type [`ObjectType::PU`] with the specified OS index
     ///
-    /// These statistics can be used in scenarios where you're not yet ready for
-    /// full locality-aware scheduling but just want to make sure that your code
-    /// will use CPU caches sensibly no matter which CPU core it's running on.
+    /// If you want to convert an entire CPU set into the PU objects it
+    /// contains, using `pus_from_cpuset` will be more efficient than repeatedly
+    /// calling this function with every OS index from the CpuSet.
+    pub fn pu_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
+        self.objects_with_type(ObjectType::PU)
+            .into_iter()
+            .find(|obj| obj.os_index() == Some(os_index))
+    }
+
+    /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
+    pub fn pus_from_cpuset(&self, cpuset: &CpuSet) -> Vec<&TopologyObject> {
+        let mut pus = self.objects_with_type(ObjectType::PU);
+        pus.retain(|pu| pu.os_index().map(|idx| cpuset.is_set(idx)).unwrap_or(false));
+        pus
+    }
+
+    /// Get the object of type [`ObjectType::NUMANode`] with the specified OS index
     ///
-    /// This API is unique to the Rust hwloc bindings.
-    pub fn cpu_cache_stats(&self) -> CPUCacheStats {
-        CPUCacheStats::new(self)
+    /// If you want to convert an entire NodeSet into the NUMANode objects it
+    /// contains, using `nodes_from_cpuset` will be more efficient than repeatedly
+    /// calling this function with every OS index from the NodeSet.
+    pub fn node_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
+        self.objects_with_type(ObjectType::NUMANode)
+            .into_iter()
+            .find(|obj| obj.os_index() == Some(os_index))
+    }
+
+    /// Get the objects of type [`ObjectType::NUMANode`] covered by the specified nodeset
+    pub fn nodes_from_nodeset(&self, nodeset: &NodeSet) -> Vec<&TopologyObject> {
+        let mut nodes = self.objects_with_type(ObjectType::NUMANode);
+        nodes.retain(|node| {
+            node.os_index()
+                .map(|idx| nodeset.is_set(idx))
+                .unwrap_or(false)
+        });
+        nodes
+    }
+
+    /// Enumerate objects at the same depth as `obj`, but with increasing
+    /// physical distance (i.e. from increasingly higher common ancestors in the
+    /// topology tree)
+    ///
+    /// This function is only available for objects with cpuset.
+    pub fn closest_objects<'result>(
+        &'result self,
+        obj: &'result TopologyObject,
+    ) -> impl Iterator<Item = &TopologyObject> + 'result {
+        // Interconversion between Option<&T> and *const T is safe as long as
+        // we don't exchange pointers or references with the outside
+        // world, because from the perspective of callers to this function, the
+        // borrow checker will forbid incorrect use.
+        let to_ptr = |obj: Option<&TopologyObject>| -> *const TopologyObject {
+            obj.map(|obj| obj as *const TopologyObject)
+                .unwrap_or(std::ptr::null())
+        };
+        let from_ptr = |obj: *const TopologyObject| -> Option<&TopologyObject> {
+            (!obj.is_null()).then(|| unsafe { &*obj })
+        };
+
+        // Using this interconversion, we can build a mapping from the currently
+        // probed ancestor depth (initially obj's parents, going up as needed)
+        // to transitive children other than ourselves at the same depth as obj.
+        let mut obj_ancestor = obj.parent();
+        let mut ancestor_ptr_to_cousins =
+            HashMap::<*const TopologyObject, Vec<&TopologyObject>>::new();
+        for cousin in self
+            .objects_at_depth(obj.depth())
+            .filter(|&candidate| !std::ptr::eq(candidate, obj))
+        {
+            ancestor_ptr_to_cousins
+                .entry(to_ptr(cousin.parent()))
+                .or_default()
+                .push(cousin);
+        }
+
+        // From this mapping, we can extract the list of our closest cousins
+        // under the current ancestor.
+        let extract_closest_cousins = move |ancestor_ptr_to_cousins: &mut HashMap<_, _>,
+                                            obj_ancestor| {
+            ancestor_ptr_to_cousins
+                .remove(&to_ptr(obj_ancestor))
+                .unwrap_or_default()
+        };
+        let mut closest_cousins =
+            extract_closest_cousins(&mut ancestor_ptr_to_cousins, obj_ancestor);
+
+        // And we reuse allocations for efficiency
+        let mut next_ancestor_ptr_to_cousins = HashMap::new();
+        let mut cousin_vecs = Vec::new();
+
+        // Emit output iterator
+        std::iter::from_fn(move || {
+            loop {
+                // As long as there are closest cousins, we yield them
+                if let Some(cousin) = closest_cousins.pop() {
+                    return Some(cousin);
+                }
+
+                // When we run out of closest cousins, we recycle the Vec...
+                cousin_vecs.push(std::mem::take(&mut closest_cousins));
+
+                // ...then we regenerate our ancestor -> cousin mapping one
+                // ancestor level higher, or finish iteration if we reached the
+                // root of the topology tree...
+                obj_ancestor = obj_ancestor?.parent();
+                for (ancestor_ptr, mut descendants) in ancestor_ptr_to_cousins.drain() {
+                    let Some(curr_ancestor) = from_ptr(ancestor_ptr) else { continue };
+                    let next_ancestor = curr_ancestor.parent();
+                    next_ancestor_ptr_to_cousins
+                        .entry(to_ptr(next_ancestor))
+                        .or_insert_with(|| cousin_vecs.pop().unwrap_or_default())
+                        .extend(descendants.drain(..));
+                    cousin_vecs.push(descendants);
+                }
+                std::mem::swap(
+                    &mut ancestor_ptr_to_cousins,
+                    &mut next_ancestor_ptr_to_cousins,
+                );
+
+                // ...and we find our cousins under that new ancestor
+                closest_cousins =
+                    extract_closest_cousins(&mut ancestor_ptr_to_cousins, obj_ancestor);
+            }
+        })
     }
 }
 
