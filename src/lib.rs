@@ -35,7 +35,6 @@ use errno::{errno, Errno};
 use libc::{c_int, c_void, EINVAL};
 use num_enum::TryFromPrimitiveError;
 use std::{
-    collections::HashMap,
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
@@ -1457,86 +1456,75 @@ impl Topology {
     /// physical distance (i.e. from increasingly higher common ancestors in the
     /// topology tree)
     ///
-    /// This function is only available for objects with cpuset.
+    /// # Panics
+    ///
+    /// `obj` should have a cpuset, this function will panic if that is not true.
     pub fn closest_objects<'result>(
         &'result self,
         obj: &'result TopologyObject,
     ) -> impl Iterator<Item = &TopologyObject> + 'result {
-        // Interconversion between Option<&T> and *const T is safe as long as
-        // we don't exchange pointers or references with the outside
-        // world, because from the perspective of callers to this function, the
-        // borrow checker will forbid incorrect use.
-        let to_ptr = |obj: Option<&TopologyObject>| -> *const TopologyObject {
-            obj.map(|obj| obj as *const TopologyObject)
-                .unwrap_or(std::ptr::null())
-        };
-        let from_ptr = |obj: *const TopologyObject| -> Option<&TopologyObject> {
-            (!obj.is_null()).then(|| unsafe { &*obj })
-        };
+        // Track which CPUs map into objects we don't want to report
+        // (current object or already reported object)
+        let mut known_cpuset = obj.cpuset().expect("Target object must have a cpuset");
 
-        // Using this interconversion, we can build a mapping from the currently
-        // probed ancestor depth (initially obj's parents, going up as needed)
-        // to transitive children other than ourselves at the same depth as obj.
-        let mut obj_ancestor = obj.parent();
-        let mut ancestor_ptr_to_cousins =
-            HashMap::<*const TopologyObject, Vec<&TopologyObject>>::new();
-        for cousin in self
-            .objects_at_depth(obj.depth())
-            .filter(|&candidate| !std::ptr::eq(candidate, obj))
-        {
-            ancestor_ptr_to_cousins
-                .entry(to_ptr(cousin.parent()))
-                .or_default()
-                .push(cousin);
+        // Assert that an object has a cpuset, return both
+        fn obj_and_cpuset<'obj>(
+            obj: &'obj TopologyObject,
+            error: &str,
+        ) -> (&'obj TopologyObject, &'obj CpuSet) {
+            (obj, obj.cpuset().expect(error))
         }
 
-        // From this mapping, we can extract the list of our closest cousins
-        // under the current ancestor.
-        let extract_closest_cousins = move |ancestor_ptr_to_cousins: &mut HashMap<_, _>,
-                                            obj_ancestor| {
-            ancestor_ptr_to_cousins
-                .remove(&to_ptr(obj_ancestor))
-                .unwrap_or_default()
-        };
-        let mut closest_cousins =
-            extract_closest_cousins(&mut ancestor_ptr_to_cousins, obj_ancestor);
+        // Find the first ancestor of an object that knows about more objects
+        // than that object, and return it along with its cpuset
+        fn find_larger_parent<'obj>(
+            known_obj: &'obj TopologyObject,
+            known_cpuset: &CpuSet,
+        ) -> Option<(&'obj TopologyObject, &'obj CpuSet)> {
+            known_obj
+                .ancestors()
+                .map(|ancestor| {
+                    obj_and_cpuset(
+                        ancestor,
+                        "Ancestors of an obj with a cpuset should have a cpuset",
+                    )
+                })
+                .find(|&(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
+        }
+        let mut ancestor_and_cpuset = find_larger_parent(&obj, &known_cpuset);
 
-        // And we reuse allocations for efficiency
-        let mut next_ancestor_ptr_to_cousins = HashMap::new();
-        let mut cousin_vecs = Vec::new();
+        // Prepare to jointly iterate over cousins and their cpusets
+        let cousins_and_cpusets = self
+            .objects_at_depth(obj.depth())
+            .map(|cousin| {
+                obj_and_cpuset(
+                    cousin,
+                    "Cousins of an obj with a cpuset should have a cpuset",
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut cousin_idx = 0;
 
-        // Emit output iterator
+        // Emit the final iterator
         std::iter::from_fn(move || {
+            let (ancestor, ancestor_cpuset) = ancestor_and_cpuset?;
             loop {
-                // As long as there are closest cousins, we yield them
-                if let Some(cousin) = closest_cousins.pop() {
-                    return Some(cousin);
+                // Look for a cousin that is part of ancestor_cpuset but not known_cpuset
+                while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.get(cousin_idx) {
+                    cousin_idx += 1;
+                    if ancestor_cpuset.includes(cousin_cpuset)
+                        && !known_cpuset.includes(cousin_cpuset)
+                    {
+                        return Some(*cousin);
+                    }
                 }
 
-                // When we run out of closest cousins, we recycle the Vec...
-                cousin_vecs.push(std::mem::take(&mut closest_cousins));
-
-                // ...then we regenerate our ancestor -> cousin mapping one
-                // ancestor level higher, or finish iteration if we reached the
-                // root of the topology tree...
-                obj_ancestor = obj_ancestor?.parent();
-                for (ancestor_ptr, mut descendants) in ancestor_ptr_to_cousins.drain() {
-                    let Some(curr_ancestor) = from_ptr(ancestor_ptr) else { continue };
-                    let next_ancestor = curr_ancestor.parent();
-                    next_ancestor_ptr_to_cousins
-                        .entry(to_ptr(next_ancestor))
-                        .or_insert_with(|| cousin_vecs.pop().unwrap_or_default())
-                        .extend(descendants.drain(..));
-                    cousin_vecs.push(descendants);
-                }
-                std::mem::swap(
-                    &mut ancestor_ptr_to_cousins,
-                    &mut next_ancestor_ptr_to_cousins,
-                );
-
-                // ...and we find our cousins under that new ancestor
-                closest_cousins =
-                    extract_closest_cousins(&mut ancestor_ptr_to_cousins, obj_ancestor);
+                // We ran out of cousins and must go up one ancestor level
+                let known_obj = ancestor;
+                known_cpuset = ancestor_cpuset;
+                let (ancestor, ancestor_cpuset) = find_larger_parent(&known_obj, &known_cpuset)?;
+                ancestor_and_cpuset = Some((ancestor, ancestor_cpuset));
+                cousin_idx = 0;
             }
         })
     }
