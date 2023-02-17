@@ -18,8 +18,8 @@ const DATA_CACHE_LEVELS: &[ObjectType] = &[
 /// CPU cache statistics
 ///
 /// These statistics can be used in scenarios where you're not yet ready for
-/// full locality handling but just want to make sure that your algorithm will
-/// use CPU caches sensibly no matter which CPU core it's running on.
+/// full locality-aware scheduling but just want to make sure that your code
+/// will use CPU caches sensibly no matter which CPU core it's running on.
 pub struct CPUCacheStats {
     /// Size of the smallest caches of each type
     smallest_data_cache_sizes: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,

@@ -1393,10 +1393,10 @@ impl Topology {
 
 /// # CPU cache statistics
 impl Topology {
-    /// Get high-level CPU cache statistics
+    /// Compute high-level CPU cache statistics
     ///
     /// These statistics can be used in scenarios where you're not yet ready for
-    /// full locality handling but just want to make sure that your algorithm
+    /// full locality-aware scheduling but just want to make sure that your code
     /// will use CPU caches sensibly no matter which CPU core it's running on.
     ///
     /// This API is unique to the Rust hwloc bindings.
