@@ -91,7 +91,7 @@ pub(crate) struct RawTopology {
 /// - [Modifying a loaded topology](#modifying-a-loaded-topology)
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
-/// - [Cache object statistics](#cache-object-statistics)
+/// - [CPU cache statistics](#cpu-cache-statistics)
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
@@ -361,7 +361,7 @@ impl Topology {
     /// attributes match `cache_level` and `cache_type`.
     ///
     /// This function is similar to calling [`Topology::depth_for_type()`] with
-    /// the corresponding type such as [`ObjectType::L1ICache`], except that it
+    /// the corresponding type such as [`ObjectType::L1iCache`], except that it
     /// may also return a unified cache when looking for an instruction cache.
     ///
     /// If `cache_type` is `None`, it is ignored and multiple levels may match.
@@ -1391,7 +1391,7 @@ impl Topology {
     }
 }
 
-/// # Cache objects statistics
+/// # CPU cache statistics
 impl Topology {
     /// Get high-level CPU cache statistics
     ///
