@@ -28,4 +28,4 @@ pkg-config = "0.3.8"
 
 [target.'cfg(windows)'.dependencies]
 kernel32-sys = "0.2"
-winapi = "0.2"
+winapi = "0.3"
