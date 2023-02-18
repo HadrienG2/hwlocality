@@ -19,7 +19,6 @@ bitflags = "1.0"
 derive_more = "0.99"
 errno = "0.3"
 libc = "0.2"
-num = { version = "0.1", default-features = false }
 num_enum = "0.5"
 thiserror = "1.0"
 
