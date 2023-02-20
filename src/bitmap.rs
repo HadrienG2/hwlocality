@@ -13,15 +13,12 @@ use std::{
     iter::FromIterator,
     marker::{PhantomData, PhantomPinned},
     ops::{
-        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Deref, DerefMut,
-        Not, RangeBounds,
+        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
     },
 };
 
 /// Trait for manipulating specialized bitmaps in a homogeneous way
-pub trait SpecializedBitmap:
-    Deref<Target = Bitmap> + DerefMut<Target = Bitmap> + From<Bitmap>
-{
+pub trait SpecializedBitmap: AsRef<Bitmap> + AsMut<Bitmap> + From<Bitmap> + Into<Bitmap> {
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;
 }
@@ -38,6 +35,241 @@ pub enum BitmapKind {
 
 macro_rules! impl_newtype_ops {
     ($newtype:ident) => {
+        /// # Re-export of the Bitmap API
+        ///
+        /// Only documentation headers are repeated here, you will find the
+        /// build of the documentation in identically named `Bitmap` methods.
+        impl $newtype {
+            /// Wrap an owned bitmap from hwloc
+            ///
+            /// See [`Bitmap::from_raw`].
+            #[allow(unused)]
+            pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
+                Bitmap::from_raw(bitmap).map(Self::from)
+            }
+
+            /// Wrap an hwloc-originated borrowed bitmap pointer
+            ///
+            /// See [`Bitmap::borrow_from_raw`].
+            #[allow(unused)]
+            pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
+                std::mem::transmute::<Option<&Bitmap>, Option<&Self>>(Bitmap::borrow_from_raw(
+                    bitmap,
+                ))
+            }
+
+            /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+            ///
+            /// See [`Bitmap::as_ptr`].
+            pub(crate) fn as_ptr(&self) -> *const RawBitmap {
+                self.0.as_ptr()
+            }
+
+            /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+            ///
+            /// See [`Bitmap::as_mut_ptr`].
+            #[allow(unused)]
+            pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
+                self.0.as_mut_ptr()
+            }
+
+            /// Create an empty bitmap
+            ///
+            /// See [`Bitmap::new`].
+            pub fn new() -> Self {
+                Self::from(Bitmap::new())
+            }
+
+            /// Create a full bitmap
+            ///
+            /// See [`Bitmap::full`].
+            pub fn full() -> Self {
+                Self::from(Bitmap::full())
+            }
+
+            /// Creates a new bitmap with the given range of indices set
+            ///
+            /// See [`Bitmap::from_range`].
+            pub fn from_range(range: impl RangeBounds<u32>) -> Self {
+                Self::from(Bitmap::from_range(range))
+            }
+
+            /// Turn this bitmap into a copy of another bitmap
+            ///
+            /// See [`Bitmap::copy_from`].
+            pub fn copy_from(&mut self, other: &Self) {
+                self.0.copy_from(&other.0)
+            }
+
+            /// Clear all indices
+            ///
+            /// See [`Bitmap::clear`].
+            pub fn clear(&mut self) {
+                self.0.clear()
+            }
+
+            /// Set all indices
+            ///
+            /// See [`Bitmap::fill`].
+            pub fn fill(&mut self) {
+                self.0.fill()
+            }
+
+            /// Clear all indices except for the `id`, which is set
+            ///
+            /// See [`Bitmap::set_only`].
+            pub fn set_only(&mut self, id: u32) {
+                self.0.set_only(id)
+            }
+
+            /// Set all indices except for `id`, which is cleared
+            ///
+            /// See [`Bitmap::set_all_but`].
+            pub fn set_all_but(&mut self, id: u32) {
+                self.0.set_all_but(id)
+            }
+
+            /// Set index `id`
+            ///
+            /// See [`Bitmap::set`].
+            pub fn set(&mut self, id: u32) {
+                self.0.set(id)
+            }
+
+            /// Set indexes covered by `range`
+            ///
+            /// See [`Bitmap::set_range`].
+            pub fn set_range(&mut self, range: impl RangeBounds<u32>) {
+                self.0.set_range(range)
+            }
+
+            /// Clear index `id`
+            ///
+            /// See [`Bitmap::unset`].
+            pub fn unset(&mut self, id: u32) {
+                self.0.unset(id)
+            }
+
+            /// Clear indexes covered by `range`
+            ///
+            /// See [`Bitmap::unset_range`].
+            pub fn unset_range(&mut self, range: impl RangeBounds<u32>) {
+                self.0.unset_range(range)
+            }
+
+            /// Keep a single index among those set in the bitmap
+            ///
+            /// See [`Bitmap::singlify`].
+            pub fn singlify(&mut self) {
+                self.0.singlify()
+            }
+
+            /// Check if index `id` is set
+            ///
+            /// See [`Bitmap::is_set`].
+            pub fn is_set(&self, id: u32) -> bool {
+                self.0.is_set(id)
+            }
+
+            /// Check if all indices are unset
+            ///
+            /// See [`Bitmap::is_empty`].
+            pub fn is_empty(&self) -> bool {
+                self.0.is_empty()
+            }
+
+            /// Check if all indices are set
+            ///
+            /// See [`Bitmap::is_full`].
+            pub fn is_full(&self) -> bool {
+                self.0.is_full()
+            }
+
+            /// Check the first set index, if any
+            ///
+            /// See [`Bitmap::first_set`].
+            pub fn first_set(&self) -> Option<u32> {
+                self.0.first_set()
+            }
+
+            /// Iterate over set indices
+            ///
+            /// See [`Bitmap::iter_set`].
+            pub fn iter_set(&self) -> impl Iterator<Item = u32> + '_ {
+                self.0.iter_set()
+            }
+
+            /// Check the last set index, if any
+            ///
+            /// See [`Bitmap::last_set`].
+            pub fn last_set(&self) -> Option<u32> {
+                self.0.last_set()
+            }
+
+            /// The number of indexes that are set in the bitmap.
+            ///
+            /// See [`Bitmap::weight`].
+            pub fn weight(&self) -> Option<u32> {
+                self.0.weight()
+            }
+
+            /// Check the first unset index, if any
+            ///
+            /// See [`Bitmap::first_unset`].
+            pub fn first_unset(&self) -> Option<u32> {
+                self.0.first_unset()
+            }
+
+            /// Iterate over unset indices
+            ///
+            /// See [`Bitmap::iter_unset`].
+            pub fn iter_unset(&self) -> impl Iterator<Item = u32> + '_ {
+                self.0.iter_unset()
+            }
+
+            /// Check the last unset index, if any
+            ///
+            /// See [`Bitmap::last_unset`].
+            pub fn last_unset(&self) -> Option<u32> {
+                self.0.last_unset()
+            }
+
+            /// Optimized `self & !rhs`
+            ///
+            /// See [`Bitmap::and_not`].
+            pub fn and_not(&self, rhs: &Self) -> Self {
+                Self(self.0.and_not(&rhs.0))
+            }
+
+            /// Optimized `*self &= !rhs`
+            ///
+            /// See [`Bitmap::and_not_assign`].
+            pub fn and_not_assign(&mut self, rhs: &Self) {
+                self.0.and_not_assign(&rhs.0)
+            }
+
+            /// Inverts the current `Bitmap`.
+            ///
+            /// See [`Bitmap::invert`].
+            pub fn invert(&mut self) {
+                self.0.invert()
+            }
+
+            /// Truth that `self` and `rhs` have some set indices in common
+            ///
+            /// See [`Bitmap::intersects`].
+            pub fn intersects(&self, rhs: &Self) -> bool {
+                self.0.intersects(&rhs.0)
+            }
+
+            /// Truth that the indices set in `inner` are a subset of those set in `self`
+            ///
+            /// See [`Bitmap::includes`].
+            pub fn includes(&self, inner: &Self) -> bool {
+                self.0.includes(&inner.0)
+            }
+        }
+
         impl Not for &$newtype {
             type Output = $newtype;
 
@@ -151,8 +383,6 @@ macro_rules! impl_newtype_ops {
     Clone,
     Debug,
     Default,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     From,
@@ -195,161 +425,6 @@ impl CpuSet {
     }
 }
 
-/// # CpuSet port of the Bitmap API
-impl CpuSet {
-    /// Wraps an owned `CpuSet` from hwloc (see [`Bitmap::from_raw`])
-    #[allow(unused)]
-    pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
-        Bitmap::from_raw(bitmap).map(Self::from)
-    }
-
-    /// Wraps an hwloc-originated borrowed `CpuSet` pointer (see
-    /// [`Bitmap::borrow_from_raw`])
-    #[allow(unused)]
-    pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
-        std::mem::transmute::<Option<&Bitmap>, Option<&Self>>(Bitmap::borrow_from_raw(bitmap))
-    }
-
-    /// Creates an empty `CpuSet`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset = CpuSet::new();
-    /// assert_eq!("", format!("{}", cpuset));
-    /// assert_eq!(true, cpuset.is_empty());
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn new() -> Self {
-        Self::from(Bitmap::new())
-    }
-
-    /// Creates a full `CpuSet`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset = CpuSet::full();
-    /// assert_eq!("0-", format!("{}", cpuset));
-    /// assert_eq!(false, cpuset.is_empty());
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn full() -> Self {
-        Self::from(Bitmap::full())
-    }
-
-    /// Creates a new `CpuSet` with the given range of indices set
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset = CpuSet::from_range(0..=5);
-    /// assert_eq!("0-5", format!("{}", cpuset));
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn from_range(range: impl RangeBounds<u32>) -> Self {
-        Self::from(Bitmap::from_range(range))
-    }
-
-    /// Turn this `CpuSet` into a copy of another `CpuSet`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset = CpuSet::from_range(0..=5);
-    /// let mut cpuset2 = CpuSet::new();
-    /// cpuset2.copy_from(&cpuset);
-    /// assert_eq!("0-5", format!("{}", cpuset2));
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn copy_from(&mut self, other: &Self) {
-        self.0.copy_from(&other.0)
-    }
-
-    /// Optimized `self & !rhs`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset = CpuSet::from_range(4..=10);
-    /// let cpuset2 = CpuSet::from_range(5..=6);
-    /// let result = cpuset.and_not(&cpuset2);
-    /// assert_eq!(cpuset.and_not(&cpuset2), cpuset & !cpuset2);
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn and_not(&self, rhs: &Self) -> Self {
-        Self(self.0.and_not(&rhs.0))
-    }
-
-    /// Optimized `*self &= !rhs`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset = CpuSet::from_range(4..=10);
-    /// let mut cpuset2 = cpuset.clone();
-    /// let rhs = CpuSet::from_range(5..=6);
-    /// cpuset2.and_not_assign(&rhs);
-    /// assert_eq!(cpuset2, cpuset.and_not(&rhs));
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn and_not_assign(&mut self, rhs: &Self) {
-        self.0.and_not_assign(&rhs.0)
-    }
-
-    /// Truth that `self` and `rhs` have some set indices in common
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset1 = CpuSet::from_range(1..3);
-    /// let cpuset2 = CpuSet::from_range(3..6);
-    /// assert!(!cpuset1.intersects(&cpuset2));
-    ///
-    /// let cpuset3 = CpuSet::from_range(2..4);
-    /// assert!(cpuset1.intersects(&cpuset3));
-    /// assert!(cpuset2.intersects(&cpuset3));
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn intersects(&self, rhs: &Self) -> bool {
-        self.0.intersects(&rhs.0)
-    }
-
-    /// Truth that the indices set in `inner` are a subset of those set in `self`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::CpuSet;
-    ///
-    /// let cpuset1 = CpuSet::from_range(3..8);
-    /// let cpuset2 = CpuSet::from_range(5..9);
-    /// assert!(!cpuset1.includes(&cpuset2));
-    ///
-    /// let cpuset3 = CpuSet::from_range(4..8);
-    /// assert!(cpuset1.includes(&cpuset3));
-    /// assert!(!cpuset2.includes(&cpuset3));
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn includes(&self, inner: &Self) -> bool {
-        self.0.includes(&inner.0)
-    }
-}
-
 impl_newtype_ops!(CpuSet);
 
 /// A `NodeSet` is a [`Bitmap`] whose bits are set according to NUMA memory node
@@ -366,8 +441,6 @@ impl_newtype_ops!(CpuSet);
     Clone,
     Debug,
     Default,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     From,
@@ -383,160 +456,6 @@ pub struct NodeSet(Bitmap);
 
 impl SpecializedBitmap for NodeSet {
     const BITMAP_KIND: BitmapKind = BitmapKind::NodeSet;
-}
-
-impl NodeSet {
-    /// Wraps an owned `NodeSet` from hwloc (see [`Bitmap::from_raw`])
-    #[allow(unused)]
-    pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
-        Bitmap::from_raw(bitmap).map(Self::from)
-    }
-
-    /// Wraps an hwloc-originated borrowed `NodeSet` pointer (see
-    /// [`Bitmap::borrow_from_raw`])
-    #[allow(unused)]
-    pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
-        std::mem::transmute::<Option<&Bitmap>, Option<&Self>>(Bitmap::borrow_from_raw(bitmap))
-    }
-
-    /// Creates an empty `NodeSet`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset = NodeSet::new();
-    /// assert_eq!("", format!("{}", nodeset));
-    /// assert_eq!(true, nodeset.is_empty());
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn new() -> Self {
-        Self::from(Bitmap::new())
-    }
-
-    /// Creates a full `NodeSet`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset = NodeSet::full();
-    /// assert_eq!("0-", format!("{}", nodeset));
-    /// assert_eq!(false, nodeset.is_empty());
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn full() -> Self {
-        Self::from(Bitmap::full())
-    }
-
-    /// Creates a new `NodeSet` with the given range of indices set
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset = NodeSet::from_range(0..=5);
-    /// assert_eq!("0-5", format!("{}", nodeset));
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn from_range(range: impl RangeBounds<u32>) -> Self {
-        Self::from(Bitmap::from_range(range))
-    }
-
-    /// Turn this `NodeSet` into a copy of another `NodeSet`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset = NodeSet::from_range(0..=5);
-    /// let mut nodeset2 = NodeSet::new();
-    /// nodeset2.copy_from(&nodeset);
-    /// assert_eq!("0-5", format!("{}", nodeset2));
-    // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn copy_from(&mut self, other: &Self) {
-        self.0.copy_from(&other.0)
-    }
-
-    /// Optimized `self & !rhs`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset = NodeSet::from_range(4..=10);
-    /// let nodeset2 = NodeSet::from_range(5..=6);
-    /// let result = nodeset.and_not(&nodeset2);
-    /// assert_eq!(nodeset.and_not(&nodeset2), nodeset & !nodeset2);
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn and_not(&self, rhs: &Self) -> Self {
-        Self(self.0.and_not(&rhs.0))
-    }
-
-    /// Optimized `*self &= !rhs`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset = NodeSet::from_range(4..=10);
-    /// let mut nodeset2 = nodeset.clone();
-    /// let rhs = NodeSet::from_range(5..=6);
-    /// nodeset2.and_not_assign(&rhs);
-    /// assert_eq!(nodeset2, nodeset.and_not(&rhs));
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn and_not_assign(&mut self, rhs: &Self) {
-        self.0.and_not_assign(&rhs.0)
-    }
-
-    /// Truth that `self` and `rhs` have some set indices in common
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset1 = NodeSet::from_range(1..3);
-    /// let nodeset2 = NodeSet::from_range(3..6);
-    /// assert!(!nodeset1.intersects(&nodeset2));
-    ///
-    /// let nodeset3 = NodeSet::from_range(2..4);
-    /// assert!(nodeset1.intersects(&nodeset3));
-    /// assert!(nodeset2.intersects(&nodeset3));
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn intersects(&self, rhs: &Self) -> bool {
-        self.0.intersects(&rhs.0)
-    }
-
-    /// Truth that the indices set in `inner` are a subset of those set in `self`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwloc2::bitmap::NodeSet;
-    ///
-    /// let nodeset1 = NodeSet::from_range(3..8);
-    /// let nodeset2 = NodeSet::from_range(5..9);
-    /// assert!(!nodeset1.includes(&nodeset2));
-    ///
-    /// let nodeset3 = NodeSet::from_range(4..8);
-    /// assert!(nodeset1.includes(&nodeset3));
-    /// assert!(!nodeset2.includes(&nodeset3));
-    /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
-    pub fn includes(&self, inner: &Self) -> bool {
-        self.0.includes(&inner.0)
-    }
 }
 
 impl_newtype_ops!(NodeSet);
@@ -563,6 +482,8 @@ pub(crate) struct RawBitmap {
 #[repr(transparent)]
 pub struct Bitmap(*mut RawBitmap);
 
+// NOTE: Remember to keep the method signatures and first doc lines in
+//       impl_newtype_ops in sync with what's going on below.
 impl Bitmap {
     // === FFI interoperability ===
 
@@ -610,7 +531,6 @@ impl Bitmap {
     /// assert_eq!("", format!("{}", bitmap));
     /// assert_eq!(true, bitmap.is_empty());
     // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn new() -> Self {
         unsafe {
             Self::from_raw(ffi::hwloc_bitmap_alloc())
@@ -629,7 +549,6 @@ impl Bitmap {
     /// assert_eq!("0-", format!("{}", bitmap));
     /// assert_eq!(false, bitmap.is_empty());
     // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn full() -> Self {
         unsafe {
             Self::from_raw(ffi::hwloc_bitmap_alloc_full())
@@ -647,14 +566,11 @@ impl Bitmap {
     /// let bitmap = Bitmap::from_range(0..=5);
     /// assert_eq!("0-5", format!("{}", bitmap));
     // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn from_range(range: impl RangeBounds<u32>) -> Self {
         let mut bitmap = Self::new();
         bitmap.set_range(range);
         bitmap
     }
-
-    // NOTE: When adding new constructors, add them to *Set too for consistency
 
     // === Getters and setters ===
 
@@ -670,7 +586,6 @@ impl Bitmap {
     /// bitmap2.copy_from(&bitmap);
     /// assert_eq!("0-5", format!("{}", bitmap2));
     // ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn copy_from(&mut self, other: &Self) {
         let result = unsafe { ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr()) };
         assert!(
@@ -678,8 +593,6 @@ impl Bitmap {
             "hwloc_bitmap_copy returned error code {result}"
         );
     }
-
-    // NOTE: When adding new methodes with Self, add them to *Set too for consistency
 
     /// Clear all indices
     ///
@@ -1102,7 +1015,6 @@ impl Bitmap {
     /// let result = bitmap.and_not(&bitmap2);
     /// assert_eq!(bitmap.and_not(&bitmap2), bitmap & !bitmap2);
     /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not(&self, rhs: &Self) -> Self {
         let mut result = Self::new();
         let code =
@@ -1124,14 +1036,11 @@ impl Bitmap {
     /// bitmap2.and_not_assign(&rhs);
     /// assert_eq!(bitmap2, bitmap.and_not(&rhs));
     /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn and_not_assign(&mut self, rhs: &Self) {
         let code =
             unsafe { ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
         assert!(code >= 0, "hwloc_bitmap_andnot returned error code {code}");
     }
-
-    // NOTE: When adding new methodes with Self, add them to *Set too for consistency
 
     /// Inverts the current `Bitmap`.
     ///
@@ -1166,7 +1075,6 @@ impl Bitmap {
     /// assert!(bitmap1.intersects(&bitmap3));
     /// assert!(bitmap2.intersects(&bitmap3));
     /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn intersects(&self, rhs: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr()) };
         assert!(
@@ -1191,7 +1099,6 @@ impl Bitmap {
     /// assert!(bitmap1.includes(&bitmap3));
     /// assert!(!bitmap2.includes(&bitmap3));
     /// ```
-    // NOTE: Keep matching docs in sync between CpuSet, NodeSet and Bitmap
     pub fn includes(&self, inner: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr()) };
         assert!(
@@ -1201,7 +1108,7 @@ impl Bitmap {
         result == 1
     }
 
-    // NOTE: When adding new methodes with Self, add them to *Set too for consistency
+    // NOTE: When adding new methodes, remember to add them to impl_newtype_ops too
 
     // === Implementation details ===
 

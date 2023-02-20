@@ -719,8 +719,13 @@ impl Topology {
     ) -> Result<Bytes, MemoryBindingSetupError> {
         Self::adjust_flags_for::<Set>(&mut flags);
         unsafe {
-            let base =
-                ffi::hwloc_alloc_membind(self.as_ptr(), len, set.as_ptr(), policy.into(), flags);
+            let base = ffi::hwloc_alloc_membind(
+                self.as_ptr(),
+                len,
+                set.as_ref().as_ptr(),
+                policy.into(),
+                flags,
+            );
             Bytes::wrap(self, base, len).ok_or_else(MemoryBindingSetupError::from_errno)
         }
     }
@@ -1085,7 +1090,7 @@ impl Topology {
         ) -> c_int,
     ) -> Result<(), MemoryBindingSetupError> {
         Self::adjust_flags_for::<Set>(&mut flags);
-        let result = set_membind_like(self.as_ptr(), set.as_ptr(), policy.into(), flags);
+        let result = set_membind_like(self.as_ptr(), set.as_ref().as_ptr(), policy.into(), flags);
         memory::setup_result(result)
     }
 
