@@ -1363,13 +1363,13 @@ impl Topology {
         // Walk the topoogy tree until we find an object included into set
         let mut parent = root;
         let mut parent_cpuset = root_cpuset;
-        while !set.includes(&parent_cpuset) {
+        while !set.includes(parent_cpuset) {
             // While the object intersects without being included, look at children
             let old_parent = parent;
             for child in parent.normal_children() {
                 if let Some(child_cpuset) = child.cpuset() {
                     // This child intersects, make it the new parent and recurse
-                    if set.intersects(&child_cpuset) {
+                    if set.intersects(child_cpuset) {
                         parent = child;
                         parent_cpuset = child_cpuset;
                     }
@@ -1404,7 +1404,7 @@ impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
         let object_cpuset = object
             .cpuset()
             .expect("Output of first_largest_object_inside_cpuset should have a cpuset");
-        self.set.and_not_assign(&object_cpuset);
+        self.set.and_not_assign(object_cpuset);
         Some(object)
     }
 }
@@ -1601,7 +1601,7 @@ impl Topology {
                 })
                 .find(|&(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
         }
-        let mut ancestor_and_cpuset = find_larger_parent(&obj, &known_cpuset);
+        let mut ancestor_and_cpuset = find_larger_parent(obj, known_cpuset);
 
         // Prepare to jointly iterate over cousins and their cpusets
         let cousins_and_cpusets = self
@@ -1633,7 +1633,7 @@ impl Topology {
                 // iteration if we reached the top of the tree.
                 let known_obj = ancestor;
                 known_cpuset = ancestor_cpuset;
-                let (ancestor, ancestor_cpuset) = find_larger_parent(&known_obj, &known_cpuset)?;
+                let (ancestor, ancestor_cpuset) = find_larger_parent(known_obj, known_cpuset)?;
                 ancestor_and_cpuset = Some((ancestor, ancestor_cpuset));
                 cousin_idx = 0;
             }

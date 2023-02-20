@@ -1164,9 +1164,6 @@ impl Bitmap {
     }
 }
 
-unsafe impl Send for Bitmap {}
-unsafe impl Sync for Bitmap {}
-
 impl BitAnd<&Bitmap> for &Bitmap {
     type Output = Bitmap;
 
@@ -1472,6 +1469,9 @@ impl PartialOrd for Bitmap {
         Some(self.cmp(other))
     }
 }
+
+unsafe impl Send for Bitmap {}
+unsafe impl Sync for Bitmap {}
 
 #[cfg(test)]
 mod tests {

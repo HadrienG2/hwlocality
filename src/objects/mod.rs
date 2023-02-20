@@ -261,8 +261,7 @@ impl TopologyObject {
 
         // Otherwise, walk the ancestor chain
         self.ancestors()
-            .find(|&ancestor| ptr::eq(ancestor, subtree_root))
-            .is_some()
+            .any(|ancestor| ptr::eq(ancestor, subtree_root))
     }
 
     /// Get the first data (or unified) CPU cache shared between this object and
