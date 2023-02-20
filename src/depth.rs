@@ -15,7 +15,7 @@ use thiserror::Error;
 pub(crate) type RawDepth = c_int;
 
 /// Valid object/type depth values
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Depth {
     /// Depth of a normal object (not Memory, I/O or Misc)
     Normal(u32),
@@ -109,7 +109,7 @@ impl From<Depth> for RawDepth {
 }
 
 /// Error from an hwloc depth query
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum DepthError {
     /// No object of given type exists in the topology
     #[error("no object of given type exists in the topology")]

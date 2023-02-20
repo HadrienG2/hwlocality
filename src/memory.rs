@@ -82,7 +82,7 @@ bitflags! {
 
 impl Default for MemoryBindingFlags {
     fn default() -> Self {
-        Self::BY_NODE_SET
+        Self::empty()
     }
 }
 
@@ -136,7 +136,7 @@ pub enum MemoryBindingPolicy {
 }
 
 /// Errors that can occur when binding memory to NUMA nodes
-#[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum MemoryBindingSetupError {
     /// Requested action or policy is not supported
     ///
@@ -195,7 +195,7 @@ pub(crate) fn setup_result(result: i32) -> Result<(), MemoryBindingSetupError> {
 }
 
 /// Errors that can occur when querying current memory binding status
-#[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum MemoryBindingQueryError {
     /// Memory policies and nodesets vary from one thread to another
     ///

@@ -318,6 +318,12 @@ bitflags! {
     }
 }
 
+impl Default for RestrictFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 /// Requested adjustment to the allowed set of PUs and NUMA nodes
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AllowSet<'set> {
@@ -361,7 +367,7 @@ impl fmt::Display for AllowSet<'_> {
 }
 
 /// Control merging of newly inserted groups with existing objects
-#[derive(Copy, Clone, Debug, Display, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another
     /// hierarchically-identical object
@@ -400,6 +406,6 @@ pub enum GroupInsertResult<'topology> {
 }
 
 /// A method was passed an invalid parameter
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("invalid parameter specified")]
 pub struct InvalidParameter;

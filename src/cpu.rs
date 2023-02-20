@@ -73,7 +73,7 @@ impl Default for CpuBindingFlags {
 }
 
 /// Errors that can occur when binding processes or threads to CPUSets
-#[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum CpuBindingError {
     /// Action is not supported
     ///

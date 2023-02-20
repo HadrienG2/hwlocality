@@ -4,7 +4,7 @@
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
 
 use crate::ffi;
-use std::{ffi::c_uchar, fmt};
+use std::{ffi::c_uchar, fmt, hash::Hash, ptr};
 
 /// Set of flags describing actual support for this topology
 #[repr(C)]
@@ -14,7 +14,7 @@ pub struct TopologySupport {
     membind: *const MemoryBindingSupport,
     misc: *const MiscSupport,
 }
-
+//
 impl TopologySupport {
     /// Flags describing actual discovery support for this topology
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
@@ -36,7 +36,18 @@ impl TopologySupport {
         unsafe { ffi::deref_ptr(&self.misc) }
     }
 }
-
+//
+impl Default for TopologySupport {
+    fn default() -> Self {
+        Self {
+            discovery: ptr::null(),
+            cpubind: ptr::null(),
+            membind: ptr::null(),
+            misc: ptr::null(),
+        }
+    }
+}
+//
 impl fmt::Debug for TopologySupport {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("TopologySupport")
@@ -47,10 +58,30 @@ impl fmt::Debug for TopologySupport {
             .finish()
     }
 }
+//
+impl Hash for TopologySupport {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.discovery().hash(state);
+        self.cpu_binding().hash(state);
+        self.memory_binding().hash(state);
+        self.misc().hash(state);
+    }
+}
+//
+impl PartialEq for TopologySupport {
+    fn eq(&self, other: &Self) -> bool {
+        self.discovery() == other.discovery()
+            && self.cpu_binding() == other.cpu_binding()
+            && self.memory_binding() == other.memory_binding()
+            && self.misc() == other.misc()
+    }
+}
+//
+impl Eq for TopologySupport {}
 
 /// Flags describing actual discovery support for this topology
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct DiscoverySupport {
     pu: c_uchar,
     numa: c_uchar,
@@ -99,7 +130,7 @@ impl DiscoverySupport {
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CpuBindingSupport {
     set_thisproc_cpubind: c_uchar,
     get_thisproc_cpubind: c_uchar,
@@ -176,7 +207,7 @@ impl CpuBindingSupport {
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MemoryBindingSupport {
     set_thisproc_membind: c_uchar,
     get_thisproc_membind: c_uchar,
@@ -280,7 +311,7 @@ impl MemoryBindingSupport {
 
 /// Flags describing miscellaneous features
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MiscSupport {
     imported_support: c_uchar,
 }

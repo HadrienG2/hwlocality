@@ -97,6 +97,8 @@ pub(crate) struct RawTopology {
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
 /// - [Finding other objects](#finding-other-objects)
+/// - [Distributing items over a topology](#distributing-items-over-a-topology)
+#[derive(Debug)]
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
@@ -1728,6 +1730,82 @@ impl Topology {
             )
         };
         (!ptr.is_null()).then(|| unsafe { &*ptr })
+    }
+}
+
+/// # Distributing items over a topology
+//
+// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html,
+// but the inline header implementation had to be rewritten in Rust.
+impl Topology {
+    /// Distribute `num_sets` items over the topology under `roots`
+    ///
+    /// This function will return `num_sets` cpusets recursively distributed
+    /// linearly over the topology, under objects `roots`.
+    ///
+    /// To distribute over the entire topology, just pass `&[self.root_object()]`
+    /// as the `roots` parameter.
+    ///
+    /// If there is no depth limit, which is achieved by setting `max_depth` to
+    /// `u32::MAX`, the distribution is done down to the depth where there is
+    /// only one CPU to distribute, which is similar to the following bitmap
+    /// manipulation...
+    ///
+    /// ```
+    /// # let topology = Topology::new().unwrap();
+    /// # let roots = &[topology.root_object()];
+    /// let cpusets =
+    ///     roots.iter()
+    ///         .flat_map(|root| root.cpuset().unwrap_or_else(CpuSet::new()))
+    ///         .map(|idx| CpuSet::from(idx))
+    ///         .collect::<Vec<_>>();
+    /// ```
+    ///
+    /// ...except the cpusets will be returned in hwloc's logical index order,
+    /// not in OS index order, so neighbouring cpusets in the output Vec are
+    /// adjacent in the hardware topology and have a high chance of sharing
+    /// resources like L3 caches.
+    ///
+    /// By setting the `max_depth` parameter to a lower limit, one can ensure
+    /// that once the desired depth is reached or passed, distribution stops and
+    /// one copy of the associated cpuset is returned per CPU core inside the
+    /// cpuset at that depth.
+    ///
+    /// A typical use of this function is to distribute n threads over a
+    /// machine, giving each of them as much private cache as possible and
+    /// keeping them locally in number order.
+    ///
+    /// The caller may typically want to also call `Bitmap::singlify()`
+    /// before binding a thread so that it does not move at all.
+    ///
+    /// # Panics
+    ///
+    /// Root objects should have a CPU set, this function will panic if that is
+    /// not the case.
+    pub fn distribute_cpusets(
+        &self,
+        roots: &[&TopologyObject],
+        num_sets: usize,
+        max_depth: u32,
+        flags: DistributeFlags,
+    ) -> Vec<CpuSet> {
+        /* /// Recursive implementation of `distribute_cpusets`
+        fn recurse(
+            roots: impl Iterator<Item = &TopologyObject> + Clone,
+            num_sets: usize,
+            max_depth: u32,
+            flags: DistributeFlags,
+            result: &mut Vec<CpuSet>
+        ) */
+    }
+}
+
+bitflags! {
+    /// Flags to be given to [`Topology::distributed_cpuset()`]
+    #[repr(C)]
+    pub struct DistributeFlags: c_ulong {
+        /// Distribute in reverse order, starting from the last objects
+        const REVERSE = (1<<0);
     }
 }
 

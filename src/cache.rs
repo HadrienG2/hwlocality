@@ -20,7 +20,7 @@ const DATA_CACHE_LEVELS: &[ObjectType] = &[
 /// These statistics can be used in scenarios where you're not yet ready for
 /// full locality-aware scheduling but just want to make sure that your code
 /// will use CPU caches sensibly no matter which CPU core it's running on.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CPUCacheStats {
     /// Size of the smallest caches of each type
     smallest_data_cache_sizes: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,

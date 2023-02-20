@@ -144,7 +144,7 @@ impl Drop for LibcString {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Error, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("string cannot be used by C because it contains NUL chars")]
 pub(crate) struct NulError;
 

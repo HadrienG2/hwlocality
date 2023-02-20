@@ -13,6 +13,7 @@ use crate::{
 use std::{
     ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort},
     fmt,
+    hash::Hash,
     num::NonZeroU32,
 };
 
@@ -107,6 +108,23 @@ impl NUMANodeAttributes {
     }
 }
 //
+impl Default for NUMANodeAttributes {
+    fn default() -> Self {
+        Self {
+            local_memory: 0,
+            page_types_len: 0,
+            page_types: std::ptr::null_mut(),
+        }
+    }
+}
+//
+impl Hash for NUMANodeAttributes {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.local_memory().hash(state);
+        self.page_types().hash(state);
+    }
+}
+//
 impl PartialEq for NUMANodeAttributes {
     fn eq(&self, other: &Self) -> bool {
         self.local_memory() == other.local_memory() && self.page_types() == other.page_types()
@@ -118,7 +136,7 @@ unsafe impl Sync for NUMANodeAttributes {}
 
 /// Local memory page type
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MemoryPageType {
     size: u64,
     count: u64,
@@ -138,7 +156,7 @@ impl MemoryPageType {
 
 /// Cache-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CacheAttributes {
     size: c_ulonglong,
     depth: c_uint,
@@ -183,9 +201,10 @@ impl CacheAttributes {
 }
 
 /// Cache associativity
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub enum CacheAssociativity {
     /// Unknown associativity
+    #[default]
     Unknown,
 
     /// Fully associative
@@ -197,7 +216,7 @@ pub enum CacheAssociativity {
 
 /// Group-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct GroupAttributes {
     depth: c_uint,
     kind: c_uint,
@@ -251,7 +270,7 @@ impl GroupAttributes {
 
 /// PCIDevice-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct PCIDeviceAttributes {
     domain: c_uint,
     bus: c_uchar,
@@ -410,7 +429,7 @@ impl<'attr> UpstreamAttributes<'attr> {
 
 /// Downstream PCI device attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct DownstreamPCIAttributes {
     domain: c_uint,
     secondary_bus: c_uchar,
@@ -439,7 +458,7 @@ pub(crate) union RawDownstreamAttributes {
 }
 
 /// Bridge downstream attributes
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum DownstreamAttributes<'attr> {
     /// PCI-specific attributes
     PCI(&'attr DownstreamPCIAttributes),
@@ -459,7 +478,7 @@ impl<'attr> DownstreamAttributes<'attr> {
 
 /// OSDevice-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OSDeviceAttributes {
     ty: RawOSDeviceType,
 }
@@ -478,7 +497,7 @@ impl OSDeviceAttributes {
 /// <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info> for
 /// more information.
 #[repr(C)]
-#[derive(Eq)]
+#[derive(Eq, Hash)]
 pub struct ObjectInfo {
     name: *mut c_char,
     value: *mut c_char,

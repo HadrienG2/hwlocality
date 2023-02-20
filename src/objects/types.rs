@@ -34,7 +34,7 @@ pub(crate) type RawObjectType = c_uint;
 /// contains processing units.
 #[repr(u32)]
 #[non_exhaustive]
-#[derive(Copy, Clone, Debug, Display, Eq, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum ObjectType {
     /// The root object, a set of processors and memory with cache coherency.
     Machine,
@@ -262,7 +262,7 @@ pub(crate) type RawBridgeType = c_uint;
 
 /// Type of one side (upstream or downstream) of an I/O bridge.
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum BridgeType {
     /// Host-side of a bridge, only possible upstream
     Host,
@@ -280,7 +280,7 @@ pub(crate) type RawCacheType = c_uint;
 
 /// Cache type
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum CacheType {
     /// Unified cache
     Unified,
@@ -301,7 +301,7 @@ pub(crate) type RawOSDeviceType = c_uint;
 
 /// Type of a OS device
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum OSDeviceType {
     /// Operating system storage device (e.g. block)
     ///
