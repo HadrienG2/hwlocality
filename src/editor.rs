@@ -227,6 +227,7 @@ impl TopologyEditor<'_> {
     ///
     /// None will be returned if an error occurs or if Misc objects are
     /// filtered out of the topology via [`TypeFilter::KeepNone`].
+    #[must_use]
     pub fn insert_misc_object(
         &mut self,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
@@ -383,6 +384,7 @@ pub enum GroupMerge {
 
 /// Result of inserting a Group object
 #[derive(Debug)]
+#[must_use]
 pub enum GroupInsertResult<'topology> {
     /// New Group that was properly inserted
     New(&'topology mut TopologyObject),
