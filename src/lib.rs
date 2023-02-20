@@ -507,7 +507,7 @@ impl Topology {
     ///
     /// ```
     /// # fn main() -> anyhow::Result<()> {
-    /// #     let topology = hwloc2::Topology::new().unwrap();
+    /// #     let topology = hwloc2::Topology::new()?;
     /// #     let object_type = hwloc2::objects::types::ObjectType::PU;
     /// topology.objects_at_depth(topology.depth_for_type(object_type)?)
     /// #     ; Ok(())
@@ -1317,7 +1317,7 @@ impl Topology {
     ///
     /// ```
     /// # fn main() -> anyhow::Result<()> {
-    /// #     let topology = hwloc2::Topology::new().unwrap();
+    /// #     let topology = hwloc2::Topology::new()?;
     /// #     let object_type = hwloc2::objects::types::ObjectType::PU;
     /// #     let set = hwloc2::bitmap::CpuSet::new();
     /// topology.objects_inside_cpuset_at_depth(&set, topology.depth_for_type(object_type)?)
@@ -1469,7 +1469,7 @@ impl Topology {
     ///
     /// ```
     /// # fn main() -> anyhow::Result<()> {
-    /// #     let topology = hwloc2::Topology::new().unwrap();
+    /// #     let topology = hwloc2::Topology::new()?;
     /// #     let object_type = hwloc2::objects::types::ObjectType::PU;
     /// #     let set = hwloc2::bitmap::CpuSet::new();
     /// topology.objects_covering_cpuset_at_depth(&set, topology.depth_for_type(object_type)?)
