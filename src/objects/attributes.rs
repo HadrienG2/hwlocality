@@ -478,6 +478,7 @@ impl OSDeviceAttributes {
 /// <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info> for
 /// more information.
 #[repr(C)]
+#[derive(Eq)]
 pub struct ObjectInfo {
     name: *mut c_char,
     value: *mut c_char,
@@ -501,6 +502,12 @@ impl fmt::Debug for ObjectInfo {
             .field("name", &self.name())
             .field("value", &self.value())
             .finish()
+    }
+}
+//
+impl PartialEq for ObjectInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.name() == other.name() && self.value() == other.value()
     }
 }
 //
