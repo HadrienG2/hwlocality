@@ -361,7 +361,7 @@ impl fmt::Display for AllowSet<'_> {
                 }
                 write!(f, ")")
             }
-            other => write!(f, "{self:?}"),
+            other => write!(f, "{other:?}"),
         }
     }
 }
