@@ -24,6 +24,7 @@ use std::{
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
+#[derive(Debug)]
 pub struct TopologyBuilder(NonNull<RawTopology>);
 
 /// # Topology building
@@ -326,12 +327,6 @@ impl TopologyBuilder {
     /// Returns the contained hwloc topology pointer for interaction with hwloc.
     fn as_mut_ptr(&mut self) -> *mut RawTopology {
         self.0.as_ptr()
-    }
-}
-
-impl Debug for TopologyBuilder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TopologyBuilder")
     }
 }
 

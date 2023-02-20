@@ -50,7 +50,7 @@ impl fmt::Debug for TopologySupport {
 
 /// Flags describing actual discovery support for this topology
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct DiscoverySupport {
     pu: c_uchar,
     numa: c_uchar,
@@ -99,7 +99,7 @@ impl DiscoverySupport {
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct CpuBindingSupport {
     set_thisproc_cpubind: c_uchar,
     get_thisproc_cpubind: c_uchar,
@@ -176,7 +176,7 @@ impl CpuBindingSupport {
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct MemoryBindingSupport {
     set_thisproc_membind: c_uchar,
     get_thisproc_membind: c_uchar,
@@ -280,7 +280,7 @@ impl MemoryBindingSupport {
 
 /// Flags describing miscellaneous features
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct MiscSupport {
     imported_support: c_uchar,
 }

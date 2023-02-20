@@ -83,6 +83,7 @@ pub(crate) fn write_snprintf(
 /// can safely be transferred to C libraries that manage memory using
 /// malloc/free like hwloc.
 ///
+#[derive(Debug)]
 pub(crate) struct LibcString(NonNull<[c_char]>);
 
 impl LibcString {

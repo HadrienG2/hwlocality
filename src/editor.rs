@@ -25,6 +25,7 @@ use thiserror::Error;
 /// This proxy object is carefully crafted to only allow operations that are
 /// safe while modifying a topology and minimize the number of times the hwloc
 /// lazy caches will need to be refreshed.
+#[derive(Debug)]
 pub struct TopologyEditor<'topology>(&'topology mut Topology);
 
 /// # General-purpose utilities
@@ -317,6 +318,7 @@ bitflags! {
 }
 
 /// Requested adjustment to the allowed set of PUs and NUMA nodes
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AllowSet<'set> {
     /// Mark all objects as allowed in the topology
     All,
@@ -337,6 +339,7 @@ pub enum AllowSet<'set> {
 }
 
 /// Control merging of newly inserted groups with existing objects
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another
     /// hierarchically-identical object
@@ -351,6 +354,7 @@ pub enum GroupMerge {
 }
 
 /// Result of inserting a Group object
+#[derive(Debug)]
 pub enum GroupInsertResult<'topology> {
     /// New Group that was properly inserted
     New(&'topology mut TopologyObject),

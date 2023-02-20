@@ -12,6 +12,7 @@ use crate::{
 };
 use std::{
     ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort},
+    fmt,
     num::NonZeroU32,
 };
 
@@ -28,6 +29,7 @@ pub(crate) union RawObjectAttributes {
 }
 
 /// ObjectType-specific attributes
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ObjectAttributes<'attr> {
     /// NUMANode-specific attributes
     NUMANode(&'attr NUMANodeAttributes),
@@ -76,13 +78,13 @@ impl<'attr> ObjectAttributes<'attr> {
 
 /// NUMANode-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq)]
 pub struct NUMANodeAttributes {
     local_memory: u64,
     page_types_len: c_uint,
     page_types: *mut MemoryPageType,
 }
-
+//
 impl NUMANodeAttributes {
     /// Local memory in bytes
     pub fn local_memory(&self) -> u64 {
@@ -104,18 +106,24 @@ impl NUMANodeAttributes {
         }
     }
 }
-
+//
+impl PartialEq for NUMANodeAttributes {
+    fn eq(&self, other: &Self) -> bool {
+        self.local_memory() == other.local_memory() && self.page_types() == other.page_types()
+    }
+}
+//
 unsafe impl Send for NUMANodeAttributes {}
 unsafe impl Sync for NUMANodeAttributes {}
 
 /// Local memory page type
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct MemoryPageType {
     size: u64,
     count: u64,
 }
-
+//
 impl MemoryPageType {
     /// Size of pages
     pub fn size(&self) -> u64 {
@@ -130,7 +138,7 @@ impl MemoryPageType {
 
 /// Cache-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct CacheAttributes {
     size: c_ulonglong,
     depth: c_uint,
@@ -175,6 +183,7 @@ impl CacheAttributes {
 }
 
 /// Cache associativity
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CacheAssociativity {
     /// Unknown associativity
     Unknown,
@@ -188,7 +197,7 @@ pub enum CacheAssociativity {
 
 /// Group-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct GroupAttributes {
     depth: c_uint,
     kind: c_uint,
@@ -242,7 +251,7 @@ impl GroupAttributes {
 
 /// PCIDevice-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct PCIDeviceAttributes {
     domain: c_uint,
     bus: c_uchar,
@@ -351,6 +360,27 @@ impl BridgeAttributes {
         self.depth
     }
 }
+//
+impl fmt::Debug for BridgeAttributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BridgeAttributes")
+            .field("upstream_type", &self.upstream_type())
+            .field("upstream_attributes", &self.upstream_attributes())
+            .field("downstream_type", &self.downstream_type())
+            .field("downstream_attributes", &self.downstream_attributes())
+            .field("depth", &self.depth)
+            .finish()
+    }
+}
+//
+impl PartialEq for BridgeAttributes {
+    fn eq(&self, other: &Self) -> bool {
+        self.upstream_type() == other.upstream_type()
+            && self.upstream_attributes() == other.upstream_attributes()
+            && self.downstream_type() == other.downstream_type()
+            && self.downstream_attributes() == other.downstream_attributes()
+    }
+}
 
 /// hwloc FFI for hwloc_bridge_attr_s::upstream
 #[repr(C)]
@@ -360,6 +390,7 @@ pub(crate) union RawUpstreamAttributes {
 }
 
 /// Bridge upstream attributes
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum UpstreamAttributes<'attr> {
     /// PCI-specific attributes
     PCI(&'attr PCIDeviceAttributes),
@@ -379,7 +410,7 @@ impl<'attr> UpstreamAttributes<'attr> {
 
 /// Downstream PCI device attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct DownstreamPCIAttributes {
     domain: c_uint,
     secondary_bus: c_uchar,
@@ -408,6 +439,7 @@ pub(crate) union RawDownstreamAttributes {
 }
 
 /// Bridge downstream attributes
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DownstreamAttributes<'attr> {
     /// PCI-specific attributes
     PCI(&'attr DownstreamPCIAttributes),
@@ -427,11 +459,11 @@ impl<'attr> DownstreamAttributes<'attr> {
 
 /// OSDevice-specific attributes
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct OSDeviceAttributes {
     ty: RawOSDeviceType,
 }
-
+//
 impl OSDeviceAttributes {
     /// OS device type
     pub fn device_type(&self) -> OSDeviceType {
@@ -450,7 +482,7 @@ pub struct ObjectInfo {
     name: *mut c_char,
     value: *mut c_char,
 }
-
+//
 impl ObjectInfo {
     /// The name of the ObjectInfo
     pub fn name(&self) -> &str {
@@ -462,6 +494,15 @@ impl ObjectInfo {
         unsafe { ffi::deref_string(&self.value) }.expect("Infos should have values")
     }
 }
-
+//
+impl fmt::Debug for ObjectInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ObjectInfo")
+            .field("name", &self.name())
+            .field("value", &self.value())
+            .finish()
+    }
+}
+//
 unsafe impl Send for ObjectInfo {}
 unsafe impl Sync for ObjectInfo {}
