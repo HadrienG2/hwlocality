@@ -19,7 +19,9 @@ use crate::{
 };
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
-    fmt, ptr,
+    fmt,
+    iter::FusedIterator,
+    ptr,
 };
 
 /// Hardware topology object
@@ -168,13 +170,10 @@ impl TopologyObject {
     }
 
     /// Chain of parent objects up to the topology root
-    pub fn ancestors(&self) -> impl Iterator<Item = &TopologyObject> {
-        let mut parent = self.parent();
-        std::iter::from_fn(move || {
-            let curr_parent = parent?;
-            parent = curr_parent.parent();
-            Some(curr_parent)
-        })
+    pub fn ancestors(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject> + Copy + ExactSizeIterator + FusedIterator {
+        Ancestors(self)
     }
 
     /// Search for an ancestor at a certain depth
@@ -279,6 +278,29 @@ impl TopologyObject {
     }
 }
 
+/// Iterator over ancestors of a TopologyObject
+#[derive(Copy, Clone, Debug)]
+struct Ancestors<'object>(&'object TopologyObject);
+//
+impl<'object> Iterator for Ancestors<'object> {
+    type Item = &'object TopologyObject;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0 = self.0.parent()?;
+        Some(self.0)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let depth_res = u32::try_from(self.0.depth())
+            .map(|depth| usize::try_from(depth).expect("Depth deeper than 2^32 not unexpected"));
+        (depth_res.unwrap_or(0), depth_res.ok())
+    }
+}
+//
+impl ExactSizeIterator for Ancestors<'_> {}
+//
+impl FusedIterator for Ancestors<'_> {}
+
 /// # Cousins and siblings
 impl TopologyObject {
     /// Horizontal index in the whole list of similar objects, hence guaranteed
@@ -325,8 +347,14 @@ impl TopologyObject {
         self.arity
     }
 
-    /// Normal children of this object (excluding Memory, Misc and I/O)
-    pub fn normal_children(&self) -> impl Iterator<Item = &TopologyObject> {
+    /// Normal children of this object
+    pub fn normal_children(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
         if self.children.is_null() {
             assert_eq!(
                 self.normal_arity(),
@@ -344,12 +372,12 @@ impl TopologyObject {
         })
     }
 
-    /// First normal child
+    /// First normal child of this object
     pub fn first_normal_child(&self) -> Option<&TopologyObject> {
         unsafe { ffi::deref_ptr_mut(&self.first_child) }
     }
 
-    /// Last normal child
+    /// Last normal child of this object
     pub fn last_normal_child(&self) -> Option<&TopologyObject> {
         unsafe { ffi::deref_ptr_mut(&self.last_child) }
     }
@@ -385,8 +413,8 @@ impl TopologyObject {
     /// A memory hierarchy starts from a normal CPU-side object (e.g. Package)
     /// and ends with NUMA nodes as leaves. There might exist some memory-side
     /// caches between them in the middle of the memory subtree.
-    pub fn memory_children(&self) -> impl Iterator<Item = &TopologyObject> {
-        unsafe { Self::iter_linked_children(&self.memory_first_child) }
+    pub fn memory_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
+        LinkedChildren(&self.memory_first_child)
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -404,8 +432,8 @@ impl TopologyObject {
     /// Bridges, PCI and OS devices are listed here instead of in the
     /// [`TopologyObject::normal_children()`] list. See also
     /// [`ObjectType::is_io()`].
-    pub fn io_children(&self) -> impl Iterator<Item = &TopologyObject> {
-        unsafe { Self::iter_linked_children(&self.io_first_child) }
+    pub fn io_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
+        LinkedChildren(&self.io_first_child)
     }
 
     /// Number of Misc children.
@@ -417,18 +445,34 @@ impl TopologyObject {
     ///
     /// Misc objects are listed here instead of in the
     /// [`TopologyObject::normal_children()`] list.
-    pub fn misc_children(&self) -> impl Iterator<Item = &TopologyObject> {
-        unsafe { Self::iter_linked_children(&self.misc_first_child) }
+    pub fn misc_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
+        LinkedChildren(&self.misc_first_child)
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
-    pub fn all_children(&self) -> impl Iterator<Item = &TopologyObject> {
+    pub fn all_children(&self) -> impl Iterator<Item = &TopologyObject> + Clone + FusedIterator {
         self.normal_children()
             .chain(self.memory_children())
             .chain(self.io_children())
             .chain(self.misc_children())
     }
 }
+
+/// Iterator over C-style linked lists of child TopologyObjects
+#[derive(Copy, Clone, Debug)]
+struct LinkedChildren<'object>(&'object *mut TopologyObject);
+//
+impl<'object> Iterator for LinkedChildren<'object> {
+    type Item = &'object TopologyObject;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = (!self.0.is_null()).then_some(unsafe { &**self.0 })?;
+        self.0 = &current.next_sibling;
+        Some(current)
+    }
+}
+//
+impl FusedIterator for LinkedChildren<'_> {}
 
 /// # CPU set
 impl TopologyObject {
@@ -588,18 +632,6 @@ impl TopologyObject {
 
 // # Internal utilities
 impl TopologyObject {
-    /// Iterate over a C-style linked list of child TopologyObjects
-    unsafe fn iter_linked_children(
-        start: &*mut TopologyObject,
-    ) -> impl Iterator<Item = &TopologyObject> {
-        let mut current = *start;
-        std::iter::from_fn(move || {
-            let child = (current.is_null()).then_some(unsafe { &*current })?;
-            current = child.next_sibling;
-            Some(child)
-        })
-    }
-
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
         let type_chars = ffi::call_snprintf(|buf, len| unsafe {

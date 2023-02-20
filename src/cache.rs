@@ -38,7 +38,11 @@ impl CPUCacheStats {
             let mut smallest = u64::MAX;
             let mut total = 0;
             let mut found = false;
-            for object in topology.objects_with_type(data_cache_level) {
+            for object in topology.objects_at_depth(
+                topology
+                    .depth_for_type(data_cache_level)
+                    .expect("Data caches should only appear at one depth"),
+            ) {
                 let Some(ObjectAttributes::Cache(cache)) = object.attributes() else {
                     unreachable!("Caches should have cache attributes")
                 };

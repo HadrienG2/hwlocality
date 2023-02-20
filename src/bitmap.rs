@@ -5,12 +5,13 @@
 use crate::{ffi, Topology};
 use derive_more::*;
 use std::{
+    borrow::Borrow,
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
     ffi::c_int,
     fmt,
-    iter::FromIterator,
+    iter::{FromIterator, FusedIterator},
     marker::{PhantomData, PhantomPinned},
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
@@ -195,7 +196,7 @@ macro_rules! impl_newtype_ops {
             /// Iterate over set indices
             ///
             /// See [`Bitmap::iter_set`].
-            pub fn iter_set(&self) -> impl Iterator<Item = u32> + '_ {
+            pub fn iter_set(&self) -> BitmapIterator<&Bitmap> {
                 self.0.iter_set()
             }
 
@@ -223,7 +224,7 @@ macro_rules! impl_newtype_ops {
             /// Iterate over unset indices
             ///
             /// See [`Bitmap::iter_unset`].
-            pub fn iter_unset(&self) -> impl Iterator<Item = u32> + '_ {
+            pub fn iter_unset(&self) -> BitmapIterator<&Bitmap> {
                 self.0.iter_unset()
             }
 
@@ -896,8 +897,8 @@ impl Bitmap {
     /// let indices = bitmap.iter_set().collect::<Vec<_>>();
     /// assert_eq!(indices, &[4, 5, 6, 7, 8, 9, 10]);
     /// ```
-    pub fn iter_set(&self) -> impl Iterator<Item = u32> + '_ {
-        IntoIterator::into_iter(self)
+    pub fn iter_set(&self) -> BitmapIterator<&Bitmap> {
+        BitmapIterator::new(self, Bitmap::next_set)
     }
 
     /// Check the last set index, if any
@@ -974,14 +975,8 @@ impl Bitmap {
     /// let indices = bitmap.iter_unset().collect::<Vec<_>>();
     /// assert_eq!(indices, &[0, 1, 2, 3]);
     /// ```
-    pub fn iter_unset(&self) -> impl Iterator<Item = u32> + '_ {
-        let mut prev = None;
-        std::iter::from_fn(move || {
-            prev = self.next(prev, |bitmap, prev| unsafe {
-                ffi::hwloc_bitmap_next_unset(bitmap, prev)
-            });
-            prev
-        })
+    pub fn iter_unset(&self) -> BitmapIterator<&Bitmap> {
+        BitmapIterator::new(self, Bitmap::next_unset)
     }
 
     /// Check the last unset index, if any
@@ -1152,6 +1147,13 @@ impl Bitmap {
     fn next_set(&self, index: Option<u32>) -> Option<u32> {
         self.next(index, |bitmap, prev| unsafe {
             ffi::hwloc_bitmap_next(bitmap, prev)
+        })
+    }
+
+    /// Unset index iterator building block
+    fn next_unset(&self, index: Option<u32>) -> Option<u32> {
+        self.next(index, |bitmap, prev| unsafe {
+            ffi::hwloc_bitmap_next_unset(bitmap, prev)
         })
     }
 }
@@ -1383,57 +1385,55 @@ impl Ord for Bitmap {
     }
 }
 
-/// Owned iterator over set [`Bitmap`] indices
-pub struct BitmapIntoIterator {
-    bitmap: Bitmap,
+/// Borrowed iterator over set [`Bitmap`] indices
+#[derive(Copy, Clone)]
+pub struct BitmapIterator<B> {
+    /// Bitmap over which we're iterating
+    bitmap: B,
+
+    /// Last explored index
     prev: Option<u32>,
+
+    /// Mapping from last index to next index
+    next: fn(&Bitmap, Option<u32>) -> Option<u32>,
 }
 //
-impl Iterator for BitmapIntoIterator {
+impl<B: Borrow<Bitmap>> BitmapIterator<B> {
+    fn new(bitmap: B, next: fn(&Bitmap, Option<u32>) -> Option<u32>) -> Self {
+        Self {
+            bitmap,
+            prev: None,
+            next,
+        }
+    }
+}
+//
+impl<B: Borrow<Bitmap>> Iterator for BitmapIterator<B> {
     type Item = u32;
 
     fn next(&mut self) -> Option<u32> {
-        self.prev = self.bitmap.next_set(self.prev);
+        self.prev = (self.next)(self.bitmap.borrow(), self.prev);
         self.prev
+    }
+}
+//
+impl<B: Borrow<Bitmap>> FusedIterator for BitmapIterator<B> {}
+//
+impl<'bitmap> IntoIterator for &'bitmap Bitmap {
+    type Item = u32;
+    type IntoIter = BitmapIterator<&'bitmap Bitmap>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitmapIterator::new(self, Bitmap::next_set)
     }
 }
 //
 impl IntoIterator for Bitmap {
     type Item = u32;
-    type IntoIter = BitmapIntoIterator;
+    type IntoIter = BitmapIterator<Bitmap>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BitmapIntoIterator {
-            bitmap: self,
-            prev: None,
-        }
-    }
-}
-
-/// Borrowed iterator over set [`Bitmap`] indices
-pub struct BitmapIterator<'bitmap> {
-    bitmap: &'bitmap Bitmap,
-    prev: Option<u32>,
-}
-//
-impl Iterator for BitmapIterator<'_> {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<u32> {
-        self.prev = self.bitmap.next_set(self.prev);
-        self.prev
-    }
-}
-//
-impl<'bitmap> IntoIterator for &'bitmap Bitmap {
-    type Item = u32;
-    type IntoIter = BitmapIterator<'bitmap>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        BitmapIterator {
-            bitmap: self,
-            prev: None,
-        }
+        BitmapIterator::new(self, Bitmap::next_set)
     }
 }
 

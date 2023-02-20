@@ -39,6 +39,7 @@ use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
     ffi::{c_char, c_int, c_ulong, c_void},
+    iter::FusedIterator,
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
     panic::{AssertUnwindSafe, UnwindSafe},
@@ -497,6 +498,19 @@ impl Topology {
     }
 
     /// [`TopologyObject`]s with the given [`ObjectType`].
+    ///
+    /// If you know that objects of this type should only appear at a single
+    /// depth (which is true of most object types with the notable exception of
+    /// Group), you can avoid allocating a `Vec` by probing said depth like this:
+    ///
+    /// ```
+    /// # fn main() -> anyhow::Result<()> {
+    /// #     let topology = hwloc2::Topology::new().unwrap();
+    /// #     let object_type = hwloc2::objects::types::ObjectType::PU;
+    /// topology.objects_at_depth(topology.depth_for_type(object_type)?)
+    /// #     ; Ok(())
+    /// # }
+    /// ```
     pub fn objects_with_type(&self, object_type: ObjectType) -> Vec<&TopologyObject> {
         match self.depth_for_type(object_type) {
             Ok(depth) => {
@@ -520,7 +534,14 @@ impl Topology {
     }
 
     /// [`TopologyObject`]s at the given depth.
-    pub fn objects_at_depth(&self, depth: Depth) -> impl Iterator<Item = &TopologyObject> {
+    pub fn objects_at_depth(
+        &self,
+        depth: Depth,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
@@ -1203,16 +1224,12 @@ impl Topology {
     /// `coarsest_cpuset_partition()`.
     pub fn largest_objects_inside_cpuset(
         &self,
-        mut set: CpuSet,
-    ) -> impl Iterator<Item = &TopologyObject> {
-        std::iter::from_fn(move || {
-            let object = self.first_largest_object_inside_cpuset(&set)?;
-            let object_cpuset = object
-                .cpuset()
-                .expect("Output of first_largest_object_inside_cpuset should have a cpuset");
-            set.and_not_assign(&object_cpuset);
-            Some(object)
-        })
+        set: CpuSet,
+    ) -> impl Iterator<Item = &TopologyObject> + FusedIterator {
+        LargestObjectsInsideCpuSet {
+            topology: self,
+            set,
+        }
     }
 
     /// Get the largest objects exactly covering the given cpuset `set`
@@ -1280,7 +1297,8 @@ impl Topology {
         &'result self,
         set: &'result CpuSet,
         depth: Depth,
-    ) -> impl Iterator<Item = &TopologyObject> + 'result {
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
+    {
         self.objects_at_depth(depth)
             .filter(|object| object.is_inside_cpuset(set))
     }
@@ -1290,12 +1308,26 @@ impl Topology {
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty Vec will
     /// always be returned for I/O or Misc objects as they don't have cpusets.
+    ///
+    /// If you know that objects of this type should only appear at a single
+    /// depth (which is true of most object types with the notable exception of
+    /// Group), you can avoid allocating a `Vec` by probing said depth like this:
+    ///
+    /// ```
+    /// # fn main() -> anyhow::Result<()> {
+    /// #     let topology = hwloc2::Topology::new().unwrap();
+    /// #     let object_type = hwloc2::objects::types::ObjectType::PU;
+    /// #     let set = hwloc2::bitmap::CpuSet::new();
+    /// topology.objects_inside_cpuset_at_depth(&set, topology.depth_for_type(object_type)?)
+    /// #     ; Ok(())
+    /// # }
+    /// ```
     pub fn objects_inside_cpuset_with_type(
         &self,
         set: &CpuSet,
-        ty: ObjectType,
+        object_type: ObjectType,
     ) -> Vec<&TopologyObject> {
-        let mut objects = self.objects_with_type(ty);
+        let mut objects = self.objects_with_type(object_type);
         objects.retain(|object| object.is_inside_cpuset(set));
         objects
     }
@@ -1353,6 +1385,30 @@ impl Topology {
     }
 }
 
+/// Iterator over largest objects inside a cpuset
+#[derive(Clone, Debug)]
+struct LargestObjectsInsideCpuSet<'topology> {
+    topology: &'topology Topology,
+    set: CpuSet,
+}
+//
+impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
+    type Item = &'topology TopologyObject;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let object = self
+            .topology
+            .first_largest_object_inside_cpuset(&self.set)?;
+        let object_cpuset = object
+            .cpuset()
+            .expect("Output of first_largest_object_inside_cpuset should have a cpuset");
+        self.set.and_not_assign(&object_cpuset);
+        Some(object)
+    }
+}
+//
+impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
+
 /// # Finding objects covering at least a CPU set
 //
 // This is inspired by the upstream functionality described at
@@ -1393,7 +1449,8 @@ impl Topology {
         &'result self,
         set: &'result CpuSet,
         depth: Depth,
-    ) -> impl Iterator<Item = &TopologyObject> + 'result {
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
+    {
         self.objects_at_depth(depth)
             .filter(|object| object.covers_cpuset(set))
     }
@@ -1403,12 +1460,26 @@ impl Topology {
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). Therefore, an empty iterator will
     /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    ///
+    /// If you know that objects of this type should only appear at a single
+    /// depth (which is true of most object types with the notable exception of
+    /// Group), you can avoid allocating a `Vec` by probing said depth like this:
+    ///
+    /// ```
+    /// # fn main() -> anyhow::Result<()> {
+    /// #     let topology = hwloc2::Topology::new().unwrap();
+    /// #     let object_type = hwloc2::objects::types::ObjectType::PU;
+    /// #     let set = hwloc2::bitmap::CpuSet::new();
+    /// topology.objects_covering_cpuset_at_depth(&set, topology.depth_for_type(object_type)?)
+    /// #     ; Ok(())
+    /// # }
+    /// ```
     pub fn objects_covering_cpuset_with_type(
         &self,
         set: &CpuSet,
-        ty: ObjectType,
+        object_type: ObjectType,
     ) -> Vec<&TopologyObject> {
-        let mut objects = self.objects_with_type(ty);
+        let mut objects = self.objects_with_type(object_type);
         objects.retain(|object| object.covers_cpuset(set));
         objects
     }
@@ -1426,16 +1497,18 @@ impl Topology {
     /// contains, using `pus_from_cpuset` will be more efficient than repeatedly
     /// calling this function with every OS index from the CpuSet.
     pub fn pu_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
-        self.objects_with_type(ObjectType::PU)
-            .into_iter()
-            .find(|obj| obj.os_index() == Some(os_index))
+        self.objs_and_os_indices(ObjectType::PU)
+            .find_map(|(pu, pu_os_index)| (pu_os_index == os_index).then_some(pu))
     }
 
     /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
-    pub fn pus_from_cpuset(&self, cpuset: &CpuSet) -> Vec<&TopologyObject> {
-        let mut pus = self.objects_with_type(ObjectType::PU);
-        pus.retain(|pu| pu.os_index().map(|idx| cpuset.is_set(idx)).unwrap_or(false));
-        pus
+    pub fn pus_from_cpuset<'result>(
+        &'result self,
+        cpuset: &'result CpuSet,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
+    {
+        self.objs_and_os_indices(ObjectType::PU)
+            .filter_map(|(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
     }
 
     /// Get the object of type [`ObjectType::NUMANode`] with the specified OS index
@@ -1444,20 +1517,47 @@ impl Topology {
     /// contains, using `nodes_from_cpuset` will be more efficient than repeatedly
     /// calling this function with every OS index from the NodeSet.
     pub fn node_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
-        self.objects_with_type(ObjectType::NUMANode)
-            .into_iter()
-            .find(|obj| obj.os_index() == Some(os_index))
+        self.objs_and_os_indices(ObjectType::NUMANode)
+            .find_map(|(node, node_os_index)| (node_os_index == os_index).then_some(node))
     }
 
     /// Get the objects of type [`ObjectType::NUMANode`] covered by the specified nodeset
-    pub fn nodes_from_nodeset(&self, nodeset: &NodeSet) -> Vec<&TopologyObject> {
-        let mut nodes = self.objects_with_type(ObjectType::NUMANode);
-        nodes.retain(|node| {
-            node.os_index()
-                .map(|idx| nodeset.is_set(idx))
-                .unwrap_or(false)
-        });
-        nodes
+    pub fn nodes_from_nodeset<'result>(
+        &'result self,
+        nodeset: &'result NodeSet,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
+    {
+        self.objs_and_os_indices(ObjectType::NUMANode)
+            .filter_map(|(node, os_index)| nodeset.is_set(os_index).then_some(node))
+    }
+
+    /// Get a list of `(&TopologyObject, OS index)` tuples for an `ObjectType`
+    /// that is guaranteed to appear only at one depth of the topology and to
+    /// have an OS index.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the object type appears at more than one depth or do not
+    /// have an OS index.
+    fn objs_and_os_indices(
+        &self,
+        ty: ObjectType,
+    ) -> impl Iterator<Item = (&TopologyObject, u32)>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(
+            self.depth_for_type(ty)
+                .expect("These objects should only appear at a single depth"),
+        )
+        .map(|obj| {
+            (
+                obj,
+                obj.os_index()
+                    .expect("These objects should have an OS index"),
+            )
+        })
     }
 
     /// Enumerate objects at the same depth as `obj`, but with increasing
@@ -1470,7 +1570,7 @@ impl Topology {
     pub fn closest_objects<'result>(
         &'result self,
         obj: &'result TopologyObject,
-    ) -> impl Iterator<Item = &TopologyObject> + 'result {
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + 'result {
         // Track which CPUs map into objects we don't want to report
         // (current object or already reported object)
         let mut known_cpuset = obj.cpuset().expect("Target object must have a cpuset");
@@ -1544,8 +1644,6 @@ impl Topology {
     /// this will return the third core object below the second package below
     /// the first NUMA node.
     ///
-    /// This function does a fair amount of work, avoid calling it in a loop.
-    ///
     /// # Panics
     ///
     /// All objects must have a cpuset, otherwise this function will panic.
@@ -1555,12 +1653,19 @@ impl Topology {
     ) -> Option<&TopologyObject> {
         let mut obj = self.root_object();
         for &(ty, idx) in path {
-            let children = self.objects_inside_cpuset_with_type(
-                obj.cpuset()
-                    .expect("All objects in path should have a cpuset"),
-                ty,
-            );
-            obj = children.get(idx)?;
+            // Check out cpuset
+            let cpuset = obj
+                .cpuset()
+                .expect("All objects in path should have a cpuset");
+
+            // Avoid allocation in common case where ty only appears at one depth
+            if let Ok(depth) = self.depth_for_type(ty) {
+                obj = self
+                    .objects_inside_cpuset_at_depth(cpuset, depth)
+                    .nth(idx)?;
+            } else {
+                obj = self.objects_inside_cpuset_with_type(cpuset, ty).get(idx)?;
+            }
         }
         Some(obj)
     }
