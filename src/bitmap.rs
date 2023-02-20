@@ -368,6 +368,12 @@ macro_rules! impl_newtype_ops {
                 self.0 ^= &rhs.0
             }
         }
+
+        impl Extend<u32> for $newtype {
+            fn extend<T: IntoIterator<Item = u32>>(&mut self, iter: T) {
+                self.0.extend(iter)
+            }
+        }
     };
 }
 
@@ -1161,22 +1167,52 @@ impl Bitmap {
 unsafe impl Send for Bitmap {}
 unsafe impl Sync for Bitmap {}
 
-impl Not for &Bitmap {
+impl BitAnd<&Bitmap> for &Bitmap {
     type Output = Bitmap;
 
-    fn not(self) -> Bitmap {
+    fn bitand(self, rhs: &Bitmap) -> Bitmap {
         let mut result = Bitmap::new();
-        let code = unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
+        let code =
+            unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
         result
     }
 }
 
-impl Not for Bitmap {
+impl BitAnd<Bitmap> for &Bitmap {
     type Output = Bitmap;
 
-    fn not(self) -> Self {
-        !&self
+    fn bitand(self, rhs: Bitmap) -> Bitmap {
+        self & (&rhs)
+    }
+}
+
+impl BitAnd<&Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: &Bitmap) -> Bitmap {
+        (&self) & rhs
+    }
+}
+
+impl BitAnd<Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn bitand(self, rhs: Bitmap) -> Bitmap {
+        (&self) & (&rhs)
+    }
+}
+
+impl BitAndAssign<&Bitmap> for Bitmap {
+    fn bitand_assign(&mut self, rhs: &Bitmap) {
+        let code = unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
+    }
+}
+
+impl BitAndAssign<Bitmap> for Bitmap {
+    fn bitand_assign(&mut self, rhs: Bitmap) {
+        *self &= &rhs
     }
 }
 
@@ -1229,55 +1265,6 @@ impl BitOrAssign<Bitmap> for Bitmap {
     }
 }
 
-impl BitAnd<&Bitmap> for &Bitmap {
-    type Output = Bitmap;
-
-    fn bitand(self, rhs: &Bitmap) -> Bitmap {
-        let mut result = Bitmap::new();
-        let code =
-            unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
-        result
-    }
-}
-
-impl BitAnd<Bitmap> for &Bitmap {
-    type Output = Bitmap;
-
-    fn bitand(self, rhs: Bitmap) -> Bitmap {
-        self & (&rhs)
-    }
-}
-
-impl BitAnd<&Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitand(self, rhs: &Bitmap) -> Bitmap {
-        (&self) & rhs
-    }
-}
-
-impl BitAnd<Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitand(self, rhs: Bitmap) -> Bitmap {
-        (&self) & (&rhs)
-    }
-}
-
-impl BitAndAssign<&Bitmap> for Bitmap {
-    fn bitand_assign(&mut self, rhs: &Bitmap) {
-        let code = unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
-    }
-}
-
-impl BitAndAssign<Bitmap> for Bitmap {
-    fn bitand_assign(&mut self, rhs: Bitmap) {
-        *self &= &rhs
-    }
-}
-
 impl BitXor<&Bitmap> for &Bitmap {
     type Output = Bitmap;
 
@@ -1327,9 +1314,22 @@ impl BitXorAssign<Bitmap> for Bitmap {
     }
 }
 
-impl Drop for Bitmap {
-    fn drop(&mut self) {
-        unsafe { ffi::hwloc_bitmap_free(self.as_mut_ptr()) }
+impl Clone for Bitmap {
+    fn clone(&self) -> Bitmap {
+        unsafe { Self::from_raw(ffi::hwloc_bitmap_dup(self.as_ptr())) }
+            .expect("Got null pointer from hwloc_bitmap_dup")
+    }
+}
+
+impl fmt::Debug for Bitmap {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        <Self as fmt::Display>::fmt(self, f)
+    }
+}
+
+impl Default for Bitmap {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1341,47 +1341,35 @@ impl fmt::Display for Bitmap {
     }
 }
 
-impl fmt::Debug for Bitmap {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        <Self as fmt::Display>::fmt(self, f)
-    }
-}
-
-impl Clone for Bitmap {
-    fn clone(&self) -> Bitmap {
-        unsafe { Self::from_raw(ffi::hwloc_bitmap_dup(self.as_ptr())) }
-            .expect("Got null pointer from hwloc_bitmap_dup")
-    }
-}
-
-impl PartialEq for Bitmap {
-    fn eq(&self, other: &Self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_isequal returned unexpected result {result}"
-        );
-        result == 1
+impl Drop for Bitmap {
+    fn drop(&mut self) {
+        unsafe { ffi::hwloc_bitmap_free(self.as_mut_ptr()) }
     }
 }
 
 impl Eq for Bitmap {}
 
-impl PartialOrd for Bitmap {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl Extend<u32> for Bitmap {
+    fn extend<T: IntoIterator<Item = u32>>(&mut self, iter: T) {
+        for i in iter {
+            self.set(i);
+        }
     }
 }
 
-impl Ord for Bitmap {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let result = unsafe { ffi::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
-        match result {
-            -1 => Ordering::Less,
-            0 => Ordering::Equal,
-            1 => Ordering::Greater,
-            _ => unreachable!("hwloc_bitmap_compare returned unexpected result {result}"),
-        }
+impl From<u32> for Bitmap {
+    fn from(value: u32) -> Self {
+        let mut bitmap = Self::new();
+        bitmap.set(value);
+        bitmap
+    }
+}
+
+impl FromIterator<u32> for Bitmap {
+    fn from_iter<I: IntoIterator<Item = u32>>(iter: I) -> Bitmap {
+        let mut bitmap = Self::new();
+        bitmap.extend(iter);
+        bitmap
     }
 }
 
@@ -1437,27 +1425,51 @@ impl IntoIterator for Bitmap {
     }
 }
 
-impl From<u32> for Bitmap {
-    fn from(value: u32) -> Self {
-        let mut bitmap = Self::new();
-        bitmap.set(value);
-        bitmap
+impl Not for &Bitmap {
+    type Output = Bitmap;
+
+    fn not(self) -> Bitmap {
+        let mut result = Bitmap::new();
+        let code = unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) };
+        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
+        result
     }
 }
 
-impl FromIterator<u32> for Bitmap {
-    fn from_iter<I: IntoIterator<Item = u32>>(iter: I) -> Bitmap {
-        let mut bitmap = Self::new();
-        for i in iter {
-            bitmap.set(i);
+impl Not for Bitmap {
+    type Output = Bitmap;
+
+    fn not(self) -> Self {
+        !&self
+    }
+}
+
+impl Ord for Bitmap {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let result = unsafe { ffi::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
+        match result {
+            -1 => Ordering::Less,
+            0 => Ordering::Equal,
+            1 => Ordering::Greater,
+            _ => unreachable!("hwloc_bitmap_compare returned unexpected result {result}"),
         }
-        bitmap
     }
 }
 
-impl Default for Bitmap {
-    fn default() -> Self {
-        Self::new()
+impl PartialEq for Bitmap {
+    fn eq(&self, other: &Self) -> bool {
+        let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
+        assert!(
+            result == 0 || result == 1,
+            "hwloc_bitmap_isequal returned unexpected result {result}"
+        );
+        result == 1
+    }
+}
+
+impl PartialOrd for Bitmap {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
