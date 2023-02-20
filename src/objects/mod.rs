@@ -17,8 +17,10 @@ use crate::{
     depth::{Depth, RawDepth},
     ffi::{self, LibcString},
 };
-use libc::{c_char, c_int, c_uint, c_void};
-use std::{ffi::CStr, fmt, ptr};
+use std::{
+    ffi::{c_char, c_int, c_uint, c_void, CStr},
+    fmt, ptr,
+};
 
 /// Hardware topology object
 ///

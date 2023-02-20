@@ -16,8 +16,8 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::errno;
-use libc::{c_ulong, EINVAL, ENOMEM};
-use std::ptr;
+use libc::{EINVAL, ENOMEM};
+use std::{ffi::c_ulong, ptr};
 use thiserror::Error;
 
 /// Proxy for modifying a `Topology`

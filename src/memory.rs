@@ -5,10 +5,11 @@
 use crate::{ffi, Topology};
 use bitflags::bitflags;
 use errno::{errno, Errno};
-use libc::{c_int, c_void, EINVAL, ENOMEM, ENOSYS, EXDEV};
+use libc::{EINVAL, ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     borrow::{Borrow, BorrowMut},
+    ffi::{c_int, c_void},
     fmt::{self, Debug},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},

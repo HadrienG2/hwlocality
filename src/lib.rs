@@ -20,6 +20,7 @@ use self::{
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     editor::TopologyEditor,
+    ffi::LibcString,
     memory::{
         Bytes, MemoryBindingFlags, MemoryBindingPolicy, MemoryBindingQueryError,
         MemoryBindingSetupError, RawMemoryBindingPolicy,
@@ -31,12 +32,13 @@ use self::{
     },
     support::TopologySupport,
 };
+use bitflags::bitflags;
 use errno::{errno, Errno};
-use ffi::LibcString;
-use libc::{c_char, c_int, c_void, EINVAL};
+use libc::EINVAL;
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
+    ffi::{c_char, c_int, c_ulong, c_void},
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
     panic::{AssertUnwindSafe, UnwindSafe},

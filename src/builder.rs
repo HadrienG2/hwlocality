@@ -13,9 +13,14 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::{errno, Errno};
-use libc::{c_int, EINVAL, ENOSYS};
+use libc::{EINVAL, ENOSYS};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::{ffi::c_ulong, fmt::Debug, path::Path, ptr::NonNull};
+use std::{
+    ffi::{c_int, c_ulong},
+    fmt::Debug,
+    path::Path,
+    ptr::NonNull,
+};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration

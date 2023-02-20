@@ -10,8 +10,10 @@ use crate::{
         RawOSDeviceType,
     },
 };
-use libc::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort};
-use std::num::NonZeroU32;
+use std::{
+    ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort},
+    num::NonZeroU32,
+};
 
 /// hwloc FFI for the hwloc_obj_attr_u union
 #[repr(C)]

@@ -8,9 +8,8 @@ use crate::{
     support::TopologySupport,
     ProcessId, RawTopology, ThreadId,
 };
-use libc::{c_char, c_int, c_uint, c_ulong, c_void, size_t};
 use std::{
-    ffi::CStr,
+    ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr},
     fmt,
     ptr::{self, NonNull},
 };
@@ -49,7 +48,7 @@ pub(crate) unsafe fn deref_string(p: &*mut c_char) -> Option<&str> {
 }
 
 /// Get text output from an snprintf-like function
-pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, size_t) -> i32) -> Box<[c_char]> {
+pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, usize) -> i32) -> Box<[c_char]> {
     let len_i32 = snprintf(ptr::null_mut(), 0);
     let len =
         usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
@@ -65,7 +64,7 @@ pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, size_t) -> i32
 /// Send the output of an snprintf-like function to a standard Rust formatter
 pub(crate) fn write_snprintf(
     f: &mut fmt::Formatter,
-    snprintf: impl FnMut(*mut c_char, size_t) -> i32,
+    snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> fmt::Result {
     let chars = call_snprintf(snprintf);
     write!(
@@ -211,14 +210,14 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_obj_type_snprintf(
                 into: *mut c_char,
-                size: size_t,
+                size: usize,
                 object: *const TopologyObject,
                 verbose: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_obj_attr_snprintf(
                 into: *mut c_char,
-                size: size_t,
+                size: usize,
                 object: *const TopologyObject,
                 separator: *const c_char,
                 verbose: c_int,
@@ -326,7 +325,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_set_area_membind(
                 topology: *const RawTopology,
                 addr: *const c_void,
-                len: size_t,
+                len: usize,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
@@ -335,7 +334,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_get_area_membind(
                 topology: *const RawTopology,
                 addr: *const c_void,
-                len: size_t,
+                len: usize,
                 set: *mut RawBitmap,
                 policy: *mut RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
@@ -344,16 +343,16 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_get_area_memlocation(
                 topology: *const RawTopology,
                 addr: *const c_void,
-                len: size_t,
+                len: usize,
                 set: *mut RawBitmap,
                 flags: MemoryBindingFlags,
             ) -> c_int;
             #[must_use]
-            pub(crate) fn hwloc_alloc(topology: *const RawTopology, len: size_t) -> *mut c_void;
+            pub(crate) fn hwloc_alloc(topology: *const RawTopology, len: usize) -> *mut c_void;
             #[must_use]
             pub(crate) fn hwloc_alloc_membind(
                 topology: *const RawTopology,
-                len: size_t,
+                len: usize,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
                 flags: MemoryBindingFlags,
@@ -362,7 +361,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_free(
                 topology: *const RawTopology,
                 addr: *mut c_void,
-                len: size_t,
+                len: usize,
             ) -> c_int;
 
             // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
@@ -538,7 +537,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_bitmap_list_snprintf(
                 buf: *mut c_char,
-                len: size_t,
+                len: usize,
                 bitmap: *const RawBitmap,
             ) -> c_int;
             // NOTE: Not exposing other printfs and scanfs for now

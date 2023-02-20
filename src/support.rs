@@ -4,8 +4,7 @@
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
 
 use crate::ffi;
-use libc::c_uchar;
-use std::fmt;
+use std::{ffi::c_uchar, fmt};
 
 /// Set of flags describing actual support for this topology
 #[repr(C)]

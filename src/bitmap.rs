@@ -4,11 +4,11 @@
 
 use crate::{ffi, Topology};
 use derive_more::*;
-use libc::c_int;
 use std::{
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
+    ffi::c_int,
     fmt,
     iter::FromIterator,
     marker::{PhantomData, PhantomPinned},
