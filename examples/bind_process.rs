@@ -1,7 +1,7 @@
 use hwloc2::{
     cpu::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
-    Topology,
+    ProcessId, Topology,
 };
 
 /// Example which binds an arbitrary process (in this example this very same one) to
@@ -55,11 +55,11 @@ fn last_core(topo: &mut Topology) -> &TopologyObject {
 }
 
 #[cfg(target_os = "windows")]
-fn get_pid() -> winapi::minwindef::DWORD {
-    unsafe { kernel32::GetCurrentProcessId() }
+fn get_pid() -> ProcessId {
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_pid() -> libc::pid_t {
+fn get_pid() -> ProcessId {
     unsafe { libc::getpid() }
 }

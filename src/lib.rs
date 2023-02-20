@@ -45,10 +45,10 @@ use std::{
 
 #[cfg(target_os = "windows")]
 /// Thread identifier
-pub type ThreadId = winapi::winnt::HANDLE;
+pub type ThreadId = windows_sys::Win32::Foundation::HANDLE;
 #[cfg(target_os = "windows")]
 /// Process identifier
-pub type ProcessId = winapi::minwindef::DWORD;
+pub type ProcessId = u32;
 #[cfg(not(target_os = "windows"))]
 /// Thread identifier
 pub type ThreadId = libc::pthread_t;

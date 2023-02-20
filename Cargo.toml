@@ -26,5 +26,4 @@ thiserror = "1.0"
 pkg-config = "0.3.8"
 
 [target.'cfg(windows)'.dependencies]
-kernel32-sys = "0.2"
-winapi = "0.3"
+windows-sys = { version = "0.45", features = ["Win32_Foundation", "Win32_System_Threading"] }

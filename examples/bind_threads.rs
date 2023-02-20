@@ -1,4 +1,6 @@
-use hwloc2::{bitmap::CpuSet, cpu::CpuBindingFlags, objects::types::ObjectType, Topology};
+use hwloc2::{
+    bitmap::CpuSet, cpu::CpuBindingFlags, objects::types::ObjectType, ThreadId, Topology,
+};
 
 /// Example which spawns one thread per core and then assigns it to each.
 ///
@@ -62,11 +64,11 @@ fn cpuset_for_core(topology: &Topology, idx: usize) -> &CpuSet {
 /// Helper method to get the thread id through libc, with current rust stable (1.5.0) its not
 /// possible otherwise I think.
 #[cfg(not(target_os = "windows"))]
-fn get_thread_id() -> libc::pthread_t {
+fn get_thread_id() -> ThreadId {
     unsafe { libc::pthread_self() }
 }
 
 #[cfg(target_os = "windows")]
-fn get_thread_id() -> winapi::winnt::HANDLE {
-    unsafe { kernel32::GetCurrentThread() }
+fn get_thread_id() -> ThreadId {
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentThread() }
 }
