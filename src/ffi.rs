@@ -83,9 +83,8 @@ pub(crate) fn write_snprintf(
 /// can safely be transferred to C libraries that manage memory using
 /// malloc/free like hwloc.
 ///
-#[derive(Debug)]
 pub(crate) struct LibcString(NonNull<[c_char]>);
-
+//
 impl LibcString {
     /// Convert a Rust string to a C-compatible representation
     ///
@@ -138,7 +137,7 @@ impl LibcString {
         ptr
     }
 }
-
+//
 impl Drop for LibcString {
     fn drop(&mut self) {
         unsafe { libc::free(self.0.as_ptr() as *mut c_void) }

@@ -15,9 +15,10 @@ use crate::{
     RawTopology, Topology,
 };
 use bitflags::bitflags;
+use derive_more::Display;
 use errno::errno;
 use libc::{EINVAL, ENOMEM};
-use std::{ffi::c_ulong, ptr};
+use std::{ffi::c_ulong, fmt, ptr};
 use thiserror::Error;
 
 /// Proxy for modifying a `Topology`
@@ -337,9 +338,30 @@ pub enum AllowSet<'set> {
         nodeset: Option<&'set NodeSet>,
     },
 }
+//
+impl fmt::Display for AllowSet<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AllowSet::Custom { cpuset, nodeset } => {
+                write!(f, "Custom(")?;
+                if let Some(cpuset) = cpuset {
+                    write!(f, "{cpuset}")?;
+                    if nodeset.is_some() {
+                        write!(f, ", ")?;
+                    }
+                }
+                if let Some(nodeset) = nodeset {
+                    write!(f, "{nodeset}")?;
+                }
+                write!(f, ")")
+            }
+            other => write!(f, "{self:?}"),
+        }
+    }
+}
 
 /// Control merging of newly inserted groups with existing objects
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, PartialEq)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another
     /// hierarchically-identical object

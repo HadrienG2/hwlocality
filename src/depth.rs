@@ -4,7 +4,7 @@
 
 #[cfg(doc)]
 use crate::objects::types::ObjectType;
-use std::ffi::c_int;
+use std::{ffi::c_int, fmt};
 use thiserror::Error;
 
 /// Rust mapping of the hwloc_get_type_depth_e enum
@@ -43,6 +43,15 @@ impl Depth {
     /// Assert that this should be a normal object depth
     pub fn assume_normal(self) -> u32 {
         u32::try_from(self).expect("Not a normal object depth")
+    }
+}
+
+impl fmt::Display for Depth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal(d) => write!(f, "{d}"),
+            abnormal => write!(f, "<{abnormal:?}>"),
+        }
     }
 }
 

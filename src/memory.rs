@@ -4,6 +4,7 @@
 
 use crate::{ffi, Topology};
 use bitflags::bitflags;
+use derive_more::Display;
 use errno::{errno, Errno};
 use libc::{EINVAL, ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -98,7 +99,7 @@ pub(crate) type RawMemoryBindingPolicy = c_int;
 /// [`Topology::support().memory_binding()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
 #[repr(i32)]
-#[derive(Copy, Clone, Debug, Default, IntoPrimitive, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, Default, Display, IntoPrimitive, TryFromPrimitive)]
 pub enum MemoryBindingPolicy {
     /// Allocate each memory page individually on the local NUMA
     /// node of the thread that touches it
