@@ -32,14 +32,15 @@ use self::{
     support::TopologySupport,
 };
 use errno::{errno, Errno};
-use libc::{c_int, c_void, EINVAL};
+use ffi::LibcString;
+use libc::{c_char, c_int, c_void, EINVAL};
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
     panic::{AssertUnwindSafe, UnwindSafe},
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 #[cfg(target_os = "windows")]
@@ -1105,7 +1106,7 @@ impl Topology {
             MemoryBindingFlags,
         ) -> c_int,
     ) -> Result<(), MemoryBindingSetupError> {
-        let result = set_membind_like(self.as_ptr(), std::ptr::null(), 0, flags);
+        let result = set_membind_like(self.as_ptr(), ptr::null(), 0, flags);
         memory::setup_result(result)
     }
 
@@ -1339,7 +1340,7 @@ impl Topology {
                 }
             }
             assert!(
-                !std::ptr::eq(parent, old_parent),
+                !ptr::eq(parent, old_parent),
                 "This should not happen because...\n\
                 - The root intersects, so it has at least one index from the set\n\
                 - The lowest-level children are PUs, which have only one index set,\
@@ -1562,7 +1563,65 @@ impl Topology {
         Some(obj)
     }
 
-    // TODO: Wrap get_obj_with_same_locality
+    /// Find an object of a different type with the same locality
+    ///
+    /// If the source object src is a normal or memory type, this function
+    /// returns an object of type type with same CPU and node sets, either below
+    /// or above in the hierarchy.
+    ///
+    /// If the source object src is a PCI or an OS device within a PCI device,
+    /// the function may either return that PCI device, or another OS device in
+    /// the same PCI parent. This may for instance be useful for converting
+    /// between OS devices such as "nvml0" or "rsmi1" used in distance
+    /// structures into the the PCI device, or the CUDA or OpenCL OS device that
+    /// correspond to the same physical card.
+    ///
+    /// If specified, parameter `subtype` restricts the search to objects whose
+    /// [`TopologyObject::subtype()`] attribute exists and is equal to `subtype`
+    /// (case-insensitively), for instance "OpenCL" or "CUDA".
+    ///
+    /// If specified, parameter `name_prefix` restricts the search to objects
+    /// whose [`TopologyObject::name()`] attribute exists and starts with
+    /// `name_prefix` (case-insensitively), for instance "rsmi" for matching
+    /// "rsmi0".
+    ///
+    /// If multiple objects match, the first one is returned.
+    ///
+    /// This function will not walk the hierarchy across bridges since the PCI
+    /// locality may become different. This function cannot also convert between
+    /// normal/memory objects and I/O or Misc objects.
+    ///
+    /// If no matching object could be found, or if the source object and target
+    /// type are incompatible, `None` will be returned.
+    ///
+    /// # Panics
+    ///
+    /// If a string with inner NUL chars is passed as `subtype` or `name_prefix`.
+    pub fn object_with_same_locality(
+        &self,
+        src: &TopologyObject,
+        ty: ObjectType,
+        subtype: Option<&str>,
+        name_prefix: Option<&str>,
+    ) -> Option<&TopologyObject> {
+        let to_libc = |s: &str| LibcString::new(s).expect("Can't pass NUL char to hwloc");
+        let subtype = subtype.map(to_libc);
+        let name_prefix = name_prefix.map(to_libc);
+        let borrow_pchar = |opt: &Option<LibcString>| -> *const c_char {
+            opt.as_ref().map(|s| s.borrow()).unwrap_or(ptr::null())
+        };
+        let ptr = unsafe {
+            ffi::hwloc_get_obj_with_same_locality(
+                self.as_ptr(),
+                src,
+                ty.into(),
+                borrow_pchar(&subtype),
+                borrow_pchar(&name_prefix),
+                0,
+            )
+        };
+        (!ptr.is_null()).then(|| unsafe { &*ptr })
+    }
 }
 
 // # General-purpose internal utilities
@@ -1586,7 +1645,7 @@ impl Drop for Topology {
 
 impl Clone for Topology {
     fn clone(&self) -> Self {
-        let mut clone = std::ptr::null_mut();
+        let mut clone = ptr::null_mut();
         let result = unsafe { ffi::hwloc_topology_dup(&mut clone, self.as_ptr()) };
         assert!(result >= 0, "Topology clone failed with error {result}");
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
