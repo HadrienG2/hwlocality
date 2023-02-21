@@ -42,6 +42,7 @@ use std::{
     iter::FusedIterator,
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
+    num::NonZeroU32,
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr::{self, NonNull},
 };
@@ -1748,10 +1749,10 @@ impl Topology {
     /// neighbouring locations in the topology, which have a high chance of
     /// sharing resources like fast CPU caches.
     ///
-    /// The set of CPUs over which work is distributed is designated by a set of
-    /// root [`TopologyObject`]s with associated CPUs. To distribute over all
-    /// CPUs in the topology, you can pass `&[self.root_object()]` as the
-    /// `roots` parameter.
+    /// The set of CPUs over which work items are distributed is designated by a
+    /// set of root [`TopologyObject`]s with associated CPUs. You can distribute
+    /// items across all CPUs in the topology by setting `roots` to
+    /// `&[topology.root_object()]`.
     ///
     /// Since the purpose of `roots` is to designate which CPUs items should be
     /// allocated to, root objects should normally have a CPU set. If that is
@@ -1773,26 +1774,127 @@ impl Topology {
     /// By default, output cpusets follow the logical topology children order.
     /// By setting `flags` to [`DistributeFlags::REVERSE`], you can ask for them
     /// to be provided in reverse order instead (from last child to first child).
+    ///
+    /// # Panics
+    ///
+    /// - If there are no CPUs to distribute work to (the union of all root
+    ///   cpusets is empty).
     pub fn distribute_items(
         &self,
         roots: &[&TopologyObject],
-        num_items: usize,
+        num_items: NonZeroU32,
         max_depth: u32,
         flags: DistributeFlags,
     ) -> Vec<CpuSet> {
-        /// Recursive implementation of `distribute_items` which assumes that
-        /// some preparatory work has been performed (roots iterator has been
-        /// reversed, roots have been walked up to the first ancestor with
-        /// a cpuset...)
+        // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
+        type ObjSetWeightDepth<'a> = (&'a TopologyObject, &'a CpuSet, u32, u32);
+        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth> {
+            debug_assert!(obj.object_type().is_normal());
+            let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
+            let weight = cpuset
+                .weight()
+                .expect("Topology objects should not have infinite cpusets");
+            let depth =
+                u32::try_from(obj.depth()).expect("Normal objects should have a normal depth");
+            (weight > 0).then_some((obj, cpuset, weight, depth))
+        }
+
+        // Inner recursive algorithm
         fn recurse<'a>(
-            roots: impl Iterator<Item = &'a TopologyObject> + Clone,
-            num_items: usize,
+            roots_and_cpusets: impl Iterator<Item = ObjSetWeightDepth<'a>> + Clone + DoubleEndedIterator,
+            num_items: u32,
             max_depth: u32,
             flags: DistributeFlags,
             result: &mut Vec<CpuSet>,
         ) {
-            // TODO: implement
+            // Debug mode checks
+            debug_assert_ne!(roots_and_cpusets.clone().count(), 0);
+            debug_assert_ne!(num_items, 0);
+            let initial_len = result.len();
+
+            // Total number of cpus covered by the active root
+            let tot_weight: u32 = roots_and_cpusets
+                .clone()
+                .map(|(_, _, weight, _)| weight)
+                .sum();
+
+            // Subset of CPUs and items covered so far
+            let mut given_weight = 0;
+            let mut given_items = 0;
+
+            // What to do with each root
+            let process_root = |(root, cpuset, weight, depth): ObjSetWeightDepth| {
+                // Give this root a chunk of the work-items proportional to its
+                // weight, with a bias towards giving more CPUs to first roots
+                let weight_to_items = |given_weight| {
+                    (given_weight as f64 * num_items as f64 / tot_weight as f64).ceil() as u32
+                };
+                let next_given_weight = given_weight + weight;
+                let next_given_items = weight_to_items(next_given_weight);
+                let my_items = next_given_items - given_items;
+
+                // Keep recursing until we reach the bottom of the topology,
+                // run out of items to distribute, or hit the depth limit
+                if root.normal_arity() > 0 && my_items > 1 && depth < max_depth {
+                    recurse(
+                        root.normal_children().filter_map(decode_normal_obj),
+                        my_items,
+                        max_depth,
+                        flags,
+                        result,
+                    );
+                } else if my_items > 0 {
+                    // All items attributed to this root get this root's cpuset
+                    for _ in 0..my_items {
+                        result.push(cpuset.clone());
+                    }
+                } else {
+                    // No item attributed to this root, merge cpuset with
+                    // the previous root.
+                    *result.last_mut().expect("First chunk cannot be empty") |= cpuset;
+                }
+
+                // Prepare to process the next root
+                given_weight = next_given_weight;
+                given_items = next_given_items;
+            };
+
+            // Process roots in the order dictated by flags
+            if flags.contains(DistributeFlags::REVERSE) {
+                roots_and_cpusets.rev().for_each(process_root);
+            } else {
+                roots_and_cpusets.for_each(process_root);
+            }
+
+            // Debug mode checks
+            debug_assert_eq!(
+                result.len() - initial_len,
+                num_items
+                    .try_into()
+                    .expect("Already checked that num_items fits in usize")
+            );
         }
+
+        // Check roots, walk up to their first normal ancestor as necessary
+        let decoded_roots = roots.iter().copied().filter_map(|root| {
+            let mut root_then_ancestors = std::iter::once(root)
+                .chain(root.ancestors())
+                .skip_while(|root| !root.object_type().is_normal());
+            root_then_ancestors.find_map(decode_normal_obj)
+        });
+        assert_ne!(
+            decoded_roots.clone().count(),
+            0,
+            "No valid root to distribute items to"
+        );
+
+        // Run the recursion, collect results
+        let num_items = u32::from(num_items);
+        let num_items_usize = usize::try_from(num_items).expect("Cannot return that many items");
+        let mut result = Vec::with_capacity(num_items_usize);
+        recurse(decoded_roots, num_items, max_depth, flags, &mut result);
+        debug_assert_eq!(result.len(), num_items_usize);
+        result
     }
 }
 
