@@ -32,6 +32,7 @@ use self::{
         TopologyObject,
     },
     support::TopologySupport,
+    xml::{XMLExportFlags, XML},
 };
 use bitflags::bitflags;
 use errno::{errno, Errno};
@@ -47,7 +48,6 @@ use std::{
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr::{self, NonNull},
 };
-use xml::XMLExportFlags;
 
 #[cfg(target_os = "windows")]
 /// Thread identifier
@@ -2093,7 +2093,7 @@ impl Topology {
     ///
     /// If no path is given, the XML output is sent to standard output.
     ///
-    /// This file may be loaded later using [`TopologyBuilder::from_xml()`].
+    /// This file may be loaded later using [`TopologyBuilder::from_xml_file()`].
     ///
     /// By default, the latest export format is used, which means older hwloc
     /// releases (e.g. v1.x) will not be able to import it. Exporting to v1.x
@@ -2110,7 +2110,7 @@ impl Topology {
     /// other character, especially any non-ASCII character, will be silently
     /// dropped.
     #[doc(alias = "hwloc_topology_export_xml")]
-    pub fn export_xml(&self, path: Option<&str>, flags: XMLExportFlags) -> Result<(), Errno> {
+    pub fn export_xml_file(&self, path: Option<&str>, flags: XMLExportFlags) -> Result<(), Errno> {
         let path = path.unwrap_or("-");
         let xmlpath = LibcString::new(path).expect("hwloc can't consume strings with NUL");
         let result = unsafe {
@@ -2118,6 +2118,47 @@ impl Topology {
         };
         match result {
             0 => Ok(()),
+            -1 => Err(errno()),
+            other => {
+                unreachable!("Unexpected return value from hwloc_topology_export_xml: {other}")
+            }
+        }
+    }
+
+    /// Export the topology into an XML memory buffer
+    ///
+    /// This memory buffer may be loaded later using
+    /// [`TopologyBuilder::from_xml()`].
+    ///
+    /// By default, the latest export format is used, which means older hwloc
+    /// releases (e.g. v1.x) will not be able to import it. Exporting to v1.x
+    /// specific XML format is possible using flag
+    /// [`XMLExportFlags::V1`] but it may miss some details about the topology.
+    /// Also, note that this option will be removed from the (upcoming at the
+    /// time of writing) hwloc v3.0 release.
+    ///
+    /// If there is any chance that the exported file may ever be imported back
+    /// by a process using hwloc 1.x, one should consider detecting it at
+    /// runtime and using the corresponding export format.
+    ///
+    /// Only printable characters may be exported to XML string attributes. Any
+    /// other character, especially any non-ASCII character, will be silently
+    /// dropped.
+    #[doc(alias = "hwloc_topology_export_xmlbuffer")]
+    pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML, Errno> {
+        let mut xmlbuffer = ptr::null_mut();
+        let mut buflen = 0;
+        let result = unsafe {
+            ffi::hwloc_topology_export_xmlbuffer(
+                self.as_ptr(),
+                &mut xmlbuffer,
+                &mut buflen,
+                flags.bits(),
+            )
+        };
+        match result {
+            0 => Ok(unsafe { XML::wrap(self, xmlbuffer, buflen) }
+                .expect("Got null pointer from hwloc_topology_export_xmlbuffer")),
             -1 => Err(errno()),
             other => {
                 unreachable!("Unexpected return value from hwloc_topology_export_xml: {other}")

@@ -125,7 +125,7 @@ impl TopologyBuilder {
     /// CPU and memory binding operations will be ineffective with this backend,
     /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
     /// loaded XML file truly matches the underlying system.
-    pub fn from_xml(mut self, xml: &str) -> Result<Self, InvalidParameter> {
+    pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, InvalidParameter> {
         let Ok(xml) = LibcString::new(xml) else { return Err(InvalidParameter(self)) };
         let result = unsafe {
             ffi::hwloc_topology_set_xmlbuffer(

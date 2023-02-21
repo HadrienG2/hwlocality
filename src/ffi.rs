@@ -685,7 +685,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_free_xmlbuffer(
                 topology: *const RawTopology,
                 xmlbuffer: *mut c_char,
-            ) -> c_void;
+            );
             // NOTE: Not exposing userdata at the moment, so no need to bind
             //       associated API functions yet.
 

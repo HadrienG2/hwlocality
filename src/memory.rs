@@ -244,8 +244,8 @@ pub(crate) fn query_result_lazy<T>(
 
 /// Bytes allocated through hwloc
 ///
-/// This behaves like a `Box[MaybeUninit<u8>]` and will similarly automatically
-/// liberate the allocated memory when it goes out of scope.
+/// This behaves like a `Box<[MaybeUninit<u8>]>` and will similarly
+/// automatically liberate the allocated memory when it goes out of scope.
 pub struct Bytes<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,
