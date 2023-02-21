@@ -97,7 +97,7 @@ pub(crate) struct RawTopology {
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
 /// - [Finding other objects](#finding-other-objects)
-/// - [Distributing items over a topology](#distributing-items-over-a-topology)
+/// - [Distributing work items over a topology](#distributing-work-items-over-a-topology)
 #[derive(Debug)]
 pub struct Topology(NonNull<RawTopology>);
 
@@ -1733,70 +1733,66 @@ impl Topology {
     }
 }
 
-/// # Distributing items over a topology
+/// # Distributing work items over a topology
 //
 // Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html,
 // but the inline header implementation had to be rewritten in Rust.
 impl Topology {
-    /// Distribute `num_sets` items over the topology under `roots`
+    /// Distribute `num_items` work items over the topology under `roots`
     ///
-    /// This function will return `num_sets` cpusets recursively distributed
-    /// linearly over the topology, under objects `roots`.
+    /// Given a number of work items to be processed (which can be, for example,
+    /// a set of threads to be spawned), this function will assign a cpuset to
+    /// each of them according to a recursive linear distribution algorithm.
+    /// Such an algorithm spreads work evenly across CPUs and ensures that
+    /// work-items with neighboring indices in the output array are processed by
+    /// neighbouring locations in the topology, which have a high chance of
+    /// sharing resources like fast CPU caches.
     ///
-    /// To distribute over the entire topology, just pass `&[self.root_object()]`
-    /// as the `roots` parameter.
+    /// The set of CPUs over which work is distributed is designated by a set of
+    /// root [`TopologyObject`]s with associated CPUs. To distribute over all
+    /// CPUs in the topology, you can pass `&[self.root_object()]` as the
+    /// `roots` parameter.
+    ///
+    /// Since the purpose of `roots` is to designate which CPUs items should be
+    /// allocated to, root objects should normally have a CPU set. If that is
+    /// not the case (e.g. if some roots designate NUMA nodes or I/O objects
+    /// like storage or GPUs), the algorithm will walk up affected roots'
+    /// ancestor chains to locate the first ancestor with CPUs in the topology,
+    /// which represents the CPUs closest to the object of interest. If none of
+    /// the CPUs of that ancestor is available for binding, that root will be
+    /// ignored.
     ///
     /// If there is no depth limit, which is achieved by setting `max_depth` to
-    /// `u32::MAX`, the distribution is done down to the depth where there is
-    /// only one CPU to distribute, which is similar to the following bitmap
-    /// manipulation...
+    /// `u32::MAX`, the distribution will be done down to the granularity of
+    /// individual CPUs, i.e. if there are more work items that CPUs, each work
+    /// item will be assigned one CPU. By setting the `max_depth` parameter to a
+    /// lower limit, you can distribute work at a coarser granularity, e.g.
+    /// across L3 caches, giving the OS some leeway to move tasks across CPUs
+    /// sharing that cache.
     ///
-    /// ```
-    /// # let topology = Topology::new().unwrap();
-    /// # let roots = &[topology.root_object()];
-    /// let cpusets =
-    ///     roots.iter()
-    ///         .flat_map(|root| root.cpuset().unwrap_or_else(CpuSet::new()))
-    ///         .map(|idx| CpuSet::from(idx))
-    ///         .collect::<Vec<_>>();
-    /// ```
-    ///
-    /// ...except the cpusets will be returned in hwloc's logical index order,
-    /// not in OS index order, so neighbouring cpusets in the output Vec are
-    /// adjacent in the hardware topology and have a high chance of sharing
-    /// resources like L3 caches.
-    ///
-    /// By setting the `max_depth` parameter to a lower limit, one can ensure
-    /// that once the desired depth is reached or passed, distribution stops and
-    /// one copy of the associated cpuset is returned per CPU core inside the
-    /// cpuset at that depth.
-    ///
-    /// A typical use of this function is to distribute n threads over a
-    /// machine, giving each of them as much private cache as possible and
-    /// keeping them locally in number order.
-    ///
-    /// The caller may typically want to also call `Bitmap::singlify()`
-    /// before binding a thread so that it does not move at all.
-    ///
-    /// # Panics
-    ///
-    /// Root objects should have a CPU set, this function will panic if that is
-    /// not the case.
-    pub fn distribute_cpusets(
+    /// By default, output cpusets follow the logical topology children order.
+    /// By setting `flags` to [`DistributeFlags::REVERSE`], you can ask for them
+    /// to be provided in reverse order instead (from last child to first child).
+    pub fn distribute_items(
         &self,
         roots: &[&TopologyObject],
-        num_sets: usize,
+        num_items: usize,
         max_depth: u32,
         flags: DistributeFlags,
     ) -> Vec<CpuSet> {
-        /* /// Recursive implementation of `distribute_cpusets`
-        fn recurse(
-            roots: impl Iterator<Item = &TopologyObject> + Clone,
-            num_sets: usize,
+        /// Recursive implementation of `distribute_items` which assumes that
+        /// some preparatory work has been performed (roots iterator has been
+        /// reversed, roots have been walked up to the first ancestor with
+        /// a cpuset...)
+        fn recurse<'a>(
+            roots: impl Iterator<Item = &'a TopologyObject> + Clone,
+            num_items: usize,
             max_depth: u32,
             flags: DistributeFlags,
-            result: &mut Vec<CpuSet>
-        ) */
+            result: &mut Vec<CpuSet>,
+        ) {
+            // TODO: implement
+        }
     }
 }
 
@@ -1806,6 +1802,12 @@ bitflags! {
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
         const REVERSE = (1<<0);
+    }
+}
+
+impl Default for DistributeFlags {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
