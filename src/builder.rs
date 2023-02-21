@@ -357,14 +357,13 @@ bitflags! {
         /// are not added to the topology. Parent objects (package, core, cache,
         /// etc.) are added only if some of their children are allowed. All
         /// existing PUs and NUMA nodes in the topology are allowed.
-        /// `Topology::allowed_cpuset()` (TODO: wrap and link) and
-        /// `Topology::allowed_nodeset()` (TODO: wrap and link) are
-        /// equal to the root object cpuset and nodeset.
+        /// [`Topology::allowed_cpuset()`] and [`Topology::allowed_nodeset()`]
+        /// are equal to the root object cpuset and nodeset.
         ///
         /// When this flag is set, the actual sets of allowed PUs and NUMA nodes
-        /// are given by `Topology::allowed_cpuset()` (TODO: wrap and link) and
-        /// `Topology::allowed_nodeset()` (TODO: wrap and link). They may be
-        /// smaller than the root object cpuset and nodeset.
+        /// are given by [`Topology::allowed_cpuset()`] and
+        /// [`Topology::allowed_nodeset()`]. They may be smaller than the root
+        /// object cpuset and nodeset.
         ///
         /// If the current topology is exported to XML and reimported later,
         /// this flag should be set again in the reimported topology so that

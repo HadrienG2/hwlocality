@@ -99,6 +99,7 @@ pub(crate) struct RawTopology {
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
 /// - [Finding other objects](#finding-other-objects)
 /// - [Distributing work items over a topology](#distributing-work-items-over-a-topology)
+/// - [CPU and node sets of entire topologies](#cpu-and-node-sets-of-entire-topologies)
 #[derive(Debug)]
 pub struct Topology(NonNull<RawTopology>);
 
@@ -1895,6 +1896,86 @@ impl Topology {
         recurse(decoded_roots, num_items, max_depth, flags, &mut result);
         debug_assert_eq!(result.len(), num_items_usize);
         result
+    }
+}
+
+/// # CPU and node sets of entire topologies
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
+impl Topology {
+    /// Topology CPU set
+    ///
+    /// This is equivalent to calling [`TopologyObject::cpuset()`] on
+    /// the topology's root object.
+    pub fn cpuset(&self) -> &CpuSet {
+        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_topology_cpuset(topology) })
+    }
+
+    /// Complete CPU set
+    ///
+    /// This is equivalent to calling [`TopologyObject::complete_cpuset()`] on
+    /// the topology's root object.
+    pub fn complete_cpuset(&self) -> &CpuSet {
+        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_complete_cpuset(topology) })
+    }
+
+    /// Allowed CPU set
+    ///
+    /// If [`BuildFlags::INCLUDE_DISALLOWED`] was not set, this is identical to
+    /// [`Topology::cpuset()`]: all visible PUs are allowed.
+    ///
+    /// Otherwise, you can check whether a particular cpuset contains allowed
+    /// PUs by calling `cpuset.intersects(topology.allowed_cpuset())`, and if so
+    /// you can get the set of allowed PUs with
+    /// `cpuset & topology.allowed_cpuset()`.
+    pub fn allowed_cpuset(&self) -> &CpuSet {
+        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_allowed_cpuset(topology) })
+    }
+
+    /// Topology node set
+    ///
+    /// This is equivalent to calling [`TopologyObject::nodeset()`] on
+    /// the topology's root object.
+    pub fn nodeset(&self) -> &NodeSet {
+        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_topology_nodeset(topology) })
+    }
+
+    /// Complete node set
+    ///
+    /// This is equivalent to calling [`TopologyObject::complete_nodeset()`] on
+    /// the topology's root object.
+    pub fn complete_nodeset(&self) -> &NodeSet {
+        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_complete_nodeset(topology) })
+    }
+
+    /// Allowed node set
+    ///
+    /// If [`BuildFlags::INCLUDE_DISALLOWED`] was not set, this is identical to
+    /// [`Topology::nodeset()`]: all visible NUMA nodes are allowed.
+    ///
+    /// Otherwise, you can check whether a particular nodeset contains allowed
+    /// NUMA nodes by calling `nodeset.intersects(topology.allowed_nodeset())`,
+    /// and if so you can get the set of allowed NUMA nodes with
+    /// `nodeset & topology.allowed_nodeset()`.
+    pub fn allowed_nodeset(&self) -> &NodeSet {
+        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_allowed_nodeset(topology) })
+    }
+
+    fn topology_set<'topology, Set: SpecializedBitmap>(
+        &'topology self,
+        getter: impl Fn(*const RawTopology) -> *const RawBitmap,
+    ) -> &Set {
+        Set::from_bitmap_ref(
+            unsafe {
+                let bitmap_ptr = getter(self.as_ptr());
+                let bitmap_ref = std::mem::transmute::<
+                    &*const RawBitmap,
+                    &'topology *const RawBitmap,
+                >(&bitmap_ptr);
+                Bitmap::borrow_from_raw(bitmap_ref)
+            }
+            .expect("Topology bitmap getters should return non-null bitmaps"),
+        )
     }
 }
 

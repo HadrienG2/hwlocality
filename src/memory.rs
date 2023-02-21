@@ -104,9 +104,9 @@ pub enum MemoryBindingPolicy {
     /// Allocate each memory page individually on the local NUMA
     /// node of the thread that touches it
     ///
-    /// The given nodeset should usually be `Topology::nodeset()`
-    /// (TODO: wrap and add doc link) so that the touching thread may run and
-    /// allocate on any node in the system.
+    /// The given nodeset should usually be [`Topology::nodeset()`]
+    /// so that the touching thread may run and allocate on any node in the
+    /// system.
     ///
     /// On AIX, if the nodeset is smaller, pages are allocated locally (if the
     /// local node is in the nodeset) or from a random non-local node (otherwise).

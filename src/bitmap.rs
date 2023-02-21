@@ -22,9 +22,16 @@ use std::{
 pub trait SpecializedBitmap: AsRef<Bitmap> + AsMut<Bitmap> + From<Bitmap> + Into<Bitmap> {
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;
+
+    /// Convert a reference to bitmap to a reference to this
+    // FIXME: Adding a `where for<'a> &'a Self: From<&'a Bitmap>` bound on the
+    //        trait should suffice, but for some unclear reasons rustc v1.67.1
+    //        rejects this claiming the trait isn't implemented.
+    #[doc(hidden)]
+    fn from_bitmap_ref(bitmap: &Bitmap) -> &Self;
 }
 
-/// Kind of bitmap
+/// Kind of specialized bitmap
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BitmapKind {
     /// [`CpuSet`]
@@ -34,8 +41,52 @@ pub enum BitmapKind {
     NodeSet,
 }
 
-macro_rules! impl_newtype_ops {
-    ($newtype:ident) => {
+/// Implement a specialized bitmap
+macro_rules! impl_bitmap_newtype {
+    (
+        $(#[$attr:meta])*
+        $newtype:ident
+    ) => {
+        $(#[$attr])*
+        #[derive(
+            AsMut,
+            AsRef,
+            BitAnd,
+            BitAndAssign,
+            BitOr,
+            BitOrAssign,
+            BitXor,
+            BitXorAssign,
+            Clone,
+            Debug,
+            Default,
+            Display,
+            Eq,
+            From,
+            Into,
+            IntoIterator,
+            Not,
+            Ord,
+            PartialEq,
+            PartialOrd,
+        )]
+        #[repr(transparent)]
+        pub struct $newtype(Bitmap);
+
+        impl SpecializedBitmap for $newtype {
+            const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
+
+            fn from_bitmap_ref(bitmap: &Bitmap) -> &$newtype {
+                bitmap.into()
+            }
+        }
+
+        impl<'a> From<&'a Bitmap> for &'a $newtype {
+            fn from(value: &'a Bitmap) -> &'a $newtype {
+                unsafe { std::mem::transmute(value) }
+            }
+        }
+
         /// # Re-export of the Bitmap API
         ///
         /// Only documentation headers are repeated here, you will find the
@@ -53,10 +104,16 @@ macro_rules! impl_newtype_ops {
             ///
             /// See [`Bitmap::borrow_from_raw`].
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
-                std::mem::transmute::<Option<&Bitmap>, Option<&Self>>(Bitmap::borrow_from_raw(
-                    bitmap,
-                ))
+            pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
+                Bitmap::borrow_from_raw(bitmap).map(Into::into)
+            }
+
+            /// Wrap an hwloc-originated borrowed bitmap pointer
+            ///
+            /// See [`Bitmap::borrow_from_raw_mut`].
+            #[allow(unused)]
+            pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
+                Bitmap::borrow_from_raw_mut(bitmap).map(Into::into)
             }
 
             /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
@@ -377,37 +434,9 @@ macro_rules! impl_newtype_ops {
     };
 }
 
-/// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical OS indexes.
-#[derive(
-    AsMut,
-    AsRef,
-    BitAnd,
-    BitAndAssign,
-    BitOr,
-    BitOrAssign,
-    BitXor,
-    BitXorAssign,
-    Clone,
-    Debug,
-    Default,
-    Display,
-    Eq,
-    From,
-    Into,
-    IntoIterator,
-    Not,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-#[repr(transparent)]
-pub struct CpuSet(Bitmap);
-
-impl SpecializedBitmap for CpuSet {
-    const BITMAP_KIND: BitmapKind = BitmapKind::CpuSet;
-}
-
 /// # CpuSet-specific API
+//
+// NOTE: This goes first so that it appears first in rustdoc
 impl CpuSet {
     /// Remove simultaneous multithreading PUs from a CPU set
     ///
@@ -432,40 +461,16 @@ impl CpuSet {
     }
 }
 
-impl_newtype_ops!(CpuSet);
+impl_bitmap_newtype!(
+    /// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical OS indexes.
+    CpuSet
+);
 
-/// A `NodeSet` is a [`Bitmap`] whose bits are set according to NUMA memory node
-/// physical OS indexes.
-#[derive(
-    AsMut,
-    AsRef,
-    BitAnd,
-    BitAndAssign,
-    BitOr,
-    BitOrAssign,
-    BitXor,
-    BitXorAssign,
-    Clone,
-    Debug,
-    Default,
-    Display,
-    Eq,
-    From,
-    Into,
-    IntoIterator,
-    Not,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-#[repr(transparent)]
-pub struct NodeSet(Bitmap);
-
-impl SpecializedBitmap for NodeSet {
-    const BITMAP_KIND: BitmapKind = BitmapKind::NodeSet;
-}
-
-impl_newtype_ops!(NodeSet);
+impl_bitmap_newtype!(
+    /// A `NodeSet` is a [`Bitmap`] whose bits are set according to NUMA memory node
+    /// physical OS indexes.
+    NodeSet
+);
 
 /// Opaque bitmap struct
 ///
@@ -508,7 +513,16 @@ impl Bitmap {
     /// If non-null, the pointer must target a valid bitmap, but unlike with
     /// from_raw, it will not be automatically freed on Drop.
     ///
-    pub(crate) unsafe fn borrow_from_raw(bitmap: &*mut RawBitmap) -> Option<&Self> {
+    pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
+        (!bitmap.is_null()).then_some(std::mem::transmute::<&*const RawBitmap, &Self>(bitmap))
+    }
+
+    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    ///
+    /// If non-null, the pointer must target a valid bitmap, but unlike with
+    /// from_raw, it will not be automatically freed on Drop.
+    ///
+    pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
         (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut RawBitmap, &Self>(bitmap))
     }
 
@@ -779,7 +793,7 @@ impl Bitmap {
     ///
     /// This function is NOT meant to distribute multiple processes within a
     /// single CPU set. It always return the same single bit when called
-    /// multiple times on the same input set. hwloc_distrib() (TODO wrap and link)
+    /// multiple times on the same input set. [`Topology::distribute_items()`]
     /// may be used for generating CPU sets to distribute multiple tasks below a
     /// single multi-PU object.
     ///

@@ -516,11 +516,32 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
             ) -> *const TopologyObject;
 
-            // TODO
-
             // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_complete_cpuset(
+                topology: *const RawTopology,
+            ) -> *const RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_topology_cpuset(
+                topology: *const RawTopology,
+            ) -> *const RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_allowed_cpuset(
+                topology: *const RawTopology,
+            ) -> *const RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_complete_nodeset(
+                topology: *const RawTopology,
+            ) -> *const RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_topology_nodeset(
+                topology: *const RawTopology,
+            ) -> *const RawBitmap;
+            #[must_use]
+            pub(crate) fn hwloc_topology_get_allowed_nodeset(
+                topology: *const RawTopology,
+            ) -> *const RawBitmap;
 
             // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 

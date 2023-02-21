@@ -233,8 +233,8 @@ impl GroupAttributes {
     }
 
     /// Internally-used kind of group
-    // TODO: Consider hiding depending on what "internal" we're talking about
-    pub fn kind(&self) -> u32 {
+    #[allow(unused)]
+    pub(crate) fn kind(&self) -> u32 {
         self.kind
     }
 
@@ -246,8 +246,8 @@ impl GroupAttributes {
 
     /// Internally-used subkind to distinguish different levels of groups with
     /// the same kind
-    // TODO: Consider hiding depending on what "internal" we're talking about
-    pub fn subkind(&self) -> u32 {
+    #[allow(unused)]
+    pub(crate) fn subkind(&self) -> u32 {
         self.subkind
     }
 

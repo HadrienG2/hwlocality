@@ -10,13 +10,13 @@ use self::{
     attributes::{ObjectAttributes, ObjectInfo, RawObjectAttributes},
     types::{ObjectType, RawObjectType},
 };
-#[cfg(doc)]
-use crate::builder::BuildFlags;
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     depth::{Depth, RawDepth},
     ffi::{self, LibcString},
 };
+#[cfg(doc)]
+use crate::{builder::BuildFlags, Topology};
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
@@ -484,11 +484,11 @@ impl TopologyObject {
     ///
     /// If the [`BuildFlags::INCLUDE_DISALLOWED`] topology building
     /// configuration flag is set, some of these CPUs may be online but not
-    /// allowed for binding, see `Topology::get_allowed_cpuset()` (TODO: wrap and link).
+    /// allowed for binding, see [`Topology::allowed_cpuset()`].
     ///
     /// All objects have CPU and node sets except Misc and I/O objects.
     pub fn cpuset(&self) -> Option<&CpuSet> {
-        unsafe { CpuSet::borrow_from_raw(&self.cpuset) }
+        unsafe { CpuSet::borrow_from_raw_mut(&self.cpuset) }
     }
 
     /// Truth that this object is inside of the given cpuset `set`
@@ -521,7 +521,7 @@ impl TopologyObject {
     /// the precise position is undefined. It is however known that it would be
     /// somewhere under this object.
     pub fn complete_cpuset(&self) -> Option<&CpuSet> {
-        unsafe { CpuSet::borrow_from_raw(&self.complete_cpuset) }
+        unsafe { CpuSet::borrow_from_raw_mut(&self.complete_cpuset) }
     }
 }
 
@@ -540,14 +540,14 @@ impl TopologyObject {
     ///
     /// If the [`BuildFlags::INCLUDE_DISALLOWED`] topology building
     /// configuration flag is set, some of these nodes may not be allowed for
-    /// allocation, see `Topology::allowed_nodeset()` (TODO wrap and link).
+    /// allocation, see [`Topology::allowed_nodeset()`].
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to
     /// this object, so the nodeset is full.
     ///
     /// All objects have CPU and node sets except Misc and I/O objects.
     pub fn nodeset(&self) -> Option<&NodeSet> {
-        unsafe { NodeSet::borrow_from_raw(&self.nodeset) }
+        unsafe { NodeSet::borrow_from_raw_mut(&self.nodeset) }
     }
 
     /// The complete NUMA node set of this object,.
@@ -565,7 +565,7 @@ impl TopologyObject {
     /// If there are no NUMA nodes in the machine, all the memory is close to
     /// this object, so complete_nodeset is full.
     pub fn complete_nodeset(&self) -> Option<&NodeSet> {
-        unsafe { NodeSet::borrow_from_raw(&self.complete_nodeset) }
+        unsafe { NodeSet::borrow_from_raw_mut(&self.complete_nodeset) }
     }
 }
 

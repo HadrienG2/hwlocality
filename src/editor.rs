@@ -119,8 +119,8 @@ impl TopologyEditor<'_> {
     ///
     /// This function only works if [`BuildFlags::INCLUDE_DISALLOWED`] was set
     /// during topology building. It does not modify any object, it only changes
-    /// the sets returned by hwloc_topology_get_allowed_cpuset() (TODO wrap) and
-    /// hwloc_topology_get_allowed_nodeset() (TODO wrap).
+    /// the sets returned by [`Topology::allowed_cpuset()`] and
+    /// [`Topology::allowed_nodeset()`].
     ///
     /// It is notably useful when importing a topology from another process
     /// running in a different Linux Cgroup.
