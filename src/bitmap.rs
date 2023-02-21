@@ -2,7 +2,7 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
-use crate::{ffi, Topology};
+use crate::{depth::Depth, ffi, Topology};
 use derive_more::*;
 use std::{
     borrow::Borrow,
@@ -89,8 +89,8 @@ macro_rules! impl_bitmap_newtype {
 
         /// # Re-export of the Bitmap API
         ///
-        /// Only documentation headers are repeated here, you will find the
-        /// build of the documentation in identically named `Bitmap` methods.
+        /// Only documentation headers are repeated here, you will find most of
+        /// the documentation attached to identically named `Bitmap` methods.
         impl $newtype {
             /// Wrap an owned bitmap from hwloc
             ///
@@ -436,7 +436,8 @@ macro_rules! impl_bitmap_newtype {
 
 /// # CpuSet-specific API
 //
-// NOTE: This goes first so that it appears first in rustdoc
+// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
+//       before the bitmap API reexport in rustdoc.
 impl CpuSet {
     /// Remove simultaneous multithreading PUs from a CPU set
     ///
@@ -459,12 +460,58 @@ impl CpuSet {
             "Unexpected result from hwloc_bitmap_singlify_per_core"
         )
     }
+
+    /// Convert a NUMA node set into a CPU set
+    ///
+    /// For each NUMA node included in the input `nodeset`, set the
+    /// corresponding local PUs in the output cpuset.
+    ///
+    /// If some CPUs have no local NUMA nodes, this function never sets their
+    /// indexes in the output CPU set, even if a full node set is given in input.
+    ///
+    /// Hence the entire topology node set, that one can query via
+    /// [`Topology::nodeset()`], would be converted by this function into the
+    /// set of all CPUs that have some local NUMA nodes.
+    pub fn from_nodeset(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
+        let mut cpuset = CpuSet::new();
+        for obj in topology.objects_at_depth(Depth::NUMANode) {
+            if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
+                cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");
+            }
+        }
+        cpuset
+    }
 }
 
 impl_bitmap_newtype!(
     /// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical OS indexes.
     CpuSet
 );
+
+/// # NodeSet-specific API
+//
+// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
+//       before the bitmap API reexport in rustdoc.
+impl NodeSet {
+    /// Convert a CPU set into a NUMA node set
+    ///
+    /// For each PU included in the input `cpuset`, set the corresponding local
+    /// NUMA node(s) in the output nodeset.
+    ///
+    /// If some NUMA nodes have no CPUs at all, this function never sets their
+    /// indices in the output node set, even if a full CPU set is given in input.
+    ///
+    /// Hence the entire topology CPU set, that one can query via
+    /// [`Topology::cpuset()`], would be converted by this functino into the
+    /// set of all nodes that have some local CPUs.
+    pub fn from_cpuset(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
+        let mut nodeset = NodeSet::new();
+        for obj in topology.objects_covering_cpuset_at_depth(cpuset, Depth::NUMANode) {
+            nodeset.set(obj.os_index().expect("NUMA nodes should have OS indices"));
+        }
+        nodeset
+    }
+}
 
 impl_bitmap_newtype!(
     /// A `NodeSet` is a [`Bitmap`] whose bits are set according to NUMA memory node
