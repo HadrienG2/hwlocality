@@ -669,7 +669,25 @@ macro_rules! extern_c_block {
 
             // === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_export_xml(
+                topology: *const RawTopology,
+                xmlpath: *const c_char,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_topology_export_xmlbuffer(
+                topology: *const RawTopology,
+                xmlbuffer: *mut *mut c_char,
+                buflen: *mut c_int,
+                flags: c_ulong,
+            ) -> c_int;
+            pub(crate) fn hwloc_free_xmlbuffer(
+                topology: *const RawTopology,
+                xmlbuffer: *mut c_char,
+            ) -> c_void;
+            // NOTE: Not exposing userdata at the moment, so no need to bind
+            //       associated API functions yet.
 
             // === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 

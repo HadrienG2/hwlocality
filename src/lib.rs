@@ -10,6 +10,7 @@ pub(crate) mod ffi;
 pub mod memory;
 pub mod objects;
 pub mod support;
+pub mod xml;
 
 #[cfg(doc)]
 use self::support::MiscSupport;
@@ -46,6 +47,7 @@ use std::{
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr::{self, NonNull},
 };
+use xml::XMLExportFlags;
 
 #[cfg(target_os = "windows")]
 /// Thread identifier
@@ -101,6 +103,7 @@ pub(crate) struct RawTopology {
 /// - [Distributing work items over a topology](#distributing-work-items-over-a-topology)
 /// - [CPU and node sets of entire topologies](#cpu-and-node-sets-of-entire-topologies)
 /// - [Finding I/O objects](#finding-io-objects)
+/// - [Exporting Topologies to XML](#exporting-topologies-to-xml)
 #[derive(Debug)]
 pub struct Topology(NonNull<RawTopology>);
 
@@ -1979,13 +1982,19 @@ impl Topology {
         )
     }
 }
-
+//
 bitflags! {
     /// Flags to be given to [`Topology::distributed_cpuset()`]
     #[repr(C)]
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
         const REVERSE = (1<<0);
+    }
+}
+//
+impl Default for DistributeFlags {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -2076,9 +2085,44 @@ impl Topology {
     }
 }
 
-impl Default for DistributeFlags {
-    fn default() -> Self {
-        Self::empty()
+/// # Exporting Topologies to XML
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+impl Topology {
+    /// Export the topology into an XML file at filesystem location `path`
+    ///
+    /// If no path is given, the XML output is sent to standard output.
+    ///
+    /// This file may be loaded later using [`TopologyBuilder::from_xml()`].
+    ///
+    /// By default, the latest export format is used, which means older hwloc
+    /// releases (e.g. v1.x) will not be able to import it. Exporting to v1.x
+    /// specific XML format is possible using flag
+    /// [`XMLExportFlags::V1`] but it may miss some details about the topology.
+    /// Also, note that this option will be removed from the (upcoming at the
+    /// time of writing) hwloc v3.0 release.
+    ///
+    /// If there is any chance that the exported file may ever be imported back
+    /// by a process using hwloc 1.x, one should consider detecting it at
+    /// runtime and using the corresponding export format.
+    ///
+    /// Only printable characters may be exported to XML string attributes. Any
+    /// other character, especially any non-ASCII character, will be silently
+    /// dropped.
+    #[doc(alias = "hwloc_topology_export_xml")]
+    pub fn export_xml(&self, path: Option<&str>, flags: XMLExportFlags) -> Result<(), Errno> {
+        let path = path.unwrap_or("-");
+        let xmlpath = LibcString::new(path).expect("hwloc can't consume strings with NUL");
+        let result = unsafe {
+            ffi::hwloc_topology_export_xml(self.as_ptr(), xmlpath.borrow(), flags.bits())
+        };
+        match result {
+            0 => Ok(()),
+            -1 => Err(errno()),
+            other => {
+                unreachable!("Unexpected return value from hwloc_topology_export_xml: {other}")
+            }
+        }
     }
 }
 
