@@ -100,6 +100,7 @@ pub(crate) struct RawTopology {
 /// - [Finding other objects](#finding-other-objects)
 /// - [Distributing work items over a topology](#distributing-work-items-over-a-topology)
 /// - [CPU and node sets of entire topologies](#cpu-and-node-sets-of-entire-topologies)
+/// - [Finding I/O objects](#finding-io-objects)
 #[derive(Debug)]
 pub struct Topology(NonNull<RawTopology>);
 
@@ -1985,6 +1986,93 @@ bitflags! {
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
         const REVERSE = (1<<0);
+    }
+}
+
+/// # Finding I/O objects
+//
+// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html
+// but inline functions had to be reimplemented in Rust
+impl Topology {
+    /// Enumerate PCI devices in the system
+    #[doc(alias = "hwloc_get_next_pcidev")]
+    pub fn pci_devices(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(Depth::PCIDevice)
+    }
+
+    /// Find the PCI device object matching the PCI bus id given domain, bus
+    /// device and function PCI bus id
+    #[doc(alias = "hwloc_get_pcidev_by_busid")]
+    pub fn pci_device_by_bus_id(
+        &self,
+        domain: u32,
+        bus_id: u8,
+        bus_device: u8,
+        function: u8,
+    ) -> Option<&TopologyObject> {
+        self.pci_devices().find(|obj| {
+            let Some(ObjectAttributes::PCIDevice(pci)) = obj.attributes() else { unreachable!("All PCI devices should have PCI attributes") };
+            pci.domain() == domain && pci.bus_id() == bus_id && pci.bus_device() == bus_device && pci.function() == function
+        })
+    }
+
+    /// Find the PCI device object matching the PCI bus id given as a string
+    /// of format "xxxx:yy:zz.t" (with domain) or "yy:zz.t" (without domain).
+    ///
+    /// # Panics
+    ///
+    /// If the given string does not match the PCI bus id format given above
+    #[doc(alias = "hwloc_get_pcidev_by_busidstring")]
+    pub fn pci_device_by_bus_id_string(&self, bus_id: &str) -> Option<&TopologyObject> {
+        // Assume well-formatted string
+        let parse_u32 = |s| u32::from_str_radix(s, 16).expect("Bad hex u32 format");
+        let parse_u8 = |s| u8::from_str_radix(s, 16).expect("Bad hex u8 format");
+
+        // Extract initial hex (whose semantics are ambiguous at this stage)
+        let (int1, mut rest) = bus_id.split_once(':').expect("Bad address structure");
+
+        // From presence/absence of second ':', deduce if int1 was a domain or
+        // a bus id in the default 0 domain.
+        let (domain, bus) = if let Some((bus, next_rest)) = rest.split_once(':') {
+            rest = next_rest;
+            (parse_u32(int1), parse_u8(bus))
+        } else {
+            (0, parse_u8(int1))
+        };
+
+        // Parse device and function IDs, and forward to non-textual lookup
+        let (dev, func) = rest.split_once('.').expect("Bad address structure");
+        self.pci_device_by_bus_id(domain, bus, parse_u8(dev), parse_u8(func))
+    }
+
+    /// Enumerate OS devices in the system
+    #[doc(alias = "hwloc_get_next_osdev")]
+    pub fn os_devices(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(Depth::OSDevice)
+    }
+
+    /// Enumerate bridges in the system
+    #[doc(alias = "hwloc_get_next_bridge")]
+    pub fn bridges(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(Depth::Bridge)
     }
 }
 

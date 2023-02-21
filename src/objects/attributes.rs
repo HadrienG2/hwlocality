@@ -287,19 +287,23 @@ pub struct PCIDeviceAttributes {
 }
 //
 impl PCIDeviceAttributes {
+    /// PCI domain
     pub fn domain(&self) -> u32 {
         self.domain
     }
 
-    pub fn bus(&self) -> u8 {
+    /// PCI bus id
+    pub fn bus_id(&self) -> u8 {
         self.bus
     }
 
-    pub fn dev(&self) -> u8 {
+    /// PCI bus device
+    pub fn bus_device(&self) -> u8 {
         self.dev
     }
 
-    pub fn func(&self) -> u8 {
+    /// PCI function
+    pub fn function(&self) -> u8 {
         self.func
     }
 

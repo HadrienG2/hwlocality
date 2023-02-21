@@ -7,7 +7,7 @@ pub mod attributes;
 pub mod types;
 
 use self::{
-    attributes::{ObjectAttributes, ObjectInfo, RawObjectAttributes},
+    attributes::{DownstreamAttributes, ObjectAttributes, ObjectInfo, RawObjectAttributes},
     types::{ObjectType, RawObjectType},
 };
 use crate::{
@@ -275,6 +275,16 @@ impl TopologyObject {
             .skip_while(|ancestor| ancestor.cpuset() == Some(cpuset))
             .find(|ancestor| ancestor.object_type().is_cpu_data_cache())
     }
+
+    /// Get the first non-I/O ancestor object
+    ///
+    /// Find the smallest non-I/O ancestor object. This object (normal or
+    /// memory) may then be used for binding because it has CPU and node sets
+    /// and because its locality is the same as this object
+    #[doc(alias = "hwloc_get_non_io_ancestor_obj")]
+    pub fn non_io_ancestor(&self) -> Option<&TopologyObject> {
+        self.ancestors().find(|obj| obj.cpuset().is_some())
+    }
 }
 
 /// Iterator over ancestors of a TopologyObject
@@ -433,6 +443,14 @@ impl TopologyObject {
     /// [`ObjectType::is_io()`].
     pub fn io_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
         LinkedChildren(&self.io_first_child)
+    }
+
+    /// Truth that this is a bridge covering the specified PCI bus
+    #[doc(alias = "hwloc_bridge_covers_pcibus")]
+    pub fn is_bridge_covering_pci_bus(&self, domain: u32, bus_id: u8) -> bool {
+        let Some(ObjectAttributes::Bridge(bridge)) = self.attributes() else { return false };
+        let Some(DownstreamAttributes::PCI(pci)) = bridge.downstream_attributes() else { return false };
+        pci.domain() == domain && pci.secondary_bus() <= bus_id && pci.subordinate_bus() >= bus_id
     }
 
     /// Number of Misc children.
