@@ -10,6 +10,7 @@ pub(crate) mod ffi;
 pub mod memory;
 pub mod objects;
 pub mod support;
+pub mod synthetic;
 pub mod xml;
 
 #[cfg(doc)]
@@ -32,6 +33,7 @@ use self::{
         TopologyObject,
     },
     support::TopologySupport,
+    synthetic::SyntheticExportFlags,
     xml::{XMLExportFlags, XML},
 };
 use bitflags::bitflags;
@@ -104,6 +106,7 @@ pub(crate) struct RawTopology {
 /// - [CPU and node sets of entire topologies](#cpu-and-node-sets-of-entire-topologies)
 /// - [Finding I/O objects](#finding-io-objects)
 /// - [Exporting Topologies to XML](#exporting-topologies-to-xml)
+/// - [Exporting Topologies to Synthetic](#exporting-topologies-to-synthetic)
 #[derive(Debug)]
 pub struct Topology(NonNull<RawTopology>);
 
@@ -2162,6 +2165,64 @@ impl Topology {
             -1 => Err(errno()),
             other => {
                 unreachable!("Unexpected return value from hwloc_topology_export_xml: {other}")
+            }
+        }
+    }
+}
+
+/// # Exporting Topologies to Synthetic
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+impl Topology {
+    /// Export the topology as a synthetic string
+    ///
+    /// I/O and Misc children are ignored, the synthetic string only describes
+    /// normal children.
+    ///
+    /// By default, the exported topology is only meant to be compatible with
+    /// the latest hwloc version. You may want to set some of the `flags` to be
+    /// compatible with older hwloc releases, at the cost of dropping support
+    /// for newer features.
+    ///
+    /// # Errors
+    ///
+    /// Synthetic topologies cannot express the full range of hardware
+    /// topologies supported by hwloc, for example they don't support asymmetric
+    /// topologies. An error will be returned if the current topology cannot be
+    /// expressed as a synthetic topology.
+    #[doc(alias = "hwloc_topology_export_synthetic")]
+    pub fn export_synthetic(&self, flags: SyntheticExportFlags) -> Result<String, Errno> {
+        let mut buf = vec![0u8; 1024];
+        loop {
+            let result = unsafe {
+                ffi::hwloc_topology_export_synthetic(
+                    self.as_ptr(),
+                    buf.as_mut_ptr() as *mut c_char,
+                    buf.len(),
+                    flags.bits(),
+                )
+            };
+            match result {
+                len if len >= 0 => {
+                    if usize::try_from(len).expect("Should fit if I can build the vec")
+                        == buf.len() - 1
+                    {
+                        // hwloc exactly filled the buffer, which suggests the
+                        // output was truncated. Try a larget buffer.
+                        buf.resize(2 * buf.len(), 0);
+                        continue;
+                    } else {
+                        // Buffer seems alright, return it
+                        return Ok(String::from_utf8(buf).expect("Got invalid UTF-8 from hwloc"));
+                    }
+                }
+                // An error occured
+                -1 => return Err(errno()),
+                other => {
+                    unreachable!(
+                        "Unexpected return value from hwloc_topology_export_synthetic: {other}"
+                    )
+                }
             }
         }
     }

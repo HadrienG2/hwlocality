@@ -691,7 +691,13 @@ macro_rules! extern_c_block {
 
             // === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_topology_export_synthetic(
+                topology: *const RawTopology,
+                buffer: *mut c_char,
+                buflen: usize,
+                flags: c_ulong,
+            ) -> c_int;
 
             // === Retrieve distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
 
