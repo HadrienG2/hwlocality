@@ -33,7 +33,7 @@ fn main() {
                     .unwrap();
 
                 // load the cpuset for the given core index.
-                let mut bind_to = cpuset_for_core(&topo, core).clone();
+                let mut bind_to = cpuset_for_core(topo, core).clone();
 
                 // Get only one logical processor (in case the core is SMT/hyper-threaded).
                 bind_to.singlify();
