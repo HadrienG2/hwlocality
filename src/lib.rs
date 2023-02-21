@@ -2180,18 +2180,18 @@ impl Topology {
     }
 }
 
-impl Drop for Topology {
-    fn drop(&mut self) {
-        unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
-    }
-}
-
 impl Clone for Topology {
     fn clone(&self) -> Self {
         let mut clone = ptr::null_mut();
         let result = unsafe { ffi::hwloc_topology_dup(&mut clone, self.as_ptr()) };
         assert!(result >= 0, "Topology clone failed with error {result}");
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
+    }
+}
+
+impl Drop for Topology {
+    fn drop(&mut self) {
+        unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 
