@@ -667,9 +667,45 @@ macro_rules! extern_c_block {
                 right: *const RawBitmap,
             ) -> c_int;
 
+            // === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+
+            // TODO
+
+            // === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+
+            // TODO
+
+            // === Retrieve distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+
+            // TODO
+
+            // === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+
+            // TODO: Add to TopologyEditor
+
+            // === Remove distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+
+            // TODO: Add to TopologyEditor
+
+            // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+
+            // TODO
+
+            // === Managing memory attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+
+            // TODO: Add register and set_value to TopologyEditor, rest elsewhere
+
+            // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+
+            // TODO: Add register to TopologyEditor, rest elsewhere
+
+            // === Linux-specific helpers
+
+            // TODO
+
             // === TODO: Other APIs
 
-            // TODO: Cover more later: distances, interop, CPU kinds, etc...
+            // TODO: Cover more later: interop, differences, sharing, etc...
             //       Beware that primitives that modify the topology should be
             //       exposed in the TopologyEditor, not Topology, because per
             //       hwloc documentation hwloc_topology_refresh() must be called
