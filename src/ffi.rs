@@ -11,6 +11,7 @@ use crate::{
 use std::{
     ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr},
     fmt,
+    marker::{PhantomData, PhantomPinned},
     ptr::{self, NonNull},
 };
 use thiserror::Error;
@@ -143,10 +144,18 @@ impl Drop for LibcString {
         unsafe { libc::free(self.0.as_ptr() as *mut c_void) }
     }
 }
-
+//
 #[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("string cannot be used by C because it contains NUL chars")]
 pub(crate) struct NulError;
+
+/// Rust model of a C incomplete type (struct declaration without a definition)
+/// From https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs
+#[repr(C)]
+pub(crate) struct IncompleteType {
+    _data: [u8; 0],
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
 
 macro_rules! extern_c_block {
     ($link_name:literal) => {

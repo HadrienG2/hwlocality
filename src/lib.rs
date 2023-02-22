@@ -14,15 +14,15 @@ pub mod synthetic;
 pub mod xml;
 
 #[cfg(doc)]
-use self::support::MiscSupport;
-use self::{
+use crate::support::MiscSupport;
+use crate::{
     bitmap::{Bitmap, BitmapKind, CpuSet, NodeSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
     cache::CPUCacheStats,
     cpu::{CpuBindingError, CpuBindingFlags},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     editor::TopologyEditor,
-    ffi::LibcString,
+    ffi::{IncompleteType, LibcString},
     memory::{
         Bytes, MemoryBindingFlags, MemoryBindingPolicy, MemoryBindingQueryError,
         MemoryBindingSetupError, RawMemoryBindingPolicy,
@@ -44,7 +44,6 @@ use std::{
     convert::TryInto,
     ffi::{c_char, c_int, c_ulong, c_void},
     iter::FusedIterator,
-    marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
     num::NonZeroU32,
     panic::{AssertUnwindSafe, UnwindSafe},
@@ -75,13 +74,12 @@ pub fn get_api_version() -> u32 {
 
 /// Opaque topology struct
 ///
-/// Represents the private `hwloc_topology_s` type that `hwloc_topology_t` API
+/// Represents the private `hwloc_topology` type that `hwloc_topology_t` API
 /// pointers map to.
 #[repr(C)]
-pub(crate) struct RawTopology {
-    _data: [u8; 0],
-    _marker: PhantomData<(*mut u8, PhantomPinned)>,
-}
+#[doc(alias = "hwloc_topology")]
+#[doc(alias = "hwloc_topology_s")]
+pub(crate) struct RawTopology(IncompleteType);
 
 /// Main entry point to the hwloc API
 ///
@@ -108,6 +106,7 @@ pub(crate) struct RawTopology {
 /// - [Exporting Topologies to XML](#exporting-topologies-to-xml)
 /// - [Exporting Topologies to Synthetic](#exporting-topologies-to-synthetic)
 #[derive(Debug)]
+#[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building

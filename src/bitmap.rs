@@ -2,7 +2,11 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
-use crate::{depth::Depth, ffi, Topology};
+use crate::{
+    depth::Depth,
+    ffi::{self, IncompleteType},
+    Topology,
+};
 use derive_more::*;
 use std::{
     borrow::Borrow,
@@ -12,7 +16,6 @@ use std::{
     ffi::c_int,
     fmt,
     iter::{FromIterator, FusedIterator},
-    marker::{PhantomData, PhantomPinned},
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
     },
@@ -525,10 +528,8 @@ impl_bitmap_newtype!(
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
 #[repr(C)]
-pub(crate) struct RawBitmap {
-    _data: [u8; 0],
-    _marker: PhantomData<(*mut u8, PhantomPinned)>,
-}
+#[doc(alias = "hwloc_bitmap_s")]
+pub(crate) struct RawBitmap(IncompleteType);
 
 /// A generic bitmap, understood by hwloc.
 ///
@@ -540,6 +541,8 @@ pub(crate) struct RawBitmap {
 ///
 /// A `Bitmap` may be of infinite size.
 #[repr(transparent)]
+#[doc(alias = "hwloc_bitmap_t")]
+#[doc(alias = "hwloc_const_bitmap_t")]
 pub struct Bitmap(*mut RawBitmap);
 
 // NOTE: Remember to keep the method signatures and first doc lines in
