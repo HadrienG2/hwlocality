@@ -24,9 +24,9 @@ pub trait SpecializedBitmap: AsRef<Bitmap> + AsMut<Bitmap> + From<Bitmap> + Into
     const BITMAP_KIND: BitmapKind;
 
     /// Convert a reference to bitmap to a reference to this
-    // FIXME: Adding a `where for<'a> &'a Self: From<&'a Bitmap>` bound on the
-    //        trait should suffice, but for some unclear reasons rustc v1.67.1
-    //        rejects this claiming the trait isn't implemented.
+    // FIXME: Adding a `where Bitmap: AsRef<Self>` bound on the trait should
+    //        suffice, but for some unknown reason rustc v1.67.1 rejects this
+    //        claiming the trait isn't implemented.
     #[doc(hidden)]
     fn from_bitmap_ref(bitmap: &Bitmap) -> &Self;
 }
@@ -76,14 +76,15 @@ macro_rules! impl_bitmap_newtype {
         impl SpecializedBitmap for $newtype {
             const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
 
-            fn from_bitmap_ref(bitmap: &Bitmap) -> &$newtype {
-                bitmap.into()
+            fn from_bitmap_ref(bitmap: &Bitmap) -> &Self {
+                bitmap.as_ref()
             }
         }
 
-        impl<'a> From<&'a Bitmap> for &'a $newtype {
-            fn from(value: &'a Bitmap) -> &'a $newtype {
-                unsafe { std::mem::transmute(value) }
+        impl AsRef<$newtype> for Bitmap {
+            fn as_ref(&self) -> &$newtype {
+                // Safe because $newtype is repr(transparent)
+                unsafe { std::mem::transmute(self) }
             }
         }
 
@@ -105,7 +106,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::borrow_from_raw`].
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
-                Bitmap::borrow_from_raw(bitmap).map(Into::into)
+                Bitmap::borrow_from_raw(bitmap).map(Bitmap::as_ref)
             }
 
             /// Wrap an hwloc-originated borrowed bitmap pointer
@@ -113,7 +114,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::borrow_from_raw_mut`].
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
-                Bitmap::borrow_from_raw_mut(bitmap).map(Into::into)
+                Bitmap::borrow_from_raw_mut(bitmap).map(Bitmap::as_ref)
             }
 
             /// Returns the containted hwloc bitmap pointer for interaction with hwloc.

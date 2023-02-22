@@ -982,7 +982,7 @@ impl Topology {
         self.bind_memory_impl(set, policy, flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_set_area_membind(
                 topology,
-                target as *const _ as *const c_void,
+                target as *const Target as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 policy,
@@ -1012,7 +1012,7 @@ impl Topology {
         self.unbind_memory_impl(flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_set_area_membind(
                 topology,
-                target as *const _ as *const c_void,
+                target as *const Target as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 policy,
@@ -1056,7 +1056,7 @@ impl Topology {
         self.memory_binding_impl(flags, |topology, set, policy, flags| unsafe {
             ffi::hwloc_get_area_membind(
                 topology,
-                target as *const _ as *const c_void,
+                target as *const Target as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 policy,
@@ -1094,7 +1094,7 @@ impl Topology {
             *policy = -1;
             ffi::hwloc_get_area_memlocation(
                 topology,
-                target as *const _ as *const c_void,
+                target as *const Target as *const c_void,
                 std::mem::size_of_val(target),
                 set,
                 flags,
@@ -1835,6 +1835,8 @@ impl Topology {
                 // Give this root a chunk of the work-items proportional to its
                 // weight, with a bias towards giving more CPUs to first roots
                 let weight_to_items = |given_weight| {
+                    // This is exact because f64 has 54 mantissa bits and we're
+                    // dealing with 32-bit integers here
                     (given_weight as f64 * num_items as f64 / tot_weight as f64).ceil() as u32
                 };
                 let next_given_weight = given_weight + weight;

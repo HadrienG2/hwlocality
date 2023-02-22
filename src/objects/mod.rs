@@ -639,9 +639,7 @@ impl TopologyObject {
     pub fn add_info(&mut self, name: &str, value: &str) {
         let name = LibcString::new(name).expect("Name is not supported by hwloc");
         let value = LibcString::new(value).expect("Value is not supported by hwloc");
-        let result = unsafe {
-            ffi::hwloc_obj_add_info(self as *mut TopologyObject, name.borrow(), value.borrow())
-        };
+        let result = unsafe { ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow()) };
         assert_ne!(result, -1, "Failed to add info to object");
         assert_eq!(result, 0, "Unexpected result from hwloc_obj_add_info");
     }
@@ -652,7 +650,7 @@ impl TopologyObject {
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
         let type_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_type_snprintf(buf, len, self as *const TopologyObject, verbose.into())
+            ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
         });
 
         let separator = if f.alternate() {
@@ -661,13 +659,7 @@ impl TopologyObject {
             b"  \0".as_ptr()
         } as *const c_char;
         let attr_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_attr_snprintf(
-                buf,
-                len,
-                self as *const TopologyObject,
-                separator,
-                verbose.into(),
-            )
+            ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
         });
 
         unsafe {

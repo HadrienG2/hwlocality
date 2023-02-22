@@ -253,7 +253,7 @@ impl TopologyEditor<'_> {
         // allowed to assume that nothing changed behind that shared reference.
         // So letting the client keep hold of it would be highly problematic.
         //
-        let parent = find_parent(self.topology()) as *const _ as *mut TopologyObject;
+        let parent = find_parent(self.topology()) as *const TopologyObject as *mut TopologyObject;
         let name = LibcString::new(name).ok()?;
         unsafe {
             let ptr = ffi::hwloc_topology_insert_misc_object(

@@ -39,7 +39,8 @@ pub struct XML<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,
 
-    /// Previously allocated XML string, checked to be a valid Rust str + NUL
+    /// Previously allocated XML string
+    /// Checked to be a valid NUL-terminated UTF-8 string
     data: NonNull<[c_char]>,
 }
 
@@ -69,31 +70,44 @@ impl<'topology> XML<'topology> {
         let data = s.to_bytes_with_nul() as *const [u8] as *const [c_char] as *mut [c_char];
         NonNull::new(data).map(|data| Self { topology, data })
     }
+
+    /// Access the raw C string
+    pub fn as_raw(&self) -> &CStr {
+        // Safe because all necesary checks are done in `wrap()`
+        unsafe {
+            let data = self.data.as_ptr() as *const [u8];
+            CStr::from_bytes_with_nul_unchecked(&*data)
+        }
+    }
+
+    /// Shorthand for `<Self as AsRef<str>>`
+    pub fn as_str(&self) -> &str {
+        self.as_ref()
+    }
 }
 
 impl AsRef<[u8]> for XML<'_> {
     fn as_ref(&self) -> &[u8] {
-        let data = self.data.as_ptr() as *const u8;
-        let len_wo_null = unsafe { self.data.as_ref().len() } - 1;
-        unsafe { std::slice::from_raw_parts(data, len_wo_null) }
+        self.as_raw().to_bytes()
     }
 }
 
 impl AsRef<str> for XML<'_> {
     fn as_ref(&self) -> &str {
-        unsafe { std::str::from_utf8_unchecked(self.as_ref()) }
+        // Safe because all necesary checks are done in `wrap()`
+        unsafe { std::str::from_utf8_unchecked(self.as_raw().to_bytes()) }
     }
 }
 
 impl AsRef<OsStr> for XML<'_> {
     fn as_ref(&self) -> &OsStr {
-        <Self as AsRef<str>>::as_ref(self).as_ref()
+        self.as_str().as_ref()
     }
 }
 
 impl AsRef<Path> for XML<'_> {
     fn as_ref(&self) -> &Path {
-        <Self as AsRef<str>>::as_ref(self).as_ref()
+        self.as_str().as_ref()
     }
 }
 
@@ -105,7 +119,7 @@ impl Borrow<str> for XML<'_> {
 
 impl Debug for XML<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <str as Debug>::fmt(<Self as AsRef<str>>::as_ref(self), f)
+        <str as Debug>::fmt(self.as_str(), f)
     }
 }
 
@@ -119,7 +133,7 @@ impl Deref for XML<'_> {
 
 impl Display for XML<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <str as Display>::fmt(<Self as AsRef<str>>::as_ref(self), f)
+        <str as Display>::fmt(self.as_str(), f)
     }
 }
 
@@ -127,7 +141,7 @@ impl Eq for XML<'_> {}
 
 impl Hash for XML<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        <Self as AsRef<str>>::as_ref(self).hash(state)
+        self.as_str().hash(state)
     }
 }
 
@@ -138,23 +152,19 @@ where
     type Output = <str as Index<T>>::Output;
 
     fn index(&self, index: T) -> &Self::Output {
-        <Self as AsRef<str>>::as_ref(self).index(index)
+        self.as_str().index(index)
     }
 }
 
 impl Ord for XML<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let s1 = <Self as AsRef<str>>::as_ref(self);
-        let s2 = <Self as AsRef<str>>::as_ref(other);
-        s1.cmp(s2)
+        self.as_str().cmp(other.as_str())
     }
 }
 
 impl PartialEq for XML<'_> {
     fn eq(&self, other: &Self) -> bool {
-        let s1 = <Self as AsRef<str>>::as_ref(self);
-        let s2 = <Self as AsRef<str>>::as_ref(other);
-        s1.eq(s2)
+        self.as_str().eq(other.as_str())
     }
 }
 
@@ -163,7 +173,7 @@ where
     str: PartialEq<T>,
 {
     fn eq(&self, other: &T) -> bool {
-        <Self as AsRef<str>>::as_ref(self).eq(other)
+        self.as_str().eq(other)
     }
 }
 
