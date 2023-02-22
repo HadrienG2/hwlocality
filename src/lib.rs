@@ -2005,7 +2005,7 @@ impl Topology {
 }
 //
 bitflags! {
-    /// Flags to be given to [`Topology::distribute_cpuset()`]
+    /// Flags to be given to [`Topology::distribute_items()`]
     #[repr(C)]
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
