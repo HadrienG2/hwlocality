@@ -3,8 +3,6 @@
 // Upstream docs:
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
-// - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
-// - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
 
 #[cfg(doc)]
 use crate::editor::TopologyEditor;
