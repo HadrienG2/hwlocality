@@ -710,7 +710,57 @@ macro_rules! extern_c_block {
 
             // === Retrieve distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_distances_get(
+                topology: *const RawTopology,
+                nr: *mut c_uint,
+                distances: *mut *mut RawDistances,
+                kind: c_ulong,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_get_by_depth(
+                topology: *const RawTopology,
+                depth: c_int,
+                nr: *mut c_uint,
+                distances: *mut *mut RawDistances,
+                kind: c_ulong,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_get_by_type(
+                topology: *const RawTopology,
+                ty: RawObjectType,
+                nr: *mut c_uint,
+                distances: *mut *mut RawDistances,
+                kind: c_ulong,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_get_by_name(
+                topology: *const RawTopology,
+                name: *const c_char,
+                nr: *mut c_uint,
+                distances: *mut *mut RawDistances,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_get_name(
+                topology: *const RawTopology,
+                distances: *const RawDistances,
+            ) -> *const c_char;
+            pub(crate) fn hwloc_distances_release(
+                topology: *const RawTopology,
+                distances: *const RawDistances,
+            );
+            #[must_use]
+            pub(crate) fn hwloc_distances_transform(
+                topology: *const RawTopology,
+                distances: *mut RawDistances,
+                transform: RawDistancesTransform,
+                transform_attr: *mut c_void,
+                flags: c_ulong,
+            ) -> c_int;
 
             // === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
 

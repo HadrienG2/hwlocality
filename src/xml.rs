@@ -80,7 +80,7 @@ impl<'topology> XML<'topology> {
         }
     }
 
-    /// Shorthand for `<Self as AsRef<str>>`
+    /// Shorthand for `<Self as AsRef<str>>::as_ref`
     pub fn as_str(&self) -> &str {
         self.as_ref()
     }
