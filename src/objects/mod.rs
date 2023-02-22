@@ -122,21 +122,6 @@ impl TopologyObject {
         unsafe { ffi::deref_string(&self.name) }
     }
 
-    /// Set the object name
-    ///
-    /// This is something you'll often want to do when creating Group or Misc
-    /// objects in order to make them more descriptive.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the requested string contains NUL bytes, as
-    /// hwloc, like all C libraries, doesn't handle that well.
-    pub fn set_name(&mut self, name: &str) {
-        self.name = LibcString::new(name)
-            .expect("Can't have NUL bytes in name string")
-            .into_raw()
-    }
-
     /// Object type-specific attributes
     pub fn attributes(&self) -> Option<ObjectAttributes> {
         unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }

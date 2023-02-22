@@ -6,6 +6,8 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
 
+#[cfg(doc)]
+use crate::editor::TopologyEditor;
 use crate::{ffi, objects::TopologyObject, Topology};
 use bitflags::bitflags;
 use derive_more::Display;
@@ -321,8 +323,8 @@ impl<'topology> Distances<'topology> {
     /// modify the distances information stored inside the topology (retrieved
     /// by another call to [`Topology::distances()`] or exported to XML). To do
     /// so, one should add a new distances structure with same name, kind,
-    /// objects and values (see "Add distances between objects" TODO wrap and
-    /// link) and then remove this old one with hwloc_distances_release_remove()
+    /// objects and values (see [`TopologyEditor::add_distances()`]) and then
+    /// remove this old one with hwloc_distances_release_remove()
     /// (TODO wrap and link).
     ///
     /// Objects may also be directly replaced in place using

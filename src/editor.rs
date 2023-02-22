@@ -10,6 +10,7 @@
 use crate::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
     bitmap::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
+    distances::DistancesKind,
     ffi::{self, LibcString},
     objects::TopologyObject,
     RawTopology, Topology,
@@ -17,8 +18,11 @@ use crate::{
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::errno;
-use libc::{EINVAL, ENOMEM};
-use std::{ffi::c_ulong, fmt, ptr};
+use libc::{c_void, EINVAL, ENOMEM};
+use std::{
+    ffi::{c_uint, c_ulong},
+    fmt, ptr,
+};
 use thiserror::Error;
 
 /// Proxy for modifying a `Topology`
@@ -169,8 +173,8 @@ impl TopologyEditor<'_> {
     //       but impl Trait is not yet allowed on function return types.
     pub fn insert_group_object(
         &mut self,
-        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
         merge: Option<GroupMerge>,
+        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
     ) -> GroupInsertResult {
         // Allocate group object
         let group = unsafe { ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr()) };
@@ -234,8 +238,8 @@ impl TopologyEditor<'_> {
     #[must_use]
     pub fn insert_misc_object(
         &mut self,
-        find_parent: impl FnOnce(&Topology) -> &TopologyObject,
         name: &str,
+        find_parent: impl FnOnce(&Topology) -> &TopologyObject,
     ) -> Option<&mut TopologyObject> {
         // This is on the edge of violating Rust's aliasing rules, but I think
         // it should work out because...
@@ -269,9 +273,6 @@ impl TopologyEditor<'_> {
         }
     }
 }
-
-// NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
-//       as it would expose &Topology with unevaluated lazy hwloc caches.
 
 bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
@@ -415,3 +416,145 @@ pub enum GroupInsertResult<'topology> {
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("invalid parameter specified")]
 pub struct InvalidParameter;
+
+/// # Add distances between objects
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+impl TopologyEditor<'_> {
+    /// Create a new object distances matrix
+    ///
+    /// `kind` specifies the kind of distance. Kind
+    /// [`DistancesKind::HETEROGENEOUS_TYPES`] will be automatically set
+    /// according to objects having different types.
+    ///
+    /// `flags` can be used to request the grouping of existing objects based on
+    /// distance.
+    ///
+    /// The `collect_objects_and_distances` callback should query the geometry
+    /// to collect references to the objects of interest, and produce the
+    /// corresponding distance matrix. If there are N output objects, then there
+    /// should be N.pow(2) output distances.
+    ///
+    /// Distances must be provided in sender-major order: the distance from
+    /// object 0 to object 1, then object 0 to object 2, ... all the way to
+    /// object N, and then from object 1 to object 0, and so on.
+    ///
+    /// # Errors
+    ///
+    /// hwloc does not specify for which reasons this function can fail, so a
+    /// generic error will be emitted when it does.
+    ///
+    /// # Panics
+    ///
+    /// - If the provided name contains NUL chars.
+    /// - If the provided callback does not return object and distance vectors
+    ///   of compatible size.
+    /// - If less than 2 or more than `u32::MAX` objects are returned by the
+    ///   callback.
+    #[doc(alias = "hwloc_distances_add_create")]
+    #[doc(alias = "hwloc_distances_add_values")]
+    #[doc(alias = "hwloc_distances_add_commit")]
+    pub fn add_distances(
+        &mut self,
+        name: Option<&str>,
+        kind: DistancesKind,
+        flags: AddDistancesFlags,
+        collect_objects_and_distances: impl FnOnce(
+            &Topology,
+        ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
+    ) -> Result<(), AddDistancesFailed> {
+        // Prepare arguments for C consumption and validate them
+        let name = name.map(|s| LibcString::new(s).expect("name should not contain NUL"));
+        let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
+        //
+        let kind = kind.bits();
+        //
+        let create_add_flags = 0;
+        let commit_flags = flags.bits();
+        //
+        let (objects, distances) = collect_objects_and_distances(self.topology());
+        assert!(objects.len() >= 2, "hwloc wants at least 2 objects");
+        assert_eq!(
+            distances.len(),
+            objects.len().pow(2),
+            "Distance matrix is not compatible with objects"
+        );
+        let nbobjs = c_uint::try_from(objects.len()).expect("hwloc can't handle that many objects");
+        let objs = objects.as_ptr() as *const *const TopologyObject;
+        let values = distances.as_ptr() as *const u64;
+
+        // Create new empty distances structure
+        let handle = unsafe {
+            ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
+        };
+        if handle.is_null() {
+            return Err(AddDistancesFailed);
+        }
+
+        // Add objects to the distance structure
+        let result = unsafe {
+            ffi::hwloc_distances_add_values(
+                self.topology_mut_ptr(),
+                handle,
+                nbobjs,
+                objs,
+                values,
+                create_add_flags,
+            )
+        };
+        match result {
+            0 => {}
+            // Per hwloc documentation, handle is auto-freed on failure
+            1 => return Err(AddDistancesFailed),
+            other => panic!("Unexpected result from hwloc_distances_add_values: {other}"),
+        }
+
+        // Finalize the distance structure and insert it into the topology
+        let result = unsafe {
+            ffi::hwloc_distances_add_commit(self.topology_mut_ptr(), handle, commit_flags)
+        };
+        match result {
+            0 => Ok(()),
+            // Per hwloc documentation, handle is auto-freed on failure
+            1 => Err(AddDistancesFailed),
+            other => panic!("Unexpected result from hwloc_distances_add_commit: {other}"),
+        }
+    }
+}
+
+bitflags! {
+    /// Flags to be given to [`TopologyEditor::add_distances()`]
+    #[repr(C)]
+    pub struct AddDistancesFlags: c_ulong {
+        /// Try to group objects based on the newly provided distance information
+        ///
+        /// This is ignored for distances between objects of different types.
+        #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
+        const GROUP = (1<<0);
+
+        /// Like Group, but consider the distance values as inaccurate and relax
+        /// the comparisons during the grouping algorithms. The actual accuracy
+        /// may be modified through the HWLOC_GROUPING_ACCURACY environment
+        /// variable (see
+        /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+        #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
+        const GROUP_INACCURATE = (1<<0) | (1<<1);
+    }
+}
+
+impl Default for AddDistancesFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+/// Failed to add a new distance matrix to the topology
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("failed to add a distance matrix to the topology")]
+pub struct AddDistancesFailed;
+
+/// Handle to a new distances structure during its addition to the topology
+pub(crate) type DistancesAddHandle = *mut c_void;
+
+// NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
+//       as it would expose &Topology with unevaluated lazy hwloc caches.

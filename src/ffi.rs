@@ -3,6 +3,7 @@ use crate::{
     builder::RawTypeFilter,
     depth::RawDepth,
     distances::{RawDistances, RawDistancesTransform},
+    editor::DistancesAddHandle,
     memory::RawMemoryBindingPolicy,
     objects::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
@@ -764,7 +765,28 @@ macro_rules! extern_c_block {
 
             // === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
 
-            // TODO: Add to TopologyEditor
+            #[must_use]
+            pub(crate) fn hwloc_distances_add_create(
+                topology: *const RawTopology,
+                name: *const c_char,
+                kind: c_ulong,
+                flags: c_ulong,
+            ) -> DistancesAddHandle;
+            #[must_use]
+            pub(crate) fn hwloc_distances_add_values(
+                topology: *const RawTopology,
+                handle: DistancesAddHandle,
+                nbobjs: c_uint,
+                objs: *const *const TopologyObject,
+                values: *const u64,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_add_commit(
+                topology: *const RawTopology,
+                handle: DistancesAddHandle,
+                flags: c_ulong,
+            ) -> c_int;
 
             // === Remove distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
 
