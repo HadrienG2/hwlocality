@@ -83,7 +83,7 @@ impl TopologyEditor<'_> {
     /// # Panics
     ///
     /// Failure to allocate internal data will lead to a panic. The topology is
-    /// reinitialized in this case and should not be used again.
+    /// reinitialized in this case and must not be used again.
     pub fn restrict<Set: SpecializedBitmap>(
         &mut self,
         set: &Set,
