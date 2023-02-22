@@ -336,8 +336,7 @@ impl<'topology> Distances<'topology> {
     /// by another call to [`Topology::distances()`] or exported to XML). To do
     /// so, one should add a new distances structure with same name, kind,
     /// objects and values (see [`TopologyEditor::add_distances()`]) and then
-    /// remove this old one with hwloc_distances_release_remove()
-    /// (TODO wrap and link).
+    /// remove this old one with [`TopologyEditor::remove_distances()`].
     ///
     /// Objects may also be directly replaced in place using
     /// [`Distances::replace_objects()`]. One may use e.g.
@@ -408,7 +407,6 @@ impl PartialEq for Distances<'_> {
             && self.distances() == other.distances()
     }
 }
-// TODO: Impl more traits, check out slice and ndarray::ArrayBase for ideas
 
 bitflags! {
     /// Kinds of distance matrices
