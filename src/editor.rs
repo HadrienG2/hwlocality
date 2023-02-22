@@ -80,10 +80,11 @@ impl TopologyEditor<'_> {
     /// Err([`InvalidParameter`]) will be returned if the input set is invalid.
     /// The topology is not modified in this case.
     ///
-    /// # Panics
+    /// # Aborts
     ///
-    /// Failure to allocate internal data will lead to a panic. The topology is
-    /// reinitialized in this case and must not be used again.
+    /// Failure to allocate internal data will lead to a process abort, because
+    /// the topology gets corrupted in this case and must not be touched again,
+    /// but we have no way to prevent this in a safe API.
     pub fn restrict<Set: SpecializedBitmap>(
         &mut self,
         set: &Set,
@@ -116,7 +117,10 @@ impl TopologyEditor<'_> {
                 let errno = errno();
                 match errno.0 {
                     EINVAL => Err(InvalidParameter),
-                    ENOMEM => panic!("Topology was reinitialized and must be dropped"),
+                    ENOMEM => {
+                        eprintln!("Topology stuck in an invalid state, must abort");
+                        std::process::abort()
+                    }
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }

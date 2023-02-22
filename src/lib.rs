@@ -1216,9 +1216,11 @@ impl Topology {
     /// Force eager evaluation of all lazily evaluated caches in preparation for
     /// using or exposing &self
     ///
-    /// Abort if this fails as we must not let an invalid `Topology` state
-    /// escape, not even via unwinding, as that would result in undefined
-    /// behavior (mutation which the compiler assumes will not happen).
+    /// # Aborts
+    ///
+    /// A process abort will occur if this fails as we must not let an invalid
+    /// `Topology` state escape, not even via unwinding, as that would result in
+    /// undefined behavior (mutation which the compiler assumes will not happen).
     pub(crate) fn refresh(&mut self) {
         let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
         if refresh_result < 0 {
