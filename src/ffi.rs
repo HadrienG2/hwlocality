@@ -4,7 +4,7 @@ use crate::{
     depth::RawDepth,
     distances::{RawDistances, RawDistancesTransform},
     editor::DistancesAddHandle,
-    memory::RawMemoryBindingPolicy,
+    memory::binding::RawMemoryBindingPolicy,
     objects::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
     ProcessId, RawTopology, ThreadId,

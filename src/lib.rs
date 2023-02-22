@@ -2,29 +2,33 @@
 
 pub mod bitmap;
 pub mod builder;
-pub mod cache;
 pub mod cpu;
 pub mod depth;
 pub mod distances;
 pub mod editor;
+pub mod export;
 pub(crate) mod ffi;
 pub mod memory;
 pub mod objects;
 pub mod support;
-pub mod synthetic;
-pub mod xml;
 
 #[cfg(doc)]
 use crate::support::MiscSupport;
 use crate::{
     bitmap::{Bitmap, BitmapKind, CpuSet, NodeSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
-    cache::CPUCacheStats,
-    cpu::{CpuBindingError, CpuBindingFlags},
+    cpu::{
+        binding::{CpuBindingError, CpuBindingFlags},
+        caches::CPUCacheStats,
+    },
     depth::{Depth, DepthError, DepthResult, RawDepth},
     editor::TopologyEditor,
+    export::{
+        synthetic::SyntheticExportFlags,
+        xml::{XMLExportFlags, XML},
+    },
     ffi::{IncompleteType, LibcString},
-    memory::{
+    memory::binding::{
         Bytes, MemoryBindingFlags, MemoryBindingPolicy, MemoryBindingQueryError,
         MemoryBindingSetupError, RawMemoryBindingPolicy,
     },
@@ -34,8 +38,6 @@ use crate::{
         TopologyObject,
     },
     support::TopologySupport,
-    synthetic::SyntheticExportFlags,
-    xml::{XMLExportFlags, XML},
 };
 use bitflags::bitflags;
 use distances::{Distances, DistancesKind, RawDistances};
@@ -616,7 +618,7 @@ impl Topology {
     /// check how binding actually happened.
     pub fn bind_cpu(&self, set: &CpuSet, flags: CpuBindingFlags) -> Result<(), CpuBindingError> {
         let result = unsafe { ffi::hwloc_set_cpubind(self.as_ptr(), set.as_ptr(), flags.bits()) };
-        cpu::result(result, ())
+        cpu::binding::result(result, ())
     }
 
     /// Get current process or thread CPU binding
@@ -624,7 +626,7 @@ impl Topology {
         let mut cpuset = CpuSet::new();
         let result =
             unsafe { ffi::hwloc_get_cpubind(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits()) };
-        cpu::result(result, cpuset)
+        cpu::binding::result(result, cpuset)
     }
 
     /// Binds a process (identified by its `pid`) on given CPUs
@@ -638,7 +640,7 @@ impl Topology {
     ) -> Result<(), CpuBindingError> {
         let result =
             unsafe { ffi::hwloc_set_proc_cpubind(self.as_ptr(), pid, set.as_ptr(), flags.bits()) };
-        cpu::result(result, ())
+        cpu::binding::result(result, ())
     }
 
     /// Get the current physical binding of a process, identified by its `pid`.
@@ -651,7 +653,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_proc_cpubind(self.as_ptr(), pid, cpuset.as_mut_ptr(), flags.bits())
         };
-        cpu::result(result, cpuset)
+        cpu::binding::result(result, cpuset)
     }
 
     /// Bind a thread (by its `tid`) on given CPUs
@@ -666,7 +668,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_set_thread_cpubind(self.as_ptr(), tid, set.as_ptr(), flags.bits())
         };
-        cpu::result(result, ())
+        cpu::binding::result(result, ())
     }
 
     /// Get the current physical binding of thread `tid`.
@@ -679,7 +681,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_thread_cpubind(self.as_ptr(), tid, cpuset.as_mut_ptr(), flags.bits())
         };
-        cpu::result(result, cpuset)
+        cpu::binding::result(result, cpuset)
     }
 
     /// Get the last physical CPUs where the current process or thread ran
@@ -700,7 +702,7 @@ impl Topology {
         let result = unsafe {
             ffi::hwloc_get_last_cpu_location(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         };
-        cpu::result(result, cpuset)
+        cpu::binding::result(result, cpuset)
     }
 
     /// Get the last physical CPU where a process ran.
@@ -722,7 +724,7 @@ impl Topology {
                 flags.bits(),
             )
         };
-        cpu::result(result, cpuset)
+        cpu::binding::result(result, cpuset)
     }
 }
 
@@ -1133,7 +1135,7 @@ impl Topology {
             policy.into(),
             flags.bits(),
         );
-        memory::setup_result(result)
+        memory::binding::setup_result(result)
     }
 
     /// Call an hwloc memory binding function to unbind some memory
@@ -1148,7 +1150,7 @@ impl Topology {
         ) -> c_int,
     ) -> Result<(), MemoryBindingSetupError> {
         let result = set_membind_like(self.as_ptr(), ptr::null(), 0, flags.bits());
-        memory::setup_result(result)
+        memory::binding::setup_result(result)
     }
 
     /// Call an hwloc memory binding query function
@@ -1171,7 +1173,7 @@ impl Topology {
             &mut raw_policy,
             flags.bits(),
         );
-        memory::query_result_lazy(result, move || {
+        memory::binding::query_result_lazy(result, move || {
             let policy = match MemoryBindingPolicy::try_from(raw_policy) {
                 Ok(policy) => Some(policy),
                 Err(TryFromPrimitiveError { number: -1 }) => None,

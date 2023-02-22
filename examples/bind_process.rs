@@ -1,5 +1,5 @@
 use hwloc2::{
-    cpu::CpuBindingFlags,
+    cpu::binding::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
     ProcessId, Topology,
 };

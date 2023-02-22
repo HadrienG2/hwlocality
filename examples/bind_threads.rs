@@ -1,5 +1,5 @@
 use hwloc2::{
-    bitmap::CpuSet, cpu::CpuBindingFlags, objects::types::ObjectType, ThreadId, Topology,
+    bitmap::CpuSet, cpu::binding::CpuBindingFlags, objects::types::ObjectType, ThreadId, Topology,
 };
 
 /// Example which spawns one thread per core and then assigns it to each.
