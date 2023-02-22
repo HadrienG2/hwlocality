@@ -767,14 +767,14 @@ macro_rules! extern_c_block {
 
             #[must_use]
             pub(crate) fn hwloc_distances_add_create(
-                topology: *const RawTopology,
+                topology: *mut RawTopology,
                 name: *const c_char,
                 kind: c_ulong,
                 flags: c_ulong,
             ) -> DistancesAddHandle;
             #[must_use]
             pub(crate) fn hwloc_distances_add_values(
-                topology: *const RawTopology,
+                topology: *mut RawTopology,
                 handle: DistancesAddHandle,
                 nbobjs: c_uint,
                 objs: *const *const TopologyObject,
@@ -783,14 +783,25 @@ macro_rules! extern_c_block {
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_distances_add_commit(
-                topology: *const RawTopology,
+                topology: *mut RawTopology,
                 handle: DistancesAddHandle,
                 flags: c_ulong,
             ) -> c_int;
 
             // === Remove distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
 
-            // TODO: Add to TopologyEditor
+            #[must_use]
+            pub(crate) fn hwloc_distances_remove(topology: *mut RawTopology) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_remove_by_depth(
+                topology: *mut RawTopology,
+                depth: c_int,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_distances_release_remove(
+                topology: *mut RawTopology,
+                distances: *mut RawDistances,
+            ) -> c_int;
 
             // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 

@@ -10,9 +10,10 @@
 use crate::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
     bitmap::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
-    distances::DistancesKind,
+    depth::Depth,
+    distances::{Distances, DistancesKind},
     ffi::{self, LibcString},
-    objects::TopologyObject,
+    objects::{types::ObjectType, TopologyObject},
     RawTopology, Topology,
 };
 use bitflags::bitflags;
@@ -469,8 +470,8 @@ impl TopologyEditor<'_> {
         ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
     ) -> Result<(), AddDistancesFailed<'args>> {
         // Prepare arguments for C consumption and validate them
-        let Ok(name) = name.map(|s| LibcString::new(s)).transpose() else {
-            return Err(AddDistancesFailed::BadName(name.expect("Can't fail")));
+        let Ok(name) = name.map(LibcString::new).transpose() else {
+            return Err(AddDistancesFailed::BadName(name.expect("Must be Some if this happens")));
         };
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
         //
@@ -604,6 +605,69 @@ pub enum AddDistancesFailed<'args> {
 
 /// Handle to a new distances structure during its addition to the topology
 pub(crate) type DistancesAddHandle = *mut c_void;
+
+/// # Remove distances between objects
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+impl TopologyEditor<'_> {
+    /// Remove a single distances matrix from the topology
+    ///
+    /// The distances matrix to be removed can be selected using the
+    /// `find_distances` callback.
+    pub fn remove_distances(&mut self, find_distance: impl FnOnce(&Topology) -> Distances) {
+        let distances = find_distance(self.topology()).into_inner();
+        let result =
+            unsafe { ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_distances_release_remove"
+        );
+    }
+
+    /// Remove all distance matrices from a topology
+    ///
+    /// If these distances were used to group objects, these additional Group
+    /// objects are not removed from the topology.
+    pub fn remove_all_distances(&mut self) {
+        let result = unsafe { ffi::hwloc_distances_remove(self.topology_mut_ptr()) };
+        assert!(result >= 0, "Unexpected result from hwloc_distances_remove");
+    }
+
+    /// Remove distance matrices for objects at a specific depth in the topology
+    ///
+    /// See also [`TopologyEditor::remove_all_distances()`].
+    pub fn remove_distances_at_depth(&mut self, depth: Depth) {
+        let result =
+            unsafe { ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into()) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_distances_remove_by_depth"
+        );
+    }
+
+    /// Remove distance matrices for objects of a specific type in the topology
+    ///
+    /// See also [`TopologyEditor::remove_all_distances()`].
+    pub fn remove_distances_with_type(&mut self, ty: ObjectType) {
+        let topology = self.topology();
+        if let Ok(depth) = topology.depth_for_type(ty) {
+            self.remove_distances_at_depth(depth);
+        } else {
+            let depths = (0..topology.depth())
+                .map(Depth::from)
+                .filter_map(|depth| {
+                    let depth_ty = topology
+                        .type_at_depth(depth)
+                        .expect("A type should be present at this depth");
+                    (depth_ty == ty).then_some(depth)
+                })
+                .collect::<Vec<_>>();
+            for depth in depths {
+                self.remove_distances_at_depth(depth);
+            }
+        };
+    }
+}
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
 //       as it would expose &Topology with unevaluated lazy hwloc caches.

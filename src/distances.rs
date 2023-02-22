@@ -88,9 +88,20 @@ impl<'topology> Distances<'topology> {
         unsafe { self.inner.as_ref() }
     }
 
-    /// Get  the inner `RawDistances` (&mut version)
+    /// Get the inner `RawDistances` (&mut version)
     fn inner_mut(&mut self) -> &mut RawDistances {
         unsafe { self.inner.as_mut() }
+    }
+
+    /// Release the inner `RawDistances` pointer
+    ///
+    /// This will result in a resource leak unless the pointer is subsequently
+    /// liberated through `hwloc_distances_release` or
+    /// `hwloc_distances_release_remove`.
+    pub(crate) fn into_inner(self) -> *mut RawDistances {
+        let inner = self.inner.as_ptr();
+        std::mem::forget(self);
+        inner
     }
 
     /// Description of what a distances structure contains
