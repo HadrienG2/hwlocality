@@ -56,8 +56,11 @@ impl RawDistances {
 /// to the latency for accessing the memory of one node from a core in another
 /// node. The corresponding kind is [`DistancesKind::FROM_OS`] |
 /// [`DistancesKind::FROM_USER`]. The name of this distances structure is
-/// "NUMALatency". Others common distance structures include "XGMIBandwidth",
-/// "XGMIHops", "XeLinkBandwidth" and "NVLinkBandwidth".
+/// "NUMALatency".
+///
+/// The names and semantics of other distances matrices currently created by
+/// hwloc may be found
+/// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
 ///
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the `kind` attribute provided

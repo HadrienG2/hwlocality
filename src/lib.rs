@@ -2288,10 +2288,10 @@ impl Topology {
 
     /// Retrieve a distance matrix with the given name
     ///
-    /// Usually only one distances structure may match a given name.
+    /// Usually only one distances matrix may match a given name.
     ///
-    /// The name of the most common structure is "NUMALatency". Others include
-    /// "XGMIBandwidth", "XGMIHops", "XeLinkBandwidth", and "NVLinkBandwidth".
+    /// Names of distances matrices currently created by hwloc may be found
+    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
     ///
     /// # Panics
     ///
