@@ -99,7 +99,11 @@ impl TopologyEditor<'_> {
 
         // Apply requested restriction
         let result = unsafe {
-            ffi::hwloc_topology_restrict(self.topology_mut_ptr(), set.as_ref().as_ptr(), flags)
+            ffi::hwloc_topology_restrict(
+                self.topology_mut_ptr(),
+                set.as_ref().as_ptr(),
+                flags.bits(),
+            )
         };
         match result {
             0 => Ok(()),

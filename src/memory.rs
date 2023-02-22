@@ -29,7 +29,7 @@ bitflags! {
     /// [`Topology::support().memory_binding()`] may be used to query the
     /// actual memory binding support in the currently used operating system.
     #[repr(C)]
-    pub struct MemoryBindingFlags: u32 {
+    pub struct MemoryBindingFlags: i32 {
         /// Set policy for all threads of the specified process
         ///
         /// This flag is mutually exclusive with `THREAD`.

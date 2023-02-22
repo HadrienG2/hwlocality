@@ -188,7 +188,7 @@ impl TopologyBuilder {
         let result = unsafe {
             ffi::hwloc_topology_set_components(
                 self.as_mut_ptr(),
-                ComponentsFlags::BLACKLIST,
+                ComponentsFlags::BLACKLIST.bits(),
                 name.borrow(),
             )
         };
@@ -221,7 +221,7 @@ impl TopologyBuilder {
     /// ```
     ///
     pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidParameter> {
-        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags) };
+        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
         match result {
             0 => Ok(self),
             -1 => {

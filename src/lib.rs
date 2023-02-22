@@ -758,7 +758,7 @@ impl Topology {
                 len,
                 set.as_ref().as_ptr(),
                 policy.into(),
-                flags,
+                flags.bits(),
             );
             Bytes::wrap(self, base, len).ok_or_else(MemoryBindingSetupError::from_errno)
         }
@@ -1120,11 +1120,16 @@ impl Topology {
             *const RawTopology,
             *const RawBitmap,
             RawMemoryBindingPolicy,
-            MemoryBindingFlags,
+            c_int,
         ) -> c_int,
     ) -> Result<(), MemoryBindingSetupError> {
         Self::adjust_flags_for::<Set>(&mut flags);
-        let result = set_membind_like(self.as_ptr(), set.as_ref().as_ptr(), policy.into(), flags);
+        let result = set_membind_like(
+            self.as_ptr(),
+            set.as_ref().as_ptr(),
+            policy.into(),
+            flags.bits(),
+        );
         memory::setup_result(result)
     }
 
@@ -1136,10 +1141,10 @@ impl Topology {
             *const RawTopology,
             *const RawBitmap,
             RawMemoryBindingPolicy,
-            MemoryBindingFlags,
+            c_int,
         ) -> c_int,
     ) -> Result<(), MemoryBindingSetupError> {
-        let result = set_membind_like(self.as_ptr(), ptr::null(), 0, flags);
+        let result = set_membind_like(self.as_ptr(), ptr::null(), 0, flags.bits());
         memory::setup_result(result)
     }
 
@@ -1151,13 +1156,18 @@ impl Topology {
             *const RawTopology,
             *mut RawBitmap,
             *mut RawMemoryBindingPolicy,
-            MemoryBindingFlags,
+            c_int,
         ) -> c_int,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingQueryError> {
         let mut set = Bitmap::new();
         let mut raw_policy = 0;
         Self::adjust_flags_for::<Set>(&mut flags);
-        let result = get_membind_like(self.as_ptr(), set.as_mut_ptr(), &mut raw_policy, flags);
+        let result = get_membind_like(
+            self.as_ptr(),
+            set.as_mut_ptr(),
+            &mut raw_policy,
+            flags.bits(),
+        );
         memory::query_result_lazy(result, move || {
             let policy = match MemoryBindingPolicy::try_from(raw_policy) {
                 Ok(policy) => Some(policy),

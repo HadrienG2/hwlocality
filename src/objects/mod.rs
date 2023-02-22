@@ -36,10 +36,9 @@ use std::{
 /// - [CPU set](#cpu-set)
 /// - [NUMA node set](#numa-node-set)
 /// - [Key-value information](#key-value-information)
-//
-// See the matching method names for more details on field semantics
 #[repr(C)]
 pub struct TopologyObject {
+    // See the matching method names for more details on field semantics
     object_type: RawObjectType,
     subtype: *mut c_char,
     os_index: c_uint,

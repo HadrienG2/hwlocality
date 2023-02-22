@@ -1,9 +1,9 @@
 use crate::{
     bitmap::RawBitmap,
-    builder::{BuildFlags, ComponentsFlags, RawTypeFilter},
+    builder::RawTypeFilter,
     depth::RawDepth,
-    editor::RestrictFlags,
-    memory::{MemoryBindingFlags, RawMemoryBindingPolicy},
+    distances::{RawDistances, RawDistancesTransform},
+    memory::RawMemoryBindingPolicy,
     objects::{types::RawObjectType, TopologyObject},
     support::TopologySupport,
     ProcessId, RawTopology, ThreadId,
@@ -305,14 +305,14 @@ macro_rules! extern_c_block {
                 topology: *const RawTopology,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_membind(
                 topology: *const RawTopology,
                 set: *mut RawBitmap,
                 policy: *mut RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_proc_membind(
@@ -320,7 +320,7 @@ macro_rules! extern_c_block {
                 pid: ProcessId,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_proc_membind(
@@ -328,7 +328,7 @@ macro_rules! extern_c_block {
                 pid: ProcessId,
                 set: *mut RawBitmap,
                 policy: *mut RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_area_membind(
@@ -337,7 +337,7 @@ macro_rules! extern_c_block {
                 len: usize,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_area_membind(
@@ -346,7 +346,7 @@ macro_rules! extern_c_block {
                 len: usize,
                 set: *mut RawBitmap,
                 policy: *mut RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_area_memlocation(
@@ -354,7 +354,7 @@ macro_rules! extern_c_block {
                 addr: *const c_void,
                 len: usize,
                 set: *mut RawBitmap,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_alloc(topology: *const RawTopology, len: usize) -> *mut c_void;
@@ -364,7 +364,7 @@ macro_rules! extern_c_block {
                 len: usize,
                 set: *const RawBitmap,
                 policy: RawMemoryBindingPolicy,
-                flags: MemoryBindingFlags,
+                flags: c_int,
             ) -> *mut c_void;
             #[must_use]
             pub(crate) fn hwloc_free(
@@ -399,7 +399,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_set_components(
                 topology: *mut RawTopology,
-                flags: ComponentsFlags,
+                flags: c_ulong,
                 name: *const c_char,
             ) -> c_int;
 
@@ -408,7 +408,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_set_flags(
                 topology: *mut RawTopology,
-                flags: BuildFlags,
+                flags: c_ulong,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_topology_get_flags(topology: *const RawTopology) -> c_ulong;
@@ -460,7 +460,7 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_topology_restrict(
                 topology: *mut RawTopology,
                 set: *const RawBitmap,
-                flags: RestrictFlags,
+                flags: c_ulong,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_topology_allow(
