@@ -60,7 +60,7 @@ impl<'topology> TopologyEditor<'topology> {
     }
 }
 
-/// # Modifying a loaded Topology
+/// # Basic modifications
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 impl TopologyEditor<'_> {
@@ -181,6 +181,8 @@ impl TopologyEditor<'_> {
         assert!(!group.is_null(), "Failed to allocate group object");
 
         // Expand cpu sets and node sets to cover designated children
+        // NOTE: This function may panic, in which case an allocation will be
+        //       leaked, but hwloc does not provide a way to liberate it...
         let children = find_children(self.topology());
         for child in children {
             let result = unsafe { ffi::hwloc_obj_add_other_obj_sets(group, child) };
@@ -425,7 +427,8 @@ impl TopologyEditor<'_> {
     ///
     /// `kind` specifies the kind of distance. Kind
     /// [`DistancesKind::HETEROGENEOUS_TYPES`] will be automatically set
-    /// according to objects having different types.
+    /// according to objects having different types, so you do not need to set
+    /// it and should not do so.
     ///
     /// `flags` can be used to request the grouping of existing objects based on
     /// distance.
@@ -441,45 +444,58 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// hwloc does not specify for which reasons this function can fail, so a
-    /// generic error will be emitted when it does.
-    ///
-    /// # Panics
-    ///
-    /// - If the provided name contains NUL chars.
-    /// - If the provided callback does not return object and distance vectors
-    ///   of compatible size.
-    /// - If less than 2 or more than `u32::MAX` objects are returned by the
-    ///   callback.
+    /// - Err([`BadName`](AddDistancesFailed::BadName)) if the provided `name`
+    ///   contains NUL chars
+    /// - Err([`BadKind`](AddDistancesFailed::BadKind)) if the provided `kind`
+    ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES).
+    /// - Err([`BadObjectsCount`](AddDistancesFailed::BadObjectsCount)) if less
+    ///   than 2 or more than `u32::MAX` objects are returned by the callback
+    ///   (hwloc does not support such configurations).
+    /// - Err([`BadDistancesCount`](AddDistancesFailed::BadDistancesCount)) if
+    ///   the number of distances returned by the callback is not compatible
+    ///   with the number of objects (it should be the square of it).
+    /// - Err([`HwlocError`](AddDistancesFailed::HwlocError)) if hwloc failed
+    ///   for another (undocumented) reason.
     #[doc(alias = "hwloc_distances_add_create")]
     #[doc(alias = "hwloc_distances_add_values")]
     #[doc(alias = "hwloc_distances_add_commit")]
-    pub fn add_distances(
+    pub fn add_distances<'args>(
         &mut self,
-        name: Option<&str>,
+        name: Option<&'args str>,
         kind: DistancesKind,
         flags: AddDistancesFlags,
         collect_objects_and_distances: impl FnOnce(
             &Topology,
         ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
-    ) -> Result<(), AddDistancesFailed> {
+    ) -> Result<(), AddDistancesFailed<'args>> {
         // Prepare arguments for C consumption and validate them
-        let name = name.map(|s| LibcString::new(s).expect("name should not contain NUL"));
+        let Ok(name) = name.map(|s| LibcString::new(s)).transpose() else {
+            return Err(AddDistancesFailed::BadName(name.expect("Can't fail")));
+        };
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
         //
+        if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
+            return Err(AddDistancesFailed::BadKind);
+        }
         let kind = kind.bits();
         //
         let create_add_flags = 0;
         let commit_flags = flags.bits();
         //
         let (objects, distances) = collect_objects_and_distances(self.topology());
-        assert!(objects.len() >= 2, "hwloc wants at least 2 objects");
-        assert_eq!(
-            distances.len(),
-            objects.len().pow(2),
-            "Distance matrix is not compatible with objects"
-        );
-        let nbobjs = c_uint::try_from(objects.len()).expect("hwloc can't handle that many objects");
+        if objects.len() < 2 {
+            return Err(AddDistancesFailed::BadObjectsCount(objects.len()));
+        }
+        let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
+            return Err(AddDistancesFailed::BadObjectsCount(objects.len()))
+        };
+        let expected_distances_len = objects.len().pow(2);
+        if distances.len() != expected_distances_len {
+            return Err(AddDistancesFailed::BadDistancesCount {
+                expected_distances_len,
+                actual_distances_len: distances.len(),
+            });
+        }
         let objs = objects.as_ptr() as *const *const TopologyObject;
         let values = distances.as_ptr() as *const u64;
 
@@ -488,7 +504,7 @@ impl TopologyEditor<'_> {
             ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
         };
         if handle.is_null() {
-            return Err(AddDistancesFailed);
+            return Err(AddDistancesFailed::HwlocError);
         }
 
         // Add objects to the distance structure
@@ -505,7 +521,7 @@ impl TopologyEditor<'_> {
         match result {
             0 => {}
             // Per hwloc documentation, handle is auto-freed on failure
-            1 => return Err(AddDistancesFailed),
+            1 => return Err(AddDistancesFailed::HwlocError),
             other => panic!("Unexpected result from hwloc_distances_add_values: {other}"),
         }
 
@@ -516,7 +532,7 @@ impl TopologyEditor<'_> {
         match result {
             0 => Ok(()),
             // Per hwloc documentation, handle is auto-freed on failure
-            1 => Err(AddDistancesFailed),
+            1 => Err(AddDistancesFailed::HwlocError),
             other => panic!("Unexpected result from hwloc_distances_add_commit: {other}"),
         }
     }
@@ -549,9 +565,42 @@ impl Default for AddDistancesFlags {
 }
 
 /// Failed to add a new distance matrix to the topology
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("failed to add a distance matrix to the topology")]
-pub struct AddDistancesFailed;
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum AddDistancesFailed<'args> {
+    /// Provided `name` contains NUL chars
+    #[error("provided name contains NUL chars: {0:?}")]
+    BadName(&'args str),
+
+    /// Provided `kind` contains [`DistancesKind::HETEROGENEOUS_TYPES`]
+    ///
+    /// You should not set this kind yourself, it will be automatically set by
+    /// hwloc through scanning of the provided object list.
+    #[error("provided kind contains HETEROGENEOUS_TYPES")]
+    BadKind,
+
+    /// Provided callback returned too many or too few objects
+    ///
+    /// hwloc only supports distances matrices with 2 to `u32::MAX` objects.
+    #[error("callback emitted <2 or >u32::MAX objects: {0}")]
+    BadObjectsCount(usize),
+
+    /// Provided callback returned incompatible objects and distances arrays
+    ///
+    /// If we denote N the length of the objects array, the distances array
+    /// should contain N.pow(2) elements.
+    #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
+    BadDistancesCount {
+        expected_distances_len: usize,
+        actual_distances_len: usize,
+    },
+
+    /// hwloc API signaled a failure
+    ///
+    /// The detailed error reporting semantics of hwloc are not documented, so
+    /// good luck with this error :(
+    #[error("hwloc errored out")]
+    HwlocError,
+}
 
 /// Handle to a new distances structure during its addition to the topology
 pub(crate) type DistancesAddHandle = *mut c_void;
