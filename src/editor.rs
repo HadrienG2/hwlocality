@@ -614,8 +614,8 @@ impl TopologyEditor<'_> {
     ///
     /// The distances matrix to be removed can be selected using the
     /// `find_distances` callback.
-    pub fn remove_distances(&mut self, find_distance: impl FnOnce(&Topology) -> Distances) {
-        let distances = find_distance(self.topology()).into_inner();
+    pub fn remove_distances(&mut self, find_distances: impl FnOnce(&Topology) -> Distances) {
+        let distances = find_distances(self.topology()).into_inner();
         let result =
             unsafe { ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances) };
         assert!(
