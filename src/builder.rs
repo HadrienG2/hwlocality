@@ -217,6 +217,9 @@ impl TopologyBuilder {
     /// ```
     ///
     pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidParameter> {
+        if !flags.is_valid() {
+            return Err(InvalidParameter);
+        }
         let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
         match result {
             0 => Ok(self),
@@ -233,7 +236,10 @@ impl TopologyBuilder {
 
     /// Check current topology building flags
     pub fn flags(&self) -> BuildFlags {
-        BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
+        let result =
+            BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) });
+        debug_assert!(result.is_valid());
+        result
     }
 
     /// Set the filtering for the given object type
@@ -363,6 +369,7 @@ bitflags! {
         /// If the current topology is exported to XML and reimported later,
         /// this flag should be set again in the reimported topology so that
         /// disallowed resources are reimported as well.
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED")]
         const INCLUDE_DISALLOWED = (1<<0);
 
         /// Assume that the selected backend provides the topology for the
@@ -382,7 +389,8 @@ bitflags! {
         /// This can be used for efficiency reasons to first detect the topology
         /// once, save it to an XML file, and quickly reload it later through
         /// the XML backend, but still having binding functions actually do bind.
-        const ASSUME_THIS_SYSTEM = (1<<1); // aka HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM")]
+        const ASSUME_THIS_SYSTEM = (1<<1);
 
         /// Get the set of allowed resources from the local operating system
         /// even if the topology was loaded from XML or synthetic description
@@ -402,7 +410,8 @@ bitflags! {
         ///
         /// Setting the environment variable `HWLOC_THISSYSTEM_ALLOWED_RESOURCES`
         /// would result in the same behavior.
-        const GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM = (1<<2); // aka HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES")]
+        const GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM = (1<<2);
 
         /// Import support from the imported topology
         ///
@@ -423,6 +432,7 @@ bitflags! {
         /// Note that setting this flag however does not enable binding for the
         /// locally imported hwloc topology, it only reports what the remote
         /// hwloc and machine support.
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT")]
         const IMPORT_SUPPORT = (1<<3);
 
         /// Do not consider resources outside of the process CPU binding
@@ -447,7 +457,8 @@ bitflags! {
         ///
         /// This flag requires `ASSUME_THIS_SYSTEM` as well since binding support
         /// is required.
-        const RESTRICT_CPU_TO_THIS_PROCESS = (1<<4); // aka HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING")]
+        const RESTRICT_CPU_TO_THIS_PROCESS = (1<<4);
 
         /// Do not consider resources outside of the process memory binding
         ///
@@ -468,7 +479,8 @@ bitflags! {
         ///
         /// This flag requires `ASSUME_THIS_SYSTEM` as well since binding
         /// support is required.
-        const RESTRICT_MEMORY_TO_THIS_PROCESS = (1<<5); // aka HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_MEMBINDING
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_MEMBINDING")]
+        const RESTRICT_MEMORY_TO_THIS_PROCESS = (1<<5);
 
         /// Do not ever modify the process or thread binding during discovery
         ///
@@ -482,27 +494,43 @@ bitflags! {
         /// This flag is also a strict way to make sure the process binding will
         /// not change to due thread binding changes on Windows (see
         /// `RESTRICT_CPU_TO_THIS_PROCESS`).
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_DONT_CHANGE_BINDING")]
         const DONT_CHANGE_BINDING = (1<<6);
 
         /// Ignore distances
         ///
         /// Ignore distance information from the operating systems (and from
         /// XML) and hence do not use distances for grouping.
-        const IGNORE_DISTANCES = (1<<7); // aka HWLOC_TOPOLOGY_FLAG_NO_DISTANCES
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_DISTANCES")]
+        const IGNORE_DISTANCES = (1<<7);
 
         /// Ignore memory attributes
         ///
         /// Ignore memory attribues from the operating systems (and from XML).
-        const IGNORE_MEMORY_ATTRIBUTES = (1<<8); // aka HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS")]
+        const IGNORE_MEMORY_ATTRIBUTES = (1<<8);
 
         /// Ignore CPU Kinds
         ///
         /// Ignore CPU kind information from the operating systems (and from
         /// XML).
-        const IGNORE_CPU_KINDS = (1<<9); // aka HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS")]
+        const IGNORE_CPU_KINDS = (1<<9);
     }
 }
-
+//
+impl BuildFlags {
+    /// Truth that these flags are in a valid state
+    pub(crate) fn is_valid(self) -> bool {
+        !(!self.contains(Self::ASSUME_THIS_SYSTEM)
+            && self.intersects(
+                Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
+                    | Self::RESTRICT_CPU_TO_THIS_PROCESS
+                    | Self::RESTRICT_MEMORY_TO_THIS_PROCESS,
+            ))
+    }
+}
+//
 impl Default for BuildFlags {
     fn default() -> Self {
         Self::empty()

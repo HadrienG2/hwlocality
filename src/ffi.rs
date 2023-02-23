@@ -249,54 +249,54 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_set_cpubind(
                 topology: *const RawTopology,
                 set: *const RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_cpubind(
                 topology: *const RawTopology,
                 set: *mut RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_proc_cpubind(
                 topology: *const RawTopology,
                 pid: ProcessId,
                 set: *const RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_proc_cpubind(
                 topology: *const RawTopology,
                 pid: ProcessId,
                 set: *mut RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_set_thread_cpubind(
                 topology: *const RawTopology,
                 thread: ThreadId,
                 set: *const RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_thread_cpubind(
                 topology: *const RawTopology,
                 pid: ThreadId,
                 set: *mut RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_last_cpu_location(
                 topology: *const RawTopology,
                 set: *mut RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
             #[must_use]
             pub(crate) fn hwloc_get_proc_last_cpu_location(
                 topology: *const RawTopology,
                 pid: ProcessId,
                 set: *mut RawBitmap,
-                flags: c_uint,
+                flags: c_int,
             ) -> c_int;
 
             // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html

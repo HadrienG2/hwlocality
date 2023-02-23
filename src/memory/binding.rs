@@ -29,15 +29,18 @@ bitflags! {
     /// [`Topology::support().memory_binding()`] may be used to query the
     /// actual memory binding support in the currently used operating system.
     #[repr(C)]
-    pub struct MemoryBindingFlags: i32 {
-        /// Set policy for all threads of the specified process
+    #[doc(alias = "hwloc_membind_flags_t")]
+    pub struct MemoryBindingFlags: c_int {
+        /// Set policy for all threads of the specified (possibly multithreaded) process
         ///
         /// This flag is mutually exclusive with `THREAD`.
+        #[doc(alias = "HWLOC_MEMBIND_PROCESS")]
         const PROCESS = (1<<0);
 
         /// Set policy for a specific thread of the current process
         ///
         /// This flag is mutually exclusive with `PROCESS`.
+        #[doc(alias = "HWLOC_MEMBIND_THREAD")]
         const THREAD = (1<<1);
 
         /// Request strict binding from the OS
@@ -49,12 +52,14 @@ bitflags! {
         ///
         /// This flag has slightly different meanings depending on which
         /// function it is used with.
+        #[doc(alias = "HWLOC_MEMBIND_STRICT")]
         const STRICT = (1<<2);
 
         /// Migrate existing allocated memory
         ///
         /// If the memory cannot be migrated and the `STRICT` flag is set, an
         /// error will be returned.
+        #[doc(alias = "HWLOC_MEMBIND_MIGRATE")]
         const MIGRATE = (1<<3);
 
         /// Avoid any effect on CPU binding
@@ -66,6 +71,7 @@ bitflags! {
         ///
         /// Note, however, that using this flag may reduce hwloc's overall
         /// memory binding support.
+        #[doc(alias = "HWLOC_MEMBIND_NOCPUBIND")]
         const NO_CPU_BINDING = (1<<4);
 
         /// Consider the bitmap argument as a nodeset.
@@ -76,14 +82,76 @@ bitflags! {
         /// Memory binding by CPU set cannot work for CPU-less NUMA memory nodes.
         /// Binding by nodeset should therefore be preferred whenever possible.
         #[doc(hidden)]
+        #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
         const BY_NODE_SET = (1<<5);
     }
 }
+//
+impl MemoryBindingFlags {
+    /// Truth that these flags are in a valid state
+    pub(crate) fn is_valid(
+        self,
+        target: MemoryBindingTarget,
+        operation: MemoryBindingOperation,
+    ) -> bool {
+        // Intrinsically incompatible flag combination
+        if self.contains(Self::PROCESS | Self::THREAD) {
+            return false;
+        }
 
+        // Support for PROCESS and THREAD
+        let good_for_target = match target {
+            MemoryBindingTarget::Area => !self.intersects(Self::PROCESS | Self::THREAD),
+            MemoryBindingTarget::Process => !self.contains(Self::THREAD),
+            MemoryBindingTarget::None => true,
+        };
+
+        // Support fo STRICT, MIGRATE and NO_CPU_BINDING
+        good_for_target
+            && match operation {
+                MemoryBindingOperation::GetLastLocation => {
+                    !self.intersects(Self::STRICT | Self::MIGRATE | Self::NO_CPU_BINDING)
+                }
+                MemoryBindingOperation::GetBinding => {
+                    if self.intersects(Self::MIGRATE | Self::NO_CPU_BINDING) {
+                        return false;
+                    }
+                    match target {
+                        MemoryBindingTarget::Area | MemoryBindingTarget::Process => true,
+                        MemoryBindingTarget::None => {
+                            !self.contains(Self::STRICT) || self.contains(Self::PROCESS)
+                        }
+                    }
+                }
+                MemoryBindingOperation::Unbind => !self.intersects(Self::STRICT | Self::MIGRATE),
+                MemoryBindingOperation::Allocate => !self.contains(Self::MIGRATE),
+                MemoryBindingOperation::Bind => true,
+            }
+    }
+}
+//
 impl Default for MemoryBindingFlags {
     fn default() -> Self {
         Self::empty()
     }
+}
+//
+/// Binding target
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+pub(crate) enum MemoryBindingTarget {
+    Process,
+    Area,
+    None,
+}
+//
+/// Binding operation
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+pub(crate) enum MemoryBindingOperation {
+    GetBinding,
+    Bind,
+    Unbind,
+    Allocate,
+    GetLastLocation,
 }
 
 /// Rust mapping of the hwloc_membind_policy_t enum
@@ -102,6 +170,7 @@ pub(crate) type RawMemoryBindingPolicy = c_int;
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]
+#[doc(alias = "hwloc_membind_policy_t")]
 pub enum MemoryBindingPolicy {
     /// Allocate each memory page individually on the local NUMA
     /// node of the thread that touches it
@@ -112,10 +181,12 @@ pub enum MemoryBindingPolicy {
     ///
     /// On AIX, if the nodeset is smaller, pages are allocated locally (if the
     /// local node is in the nodeset) or from a random non-local node (otherwise).
+    #[doc(alias = "HWLOC_MEMBIND_FIRSTTOUCH")]
     FirstTouch = 1,
 
     /// Allocate memory on the specified nodes (most portable option)
     #[default]
+    #[doc(alias = "HWLOC_MEMBIND_BIND")]
     Bind = 2,
 
     /// Allocate memory on the given nodes in an interleaved round-robin manner
@@ -126,6 +197,7 @@ pub enum MemoryBindingPolicy {
     /// Interleaving can be useful when threads distributed across the specified
     /// NUMA nodes will all be accessing the whole memory range concurrently,
     /// since the interleave will then balance the memory references.
+    #[doc(alias = "HWLOC_MEMBIND_INTERLEAVE")]
     Interleave = 3,
 
     /// Migrate pages on next touch
@@ -134,6 +206,7 @@ pub enum MemoryBindingPolicy {
     /// next time only), it is moved from its current location to the local NUMA
     /// node of the thread where the memory reference occurred (if it needs to
     /// be moved at all).
+    #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = 4,
 }
 
@@ -206,6 +279,7 @@ pub enum MemoryBindingQueryError {
     /// policies and nodesets are not homogeneous across all threads of the
     /// target process.
     #[error("result varies from one thread of the process to another")]
+    #[doc(alias = "HWLOC_MEMBIND_MIXED")]
     MixedResults,
 
     /// An invalid flag was specified

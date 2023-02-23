@@ -330,7 +330,7 @@ bitflags! {
         const ADAPT_IO = (1<<2);
     }
 }
-
+//
 impl Default for RestrictFlags {
     fn default() -> Self {
         Self::empty()

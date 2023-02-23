@@ -3,6 +3,7 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 
 use bitflags::bitflags;
+use derive_more::Display;
 use errno::{errno, Errno};
 use libc::{ENOSYS, EXDEV};
 use thiserror::Error;
@@ -23,9 +24,13 @@ bitflags! {
     #[repr(C)]
     pub struct CpuBindingFlags: u32 {
         /// Bind all threads of the current (possibly) multithreaded process
+        ///
+        /// This is mutually exclusive with `THREAD`.
         const PROCESS = (1<<0);
 
         /// Bind current thread of current process
+        ///
+        /// This is mutually exclusive with `PROCESS`.
         const THREAD  = (1<<1);
 
         /// Request for strict binding from the OS
@@ -65,11 +70,57 @@ bitflags! {
         const NO_MEMORY_BINDING = (1<<3);
     }
 }
-
+//
+impl CpuBindingFlags {
+    /// Truth that these flags are in a valid state
+    pub(crate) fn is_valid(self, target: CpuBindingTarget, operation: CpuBindingOperation) -> bool {
+        if self.contains(Self::PROCESS | Self::THREAD) {
+            return false;
+        }
+        if self.contains(Self::PROCESS) && target == CpuBindingTarget::Thread {
+            return false;
+        }
+        if self.contains(Self::THREAD)
+            && target == CpuBindingTarget::Process
+            && cfg!(not(target_os = "linux"))
+        {
+            return false;
+        }
+        match operation {
+            CpuBindingOperation::GetLastLocation => {
+                !self.intersects(Self::STRICT | Self::NO_MEMORY_BINDING)
+            }
+            CpuBindingOperation::SetBinding => true,
+            CpuBindingOperation::GetBinding => {
+                if self.contains(Self::STRICT) && target == CpuBindingTarget::Thread {
+                    return false;
+                }
+                !self.contains(Self::NO_MEMORY_BINDING)
+            }
+        }
+    }
+}
+//
 impl Default for CpuBindingFlags {
     fn default() -> Self {
         Self::empty()
     }
+}
+//
+/// Binding target
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+pub(crate) enum CpuBindingTarget {
+    Process,
+    Thread,
+    None,
+}
+//
+/// Binding operation
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+pub(crate) enum CpuBindingOperation {
+    GetBinding,
+    SetBinding,
+    GetLastLocation,
 }
 
 /// Errors that can occur when binding processes or threads to CPUSets
