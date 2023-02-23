@@ -8,7 +8,7 @@ use hwloc2::{
 fn main() {
     let topo = Topology::new().unwrap();
 
-    let first_pu = topo.objects_with_type(ObjectType::PU)[0];
+    let first_pu = topo.objects_with_type(ObjectType::PU).next().unwrap();
 
     let mut parent = first_pu.parent();
     let mut levels = 0;

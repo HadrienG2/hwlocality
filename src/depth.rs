@@ -37,6 +37,7 @@ pub enum Depth {
 
     /// Virtual depth for [`ObjectType::MemCache`]
     MemCache,
+    // NOTE: Add new virtual depths to VIRTUAL_DEPTHS below
 }
 
 impl Depth {
@@ -44,6 +45,16 @@ impl Depth {
     pub fn assume_normal(self) -> u32 {
         u32::try_from(self).expect("Not a normal object depth")
     }
+
+    /// List of virtual depths
+    pub const VIRTUAL_DEPTHS: &[Self] = &[
+        Self::NUMANode,
+        Self::Bridge,
+        Self::PCIDevice,
+        Self::OSDevice,
+        Self::Misc,
+        Self::MemCache,
+    ];
 }
 
 impl fmt::Display for Depth {

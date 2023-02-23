@@ -16,7 +16,7 @@ fn main() {
 
     // Grab the number of cores in a block so that the lock is removed once
     // the end of the block is reached.
-    let num_cores = topo.objects_with_type(ObjectType::Core).len();
+    let num_cores = topo.objects_with_type(ObjectType::Core).count();
     println!("Found {} cores.", num_cores);
 
     // Spawn one thread for each and pass the topology down into scope.
@@ -54,8 +54,7 @@ fn main() {
 
 /// Load the `CpuSet` for the given core index.
 fn cpuset_for_core(topology: &Topology, idx: usize) -> &CpuSet {
-    let cores = topology.objects_with_type(ObjectType::Core);
-    match cores.get(idx) {
+    match topology.objects_with_type(ObjectType::Core).nth(idx) {
         Some(val) => val.cpuset().unwrap(),
         None => panic!("No Core found with id {}", idx),
     }
