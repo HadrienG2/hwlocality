@@ -97,7 +97,7 @@ pub(crate) struct RawTopology(IncompleteType);
 ///
 /// - [Topology building](#topology-building)
 /// - [Object levels, depths and types](#object-levels-depths-and-types)
-/// - [CPU cache statistics](#cpu-cache-statistics)
+/// - [CPU cache statistics](#cpu-cache-statistics) (specific to Rust bindings)
 /// - [CPU binding](#cpu-binding)
 /// - [Memory binding](#memory-binding)
 /// - [Modifying a loaded topology](#modifying-a-loaded-topology)
@@ -740,7 +740,7 @@ impl Topology {
     /// full locality-aware scheduling but just want to make sure that your code
     /// will use CPU caches sensibly no matter which CPU core it's running on.
     ///
-    /// This API is unique to the Rust hwloc bindings.
+    /// This functionality is unique to the Rust hwloc bindings.
     pub fn cpu_cache_stats(&self) -> CPUCacheStats {
         CPUCacheStats::new(self)
     }

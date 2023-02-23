@@ -12,7 +12,7 @@ bitflags! {
     ///
     /// These bit flags can be used to refine the binding policy.
     ///
-    /// The default (`PROCESS`) is to bind the current process, assumed to be
+    /// The default is to bind the current process, assumed to be
     /// single-threaded, in a non-strict way.  This is the most portable
     /// way to bind as all operating systems usually provide it.
     ///
