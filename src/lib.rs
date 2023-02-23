@@ -139,6 +139,24 @@ impl Topology {
         TopologyBuilder::new().build()
     }
 
+    #[doc(hidden)]
+    /// Test topology instance
+    ///
+    /// Used to avoid redundant calls to Topology::new() in unit tests and
+    /// doctests that need read-only access to a default-initialized topology
+    ///
+    /// Do not use this in doctests where the fact that the topology is default
+    /// initialized is important for the code sample to make sense.
+    ///
+    /// FIXME: cfg(doctest) should be used here, but it doesn't work and I don't
+    ///        know why... something for a later day.
+    pub fn test_instance() -> &'static Self {
+        use once_cell::sync::Lazy;
+        static INSTANCE: Lazy<Topology> =
+            Lazy::new(|| Topology::new().expect("Failed to initialize test Topology"));
+        &INSTANCE
+    }
+
     /// Prepare to create a Topology with custom configuration
     ///
     /// # Examples
@@ -240,8 +258,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
-    /// println!("{:?}", Topology::new()?.support());
+    /// # let topology = hwloc2::Topology::test_instance();
+    /// println!("{:?}", topology.support());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn support(&self) -> &TopologySupport {
@@ -261,12 +279,11 @@ impl Topology {
     ///
     /// ```
     /// # use hwloc2::{
-    /// #     Topology,
     /// #     objects::types::ObjectType,
     /// #     builder::TypeFilter
     /// # };
-    /// let topology = Topology::new()?;
-    ///
+    /// # let topology = hwloc2::Topology::test_instance();
+    /// #
     /// // PUs, NUMANodes and Machine are always kept
     /// let always_there = [ObjectType::PU,
     ///                     ObjectType::NUMANode,
@@ -306,9 +323,9 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
+    /// # let topology = hwloc2::Topology::test_instance();
     /// // The Machine and PU depths are always present
-    /// assert!(Topology::new()?.depth() >= 2);
+    /// assert!(topology.depth() >= 2);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn depth(&self) -> u32 {
@@ -327,8 +344,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
-    /// let topology = Topology::new()?;
+    /// # let topology = hwloc2::Topology::test_instance();
     /// if let Ok(depth) = topology.memory_parents_depth() {
     ///     let num_memory_objects =
     ///         topology.objects_at_depth(depth)
@@ -356,10 +372,10 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// # use hwloc2::objects::types::ObjectType;
     /// #
-    /// let topology = Topology::new()?;
-    ///
+    /// # let topology = hwloc2::Topology::test_instance();
+    /// #
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     ///
@@ -390,10 +406,10 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// # use hwloc2::{objects::types::ObjectType};
     /// #
-    /// let topology = Topology::new()?;
-    ///
+    /// # let topology = hwloc2::Topology::test_instance();
+    /// #
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let package_or_below = topology.depth_or_below_for_type(ObjectType::Package)?;
     ///
@@ -444,10 +460,10 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// # use hwloc2::objects::types::ObjectType;
     /// #
-    /// let topology = Topology::new()?;
-    ///
+    /// # let topology = hwloc2::Topology::test_instance();
+    /// #
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     /// let core_or_above = topology.depth_or_below_for_type(ObjectType::Core)?;
     ///
@@ -507,8 +523,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, objects::types::CacheType};
-    /// let topology = Topology::new()?;
+    /// # use hwloc2::objects::types::CacheType;
+    /// # let topology = hwloc2::Topology::test_instance();
     /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
     /// assert!(l1d_depth.is_ok());
     /// # Ok::<(), anyhow::Error>(())
@@ -565,8 +581,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, depth::Depth, objects::types::ObjectType};
-    /// let topology = Topology::new()?;
+    /// # use hwloc2::{depth::Depth, objects::types::ObjectType};
+    /// # let topology = hwloc2::Topology::test_instance();
     /// let numa_type = topology.type_at_depth(Depth::NUMANode);
     /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
     /// # Ok::<(), anyhow::Error>(())
@@ -591,8 +607,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
-    /// let topology = Topology::new()?;
+    /// # let topology = hwloc2::Topology::test_instance();
     /// let num_roots = topology.size_at_depth(0.into());
     /// assert_eq!(num_roots, 1);
     /// # Ok::<(), anyhow::Error>(())
@@ -606,8 +621,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, objects::types::ObjectType};
-    /// let topology = Topology::new()?;
+    /// # use hwloc2::objects::types::ObjectType;
+    /// # let topology = hwloc2::Topology::test_instance();
     /// assert_eq!(topology.root_object().object_type(), ObjectType::Machine);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
@@ -622,8 +637,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, objects::types::ObjectType};
-    /// let topology = Topology::new()?;
+    /// # use hwloc2::objects::types::ObjectType;
+    /// # let topology = hwloc2::Topology::test_instance();
     /// for pu in topology.objects_with_type(ObjectType::PU) {
     ///     assert_eq!(pu.object_type(), ObjectType::PU);
     /// }
@@ -662,8 +677,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, depth::Depth, objects::types::ObjectType};
-    /// let topology = Topology::new()?;
+    /// # use hwloc2::{depth::Depth, objects::types::ObjectType};
+    /// # let topology = hwloc2::Topology::test_instance();
     /// for node in topology.objects_at_depth(Depth::NUMANode) {
     ///     assert_eq!(node.object_type(), ObjectType::NUMANode);
     /// }
@@ -2691,30 +2706,28 @@ mod tests {
 
     #[test]
     fn should_get_topology_depth() {
-        let topo = Topology::new().unwrap();
-        assert!(topo.depth() > 0);
+        let topology = Topology::test_instance();
+        assert!(topology.depth() > 0);
     }
 
     #[test]
     fn should_match_types_and_their_depth() {
-        let topo = Topology::new().unwrap();
-
-        let pu_depth = topo.depth_for_type(ObjectType::PU).unwrap();
+        let topology = Topology::test_instance();
+        let pu_depth = topology.depth_for_type(ObjectType::PU).unwrap();
         assert!(pu_depth.assume_normal() > 0);
-        assert_eq!(Some(ObjectType::PU), topo.type_at_depth(pu_depth));
+        assert_eq!(Some(ObjectType::PU), topology.type_at_depth(pu_depth));
     }
 
     #[test]
     fn should_get_nbobjs_by_depth() {
-        let topo = Topology::new().unwrap();
-        assert!(topo.size_at_depth(1.into()) > 0);
+        let topology = Topology::test_instance();
+        assert!(topology.size_at_depth(1.into()) > 0);
     }
 
     #[test]
     fn should_get_root_object() {
-        let topo = Topology::new().unwrap();
-
-        let root_obj = topo.root_object();
+        let topology = Topology::test_instance();
+        let root_obj = topology.root_object();
         assert_eq!(ObjectType::Machine, root_obj.object_type());
         assert!(root_obj.total_memory() > 0);
         assert_eq!(Depth::Normal(0), root_obj.depth());
