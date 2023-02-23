@@ -520,8 +520,7 @@ impl Topology {
            + Clone
            + DoubleEndedIterator
            + ExactSizeIterator
-           + FusedIterator
-           + '_ {
+           + FusedIterator {
         let type_depth = self.depth_for_type(object_type);
         let depth_iter = (0..self.depth())
             .map(Depth::from)
