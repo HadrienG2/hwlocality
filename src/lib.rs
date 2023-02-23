@@ -162,7 +162,7 @@ impl Topology {
     /// another library uses a default system-wide hwloc installation).
     ///
     /// If all libraries/programs use the same hwloc installation, this function
-    /// always returns success.
+    /// always returns `true`.
     ///
     /// # Examples
     ///
@@ -227,7 +227,7 @@ impl Topology {
     /// machine and later imported here, support still describes what is
     /// supported for this imported topology after import. By default, binding
     /// will be reported as unsupported in this case (see
-    /// [`BuildFlags::ASSUME_THIS_SYSTEM`].
+    /// [`BuildFlags::ASSUME_THIS_SYSTEM`]).
     ///
     /// [`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to
     /// report the supported features of the original remote machine instead. If
@@ -589,8 +589,8 @@ impl Topology {
     /// ```
     /// # use hwloc2::Topology;
     /// let topology = Topology::new()?;
-    /// let num_machines = topology.size_at_depth(0.into());
-    /// assert_eq!(num_machines, 1);
+    /// let num_roots = topology.size_at_depth(0.into());
+    /// assert_eq!(num_roots, 1);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn size_at_depth(&self, depth: Depth) -> u32 {
