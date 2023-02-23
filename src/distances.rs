@@ -372,8 +372,6 @@ impl Drop for Distances<'_> {
     }
 }
 //
-impl Eq for Distances<'_> {}
-//
 impl Index<(usize, usize)> for Distances<'_> {
     type Output = u64;
 
@@ -386,22 +384,6 @@ impl IndexMut<(usize, usize)> for Distances<'_> {
     fn index_mut(&mut self, idx: (usize, usize)) -> &mut u64 {
         let idx = self.checked_idx(idx);
         unsafe { self.distances_mut().get_unchecked_mut(idx) }
-    }
-}
-//
-impl PartialEq for Distances<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.name() == other.name()
-            && self.kind() == other.kind()
-            && self
-                .objects()
-                .zip(other.objects())
-                .all(|obj_pair| match obj_pair {
-                    (Some(obj1), Some(obj2)) => std::ptr::eq(obj1, obj2),
-                    (None, None) => true,
-                    _ => false,
-                })
-            && self.distances() == other.distances()
     }
 }
 

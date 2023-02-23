@@ -35,7 +35,7 @@ pub trait SpecializedBitmap: AsRef<Bitmap> + AsMut<Bitmap> + From<Bitmap> + Into
 }
 
 /// Kind of specialized bitmap
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BitmapKind {
     /// [`CpuSet`]
     CpuSet,

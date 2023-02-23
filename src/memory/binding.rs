@@ -99,7 +99,9 @@ pub(crate) type RawMemoryBindingPolicy = c_int;
 /// [`Topology::support().memory_binding()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
 #[repr(i32)]
-#[derive(Copy, Clone, Debug, Default, Display, IntoPrimitive, TryFromPrimitive)]
+#[derive(
+    Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
+)]
 pub enum MemoryBindingPolicy {
     /// Allocate each memory page individually on the local NUMA
     /// node of the thread that touches it
