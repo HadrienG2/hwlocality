@@ -404,7 +404,7 @@ bitflags! {
         /// resources, while the running process is restricted to only parts of
         /// the machine.
         ///
-        /// This flag is ignored unless `ASSUME_THIS_SYSTEM` is also set since
+        /// If this flag is set, `ASSUME_THIS_SYSTEM` must also be set, since
         /// the loaded topology must match the underlying machine where
         /// restrictions will be gathered from.
         ///
@@ -522,12 +522,12 @@ bitflags! {
 impl BuildFlags {
     /// Truth that these flags are in a valid state
     pub(crate) fn is_valid(self) -> bool {
-        !(!self.contains(Self::ASSUME_THIS_SYSTEM)
-            && self.intersects(
+        self.contains(Self::ASSUME_THIS_SYSTEM)
+            || !self.intersects(
                 Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
                     | Self::RESTRICT_CPU_TO_THIS_PROCESS
                     | Self::RESTRICT_MEMORY_TO_THIS_PROCESS,
-            ))
+            )
     }
 }
 //

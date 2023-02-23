@@ -2674,13 +2674,17 @@ mod tests {
     fn should_set_and_get_flags() {
         let topo = Topology::builder()
             .with_flags(
-                BuildFlags::INCLUDE_DISALLOWED | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
+                BuildFlags::INCLUDE_DISALLOWED
+                    | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
+                    | BuildFlags::ASSUME_THIS_SYSTEM,
             )
             .unwrap()
             .build()
             .unwrap();
         assert_eq!(
-            BuildFlags::INCLUDE_DISALLOWED | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM,
+            BuildFlags::INCLUDE_DISALLOWED
+                | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
+                | BuildFlags::ASSUME_THIS_SYSTEM,
             topo.build_flags()
         );
     }
