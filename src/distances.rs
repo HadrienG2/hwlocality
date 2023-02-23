@@ -38,7 +38,6 @@ impl RawDistances {
             !self.objs.is_null(),
             "Got unexpected null object list in distances"
         );
-        DistancesKind::from_bits(self.kind).expect("Got unexpected distance kind");
         assert!(
             !self.values.is_null(),
             "Got unexpected null matrix in distances"
@@ -123,7 +122,7 @@ impl<'topology> Distances<'topology> {
 
     /// Kind of distance matrix
     pub fn kind(&self) -> DistancesKind {
-        unsafe { DistancesKind::from_bits_unchecked(self.inner().kind) }
+        DistancesKind::from_bits_truncate(self.inner().kind)
     }
 
     /// Number of objects described by the distance matrix

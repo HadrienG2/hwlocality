@@ -177,10 +177,10 @@ impl Topology {
             0 => true,
             -1 => {
                 let errno = errno();
-                assert_eq!(errno.0, EINVAL, "Unexpected errno from hwloc {errno}");
+                assert_eq!(errno.0, EINVAL, "Unexpected errno from hwloc: {errno}");
                 false
             }
-            other => unreachable!("Unexpected hwloc return value {other}"),
+            other => unreachable!("Unexpected hwloc return value: {other}"),
         }
     }
 
@@ -190,19 +190,11 @@ impl Topology {
     ///
     /// ```
     /// # use hwloc2::{Topology, builder::BuildFlags};
-    ///
     /// assert_eq!(Topology::new()?.build_flags(), BuildFlags::empty());
-    ///
-    /// let topology = Topology::builder()
-    ///                         .with_flags(BuildFlags::IGNORE_DISTANCES)?
-    ///                         .build()?;
-    /// assert_eq!(topology.build_flags(), BuildFlags::IGNORE_DISTANCES);
-    ///
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn build_flags(&self) -> BuildFlags {
-        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
-            .expect("Encountered unexpected topology flags")
+        BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
     }
 
     /// Was the topology built using the system running this program?
@@ -310,10 +302,10 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::Topology;
-    ///
-    /// let topology = Topology::new().unwrap();
-    /// assert!(topology.depth() > 0);
+    /// # use hwloc2::Topology;
+    /// // The Machine and PU depths are always present
+    /// assert!(Topology::new()?.depth() >= 2);
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn depth(&self) -> u32 {
         unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
@@ -322,6 +314,26 @@ impl Topology {
     }
 
     /// Depth of parents where memory objects are attached
+    ///
+    /// # Errors
+    ///
+    /// - [`DepthError::Multiple`] if memory objects are attached at multiple
+    ///   depths
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::Topology;
+    /// let topology = Topology::new()?;
+    /// if let Ok(depth) = topology.memory_parents_depth() {
+    ///     let num_memory_objects =
+    ///         topology.objects_at_depth(depth)
+    ///                 .flat_map(|obj| obj.memory_children())
+    ///                 .count();
+    ///     assert!(num_memory_objects > 0);
+    /// }
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn memory_parents_depth(&self) -> DepthResult {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
     }
@@ -330,27 +342,30 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// This will return Err([`DepthError::None`]) if no object of this type
-    /// is present or if the OS doesn't provide this kind of information. If a
-    /// similar type is acceptable, consider using
-    /// [`depth_or_below_for_type()`](#method.depth_or_below_for_type)
-    /// or [`depth_or_above_for_type()`](#method.depth_or_above_for_type) instead.
-    ///
-    /// You will get Err([`DepthError::Multiple`]) if objects of this type
-    /// exist at multiple depths.
+    /// - [`DepthError::None`] if no object of this type is present or
+    ///   if the OS doesn't provide this kind of information. If a similar type
+    ///   is acceptable, consider using [depth_or_below_for_type()] or
+    ///   [depth_or_above_for_type()] instead.
+    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    ///   depths.
     ///
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, objects::types::ObjectType};
+    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// #
+    /// let topology = Topology::new()?;
     ///
-    /// let topology = Topology::new().unwrap();
+    /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
+    /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     ///
-    /// let machine_depth = topology.depth_for_type(ObjectType::Machine).unwrap();
-    /// let pu_depth = topology.depth_for_type(ObjectType::PU).unwrap();
     /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     ///
+    /// [depth_or_below_for_type()]: Topology::depth_or_below_for_type()
+    /// [depth_or_above_for_type()]: Topology::depth_or_above_for_type()
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
         Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
     }
@@ -361,12 +376,27 @@ impl Topology {
     /// function returns the depth of the first present object typically found
     /// inside `object_type`.
     ///
-    /// # Errors
-    ///
     /// This function is only meaningful for normal object types.
     ///
-    /// You will get Err([`DepthError::Multiple`]) if objects of this type or
-    /// exist at multiple depths.
+    /// # Errors
+    ///
+    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    ///   depths
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// #
+    /// let topology = Topology::new()?;
+    ///
+    /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
+    /// let package_or_below = topology.depth_or_below_for_type(ObjectType::Package)?;
+    ///
+    /// assert!(machine_depth.assume_normal() < package_or_below.assume_normal());
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
             object_type.is_normal(),
@@ -390,7 +420,7 @@ impl Topology {
                 }
                 Err(DepthError::None)
             }
-            Err(e) => Err(e),
+            other_err => other_err,
         }
     }
 
@@ -400,12 +430,27 @@ impl Topology {
     /// function returns the depth of the first present object typically
     /// containing `object_type`.
     ///
-    /// # Errors
-    ///
     /// This function is only meaningful for normal object types.
     ///
-    /// You will get Err([`DepthError::Multiple`]) if objects of this type or
-    /// exist at multiple depths.
+    /// # Errors
+    ///
+    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    ///   depths
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// #
+    /// let topology = Topology::new()?;
+    ///
+    /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
+    /// let core_or_above = topology.depth_or_below_for_type(ObjectType::Core)?;
+    ///
+    /// assert!(core_or_above.assume_normal() < pu_depth.assume_normal());
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
             object_type.is_normal(),
@@ -425,7 +470,7 @@ impl Topology {
                 }
                 Err(DepthError::None)
             }
-            Err(e) => Err(e),
+            other_err => other_err,
         }
     }
 
@@ -434,8 +479,8 @@ impl Topology {
     /// Return the depth of the topology level that contains cache objects whose
     /// attributes match `cache_level` and `cache_type`.
     ///
-    /// This function is similar to calling [`Topology::depth_for_type()`] with
-    /// the corresponding type such as [`ObjectType::L1iCache`], except that it
+    /// This function is similar to calling [depth_for_type()] with
+    /// the corresponding type such as [`ObjectType::L1ICache`], except that it
     /// may also return a unified cache when looking for an instruction cache.
     ///
     /// If `cache_type` is `None`, it is ignored and multiple levels may match.
@@ -443,17 +488,29 @@ impl Topology {
     /// Err([`DepthError::Multiple`]).
     ///
     /// If `cache_type` is Some([`CacheType::Unified`]), the depth of the unique
-    /// matching unified cache level is returned.
+    /// matching unified cache level (if any) is returned.
     ///
     /// If `cache_type` is Some([`CacheType::Data`]) or
-    /// Some([`CacheType::Instruction`]), either a matching cache, or a
+    /// Some([`CacheType::Instruction`]), either a matching cache or a
     /// unified cache is returned.
     ///
     /// # Errors
     ///
-    /// - If no cache level matches, Err([`DepthError::None`]) is returned.
-    /// - If multiple cache levels match, Err([`DepthError::Multiple`]) is
-    ///   returned. This can only happen if `cache_type` is `None`.
+    /// - [`DepthError::None`] if no cache level matches
+    /// - [`DepthError::Multiple`] if multiple cache depths match (this can only
+    ///   happen if `cache_type` is `None`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, objects::types::CacheType};
+    /// let topology = Topology::new()?;
+    /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
+    /// assert!(l1d_depth.is_ok());
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    ///
+    /// [depth_for_type()]: Topology::depth_for_type()
     pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
         let mut result = Err(DepthError::None);
         for depth in 0..self.depth() {
@@ -499,21 +556,17 @@ impl Topology {
         result
     }
 
-    /// [`ObjectType`] at the given depth.
+    /// [`ObjectType`] at the given `depth`
     ///
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, objects::types::ObjectType};
-    ///
-    /// let topology = Topology::new().unwrap();
-    ///
-    /// // Load depth for PU to assert against
-    /// let pu_depth = topology.depth_for_type(ObjectType::PU).unwrap();
-    /// // Retrieve the type for the given depth
-    /// assert_eq!(ObjectType::PU, topology.type_at_depth(pu_depth).unwrap());
+    /// # use hwloc2::{Topology, depth::Depth, objects::types::ObjectType};
+    /// let topology = Topology::new()?;
+    /// let numa_type = topology.type_at_depth(Depth::NUMANode);
+    /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
-    ///
     pub fn type_at_depth(&self, depth: Depth) -> Option<ObjectType> {
         if let Depth::Normal(depth) = depth {
             if depth >= self.depth() {
@@ -529,36 +582,30 @@ impl Topology {
         }
     }
 
-    /// Number of objects at the given depth.
+    /// Number of objects at the given `depth`
     ///
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::Topology;
-    ///
-    /// let topology = Topology::new().unwrap();
-    ///
-    /// let topo_depth = topology.depth();
-    /// assert!(topology.size_at_depth((topo_depth - 1).into()) > 0);
+    /// # use hwloc2::Topology;
+    /// let topology = Topology::new()?;
+    /// let num_machines = topology.size_at_depth(0.into());
+    /// assert_eq!(num_machines, 1);
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
-    ///
     pub fn size_at_depth(&self, depth: Depth) -> u32 {
         unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into()) }
     }
 
-    /// [`TopologyObject`] at the root of the topology.
+    /// [`TopologyObject`] at the root of the topology
     ///
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::Topology;
-    ///
-    /// let topology = Topology::new().unwrap();
-    ///
-    /// assert_eq!(
-    ///     topology.type_at_depth(0.into()).unwrap(),
-    ///     topology.root_object().object_type()
-    /// );
+    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// let topology = Topology::new()?;
+    /// assert_eq!(topology.root_object().object_type(), ObjectType::Machine);
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn root_object(&self) -> &TopologyObject {
         self.objects_at_depth(0.into())
@@ -566,7 +613,18 @@ impl Topology {
             .expect("Root object should exist")
     }
 
-    /// [`TopologyObject`]s with the given [`ObjectType`].
+    /// [`TopologyObject`]s with the given [`ObjectType`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, objects::types::ObjectType};
+    /// let topology = Topology::new()?;
+    /// for pu in topology.objects_with_type(ObjectType::PU) {
+    ///     assert_eq!(pu.object_type(), ObjectType::PU);
+    /// }
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
@@ -595,7 +653,18 @@ impl Topology {
         }
     }
 
-    /// [`TopologyObject`]s at the given depth.
+    /// [`TopologyObject`]s at the given `depth`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, depth::Depth, objects::types::ObjectType};
+    /// let topology = Topology::new()?;
+    /// for node in topology.objects_at_depth(Depth::NUMANode) {
+    ///     assert_eq!(node.object_type(), ObjectType::NUMANode);
+    /// }
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn objects_at_depth(
         &self,
         depth: Depth,

@@ -233,8 +233,7 @@ impl TopologyBuilder {
 
     /// Check current topology building flags
     pub fn flags(&self) -> BuildFlags {
-        BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
-            .expect("Encountered unexpected topology flags")
+        BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
     }
 
     /// Set the filtering for the given object type

@@ -73,13 +73,13 @@ pub enum ObjectType {
     L5Cache,
 
     /// Level 1 Instruction cache (filtered out by default)
-    L1iCache,
+    L1ICache,
 
     /// Level 2 Instruction cache (filtered out by default)
-    L2iCache,
+    L2ICache,
 
     /// Level 3 Instruction cache (filtered out by default)
-    L3iCache,
+    L3ICache,
 
     /// Group objects.
     ///
@@ -216,9 +216,9 @@ impl ObjectType {
             Self::Machine
             | Self::Package
             | Self::Core
-            | Self::L1iCache
-            | Self::L2iCache
-            | Self::L3iCache
+            | Self::L1ICache
+            | Self::L2ICache
+            | Self::L3ICache
             | Self::L1Cache
             | Self::L2Cache
             | Self::L3Cache
