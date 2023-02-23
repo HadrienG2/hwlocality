@@ -130,16 +130,26 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::Topology;
-    ///
-    /// let topology = Topology::new().unwrap();
+    /// # use hwloc2::Topology;
+    /// let topology = Topology::new()?;
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
-    ///
     pub fn new() -> Result<Topology, Errno> {
         TopologyBuilder::new().build()
     }
 
     /// Prepare to create a Topology with custom configuration
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, builder::BuildFlags};
+    /// let topology = Topology::builder()
+    ///                         .with_flags(BuildFlags::IGNORE_DISTANCES)?
+    ///                         .build()?;
+    /// assert_eq!(topology.build_flags(), BuildFlags::IGNORE_DISTANCES);
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn builder() -> TopologyBuilder {
         TopologyBuilder::new()
     }
@@ -153,6 +163,14 @@ impl Topology {
     ///
     /// If all libraries/programs use the same hwloc installation, this function
     /// always returns success.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::Topology;
+    /// assert!(Topology::new()?.is_abi_compatible());
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn is_abi_compatible(&self) -> bool {
         let result = unsafe { ffi::hwloc_topology_abi_check(self.as_ptr()) };
         match result {
@@ -171,19 +189,16 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, builder::BuildFlags};
+    /// # use hwloc2::{Topology, builder::BuildFlags};
     ///
-    /// let default_topology = Topology::new().unwrap();
-    /// assert_eq!(BuildFlags::empty(), default_topology.build_flags());
+    /// assert_eq!(Topology::new()?.build_flags(), BuildFlags::empty());
     ///
-    /// let topology_with_flags =
-    ///     Topology::builder()
-    ///         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
-    ///         .build().unwrap();
-    /// assert_eq!(
-    ///     BuildFlags::ASSUME_THIS_SYSTEM,
-    ///     topology_with_flags.build_flags()
-    /// );
+    /// let topology = Topology::builder()
+    ///                         .with_flags(BuildFlags::IGNORE_DISTANCES)?
+    ///                         .build()?;
+    /// assert_eq!(topology.build_flags(), BuildFlags::IGNORE_DISTANCES);
+    ///
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn build_flags(&self) -> BuildFlags {
         BuildFlags::from_bits(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) })
@@ -194,6 +209,14 @@ impl Topology {
     ///
     /// It may not have been if, for instance, it was built using another
     /// file-system root or loaded from a synthetic or XML textual description.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::Topology;
+    /// assert!(Topology::new()?.is_this_system());
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn is_this_system(&self) -> bool {
         let result = unsafe { ffi::hwloc_topology_is_thissystem(self.as_ptr()) };
         assert!(
@@ -217,6 +240,14 @@ impl Topology {
     /// [`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to
     /// report the supported features of the original remote machine instead. If
     /// it was successfully imported, [`MiscSupport::imported()`] will be set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::Topology;
+    /// println!("{:?}", Topology::new()?.support());
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn support(&self) -> &TopologySupport {
         let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
         assert!(
@@ -229,6 +260,29 @@ impl Topology {
     }
 
     /// Filtering that was applied for the given object type
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{
+    /// #     Topology,
+    /// #     objects::types::ObjectType,
+    /// #     builder::TypeFilter
+    /// # };
+    /// let topology = Topology::new()?;
+    ///
+    /// // PUs, NUMANodes and Machine are always kept
+    /// let always_there = [ObjectType::PU,
+    ///                     ObjectType::NUMANode,
+    ///                     ObjectType::Machine];
+    /// for ty in always_there {
+    ///     assert_eq!(topology.type_filter(ty), TypeFilter::KeepAll);
+    /// }
+    ///
+    /// // Groups are only kept if they bring extra structure
+    /// assert_ne!(topology.type_filter(ObjectType::Group), TypeFilter::KeepAll);
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
         let mut filter = RawTypeFilter::MAX;
         let result =

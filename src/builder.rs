@@ -77,7 +77,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    ENOSYS => Err(Unsupported(self)),
+                    ENOSYS => Err(Unsupported),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -96,7 +96,7 @@ impl TopologyBuilder {
     ///
     /// CPU and memory binding operations will be ineffective with this backend.
     pub fn from_synthetic(mut self, description: &str) -> Result<Self, InvalidParameter> {
-        let Ok(description) = LibcString::new(description) else { return Err(InvalidParameter(self)) };
+        let Ok(description) = LibcString::new(description) else { return Err(InvalidParameter) };
         let result =
             unsafe { ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow()) };
         match result {
@@ -104,7 +104,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter(self)),
+                    EINVAL => Err(InvalidParameter),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -122,7 +122,7 @@ impl TopologyBuilder {
     /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
     /// loaded XML file truly matches the underlying system.
     pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, InvalidParameter> {
-        let Ok(xml) = LibcString::new(xml) else { return Err(InvalidParameter(self)) };
+        let Ok(xml) = LibcString::new(xml) else { return Err(InvalidParameter) };
         let result = unsafe {
             ffi::hwloc_topology_set_xmlbuffer(
                 self.as_mut_ptr(),
@@ -137,7 +137,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter(self)),
+                    EINVAL => Err(InvalidParameter),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -151,15 +151,15 @@ impl TopologyBuilder {
     /// name as a parameter instead of an XML string. The same effect can be
     /// achieved by setting the `HWLOC_XMLFILE` environment variable.
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, InvalidParameter> {
-        let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter(self)) };
-        let Ok(path) = LibcString::new(path) else { return Err(InvalidParameter(self)) };
+        let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter) };
+        let Ok(path) = LibcString::new(path) else { return Err(InvalidParameter) };
         let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow()) };
         match result {
             0 => Ok(self),
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter(self)),
+                    EINVAL => Err(InvalidParameter),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -180,7 +180,7 @@ impl TopologyBuilder {
     /// instance, CUDA-specific discovery may be expensive and unneeded while
     /// generic I/O discovery could still be useful.
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, InvalidParameter> {
-        let Ok(name) = LibcString::new(name) else { return Err(InvalidParameter(self)) };
+        let Ok(name) = LibcString::new(name) else { return Err(InvalidParameter) };
         let result = unsafe {
             ffi::hwloc_topology_set_components(
                 self.as_mut_ptr(),
@@ -223,7 +223,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter(self)),
+                    EINVAL => Err(InvalidParameter),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -582,11 +582,11 @@ pub enum TypeFilter {
 }
 
 /// Error returned when an invalid parameter was passed
-#[derive(Debug, Error)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
 #[error("invalid parameter specified")]
-pub struct InvalidParameter(TopologyBuilder);
+pub struct InvalidParameter;
 
 /// Error returned when the platform does not support this feature
-#[derive(Debug, Error)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
 #[error("platform does not support this feature")]
-pub struct Unsupported(TopologyBuilder);
+pub struct Unsupported;
