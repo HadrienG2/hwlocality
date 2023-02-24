@@ -4,7 +4,10 @@ use crate::{
     depth::RawDepth,
     distances::{RawDistances, RawDistancesTransform},
     editor::DistancesAddHandle,
-    memory::binding::RawMemoryBindingPolicy,
+    memory::{
+        attributes::{MemoryAttributeID, RawLocation},
+        binding::RawMemoryBindingPolicy,
+    },
     objects::{types::RawObjectType, TopologyObject},
     support::FeatureSupport,
     ProcessId, RawTopology, ThreadId,
@@ -805,7 +808,47 @@ macro_rules! extern_c_block {
 
             // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 
-            // TODO
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_by_name(
+                topology: *const RawTopology,
+                name: *const c_char,
+                id: *mut MemoryAttributeID,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_get_local_numanode_objs(
+                topology: *const RawTopology,
+                location: *const RawLocation,
+                nr: *mut c_uint,
+                nodes: *mut *const TopologyObject,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_value(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                target_node: *const TopologyObject,
+                initiator: *const RawLocation,
+                flags: c_ulong,
+                value: *mut u64,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_best_target(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                initiator: *const RawLocation,
+                flags: c_ulong,
+                best_target: *mut *const TopologyObject,
+                value: *mut u64,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_best_initiator(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                target: *const TopologyObject,
+                flags: c_ulong,
+                best_initiator: *mut RawLocation,
+                value: *mut u64,
+            ) -> c_int;
 
             // === Managing memory attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 

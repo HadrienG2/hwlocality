@@ -12,8 +12,6 @@ pub mod memory;
 pub mod objects;
 pub mod support;
 
-#[cfg(doc)]
-use crate::support::{CpuBindingSupport, DiscoverySupport, MemoryBindingSupport, MiscSupport};
 use crate::{
     bitmap::{Bitmap, BitmapKind, CpuSet, NodeSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
@@ -22,16 +20,20 @@ use crate::{
         caches::CPUCacheStats,
     },
     depth::{Depth, DepthError, DepthResult, RawDepth},
+    distances::{Distances, DistancesKind, RawDistances},
     editor::TopologyEditor,
     export::{
         synthetic::SyntheticExportFlags,
         xml::{XMLExportFlags, XML},
     },
     ffi::{IncompleteType, LibcString},
-    memory::binding::{
-        Bytes, MemoryBindingFlags, MemoryBindingOperation, MemoryBindingPolicy,
-        MemoryBindingQueryError, MemoryBindingSetupError, MemoryBindingTarget,
-        RawMemoryBindingPolicy,
+    memory::{
+        attributes::{MemoryAttribute, TargetNumaNodes},
+        binding::{
+            Bytes, MemoryBindingFlags, MemoryBindingOperation, MemoryBindingPolicy,
+            MemoryBindingQueryError, MemoryBindingSetupError, MemoryBindingTarget,
+            RawMemoryBindingPolicy,
+        },
     },
     objects::{
         attributes::ObjectAttributes,
@@ -40,8 +42,12 @@ use crate::{
     },
     support::FeatureSupport,
 };
+#[cfg(doc)]
+use crate::{
+    memory::attributes::LocalNUMANodeFlags,
+    support::{CpuBindingSupport, DiscoverySupport, MemoryBindingSupport, MiscSupport},
+};
 use bitflags::bitflags;
-use distances::{Distances, DistancesKind, RawDistances};
 use errno::{errno, Errno};
 use libc::EINVAL;
 use num_enum::TryFromPrimitiveError;
@@ -111,6 +117,7 @@ pub(crate) struct RawTopology(IncompleteType);
 /// - [Exporting Topologies to XML](#exporting-topologies-to-xml)
 /// - [Exporting Topologies to Synthetic](#exporting-topologies-to-synthetic)
 /// - [Retrieve distances between objects](#retrieve-distances-between-objects)
+/// - [Comparing memory node attributes for finding where to allocate on](#comparing-memory-node-attributes-for-finding-where-to-allocate-on)
 #[derive(Debug)]
 #[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<RawTopology>);
@@ -2779,6 +2786,130 @@ impl Topology {
             .into_iter()
             .map(|raw| unsafe { Distances::wrap(self, raw) })
             .collect()
+    }
+}
+
+/// # Comparing memory node attributes for finding where to allocate on
+///
+/// Platforms with heterogeneous memory require ways to decide whether a buffer
+/// should be allocated on "fast" memory (such as HBM), "normal" memory (DDR) or
+/// even "slow" but large-capacity memory (non-volatile memory). These memory
+/// nodes are called "Targets" while the CPU accessing them is called the
+/// "Initiator". Access performance depends on their locality (NUMA platforms)
+/// as well as the intrinsic performance of the targets (heterogeneous platforms).
+///
+/// The following attributes describe the performance of memory accesses from an
+/// Initiator to a memory Target, for instance their latency or bandwidth.
+/// Initiators performing these memory accesses are usually some PUs or Cores
+/// (described as a CPU set). Hence a Core may choose where to allocate a memory
+/// buffer by comparing the attributes of different target memory nodes nearby.
+///
+/// There are also some attributes that are system-wide. Their value does not
+/// depend on a specific initiator performing an access. The memory node
+/// Capacity is an example of such attribute without initiator.
+///
+/// One way to use this API is to start with a cpuset describing the Cores where
+/// a program is bound. The best target NUMA node for allocating memory in this
+/// program on these Cores may be obtained by passing this cpuset as an
+/// initiator to [`MemoryAttribute::best_target()`] with the relevant
+/// memory attribute. For instance, if the code is latency limited, use the
+/// Latency attribute.
+///
+/// A more flexible approach consists in getting the list of local NUMA nodes by
+/// passing this cpuset to [`Topology::local_numa_nodes()`]. Attribute values
+/// for these nodes, if any, may then be obtained with
+/// [`MemoryAttribute::value()`] and manually compared with the desired criteria.
+///
+/// The API also supports specific objects as initiator, but it is currently not
+/// used internally by hwloc. Users may for instance use it to provide custom
+/// performance values for host memory accesses performed by GPUs.
+/// The interface actually also accepts targets that are not NUMA nodes.
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+impl Topology {
+    /// Return the identifier of the memory attribute with the given name
+    ///
+    /// Note that a number of predefined memory attributes have predefined
+    /// identifiers and need not be queried by name at runtime, see the
+    /// different constructors of [`MemoryAttribute`] for more information.
+    ///
+    /// # Panics
+    ///
+    /// - If the requested name contains NUL chars.
+    #[doc(alias = "hwloc_memattr_get_by_name")]
+    pub fn memory_attribute_named(&self, name: &str) -> Option<MemoryAttribute> {
+        let name = LibcString::new(name).expect("name can't contain NUL chars");
+        let mut id = MaybeUninit::uninit();
+        let result = unsafe {
+            ffi::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
+        };
+        match result {
+            0 => Some(MemoryAttribute::wrap(self, unsafe { id.assume_init() })),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EINVAL => None,
+                    _ => panic!("Unexpected errno from hwloc_memattr_get_by_name: {errno}"),
+                }
+            }
+            other => panic!("Unexpected result from hwloc_memattr_get_by_name: {other}"),
+        }
+    }
+
+    /// Return an array of local NUMA nodes
+    ///
+    /// If `target` is given as a `TopologyObject`, its CPU set is used to
+    /// find NUMA nodes with the corresponding locality. If the object does not
+    /// have a CPU set (e.g. I/O object), the CPU parent (where the I/O object
+    /// is attached) is used.
+    ///
+    /// Some of these NUMA nodes may not have any memory attribute values and
+    /// hence not be reported as actual targets in other functions.
+    ///
+    /// When an object CPU set is given as locality, for instance a Package, and
+    /// when `flags` contains both [`LocalNUMANodeFlags::LARGER_LOCALITY`] and
+    /// [`LocalNUMANodeFlags::SMALLER_LOCALITY`], the returned array corresponds
+    /// to the nodeset of that object.
+    #[doc(alias = "hwloc_get_local_numanode_objs")]
+    pub fn local_numa_nodes(&self, target: TargetNumaNodes) -> Result<Vec<&TopologyObject>, Errno> {
+        // Prepare to call hwloc
+        let (location, flags) = target.into_raw_params();
+        let mut nr = 0;
+        let call_ffi = |nr_mut, out_ptr| {
+            let result = unsafe {
+                ffi::hwloc_get_local_numanode_objs(
+                    self.as_ptr(),
+                    &location,
+                    nr_mut,
+                    out_ptr,
+                    flags.bits(),
+                )
+            };
+            match result {
+                0 => Ok(()),
+                -1 => Err(errno()),
+                other => panic!("Unexpected result from hwloc_get_local_numanode_objs: {other}"),
+            }
+        };
+
+        // Query node count
+        call_ffi(&mut nr, ptr::null_mut())?;
+        let len = usize::try_from(nr).expect("Impossible node count from hwloc");
+
+        // Allocate storage and fill node list
+        let mut out = vec![ptr::null(); len];
+        let old_nr = nr;
+        call_ffi(&mut nr, out.as_mut_ptr())?;
+        assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
+
+        // Translate node pointers into node references
+        Ok(out
+            .into_iter()
+            .map(|ptr| {
+                assert!(!ptr.is_null(), "Invalid NUMA node pointer from hwloc");
+                unsafe { &*ptr }
+            })
+            .collect())
     }
 }
 

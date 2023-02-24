@@ -8,93 +8,328 @@
 use crate::support::DiscoverySupport;
 use crate::{
     bitmap::{CpuSet, RawBitmap},
+    ffi,
     objects::TopologyObject,
-    Topology,
+    RawTopology, Topology,
 };
 use bitflags::bitflags;
 use derive_more::Display;
+use errno::{errno, Errno};
+use libc::ENOENT;
 use std::ffi::{c_int, c_ulong};
 use thiserror::Error;
 
-/// Memory attribute identifier
+//// Memory attribute identifier
 ///
 /// May be either one of the predefined identifiers (see associated consts) or
 /// a new identifier returned by hwloc_memattr_register() (TODO: bind and link).
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
-#[doc(alias = "hwloc_memattr_id_e")]
-#[doc(alias = "hwloc_memattr_id_t")]
-pub struct MemoryAttributeID(u32);
+pub(crate) struct MemoryAttributeID(u32);
 //
 impl MemoryAttributeID {
-    /// Node capacity in bytes (see [`TopologyObject::total_memory()`])
-    ///
-    /// Requires [`DiscoverySupport::numa_memory()`].
-    #[doc(alias = "HWLOC_MEMATTR_ID_CAPACITY")]
-    pub const CAPACITY: Self = Self(0);
+    const CAPACITY: Self = Self(0);
+    const LOCALITY: Self = Self(1);
+    const BANDWIDTH: Self = Self(2);
+    const READ_BANDWIDTH: Self = Self(4);
+    const WRITE_BANDWIDTH: Self = Self(5);
+    const LATENCY: Self = Self(3);
+    const READ_LATENCY: Self = Self(6);
+    const WRITE_LATENCY: Self = Self(7);
+    // TODO: Add new attributes to methods below and MemoryAttribute const fns
 
-    /// Number of PUs in that locality (i.e. cpuset weight)
-    ///
-    /// Requires [`DiscoverySupport::pu_count()`].
-    #[doc(alias = "HWLOC_MEMATTR_ID_LOCALITY")]
-    pub const LOCALITY: Self = Self(1);
-
-    /// Average bandwidth in MiB/s, as seen from the given initiator location
-    ///
-    /// This is the average bandwidth for read and write accesses. If the
-    /// platform provides individual read and write bandwidths but no explicit
-    /// average value, hwloc computes and returns the average.
-    #[doc(alias = "HWLOC_MEMATTR_ID_BANDWIDTH")]
-    pub const BANDWIDTH: Self = Self(2);
-
-    /// Read bandwidth in MiB/s, as seen from the given initiator location
-    #[doc(alias = "HWLOC_MEMATTR_ID_READ_BANDWIDTH")]
-    pub const READ_BANDWIDTH: Self = Self(4);
-
-    /// Write bandwidth in MiB/s, as seen from the given initiator location
-    #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_BANDWIDTH")]
-    pub const WRITE_BANDWIDTH: Self = Self(5);
-
-    /// Latency in nanoseconds, as seen from the given initiator location
-    ///
-    /// This is the average latency for read and write accesses. If the platform
-    /// value, provides individual read and write latencies but no explicit
-    /// average hwloc computes and returns the average.
-    #[doc(alias = "HWLOC_MEMATTR_ID_LATENCY")]
-    pub const LATENCY: Self = Self(3);
-
-    /// Read latency in nanoseconds, as seen from the given initiator location
-    #[doc(alias = "HWLOC_MEMATTR_ID_READ_LATENCY")]
-    pub const READ_LATENCY: Self = Self(6);
-
-    /// Write latency in nanoseconds, as seen from the given initiator location
-    // TODO: When adding new memory attributes, add them to attribute_flags below
-    #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_LATENCY")]
-    pub const WRITE_LATENCY: Self = Self(7);
-
-    /// Attribute flags corresponding to this memory attribute
-    pub fn flags(self, topology: &Topology) -> MemoryAttributeFlags {
+    /// For predefined attributes, flags are known at compile time
+    fn static_flags(self) -> Option<MemoryAttributeFlags> {
         match self {
-            Self::CAPACITY => MemoryAttributeFlags::HIGHER_IS_BEST,
-            Self::LOCALITY => MemoryAttributeFlags::LOWER_IS_BEST,
+            Self::CAPACITY => Some(MemoryAttributeFlags::HIGHER_IS_BEST),
+            Self::LOCALITY => Some(MemoryAttributeFlags::LOWER_IS_BEST),
             Self::BANDWIDTH | Self::READ_BANDWIDTH | Self::WRITE_BANDWIDTH => {
-                MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR
+                Some(MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR)
             }
             Self::LATENCY | Self::READ_LATENCY | Self::WRITE_LATENCY => {
-                MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR
+                Some(MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR)
             }
-            // TODO: Dispatch to hwloc_memattr_get_flags once binding exists
-            //       and run result through is_valid() before returning it
-            _ => unimplemented!(),
+            _ => None,
         }
     }
+}
+
+/// Generate MemoryAttribute constructors around a certain ID with minimal boilerplate
+macro_rules! wrap_ids {
+    (
+        $(
+            $(#[$attr:meta])*
+            $id:ident -> $constructor:ident
+        ),*
+    ) => {
+        $(
+            $(#[$attr])*
+            pub const fn $constructor(topology: &'topology Topology) -> Self {
+                Self::wrap(topology, MemoryAttributeID::$id)
+            }
+        )*
+    };
+}
+
+/// Memory attribute identifier
+///
+/// May be either one of the predefined identifiers (see associated const fns)
+/// or a new identifier returned by hwloc_memattr_register() (TODO: bind and link).
+#[derive(Copy, Clone, Debug)]
+#[doc(alias = "hwloc_memattr_id_e")]
+#[doc(alias = "hwloc_memattr_id_t")]
+pub struct MemoryAttribute<'topology> {
+    topology: &'topology Topology,
+    id: MemoryAttributeID,
+}
+//
+impl<'topology> MemoryAttribute<'topology> {
+    /// Extend a MemoryAttributeID with topology access to enable method syntax
+    pub(crate) const fn wrap(topology: &'topology Topology, id: MemoryAttributeID) -> Self {
+        Self { id, topology }
+    }
+
+    wrap_ids!(
+        /// Node capacity in bytes (see [`TopologyObject::total_memory()`])
+        ///
+        /// Requires [`DiscoverySupport::numa_memory()`].
+        #[doc(alias = "HWLOC_MEMATTR_ID_CAPACITY")]
+        CAPACITY -> capacity,
+
+        /// Number of PUs in that locality (i.e. cpuset weight)
+        ///
+        /// Requires [`DiscoverySupport::pu_count()`].
+        #[doc(alias = "HWLOC_MEMATTR_ID_LOCALITY")]
+        LOCALITY -> locality,
+
+        /// Average bandwidth in MiB/s, as seen from the given initiator location
+        ///
+        /// This is the average bandwidth for read and write accesses. If the
+        /// platform provides individual read and write bandwidths but no
+        /// explicit average value, hwloc computes and returns the average.
+        #[doc(alias = "HWLOC_MEMATTR_ID_BANDWIDTH")]
+        BANDWIDTH -> bandwidth,
+
+        /// Read bandwidth in MiB/s, as seen from the given initiator location
+        #[doc(alias = "HWLOC_MEMATTR_ID_READ_BANDWIDTH")]
+        READ_BANDWIDTH -> read_bandwidth,
+
+        /// Write bandwidth in MiB/s, as seen from the given initiator location
+        #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_BANDWIDTH")]
+        WRITE_BANDWIDTH -> write_bandwidth,
+
+        /// Latency in nanoseconds, as seen from the given initiator location
+        ///
+        /// This is the average latency for read and write accesses. If the
+        /// platform value provides individual read and write latencies but no
+        /// explicit average, hwloc computes and returns the average.
+        #[doc(alias = "HWLOC_MEMATTR_ID_LATENCY")]
+        LATENCY -> latency,
+
+        /// Read latency in nanoseconds, as seen from the given initiator location
+        #[doc(alias = "HWLOC_MEMATTR_ID_READ_LATENCY")]
+        READ_LATENCY -> read_latency,
+
+        /// Write latency in nanoseconds, as seen from the given initiator location
+        #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_LATENCY")]
+        WRITE_LATENCY -> write_latency
+    );
+
+    /// Attribute flags corresponding to this memory attribute
+    pub fn flags(&self) -> MemoryAttributeFlags {
+        let flags = if let Some(flags) = self.id.static_flags() {
+            flags
+        } else {
+            // TODO: Dispatch to hwloc_memattr_get_flags once binding exists
+            unimplemented!()
+        };
+        debug_assert!(flags.is_valid(), "Flags should be valid");
+        flags
+    }
+
+    /// Value of this attribute for a specific initiator and target NUMA node
+    ///
+    /// `initiator` should be specified if and only if this attribute has the
+    /// flag [`MemoryAttributeFlags::NEED_INITIATOR`].
+    ///
+    /// The initiator should be a CpuSet when refering to accesses performed by
+    /// CPU cores. `Location::Object` is currently unused internally by hwloc,
+    /// but user-defined memory attributes may for instance use it to provide
+    /// custom information about host memory accesses performed by GPUs.
+    ///
+    /// # Errors
+    ///
+    /// - [BadInitiator] if the `initiator` parameter was not set correctly.
+    ///
+    /// [BadInitiator]: MemoryAttributeQueryError::BadInitiator
+    #[doc(alias = "hwloc_memattr_get_value")]
+    pub fn value<'result>(
+        &'result self,
+        initiator: Option<Location<'result>>,
+        target_node: &TopologyObject,
+    ) -> Result<u64, MemoryAttributeQueryError<'result>> {
+        self.query_with_initiator(
+            initiator,
+            |topology, attribute, initiator, flags, value| unsafe {
+                ffi::hwloc_memattr_get_value(
+                    topology,
+                    attribute,
+                    target_node,
+                    initiator,
+                    flags,
+                    value,
+                )
+            },
+        )
+    }
+
+    /// Best target node and associated attribute value for a given initiator
+    ///
+    /// See [`MemoryAttribute::value()`] to know more about `initiator`.
+    ///
+    /// If multiple targets have the same attribute values, only one is returned
+    /// (and there is no way to clarify how that one is chosen). Applications
+    /// that want to detect targets with identical/similar values, or that want
+    /// to look at values for multiple attributes, should rather get all values
+    /// using [`MemoryAttribute::value()`] and manually select the target they
+    /// consider the best.
+    #[doc(alias = "hwloc_memattr_get_best_target")]
+    pub fn best_target<'result>(
+        &'result self,
+        initiator: Option<Location<'result>>,
+    ) -> Result<(&'topology TopologyObject, u64), MemoryAttributeQueryError<'result>> {
+        let mut best_target = std::ptr::null();
+        self.query_with_initiator(
+            initiator,
+            |topology, attribute, initiator, flags, value| unsafe {
+                ffi::hwloc_memattr_get_best_target(
+                    topology,
+                    attribute,
+                    initiator,
+                    flags,
+                    &mut best_target,
+                    value,
+                )
+            },
+        )
+        .map(|value| {
+            assert!(
+                !best_target.is_null(),
+                "Got null target pointer from hwloc_memattr_get_best_target"
+            );
+            (unsafe { &*best_target }, value)
+        })
+    }
+
+    /// Best initiator and associated attribute value for a given target node
+    ///
+    /// If multiple initiators have the same attribute values, only one is
+    /// returned (and there is no way to clarify how that one is chosen).
+    /// Applications that want to detect initiators with identical/similar
+    /// values, or that want to look at values for multiple attributes, should
+    /// rather get all values using [`MemoryAttribute::value()`] and manually
+    /// select the initiator they consider the best.
+    #[doc(alias = "hwloc_memattr_get_best_initiator")]
+    pub fn best_initiator(
+        &self,
+        target: &TopologyObject,
+    ) -> Result<(Location<'topology>, u64), MemoryAttributeQueryError> {
+        let mut best_initiator = RawLocation::null();
+        self.query(|topology, attribute, flags, value| unsafe {
+            ffi::hwloc_memattr_get_best_initiator(
+                topology,
+                attribute,
+                target,
+                flags,
+                &mut best_initiator,
+                value,
+            )
+        })
+        .map(|value| {
+            let location = unsafe { Location::from_raw(self.topology, best_initiator) }
+                .expect("Failed to decode location from hwloc")
+                .expect("Got null location pointer from hwloc");
+            (location, value)
+        })
+    }
+
+    /// Perform a memory attribute query that has an initiator
+    fn query_with_initiator<'result>(
+        &'result self,
+        initiator: Option<Location<'result>>,
+        query: impl FnOnce(
+            *const RawTopology,
+            MemoryAttributeID,
+            *const RawLocation,
+            c_ulong,
+            *mut u64,
+        ) -> i32,
+    ) -> Result<u64, MemoryAttributeQueryError<'result>> {
+        if self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) ^ initiator.is_some() {
+            return Err(MemoryAttributeQueryError::BadInitiator(initiator));
+        }
+        let initiator = initiator
+            .map(Location::into_raw)
+            .unwrap_or_else(RawLocation::null);
+        self.query(|topology, attribute, flags, value| {
+            query(topology, attribute, &initiator, flags, value)
+        })
+    }
+
+    /// Perform a memory attribute query that doesn't have an initiator (or
+    /// whose initiator is taken care of higher up the abstraction stack)
+    fn query(
+        &self,
+        query: impl FnOnce(*const RawTopology, MemoryAttributeID, c_ulong, *mut u64) -> i32,
+    ) -> Result<u64, MemoryAttributeQueryError> {
+        // Call hwloc
+        let mut value = 0;
+        let result = query(self.topology.as_ptr(), self.id, 0, &mut value);
+
+        // Process and extract result
+        match result {
+            0 => Ok(value),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    ENOENT => Err(MemoryAttributeQueryError::NoMatch),
+                    _ => Err(MemoryAttributeQueryError::UnexpectedErrno(errno)),
+                }
+            }
+            other => Err(MemoryAttributeQueryError::UnexpectedResult(other, errno())),
+        }
+    }
+}
+
+/// Error while querying a memory attribute
+#[derive(Copy, Clone, Debug, Error)]
+pub enum MemoryAttributeQueryError<'params> {
+    /// Incorrect `initiator` parameter
+    ///
+    /// Either an initiator had to be specified and was not specified, or the
+    /// requested attribute has no notion of initiator (e.g. Capacity) but an
+    /// initiator was specified nonetheless.
+    #[error("incorrect initiator: {0:?}")]
+    BadInitiator(Option<Location<'params>>),
+
+    /// Query returned no matching entity (value, object...)
+    #[error("no entity matches this query")]
+    NoMatch,
+
+    /// Unexpected errno value
+    #[error("unexpected errno value {0}")]
+    UnexpectedErrno(Errno),
+
+    /// Unexpected binding function result
+    #[error("unexpected binding function result {0} with errno {1}")]
+    UnexpectedResult(i32, Errno),
 }
 
 /// Where to measure attributes from
 #[doc(alias = "hwloc_location")]
 #[doc(alias = "hwloc_location_u")]
 #[doc(alias = "hwloc_location_type_e")]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Display)]
 pub enum Location<'target> {
     /// Directly provide CPU set to find NUMA nodes with corresponding locality
     ///
@@ -115,7 +350,7 @@ pub enum Location<'target> {
 //
 impl<'target> Location<'target> {
     /// Convert to the C representation
-    pub(crate) fn into_raw(self) -> RawLocation {
+    fn into_raw(self) -> RawLocation {
         match self {
             Self::CpuSet(cpuset) => RawLocation {
                 ty: RawLocationType::CPUSET,
@@ -135,7 +370,7 @@ impl<'target> Location<'target> {
     /// # Safety
     ///
     /// Only use this on RawLocation structs from hwloc or to_raw().
-    pub(crate) unsafe fn from_raw(
+    unsafe fn from_raw(
         topology: &'target Topology,
         raw: RawLocation,
     ) -> Result<Option<Self>, UnknownLocationType> {
@@ -167,6 +402,11 @@ impl<'target> Location<'target> {
         (!ptr.is_null()).then(|| unsafe { &*ptr })
     }
 }
+
+/// Error returned when an unknown location type is observed
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+#[error("hwloc provided a location of unknown type {0}")]
+struct UnknownLocationType(c_int);
 
 /// C version of Location
 #[repr(C)]
@@ -201,11 +441,6 @@ impl RawLocationType {
     /// Location is given as an object, in the [`Location.object`] union field
     pub const OBJECT: Self = Self(0);
 }
-
-/// Error returned when an unknown location type is observed
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
-#[error("hwloc provided a location of unknown type {0} (time to update the Rust bindings?)")]
-pub struct UnknownLocationType(c_int);
 
 /// Actual location
 #[repr(C)]
@@ -252,6 +487,10 @@ pub enum TargetNumaNodes<'topology> {
     /// Nodes local to some object
     Local {
         /// Initiator which NUMA nodes should be local to
+        ///
+        /// By default, the search only returns NUMA nodes whose locality is
+        /// exactly the given `location`. More nodes can be selected using
+        /// `flags`.
         location: Location<'topology>,
 
         /// Flags for enlarging the NUMA node search

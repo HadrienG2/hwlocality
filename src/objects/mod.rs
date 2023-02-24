@@ -539,8 +539,8 @@ impl TopologyObject {
     /// children path between this object and the NODE objects).
     ///
     /// In the end, these nodes are those that are close to the current object.
-    /// Function hwloc_get_local_numanode_objs() (TODO wrap and link) may be used to list
-    /// those NUMA nodes more precisely.
+    /// [`Topology::local_numa_nodes()`] may be used to list those NUMA nodes
+    /// more precisely.
     ///
     /// If the [`BuildFlags::INCLUDE_DISALLOWED`] topology building
     /// configuration flag is set, some of these nodes may not be allowed for
