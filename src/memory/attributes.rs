@@ -39,7 +39,7 @@ impl MemoryAttributeID {
     const LATENCY: Self = Self(3);
     const READ_LATENCY: Self = Self(6);
     const WRITE_LATENCY: Self = Self(7);
-    // TODO: Add new attributes to methods below and MemoryAttribute const fns
+    // TODO: Add new attributes to methods below and MemoryAttribute constructors
 
     /// For predefined attributes, flags are known at compile time
     fn static_flags(self) -> Option<MemoryAttributeFlags> {
@@ -76,8 +76,9 @@ macro_rules! wrap_ids {
 
 /// Memory attribute identifier
 ///
-/// May be either one of the predefined identifiers (see associated const fns)
-/// or a new identifier returned by hwloc_memattr_register() (TODO: bind and link).
+/// May be either one of the predefined attributes (see associated const fns)
+/// or a new attribute created using
+/// [`TopologyEditor::register_memory_attribute()`].
 #[derive(Copy, Clone, Debug)]
 #[doc(alias = "hwloc_memattr_id_e")]
 #[doc(alias = "hwloc_memattr_id_t")]
@@ -86,12 +87,8 @@ pub struct MemoryAttribute<'topology> {
     id: MemoryAttributeID,
 }
 //
+/// # Predefined memory attributes
 impl<'topology> MemoryAttribute<'topology> {
-    /// Extend a MemoryAttributeID with topology access to enable method syntax
-    pub(crate) const fn wrap(topology: &'topology Topology, id: MemoryAttributeID) -> Self {
-        Self { id, topology }
-    }
-
     wrap_ids!(
         /// Node capacity in bytes (see [`TopologyObject::total_memory()`])
         ///
@@ -137,6 +134,14 @@ impl<'topology> MemoryAttribute<'topology> {
         #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_LATENCY")]
         WRITE_LATENCY -> write_latency
     );
+}
+//
+/// # Memory attribute API
+impl<'topology> MemoryAttribute<'topology> {
+    /// Extend a MemoryAttributeID with topology access to enable method syntax
+    pub(crate) const fn wrap(topology: &'topology Topology, id: MemoryAttributeID) -> Self {
+        Self { id, topology }
+    }
 
     /// Name of this memory attribute
     #[doc(alias = "hwloc_memattr_get_name")]
@@ -182,9 +187,10 @@ impl<'topology> MemoryAttribute<'topology> {
     /// flag [`MemoryAttributeFlags::NEED_INITIATOR`].
     ///
     /// The initiator should be a CpuSet when refering to accesses performed by
-    /// CPU cores. `Location::Object` is currently unused internally by hwloc,
-    /// but user-defined memory attributes may for instance use it to provide
-    /// custom information about host memory accesses performed by GPUs.
+    /// CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
+    /// internally by hwloc, but user-defined memory attributes may for instance
+    /// use it to provide custom information about host memory accesses
+    /// performed by GPUs.
     ///
     /// # Errors
     ///
@@ -294,9 +300,10 @@ impl<'topology> MemoryAttribute<'topology> {
     /// filter to only report targets that have a value for this initiator.
     ///
     /// The initiator should be a CpuSet when refering to accesses performed by
-    /// CPU cores. `Location::Object` is currently unused internally by hwloc,
-    /// but user-defined memory attributes may for instance use it to provide
-    /// custom information about host memory accesses performed by GPUs.
+    /// CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
+    /// internally by hwloc, but user-defined memory attributes may for instance
+    /// use it to provide custom information about host memory accesses
+    /// performed by GPUs.
     ///
     /// This function is meant for tools and debugging (listing internal
     /// information) rather than for application queries. Applications should
@@ -711,7 +718,7 @@ impl TargetNumaNodes<'_> {
 bitflags! {
     /// Memory attribute flags.
     ///
-    /// These flags are given to hwloc_memattr_register() (TODO: wrap and link)
+    /// These flags are given to [`TopologyEditor::register_memory_attribute()`]
     /// and returned by [`MemoryAttribute::flags()`].
     ///
     /// At least one of `HIGHER_IS_BEST` and `LOWER_IS_BEST` must be set.
@@ -750,7 +757,7 @@ bitflags! {
 }
 //
 impl MemoryAttributeFlags {
-    /// Truth that these flags are in a valid state (TODO: use)
+    /// Truth that these flags are in a valid state
     pub(crate) fn is_valid(self) -> bool {
         self.contains(Self::HIGHER_IS_BEST) ^ self.contains(Self::LOWER_IS_BEST)
     }
