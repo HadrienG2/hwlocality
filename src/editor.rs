@@ -13,15 +13,18 @@ use crate::{
     depth::Depth,
     distances::{Distances, DistancesKind},
     ffi::{self, LibcString},
+    memory::attributes::{
+        MemoryAttributeFlags, MemoryAttributeID, MemoryAttributeLocation, RawLocation,
+    },
     objects::{types::ObjectType, TopologyObject},
     RawTopology, Topology,
 };
 use bitflags::bitflags;
 use derive_more::Display;
-use errno::errno;
-use libc::{c_void, EINVAL, ENOMEM};
+use errno::{errno, Errno};
+use libc::{c_void, EBUSY, EINVAL, ENOMEM};
 use std::{
-    ffi::{c_uint, c_ulong},
+    ffi::{c_int, c_uint, c_ulong},
     fmt, ptr,
 };
 use thiserror::Error;
@@ -671,6 +674,183 @@ impl TopologyEditor<'_> {
             }
         };
     }
+}
+
+/// # Managing memory attributes
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+impl<'topology> TopologyEditor<'topology> {
+    /// Register a new memory attribute
+    ///
+    /// # Panics
+    ///
+    /// - `name` contains NUL chars
+    #[doc(alias = "hwloc_memattr_register")]
+    pub fn register_memory_attribute<'name>(
+        &mut self,
+        name: &'name str,
+        flags: MemoryAttributeFlags,
+    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError<'name>> {
+        if !flags.is_valid() {
+            return Err(MemoryAttributeRegisterError::BadFlags(flags));
+        }
+        let cname = LibcString::new(name).expect("Can't pass NUL to hwloc");
+        let mut id = MemoryAttributeID::default();
+        let result = unsafe {
+            ffi::hwloc_memattr_register(
+                self.topology_mut_ptr(),
+                cname.borrow(),
+                flags.bits(),
+                &mut id,
+            )
+        };
+        match result {
+            0 => Ok(MemoryAttributeBuilder {
+                editor: self,
+                flags,
+                id,
+            }),
+            -1 => {
+                let errno = errno();
+                match errno.0 {
+                    EBUSY => Err(MemoryAttributeRegisterError::AlreadyExists(name)),
+                    _ => panic!("Unexpected errno from hwloc_memattr_register: {errno}"),
+                }
+            }
+            other => panic!("Unexpected result from hwloc_memattr_register: {other}"),
+        }
+    }
+}
+
+/// Error returned when trying to create an memory attribute
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum MemoryAttributeRegisterError<'name> {
+    /// Specified flags are not correct
+    ///
+    /// You must specify exactly one of [`MemoryAttributeFlags::HIGHER_IS_BEST`]
+    /// and [`MemoryAttributeFlags::LOWER_IS_BEST`].
+    #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
+    BadFlags(MemoryAttributeFlags),
+
+    /// A memory attribute with this name already exists
+    #[error("a memory attribute called {0:?} already exists")]
+    AlreadyExists(&'name str),
+}
+
+/// Mechanism to configure a memory attribute
+pub struct MemoryAttributeBuilder<'editor, 'topology> {
+    editor: &'editor mut TopologyEditor<'topology>,
+    flags: MemoryAttributeFlags,
+    id: MemoryAttributeID,
+}
+//
+impl MemoryAttributeBuilder<'_, '_> {
+    /// Set attribute values for (initiator, target node) pairs
+    ///
+    /// Initiators should be provided if and only if this memory attribute has
+    /// an initiator (flag [`MemoryAttributeFlags::NEED_INITIATOR`] was set at
+    /// registration time. In that case, there should be as many initiators as
+    /// there are targets and attribute values.
+    ///
+    /// # Errors
+    ///
+    /// - [`BadInitiator`] if initiators are specified for attributes that don't
+    ///   have them, are not specified for attributes that have them, or if
+    ///   there are more or less initiators than (target, value) pairs.
+    #[doc(alias = "hwloc_memattr_set_value")]
+    pub fn set_values(
+        &mut self,
+        find_values: impl FnOnce(
+            &Topology,
+        ) -> (
+            Option<Vec<MemoryAttributeLocation>>,
+            Vec<(&TopologyObject, u64)>,
+        ),
+    ) -> Result<(), MemoryAttributeSetValuesError> {
+        // Run user callback, validate results for correctness
+        let (initiators, targets_and_values) = find_values(self.editor.topology());
+        if !(self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) ^ initiators.is_some()) {
+            return Err(MemoryAttributeSetValuesError::BadInitiators);
+        }
+        let size_ok = match (&initiators, &targets_and_values) {
+            (Some(initiators), targets_and_values)
+                if initiators.len() == targets_and_values.len() =>
+            {
+                true
+            }
+            (None, _) => true,
+            _ => false,
+        };
+        if !size_ok {
+            return Err(MemoryAttributeSetValuesError::BadInitiators);
+        }
+
+        // Post-process results to fit hwloc and borrow checker expectations
+        let initiators = initiators.map(|vec| {
+            vec.into_iter()
+                .map(MemoryAttributeLocation::into_raw)
+                .collect::<Vec<_>>()
+        });
+        let initiator_ptrs = initiators
+            .iter()
+            .flatten()
+            .map(|initiator_ref| initiator_ref as *const RawLocation)
+            .chain(std::iter::repeat_with(ptr::null));
+        let target_ptrs_and_values = targets_and_values
+            .into_iter()
+            .map(|(target_ref, value)| (target_ref as *const TopologyObject, value))
+            .collect::<Vec<_>>();
+
+        // Set memory attribute values
+        for (initiator_ptr, (target_ptr, value)) in
+            initiator_ptrs.zip(target_ptrs_and_values.into_iter())
+        {
+            let result = unsafe {
+                ffi::hwloc_memattr_set_value(
+                    self.editor.topology_mut_ptr(),
+                    self.id,
+                    target_ptr,
+                    initiator_ptr,
+                    0,
+                    value,
+                )
+            };
+            match result {
+                0 => {}
+                -1 => return Err(MemoryAttributeSetValuesError::UnexpectedErrno(errno())),
+                other => {
+                    return Err(MemoryAttributeSetValuesError::UnexpectedResult(
+                        other,
+                        errno(),
+                    ))
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Error returned when trying to create an memory attribute
+#[derive(Copy, Clone, Debug, Error)]
+pub enum MemoryAttributeSetValuesError {
+    /// Incorrect initiators were emitted
+    ///
+    /// Either an initiator had to be specified and was not specified, or the
+    /// requested attribute has no notion of initiator (e.g. Capacity) but an
+    /// initiator was specified nonetheless.
+    ///
+    /// This error is also emitted if the array of initiators is not sized like
+    /// the main (target, value) array.
+    #[error("incorrect initiators")]
+    BadInitiators,
+
+    /// Unexpected errno value
+    #[error("unexpected errno value {0}")]
+    UnexpectedErrno(Errno),
+
+    /// Unexpected query result
+    #[error("unexpected memory attribute setup result {0} with errno {1}")]
+    UnexpectedResult(c_int, Errno),
 }
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe

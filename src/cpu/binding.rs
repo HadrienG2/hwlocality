@@ -6,6 +6,7 @@ use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};
 use libc::{ENOSYS, EXDEV};
+use std::ffi::c_int;
 use thiserror::Error;
 
 bitflags! {
@@ -146,7 +147,7 @@ pub enum CpuBindingError {
 
     /// Unexpected binding function result
     #[error("unexpected binding function result {0} with errno {1}")]
-    UnexpectedResult(i32, Errno),
+    UnexpectedResult(c_int, Errno),
 }
 
 /// CPU binding result builder

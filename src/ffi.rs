@@ -862,7 +862,42 @@ macro_rules! extern_c_block {
                 attribute: MemoryAttributeID,
                 flags: *mut c_ulong,
             ) -> c_int;
-            // TODO: Add register and set_value to TopologyEditor, rest elsewhere
+            #[must_use]
+            pub(crate) fn hwloc_memattr_register(
+                topology: *const RawTopology,
+                name: *const c_char,
+                flags: c_ulong,
+                id: *mut MemoryAttributeID,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_set_value(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                target_node: *const TopologyObject,
+                initiator: *const RawLocation,
+                flags: c_ulong,
+                value: u64,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_targets(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                initiator: *const RawLocation,
+                flags: c_ulong,
+                nr: *mut c_uint,
+                targets: *mut *const TopologyObject,
+                values: *mut u64,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_initiators(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                target_node: *const TopologyObject,
+                flags: c_ulong,
+                nr: *mut c_uint,
+                initiators: *mut RawLocation,
+                values: *mut u64,
+            ) -> c_int;
 
             // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 
