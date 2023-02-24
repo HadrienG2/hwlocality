@@ -1540,8 +1540,10 @@ unsafe impl Sync for Bitmap {}
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
+
+    // TODO: Migrate to doctests, use hidden quickcheck in doctests for
+    //       properties that should be true of any bitmap.
 
     #[test]
     fn should_check_if_bitmap_is_empty() {

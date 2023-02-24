@@ -123,10 +123,9 @@ pub struct Topology(NonNull<RawTopology>);
 impl Topology {
     /// Creates a new Topology.
     ///
-    /// If no further customization is needed on init, this method
-    /// represents the main entry point. A topology is returned
-    /// which contains the logical representation of the physical
-    /// hardware.
+    /// If no customization of the build process is needed, this method is the
+    /// main entry point to this crate. A topology is returned, which contains
+    /// the logical representation of the physical hardware.
     ///
     /// # Examples
     ///
@@ -148,8 +147,9 @@ impl Topology {
     /// Do not use this in doctests where the fact that the topology is default
     /// initialized is important for the code sample to make sense.
     ///
-    /// FIXME: cfg(doctest) should be used here, but it doesn't work and I don't
-    ///        know why... something for a later day.
+    /// FIXME: In an ideal world, this would be cfg(any(test, doctest)) and
+    ///        once_cell would be a dev-dependency, but that doesn't work for
+    ///        doctests yet: https://github.com/rust-lang/rust/issues/67295
     pub fn test_instance() -> &'static Self {
         use once_cell::sync::Lazy;
         static INSTANCE: Lazy<Topology> =
@@ -163,10 +163,11 @@ impl Topology {
     ///
     /// ```
     /// # use hwloc2::{Topology, builder::BuildFlags};
-    /// let topology = Topology::builder()
-    ///                         .with_flags(BuildFlags::IGNORE_DISTANCES)?
-    ///                         .build()?;
-    /// assert_eq!(topology.build_flags(), BuildFlags::IGNORE_DISTANCES);
+    /// let flags = BuildFlags::IGNORE_DISTANCES
+    ///             | BuildFlags::IGNORE_MEMORY_ATTRIBUTES
+    ///             | BuildFlags::IGNORE_CPU_KINDS;
+    /// let topology = Topology::builder().with_flags(flags)?.build()?;
+    /// assert_eq!(topology.build_flags(), flags);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn builder() -> TopologyBuilder {
@@ -344,11 +345,12 @@ impl Topology {
     /// # Examples
     ///
     /// ```
+    /// # use hwloc2::objects::TopologyObject;
     /// # let topology = hwloc2::Topology::test_instance();
     /// if let Ok(depth) = topology.memory_parents_depth() {
     ///     let num_memory_objects =
     ///         topology.objects_at_depth(depth)
-    ///                 .flat_map(|obj| obj.memory_children())
+    ///                 .flat_map(TopologyObject::memory_children)
     ///                 .count();
     ///     assert!(num_memory_objects > 0);
     /// }
@@ -379,6 +381,7 @@ impl Topology {
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     ///
+    /// assert_eq!(machine_depth.assume_normal(), 0);
     /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
     /// #
     /// # Ok::<(), anyhow::Error>(())
@@ -608,8 +611,13 @@ impl Topology {
     ///
     /// ```
     /// # let topology = hwloc2::Topology::test_instance();
+    /// #
     /// let num_roots = topology.size_at_depth(0.into());
     /// assert_eq!(num_roots, 1);
+    ///
+    /// let num_root_children = topology.size_at_depth(1.into());
+    /// assert!(num_root_children > 0);
+    /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn size_at_depth(&self, depth: Depth) -> u32 {
@@ -621,9 +629,23 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::objects::types::ObjectType;
+    /// # use hwloc2::{objects::types::ObjectType, depth::Depth};
     /// # let topology = hwloc2::Topology::test_instance();
-    /// assert_eq!(topology.root_object().object_type(), ObjectType::Machine);
+    /// let root = topology.root_object();
+    ///
+    /// assert_eq!(root.object_type(), ObjectType::Machine);
+    /// assert!(root.total_memory() > 0);
+    ///
+    /// assert_eq!(root.depth(), Depth::Normal(0));
+    /// assert!(root.parent().is_none());
+    /// assert_eq!(root.logical_index(), 0);
+    /// assert!(root.first_normal_child().is_some());
+    /// assert!(root.last_normal_child().is_some());
+    ///
+    /// assert!(root.cpuset().is_some());
+    /// assert!(root.nodeset().is_some());
+    ///
+    /// println!("{root:#}");
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn root_object(&self) -> &TopologyObject {
@@ -639,9 +661,21 @@ impl Topology {
     /// ```
     /// # use hwloc2::objects::types::ObjectType;
     /// # let topology = hwloc2::Topology::test_instance();
+    /// #
+    /// use anyhow::Context;
+    ///
+    /// let root = topology.root_object();
+    ///
     /// for pu in topology.objects_with_type(ObjectType::PU) {
     ///     assert_eq!(pu.object_type(), ObjectType::PU);
+    ///     assert!(pu.is_in_subtree(root));
+    ///     assert_eq!(pu.normal_arity(), 0);
+    ///     let num_cpus =
+    ///         pu.cpuset().context("A PU should have a CpuSet")?
+    ///           .weight().context("A PU's CpuSet should be finite")?;
+    ///     assert_eq!(num_cpus, 1);
     /// }
+    /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn objects_with_type(
@@ -679,9 +713,22 @@ impl Topology {
     /// ```
     /// # use hwloc2::{depth::Depth, objects::types::ObjectType};
     /// # let topology = hwloc2::Topology::test_instance();
+    /// #
+    /// use anyhow::Context;
+    ///
+    /// let root = topology.root_object();
+    ///
     /// for node in topology.objects_at_depth(Depth::NUMANode) {
     ///     assert_eq!(node.object_type(), ObjectType::NUMANode);
+    ///     assert!(node.is_in_subtree(root));
+    ///     assert_eq!(node.normal_arity(), 0);
+    ///     assert_eq!(node.memory_arity(), 0);
+    ///     let num_nodes =
+    ///         node.nodeset().context("A NUMANode should have a NodeSet")?
+    ///             .weight().context("A NUMANode's NodeSet should be finite")?;
+    ///     assert_eq!(num_nodes, 1);
     /// }
+    /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn objects_at_depth(
@@ -2680,74 +2727,3 @@ impl Drop for Topology {
 
 unsafe impl Send for Topology {}
 unsafe impl Sync for Topology {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_set_and_get_flags() {
-        let topo = Topology::builder()
-            .with_flags(
-                BuildFlags::INCLUDE_DISALLOWED
-                    | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
-                    | BuildFlags::ASSUME_THIS_SYSTEM,
-            )
-            .unwrap()
-            .build()
-            .unwrap();
-        assert_eq!(
-            BuildFlags::INCLUDE_DISALLOWED
-                | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
-                | BuildFlags::ASSUME_THIS_SYSTEM,
-            topo.build_flags()
-        );
-    }
-
-    #[test]
-    fn should_get_topology_depth() {
-        let topology = Topology::test_instance();
-        assert!(topology.depth() > 0);
-    }
-
-    #[test]
-    fn should_match_types_and_their_depth() {
-        let topology = Topology::test_instance();
-        let pu_depth = topology.depth_for_type(ObjectType::PU).unwrap();
-        assert!(pu_depth.assume_normal() > 0);
-        assert_eq!(Some(ObjectType::PU), topology.type_at_depth(pu_depth));
-    }
-
-    #[test]
-    fn should_get_nbobjs_by_depth() {
-        let topology = Topology::test_instance();
-        assert!(topology.size_at_depth(1.into()) > 0);
-    }
-
-    #[test]
-    fn should_get_root_object() {
-        let topology = Topology::test_instance();
-        let root_obj = topology.root_object();
-        assert_eq!(ObjectType::Machine, root_obj.object_type());
-        assert!(root_obj.total_memory() > 0);
-        assert_eq!(Depth::Normal(0), root_obj.depth());
-        assert_eq!(0, root_obj.logical_index());
-        println!("{root_obj}");
-        assert!(root_obj.first_normal_child().is_some());
-        assert!(root_obj.last_normal_child().is_some());
-    }
-
-    #[test]
-    fn should_produce_cpubind_bitflags() {
-        assert_eq!("1", format!("{:b}", CpuBindingFlags::PROCESS.bits()));
-        assert_eq!("10", format!("{:b}", CpuBindingFlags::THREAD.bits()));
-        assert_eq!("100", format!("{:b}", CpuBindingFlags::STRICT.bits()));
-        assert_eq!(
-            "101",
-            format!(
-                "{:b}",
-                (CpuBindingFlags::STRICT | CpuBindingFlags::PROCESS).bits()
-            )
-        );
-    }
-}
