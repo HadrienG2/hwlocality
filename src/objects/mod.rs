@@ -87,8 +87,8 @@ impl TopologyObject {
     ///
     /// See <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal>
     /// for a list of subtype strings that hwloc can emit.
-    pub fn subtype(&self) -> Option<&str> {
-        unsafe { ffi::deref_string(&self.subtype) }
+    pub fn subtype(&self) -> Option<&CStr> {
+        unsafe { ffi::deref_str(&self.subtype) }
     }
 
     /// Set the subtype string
@@ -118,8 +118,8 @@ impl TopologyObject {
     }
 
     /// The name of the object
-    pub fn name(&self) -> Option<&str> {
-        unsafe { ffi::deref_string(&self.name) }
+    pub fn name(&self) -> Option<&CStr> {
+        unsafe { ffi::deref_str(&self.name) }
     }
 
     /// Object type-specific attributes
@@ -602,11 +602,11 @@ impl TopologyObject {
     /// Calling this operation multiple times will result in duplicate work. If
     /// you need to do this sort of search many times, you should collect
     /// `infos()` into a `HashMap` or `BTreeMap` for increased lookup efficiency.
-    pub fn info(&self, key: &str) -> Option<&str> {
-        self.infos()
-            .iter()
-            .find(|info| info.name() == key)
-            .map(|info| info.value())
+    pub fn info(&self, key: &str) -> Option<&CStr> {
+        self.infos().iter().find_map(|info| {
+            let Ok(info_name) = info.name().to_str() else { return None };
+            (info_name == key).then_some(info.value())
+        })
     }
 
     /// Add the given info name and value pair to the given object
@@ -649,12 +649,8 @@ impl TopologyObject {
         });
 
         unsafe {
-            let type_str = CStr::from_ptr(type_chars.as_ptr())
-                .to_str()
-                .expect("Got invalid type string");
-            let attr_str = CStr::from_ptr(attr_chars.as_ptr())
-                .to_str()
-                .expect("Got invalid attributes string");
+            let type_str = CStr::from_ptr(type_chars.as_ptr()).to_string_lossy();
+            let attr_str = CStr::from_ptr(attr_chars.as_ptr()).to_string_lossy();
             if attr_str.is_empty() {
                 write!(f, "{type_str}")
             } else if f.alternate() {

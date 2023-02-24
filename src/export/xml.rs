@@ -49,7 +49,9 @@ impl<'topology> XML<'topology> {
     ///
     /// # Panics
     ///
-    /// If the string is not valid UTF-8
+    /// If the string is not valid UTF-8 (according to
+    /// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce,
+    /// hwloc should only generates ASCII at the time of writing)
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
         base: *mut c_char,
@@ -62,7 +64,8 @@ impl<'topology> XML<'topology> {
 
         // Wrap the allocation
         let s = unsafe { CStr::from_ptr(base) };
-        s.to_str().expect("hwloc emitted a non-UTF8 XML string");
+        s.to_str()
+            .expect("Unexpected non-UTF8 XML string from hwloc");
         debug_assert_eq!(
             s.to_bytes_with_nul().len(),
             usize::try_from(len).expect("Unexpected len from hwloc")

@@ -109,14 +109,10 @@ impl<'topology> Distances<'topology> {
     /// For instance "NUMALatency" for hardware-provided NUMA distances (ACPI
     /// SLIT), or None if unknown.
     #[doc(alias = "hwloc_distances_get_name")]
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<&CStr> {
         unsafe {
             let name = ffi::hwloc_distances_get_name(self.topology.as_ptr(), self.inner());
-            (!name.is_null()).then(|| {
-                CStr::from_ptr(name)
-                    .to_str()
-                    .expect("Got non UTF-8 string from hwloc_distances_get_name")
-            })
+            (!name.is_null()).then(|| CStr::from_ptr(name))
         }
     }
 

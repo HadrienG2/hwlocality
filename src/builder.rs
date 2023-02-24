@@ -150,6 +150,10 @@ impl TopologyBuilder {
     /// This works a lot like [`TopologyBuilder::from_xml()`], but takes a file
     /// name as a parameter instead of an XML string. The same effect can be
     /// achieved by setting the `HWLOC_XMLFILE` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// - `InvalidPath` if `path` is not UTF-8 or contains inner NUL chars.
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, InvalidParameter> {
         let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter) };
         let Ok(path) = LibcString::new(path) else { return Err(InvalidParameter) };

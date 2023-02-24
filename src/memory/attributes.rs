@@ -136,21 +136,13 @@ impl<'topology> MemoryAttribute<'topology> {
     );
 
     /// Name of this memory attribute, if any
-    ///
-    /// # Panics
-    ///
-    /// - If the name is not valid UTF-8
     #[doc(alias = "hwloc_memattr_get_name")]
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<&CStr> {
         let mut name = std::ptr::null();
         let result =
             unsafe { ffi::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name) };
         assert!(result >= 0, "Unexpected result from hwloc_memattr_get_name");
-        (!name.is_null()).then(|| {
-            let cstr = unsafe { CStr::from_ptr(name) };
-            cstr.to_str()
-                .expect("Got non UTF-8 memory attribute name from hwloc")
-        })
+        (!name.is_null()).then(|| unsafe { CStr::from_ptr(name) })
     }
 
     /// Memory attribute flags

@@ -45,11 +45,11 @@ pub(crate) unsafe fn deref_mut_ptr<T>(p: &mut *mut T) -> Option<&mut T> {
 }
 
 /// Dereference a C-style string with correct lifetime
-pub(crate) unsafe fn deref_string(p: &*mut c_char) -> Option<&str> {
+pub(crate) unsafe fn deref_str(p: &*mut c_char) -> Option<&CStr> {
     if p.is_null() {
         return None;
     }
-    unsafe { CStr::from_ptr(*p) }.to_str().ok()
+    Some(unsafe { CStr::from_ptr(*p) })
 }
 
 /// Get text output from an snprintf-like function
@@ -75,9 +75,7 @@ pub(crate) fn write_snprintf(
     write!(
         f,
         "{}",
-        unsafe { CStr::from_ptr(chars.as_ptr()) }
-            .to_str()
-            .expect("Got invalid string from an snprintf-like API")
+        unsafe { CStr::from_ptr(chars.as_ptr()) }.to_string_lossy()
     )
 }
 

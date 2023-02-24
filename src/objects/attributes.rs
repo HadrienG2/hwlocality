@@ -13,7 +13,7 @@ use crate::{
     },
 };
 use std::{
-    ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort},
+    ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, CStr},
     fmt,
     hash::Hash,
     num::NonZeroU32,
@@ -513,13 +513,13 @@ pub struct ObjectInfo {
 //
 impl ObjectInfo {
     /// The name of the ObjectInfo
-    pub fn name(&self) -> &str {
-        unsafe { ffi::deref_string(&self.name) }.expect("Infos should have names")
+    pub fn name(&self) -> &CStr {
+        unsafe { ffi::deref_str(&self.name) }.expect("Infos should have names")
     }
 
     /// The value of the ObjectInfo
-    pub fn value(&self) -> &str {
-        unsafe { ffi::deref_string(&self.value) }.expect("Infos should have values")
+    pub fn value(&self) -> &CStr {
+        unsafe { ffi::deref_str(&self.value) }.expect("Infos should have values")
     }
 }
 //

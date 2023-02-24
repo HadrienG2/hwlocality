@@ -53,7 +53,7 @@ use libc::EINVAL;
 use num_enum::TryFromPrimitiveError;
 use std::{
     convert::TryInto,
-    ffi::{c_char, c_int, c_uint, c_ulong, c_void},
+    ffi::{c_char, c_int, c_uint, c_ulong, c_void, CString},
     iter::FusedIterator,
     mem::MaybeUninit,
     num::NonZeroU32,
@@ -2663,7 +2663,10 @@ impl Topology {
                         continue;
                     } else {
                         // Buffer seems alright, return it
-                        return Ok(String::from_utf8(buf).expect("Got invalid UTF-8 from hwloc"));
+                        return Ok(CString::from_vec_with_nul(buf)
+                            .expect("Missing NUL from hwloc")
+                            .into_string()
+                            .expect("Synthetic export should yield an ASCII string"));
                     }
                 }
                 // An error occured
