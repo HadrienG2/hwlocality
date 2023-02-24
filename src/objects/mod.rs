@@ -7,13 +7,14 @@ pub mod attributes;
 pub mod types;
 
 use self::{
-    attributes::{DownstreamAttributes, ObjectAttributes, ObjectInfo, RawObjectAttributes},
+    attributes::{DownstreamAttributes, ObjectAttributes, RawObjectAttributes},
     types::{ObjectType, RawObjectType},
 };
 use crate::{
     bitmap::{CpuSet, NodeSet, RawBitmap},
     depth::{Depth, RawDepth},
     ffi::{self, LibcString},
+    info::TextualInfo,
 };
 #[cfg(doc)]
 use crate::{builder::BuildFlags, support::DiscoverySupport, Topology};
@@ -68,7 +69,7 @@ pub struct TopologyObject {
     complete_cpuset: *mut RawBitmap,
     nodeset: *mut RawBitmap,
     complete_nodeset: *mut RawBitmap,
-    infos: *mut ObjectInfo,
+    infos: *mut TextualInfo,
     infos_count: c_uint,
     __userdata: *mut c_void, // BEWARE: Topology duplication blindly duplicates this!
     gp_index: u64,
@@ -576,7 +577,12 @@ impl TopologyObject {
 /// # Key-value information
 impl TopologyObject {
     /// Complete list of (key, value) textual info pairs
-    pub fn infos(&self) -> &[ObjectInfo] {
+    ///
+    /// hwloc defines a number of standard object info attribute names with
+    /// associated semantics, please check out
+    /// <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info>
+    /// for more information.
+    pub fn infos(&self) -> &[TextualInfo] {
         if self.children.is_null() {
             assert_eq!(
                 self.infos_count, 0,

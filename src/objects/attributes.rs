@@ -3,17 +3,13 @@
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
+use crate::objects::types::{
+    BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType, RawOSDeviceType,
+};
 #[cfg(doc)]
 use crate::support::DiscoverySupport;
-use crate::{
-    ffi,
-    objects::types::{
-        BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
-        RawOSDeviceType,
-    },
-};
 use std::{
-    ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort, CStr},
+    ffi::{c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort},
     fmt,
     hash::Hash,
     num::NonZeroU32,
@@ -497,53 +493,3 @@ impl OSDeviceAttributes {
         self.ty.try_into().expect("Got unexpected OS device type")
     }
 }
-
-/// Key-value string attributes
-///
-/// hwloc defines a number of standard info attribute names with associated
-/// semantics, please check out
-/// <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info> for
-/// more information.
-#[repr(C)]
-#[derive(Eq)]
-pub struct ObjectInfo {
-    name: *mut c_char,
-    value: *mut c_char,
-}
-//
-impl ObjectInfo {
-    /// The name of the ObjectInfo
-    pub fn name(&self) -> &CStr {
-        unsafe { ffi::deref_str(&self.name) }.expect("Infos should have names")
-    }
-
-    /// The value of the ObjectInfo
-    pub fn value(&self) -> &CStr {
-        unsafe { ffi::deref_str(&self.value) }.expect("Infos should have values")
-    }
-}
-//
-impl fmt::Debug for ObjectInfo {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ObjectInfo")
-            .field("name", &self.name())
-            .field("value", &self.value())
-            .finish()
-    }
-}
-//
-impl Hash for ObjectInfo {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name().hash(state);
-        self.value().hash(state);
-    }
-}
-//
-impl PartialEq for ObjectInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.name() == other.name() && self.value() == other.value()
-    }
-}
-//
-unsafe impl Send for ObjectInfo {}
-unsafe impl Sync for ObjectInfo {}

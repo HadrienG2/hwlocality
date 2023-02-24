@@ -8,6 +8,7 @@ pub mod distances;
 pub mod editor;
 pub mod export;
 pub(crate) mod ffi;
+pub mod info;
 pub mod memory;
 pub mod objects;
 pub mod support;
