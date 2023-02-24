@@ -67,9 +67,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Find the last core
-fn last_core(topo: &Topology) -> anyhow::Result<&TopologyObject> {
-    let core_depth = topo.depth_or_below_for_type(ObjectType::Core)?;
-    let mut all_cores = topo.objects_at_depth(core_depth);
+fn last_core(topology: &Topology) -> anyhow::Result<&TopologyObject> {
+    let core_depth = topology.depth_or_below_for_type(ObjectType::Core)?;
+    let mut all_cores = topology.objects_at_depth(core_depth);
     all_cores
         .next_back()
         .context("At least one Core or PU should be present")

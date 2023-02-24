@@ -165,8 +165,9 @@ impl TopologyObject {
     ///
     /// Will return `None` if the requested depth is deeper than the depth of
     /// the current object.
-    pub fn ancestor_at_depth(&self, depth: Depth) -> Option<&TopologyObject> {
+    pub fn ancestor_at_depth(&self, depth: impl Into<Depth>) -> Option<&TopologyObject> {
         // Fast failure path when depth is comparable
+        let depth = depth.into();
         let self_depth = self.depth();
         if let (Ok(self_depth), Ok(depth)) = (u32::try_from(self_depth), u32::try_from(depth)) {
             if self_depth <= depth {

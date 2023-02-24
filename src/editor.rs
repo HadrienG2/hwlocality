@@ -643,9 +643,10 @@ impl TopologyEditor<'_> {
     /// Remove distance matrices for objects at a specific depth in the topology
     ///
     /// See also [`TopologyEditor::remove_all_distances()`].
-    pub fn remove_distances_at_depth(&mut self, depth: Depth) {
-        let result =
-            unsafe { ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into()) };
+    pub fn remove_distances_at_depth(&mut self, depth: impl Into<Depth>) {
+        let result = unsafe {
+            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
+        };
         assert!(
             result >= 0,
             "Unexpected result from hwloc_distances_remove_by_depth"

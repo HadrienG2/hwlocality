@@ -1,12 +1,12 @@
 use anyhow::Context;
 use hwloc2::{objects::TopologyObject, Topology};
 
-/// Walk the topology in a tree-style and print it.
+/// Walk the topologylogy in a tree-style and print it.
 fn main() -> anyhow::Result<()> {
-    let topo = Topology::new()?;
+    let topology = Topology::new()?;
 
     println!("*** Printing overall tree");
-    print_children(topo.root_object(), 0)?;
+    print_children(topology.root_object(), 0)?;
 
     Ok(())
 }

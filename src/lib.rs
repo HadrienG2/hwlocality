@@ -464,11 +464,11 @@ impl Topology {
                     .assume_normal();
                 for depth in (0..pu_depth).rev() {
                     if self
-                        .type_at_depth(depth.into())
+                        .type_at_depth(depth)
                         .expect("Depths above PU depth should exist")
                         < object_type
                     {
-                        return Ok(Depth::Normal(depth + 1));
+                        return Ok((depth + 1).into());
                     }
                 }
                 Err(DepthError::None)
@@ -514,11 +514,11 @@ impl Topology {
             Err(DepthError::None) => {
                 for depth in (0..self.depth()).rev() {
                     if self
-                        .type_at_depth(depth.into())
+                        .type_at_depth(depth)
                         .expect("Depths above bottom depth should exist")
                         > object_type
                     {
-                        return Ok(Depth::Normal(depth - 1));
+                        return Ok((depth - 1).into());
                     }
                 }
                 Err(DepthError::None)
@@ -569,7 +569,7 @@ impl Topology {
         for depth in 0..self.depth() {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
-            for obj in self.objects_at_depth(depth.into()).take(1) {
+            for obj in self.objects_at_depth(depth).take(1) {
                 // Is this a cache?
                 if let Some(ObjectAttributes::Cache(cache)) = obj.attributes() {
                     // Check cache level
@@ -620,7 +620,8 @@ impl Topology {
     /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn type_at_depth(&self, depth: Depth) -> Option<ObjectType> {
+    pub fn type_at_depth(&self, depth: impl Into<Depth>) -> Option<ObjectType> {
+        let depth = depth.into();
         if let Depth::Normal(depth) = depth {
             if depth >= self.depth() {
                 return None;
@@ -642,16 +643,16 @@ impl Topology {
     /// ```
     /// # let topology = hwloc2::Topology::test_instance();
     /// #
-    /// let num_roots = topology.size_at_depth(0.into());
+    /// let num_roots = topology.size_at_depth(0);
     /// assert_eq!(num_roots, 1);
     ///
-    /// let num_root_children = topology.size_at_depth(1.into());
+    /// let num_root_children = topology.size_at_depth(1);
     /// assert!(num_root_children > 0);
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn size_at_depth(&self, depth: Depth) -> u32 {
-        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into()) }
+    pub fn size_at_depth(&self, depth: impl Into<Depth>) -> u32 {
+        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into()) }
     }
 
     /// [`TopologyObject`] at the root of the topology
@@ -678,7 +679,7 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn root_object(&self) -> &TopologyObject {
-        self.objects_at_depth(0.into())
+        self.objects_at_depth(0)
             .next()
             .expect("Root object should exist")
     }
@@ -762,12 +763,13 @@ impl Topology {
     /// ```
     pub fn objects_at_depth(
         &self,
-        depth: Depth,
+        depth: impl Into<Depth>,
     ) -> impl Iterator<Item = &TopologyObject>
            + Clone
            + DoubleEndedIterator
            + ExactSizeIterator
            + FusedIterator {
+        let depth = depth.into();
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
@@ -1783,9 +1785,10 @@ impl Topology {
     pub fn objects_inside_cpuset_at_depth<'result>(
         &'result self,
         set: &'result CpuSet,
-        depth: Depth,
+        depth: impl Into<Depth>,
     ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
     {
+        let depth = depth.into();
         self.objects_at_depth(depth)
             .filter(|object| object.is_inside_cpuset(set))
     }
@@ -1831,7 +1834,7 @@ impl Topology {
             return None;
         }
 
-        // Walk the topoogy tree until we find an object included into set
+        // Walk the topology tree until we find an object included into set
         let mut parent = root;
         let mut parent_cpuset = root_cpuset;
         while !set.includes(parent_cpuset) {
@@ -1921,9 +1924,10 @@ impl Topology {
     pub fn objects_covering_cpuset_at_depth<'result>(
         &'result self,
         set: &'result CpuSet,
-        depth: Depth,
+        depth: impl Into<Depth>,
     ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
     {
+        let depth = depth.into();
         self.objects_at_depth(depth)
             .filter(|object| object.covers_cpuset(set))
     }
@@ -2703,7 +2707,12 @@ impl Topology {
     ///
     /// Identical to `distances()` with the additional `depth` filter.
     #[doc(alias = "hwloc_distances_get_by_depth")]
-    pub fn distances_at_depth(&self, kind: DistancesKind, depth: Depth) -> Vec<Distances> {
+    pub fn distances_at_depth(
+        &self,
+        kind: DistancesKind,
+        depth: impl Into<Depth>,
+    ) -> Vec<Distances> {
+        let depth = depth.into();
         self.get_distances(|topology, nr, distances, flags| unsafe {
             ffi::hwloc_distances_get_by_depth(
                 topology,

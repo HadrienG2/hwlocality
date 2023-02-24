@@ -37,16 +37,18 @@ Here is a quick example which walks the `Topology` and prints it out:
 ```rust
 use hwloc2::Topology;
 
-fn main() {
-	let topo = Topology::new().unwrap();
+fn main() -> anyhow::Result<()> {
+	let topology = Topology::new()?;
 
-	for i in 0..topo.depth() {
+	for i in 0..topology.depth() {
 		println!("*** Objects at level {}", i);
 
-		for (idx, object) in topo.objects_at_depth(i.into()).enumerate() {
+		for (idx, object) in topology.objects_at_depth(i).enumerate() {
 			println!("{}: {}", idx, object);
 		}
 	}
+
+   Ok(())
 }
 ```
 
