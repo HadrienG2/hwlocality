@@ -16,7 +16,7 @@ use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};
 use libc::ENOENT;
-use std::ffi::{c_int, c_ulong};
+use std::ffi::{c_int, c_ulong, CStr};
 use thiserror::Error;
 
 //// Memory attribute identifier
@@ -135,16 +135,46 @@ impl<'topology> MemoryAttribute<'topology> {
         WRITE_LATENCY -> write_latency
     );
 
-    /// Attribute flags corresponding to this memory attribute
+    /// Name of this memory attribute, if any
+    ///
+    /// # Panics
+    ///
+    /// - If the name is not valid UTF-8
+    #[doc(alias = "hwloc_memattr_get_name")]
+    pub fn name(&self) -> Option<&str> {
+        let mut name = std::ptr::null();
+        let result =
+            unsafe { ffi::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name) };
+        assert!(result >= 0, "Unexpected result from hwloc_memattr_get_name");
+        (!name.is_null()).then(|| {
+            let cstr = unsafe { CStr::from_ptr(name) };
+            cstr.to_str()
+                .expect("Got non UTF-8 memory attribute name from hwloc")
+        })
+    }
+
+    /// Memory attribute flags
+    #[doc(alias = "hwloc_memattr_get_flags")]
     pub fn flags(&self) -> MemoryAttributeFlags {
         let flags = if let Some(flags) = self.id.static_flags() {
             flags
         } else {
-            // TODO: Dispatch to hwloc_memattr_get_flags once binding exists
-            unimplemented!()
+            self.dynamic_flags()
         };
         debug_assert!(flags.is_valid(), "Flags should be valid");
         flags
+    }
+
+    /// Dynamically query this memory attribute's flags
+    fn dynamic_flags(&self) -> MemoryAttributeFlags {
+        let mut flags = 0;
+        let result =
+            unsafe { ffi::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags) };
+        assert!(
+            result >= 0,
+            "Unexpected result from hwloc_memattr_get_flags"
+        );
+        MemoryAttributeFlags::from_bits_truncate(flags)
     }
 
     /// Value of this attribute for a specific initiator and target NUMA node
@@ -516,7 +546,7 @@ bitflags! {
     /// Memory attribute flags.
     ///
     /// These flags are given to hwloc_memattr_register() (TODO: wrap and link)
-    /// and returned by `Memhwloc_memattr_get_flags() (TODO: wrap and link)
+    /// and returned by [`MemoryAttribute::flags()`].
     ///
     /// At least one of `HIGHER_IS_BEST` and `LOWER_IS_BEST` must be set.
     #[repr(C)]

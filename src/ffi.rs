@@ -852,6 +852,18 @@ macro_rules! extern_c_block {
 
             // === Managing memory attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_name(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                name: *mut *const c_char,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_memattr_get_flags(
+                topology: *const RawTopology,
+                attribute: MemoryAttributeID,
+                flags: *mut c_ulong,
+            ) -> c_int;
             // TODO: Add register and set_value to TopologyEditor, rest elsewhere
 
             // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
