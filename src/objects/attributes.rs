@@ -3,6 +3,8 @@
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
+#[cfg(doc)]
+use crate::support::DiscoverySupport;
 use crate::{
     ffi,
     objects::types::{
@@ -88,6 +90,8 @@ pub struct NUMANodeAttributes {
 //
 impl NUMANodeAttributes {
     /// Local memory in bytes
+    ///
+    /// Requires [`DiscoverySupport::numa_memory()`].
     pub fn local_memory(&self) -> u64 {
         self.local_memory
     }

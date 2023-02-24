@@ -2,6 +2,8 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
+#[cfg(doc)]
+use crate::support::DiscoverySupport;
 use crate::{
     depth::Depth,
     ffi::{self, IncompleteType},
@@ -476,6 +478,8 @@ impl CpuSet {
     /// Hence the entire topology node set, that one can query via
     /// [`Topology::nodeset()`], would be converted by this function into the
     /// set of all CPUs that have some local NUMA nodes.
+    ///
+    /// Requires [`DiscoverySupport::numa_count()`].
     pub fn from_nodeset(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
         let mut cpuset = CpuSet::new();
         for obj in topology.objects_at_depth(Depth::NUMANode) {
@@ -508,6 +512,8 @@ impl NodeSet {
     /// Hence the entire topology CPU set, that one can query via
     /// [`Topology::cpuset()`], would be converted by this functino into the
     /// set of all nodes that have some local CPUs.
+    ///
+    /// Requires [`DiscoverySupport::numa_count()`].
     pub fn from_cpuset(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
         let mut nodeset = NodeSet::new();
         for obj in topology.objects_covering_cpuset_at_depth(cpuset, Depth::NUMANode) {

@@ -1,4 +1,4 @@
-//! Topology support
+//! hwloc feature support
 
 // - API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
@@ -6,38 +6,38 @@
 use crate::ffi;
 use std::{ffi::c_uchar, fmt, hash::Hash, ptr};
 
-/// Set of flags describing actual support for this topology
+/// Set of flags describing actual hwloc feature support for this topology
 #[repr(C)]
-pub struct TopologySupport {
+pub struct FeatureSupport {
     discovery: *const DiscoverySupport,
     cpubind: *const CpuBindingSupport,
     membind: *const MemoryBindingSupport,
     misc: *const MiscSupport,
 }
 //
-impl TopologySupport {
-    /// Flags describing actual discovery support for this topology
+impl FeatureSupport {
+    /// Support for discovering information about the topology
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
         unsafe { ffi::deref_ptr(&self.discovery) }
     }
 
-    /// Flags describing actual CPU binding support for this topology
+    /// Support for getting and setting thread/process CPU bindings
     pub fn cpu_binding(&self) -> Option<&CpuBindingSupport> {
         unsafe { ffi::deref_ptr(&self.cpubind) }
     }
 
-    /// Flags describing actual memory binding support for this topology
+    /// Support for getting and setting thread/process NUMA node bindings
     pub fn memory_binding(&self) -> Option<&MemoryBindingSupport> {
         unsafe { ffi::deref_ptr(&self.membind) }
     }
 
-    /// Flags describing miscellaneous features
+    /// Miscellaneous support information
     pub fn misc(&self) -> Option<&MiscSupport> {
         unsafe { ffi::deref_ptr(&self.misc) }
     }
 }
 //
-impl Default for TopologySupport {
+impl Default for FeatureSupport {
     fn default() -> Self {
         Self {
             discovery: ptr::null(),
@@ -48,9 +48,9 @@ impl Default for TopologySupport {
     }
 }
 //
-impl fmt::Debug for TopologySupport {
+impl fmt::Debug for FeatureSupport {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("TopologySupport")
+        f.debug_struct("FeatureSupport")
             .field("discovery", &self.discovery())
             .field("cpubind", &self.cpu_binding())
             .field("membind", &self.memory_binding())
@@ -59,7 +59,7 @@ impl fmt::Debug for TopologySupport {
     }
 }
 //
-impl Hash for TopologySupport {
+impl Hash for FeatureSupport {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.discovery().hash(state);
         self.cpu_binding().hash(state);
@@ -68,7 +68,7 @@ impl Hash for TopologySupport {
     }
 }
 //
-impl PartialEq for TopologySupport {
+impl PartialEq for FeatureSupport {
     fn eq(&self, other: &Self) -> bool {
         self.discovery() == other.discovery()
             && self.cpu_binding() == other.cpu_binding()
@@ -77,9 +77,9 @@ impl PartialEq for TopologySupport {
     }
 }
 //
-impl Eq for TopologySupport {}
+impl Eq for FeatureSupport {}
 
-/// Flags describing actual discovery support for this topology
+/// Support for discovering information about the topology
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct DiscoverySupport {
@@ -93,7 +93,7 @@ pub struct DiscoverySupport {
 
 impl DiscoverySupport {
     /// Detecting the number of PU objects is supported
-    pub fn pu(&self) -> bool {
+    pub fn pu_count(&self) -> bool {
         support_flag(self.pu)
     }
 
@@ -125,7 +125,7 @@ impl DiscoverySupport {
     }
 }
 
-/// Flags describing actual CPU binding support for this topology
+/// Support for getting and setting thread/process CPU bindings
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
@@ -202,7 +202,7 @@ impl CpuBindingSupport {
     }
 }
 
-/// Flags describing actual memory binding support for this topology
+/// Support for getting and setting thread/process NUMA node bindings
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
@@ -268,6 +268,11 @@ impl MemoryBindingSupport {
         support_flag(self.get_area_membind)
     }
 
+    /// Getting the last NUMA nodes where a memory area was allocated is supported
+    pub fn get_area_memory_location(&self) -> bool {
+        support_flag(self.get_area_memlocation)
+    }
+
     /// Allocating a bound memory area is supported.
     pub fn alloc(&self) -> bool {
         support_flag(self.alloc_membind)
@@ -288,28 +293,23 @@ impl MemoryBindingSupport {
         support_flag(self.interleave_membind)
     }
 
-    /// Replication policy is supported.
-    pub fn replicate(&self) -> bool {
-        support_flag(self.replicate_membind)
-    }
-
     /// Next-touch migration policy is supported.
     pub fn next_touch(&self) -> bool {
         support_flag(self.nexttouch_membind)
+    }
+
+    /// Replication policy is supported.
+    pub fn replicate(&self) -> bool {
+        support_flag(self.replicate_membind)
     }
 
     /// Migration flags is supported.
     pub fn migrate(&self) -> bool {
         support_flag(self.migrate_membind)
     }
-
-    /// Getting the last NUMA nodes where a memory area was allocated is supported
-    pub fn get_area_memory_location(&self) -> bool {
-        support_flag(self.get_area_memlocation)
-    }
 }
 
-/// Flags describing miscellaneous features
+/// Miscellaneous support information
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MiscSupport {
@@ -334,38 +334,39 @@ fn support_flag(flag: c_uchar) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::Topology;
+    use super::*;
+    use crate::{support::CpuBindingSupport, Topology};
+
+    fn cpu_binding_supported(kind: fn(&CpuBindingSupport) -> bool) -> bool {
+        Topology::test_instance().supports(FeatureSupport::cpu_binding, kind)
+    }
 
     #[test]
     #[cfg(target_os = "linux")]
     fn should_support_cpu_binding_on_linux() {
-        let topo = Topology::new().unwrap();
-
-        assert!(topo.support().cpu_binding().unwrap().set_current_process());
-        assert!(topo.support().cpu_binding().unwrap().set_current_thread());
+        assert!(cpu_binding_supported(
+            CpuBindingSupport::set_current_process
+        ));
+        assert!(cpu_binding_supported(CpuBindingSupport::set_current_thread));
     }
 
     #[test]
     #[cfg(target_os = "freebsd")]
     fn should_support_cpu_binding_on_freebsd() {
-        let topo = Topology::new().unwrap();
-
-        assert!(topo.support().cpu_binding().unwrap().set_current_process());
-        assert!(topo.support().cpu_binding().unwrap().set_current_thread());
+        assert!(cpu_binding_supported(
+            CpuBindingSupport::set_current_process
+        ));
+        assert!(cpu_binding_supported(CpuBindingSupport::set_current_thread));
     }
 
     #[test]
     #[cfg(target_os = "macos")]
     fn should_not_support_cpu_binding_on_macos() {
-        let topo = Topology::new().unwrap();
-
-        assert_eq!(
-            false,
-            topo.support().cpu_binding().unwrap().set_current_process()
-        );
-        assert_eq!(
-            false,
-            topo.support().cpu_binding().unwrap().set_current_thread()
-        );
+        assert!(!cpu_binding_supported(
+            CpuBindingSupport::set_current_process
+        ));
+        assert!(!cpu_binding_supported(
+            CpuBindingSupport::set_current_thread
+        ));
     }
 }

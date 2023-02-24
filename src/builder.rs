@@ -369,6 +369,11 @@ bitflags! {
         /// If the current topology is exported to XML and reimported later,
         /// this flag should be set again in the reimported topology so that
         /// disallowed resources are reimported as well.
+        ///
+        /// What additional objects could be detected with this flag depends on
+        /// [`DiscoverySupport::disallowed_pu()`] and
+        /// [`DiscoverySupport::disallowed_numa()`], which can be checked after
+        /// building the topology.
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED")]
         const INCLUDE_DISALLOWED = (1<<0);
 
@@ -418,7 +423,7 @@ bitflags! {
         /// When importing a XML topology from a remote machine, binding is
         /// disabled by default (see `ASSUME_THIS_SYSTEM`). This disabling is
         /// also marked by putting zeroes in the corresponding supported feature
-        /// bits reported by [`Topology::support()`].
+        /// bits reported by [`Topology::feature_support()`].
         ///
         /// The flag `IMPORT_SUPPORT` allows you to actually import support bits
         /// from the remote machine. It also sets the [`MiscSupport::imported()`]

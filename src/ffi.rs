@@ -6,7 +6,7 @@ use crate::{
     editor::DistancesAddHandle,
     memory::binding::RawMemoryBindingPolicy,
     objects::{types::RawObjectType, TopologyObject},
-    support::TopologySupport,
+    support::FeatureSupport,
     ProcessId, RawTopology, ThreadId,
 };
 use std::{
@@ -418,7 +418,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_topology_get_support(
                 topology: *const RawTopology,
-            ) -> *const TopologySupport;
+            ) -> *const FeatureSupport;
             #[must_use]
             pub(crate) fn hwloc_topology_set_type_filter(
                 topology: *mut RawTopology,

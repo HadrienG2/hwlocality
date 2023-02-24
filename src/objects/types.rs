@@ -5,7 +5,7 @@
 
 use crate::ffi;
 #[cfg(doc)]
-use crate::objects::TopologyObject;
+use crate::{objects::TopologyObject, support::DiscoverySupport};
 use derive_more::Display;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
@@ -53,7 +53,9 @@ pub enum ObjectType {
     /// processors, e.g. in the case of an SMT core).
     ///
     /// This is the leaf of the CPU resource hierarchy, it can only have Misc children.
-    /// It is always reported even when other objects are not detected.
+    /// It is always reported even when other objects are not detected. However,
+    /// an incorrect number of PUs may be reported in the absence of
+    /// [`DiscoverySupport::pu_count()`].
     PU,
 
     /// Level 1 Data (or Unified) Cache.
@@ -102,7 +104,8 @@ pub enum ObjectType {
     /// cache parents.
     ///
     /// There is always at least one such object in the topology even if the
-    /// machine is not NUMA.
+    /// machine is not NUMA. However, an incorrect number of NUMA nodes may be
+    /// reported in the absence of [`DiscoverySupport::numa_count()`].
     NUMANode,
 
     /// Bridge (filtered out by default).

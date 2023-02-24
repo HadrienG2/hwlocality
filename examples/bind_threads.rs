@@ -1,5 +1,9 @@
+use anyhow::{ensure, Context};
 use hwloc2::{
-    bitmap::CpuSet, cpu::binding::CpuBindingFlags, objects::types::ObjectType, ThreadId, Topology,
+    cpu::binding::CpuBindingFlags,
+    objects::types::ObjectType,
+    support::{DiscoverySupport, FeatureSupport},
+    ThreadId, Topology,
 };
 
 /// Example which spawns one thread per core and then assigns it to each.
@@ -8,65 +12,77 @@ use hwloc2::{
 ///
 /// ```
 /// Found 2 cores.
-/// Thread 0: Before Some(0-1), After Some(0)
-/// Thread 1: Before Some(0-1), After Some(1)
+/// Thread 0: Binding went from 0-1 to 0
+/// Thread 1: Binding went from 0-1 to 1
 /// ```
-fn main() {
-    let topo = Topology::new().unwrap();
+fn main() -> anyhow::Result<()> {
+    // Create topology and check feature support
+    let topology = Topology::new()?;
+    ensure!(
+        topology.supports(FeatureSupport::discovery, DiscoverySupport::pu_count),
+        "This example needs accurate reporting of PU objects"
+    );
+    let cpu_support = topology
+        .feature_support()
+        .cpu_binding()
+        .context("This example requires CPU binding support")?;
+    ensure!(
+        cpu_support.get_thread() && cpu_support.set_thread(),
+        "This example needs support for querying and setting process CPU bindings"
+    );
 
     // Grab the number of cores in a block so that the lock is removed once
     // the end of the block is reached.
-    let num_cores = topo.objects_with_type(ObjectType::Core).count();
-    println!("Found {} cores.", num_cores);
+    let core_depth = topology.depth_or_below_for_type(ObjectType::Core)?;
+    let cores = topology.objects_at_depth(core_depth).collect::<Vec<_>>();
+    println!("Found {} cores", cores.len());
 
     // Spawn one thread for each and pass the topology down into scope.
     std::thread::scope(|scope| {
-        for core in 0..num_cores {
-            let topo = &topo;
-            scope.spawn(move || {
+        for core in cores {
+            let topology = &topology;
+            scope.spawn(move || -> anyhow::Result<()> {
                 // Get the current thread id and lock the topology to use.
                 let tid = get_thread_id();
 
                 // Thread binding before explicit set.
-                let before = topo
-                    .thread_cpu_binding(tid, CpuBindingFlags::THREAD)
-                    .unwrap();
+                let before = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
 
                 // load the cpuset for the given core index.
-                let mut bind_to = cpuset_for_core(topo, core).clone();
+                let mut bind_to = core
+                    .cpuset()
+                    .context("CPU cores should have CpuSets")?
+                    .clone();
 
                 // Get only one logical processor (in case the core is SMT/hyper-threaded).
                 bind_to.singlify();
 
                 // Set the binding.
-                topo.bind_thread_cpu(tid, &bind_to, CpuBindingFlags::THREAD)
-                    .unwrap();
+                topology.bind_thread_cpu(tid, &bind_to, CpuBindingFlags::THREAD)?;
 
                 // Thread binding after explicit set.
-                let after = topo
-                    .thread_cpu_binding(tid, CpuBindingFlags::THREAD)
-                    .unwrap();
-                println!("Thread {}: Before {:?}, After {:?}", core, before, after);
+                let after = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
+
+                // Report what was done
+                println!(
+                    "Thread {}: Binding went from {:?} to {:?}",
+                    core, before, after
+                );
+
+                Ok(())
             });
         }
     });
+
+    Ok(())
 }
 
-/// Load the `CpuSet` for the given core index.
-fn cpuset_for_core(topology: &Topology, idx: usize) -> &CpuSet {
-    match topology.objects_with_type(ObjectType::Core).nth(idx) {
-        Some(val) => val.cpuset().unwrap(),
-        None => panic!("No Core found with id {}", idx),
-    }
-}
-
-/// Helper method to get the thread id through libc, with current rust stable (1.5.0) its not
-/// possible otherwise I think.
+/// Helper method to get the thread id through libc or windows API
 #[cfg(not(target_os = "windows"))]
 fn get_thread_id() -> ThreadId {
     unsafe { libc::pthread_self() }
 }
-
+//
 #[cfg(target_os = "windows")]
 fn get_thread_id() -> ThreadId {
     unsafe { windows_sys::Win32::System::Threading::GetCurrentThread() }

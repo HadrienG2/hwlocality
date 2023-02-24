@@ -1,3 +1,4 @@
+use anyhow::Context;
 use hwloc2::{
     objects::{attributes::ObjectAttributes, types::ObjectType},
     Topology,
@@ -5,26 +6,42 @@ use hwloc2::{
 
 /// Compute the amount of cache that the first logical processor
 /// has above it.
-fn main() {
-    let topo = Topology::new().unwrap();
+fn main() -> anyhow::Result<()> {
+    let topology = Topology::new()?;
 
-    let first_pu = topo.objects_with_type(ObjectType::PU).next().unwrap();
-
-    let mut parent = first_pu.parent();
-    let mut levels = 0;
-    let mut size = 0;
-
-    while let Some(p) = parent {
-        if let Some(ObjectAttributes::Cache(c)) = p.attributes() {
-            levels += 1;
-            size += c.size();
-        }
-        parent = p.parent();
-    }
-
+    // Walk caches on an individual PU
+    let first_pu = topology
+        .objects_with_type(ObjectType::PU)
+        .next()
+        .context("At least one PU should be present")?;
+    let (levels, size) = first_pu
+        .ancestors()
+        .filter_map(|ancestor| {
+            if let Some(ObjectAttributes::Cache(cache)) = ancestor.attributes() {
+                Some(cache.size())
+            } else {
+                None
+            }
+        })
+        .fold((0, 0), |(levels, total_size), level_size| {
+            (levels + 1, total_size + level_size)
+        });
     println!(
-        "*** Logical processor 0 has {} caches totalling {} KB",
+        "*** Logical processor 0 is covered by {} caches totalling {} KB",
         levels,
         size / 1024
     );
+
+    // Compute aggregate statistics on all available CPU caches
+    let stats = topology.cpu_cache_stats();
+    println!(
+        "*** System-wide minimal data cache sizes per level: {:?}",
+        stats.smallest_data_cache_sizes()
+    );
+    println!(
+        "*** System-wide total data cache size per level: {:?}",
+        stats.total_data_cache_sizes()
+    );
+
+    Ok(())
 }

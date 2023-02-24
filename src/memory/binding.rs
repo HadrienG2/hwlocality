@@ -2,6 +2,8 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
 
+#[cfg(doc)]
+use crate::support::MemoryBindingSupport;
 use crate::{ffi, Topology};
 use bitflags::bitflags;
 use derive_more::Display;
@@ -25,8 +27,8 @@ bitflags! {
     /// logically OR'ed together with the exception of `PROCESS` and `THREAD`;
     /// these two flags are mutually exclusive.
     ///
-    /// Not all systems support all kinds of binding.
-    /// [`Topology::support().memory_binding()`] may be used to query the
+    /// Not all systems support all kinds of binding,
+    /// [`Topology::feature_support()`] may be used to query the
     /// actual memory binding support in the currently used operating system.
     #[repr(C)]
     #[doc(alias = "hwloc_membind_flags_t")]
@@ -59,6 +61,8 @@ bitflags! {
         ///
         /// If the memory cannot be migrated and the `STRICT` flag is set, an
         /// error will be returned.
+        ///
+        /// Requires [`MemoryBindingSupport::migrate()`].
         #[doc(alias = "HWLOC_MEMBIND_MIGRATE")]
         const MIGRATE = (1<<3);
 
@@ -130,11 +134,7 @@ impl MemoryBindingFlags {
     }
 }
 //
-impl Default for MemoryBindingFlags {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
+// NOTE: No default because user must consciously think about need for PROCESS
 //
 /// Binding target
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
@@ -164,7 +164,7 @@ pub(crate) type RawMemoryBindingPolicy = c_int;
 /// Memory binding policy.
 ///
 /// Not all systems support all kinds of binding.
-/// [`Topology::support().memory_binding()`] may be used to query the
+/// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
 #[repr(i32)]
 #[derive(
@@ -181,10 +181,14 @@ pub enum MemoryBindingPolicy {
     ///
     /// On AIX, if the nodeset is smaller, pages are allocated locally (if the
     /// local node is in the nodeset) or from a random non-local node (otherwise).
+    ///
+    /// Requires [`MemoryBindingSupport::first_touch()`].
     #[doc(alias = "HWLOC_MEMBIND_FIRSTTOUCH")]
     FirstTouch = 1,
 
     /// Allocate memory on the specified nodes (most portable option)
+    ///
+    /// Requires [`MemoryBindingSupport::bind()`].
     #[default]
     #[doc(alias = "HWLOC_MEMBIND_BIND")]
     Bind = 2,
@@ -197,6 +201,8 @@ pub enum MemoryBindingPolicy {
     /// Interleaving can be useful when threads distributed across the specified
     /// NUMA nodes will all be accessing the whole memory range concurrently,
     /// since the interleave will then balance the memory references.
+    ///
+    /// Requires [`MemoryBindingSupport::interleave()`].
     #[doc(alias = "HWLOC_MEMBIND_INTERLEAVE")]
     Interleave = 3,
 
@@ -206,6 +212,8 @@ pub enum MemoryBindingPolicy {
     /// next time only), it is moved from its current location to the local NUMA
     /// node of the thread where the memory reference occurred (if it needs to
     /// be moved at all).
+    ///
+    /// Requires [`MemoryBindingSupport::next_touch()`].
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = 4,
 }

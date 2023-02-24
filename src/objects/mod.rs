@@ -16,7 +16,7 @@ use crate::{
     ffi::{self, LibcString},
 };
 #[cfg(doc)]
-use crate::{builder::BuildFlags, Topology};
+use crate::{builder::BuildFlags, support::DiscoverySupport, Topology};
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
@@ -411,6 +411,8 @@ impl TopologyObject {
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
+    ///
+    /// Requires [`DiscoverySupport::numa_memory()`].
     pub fn total_memory(&self) -> u64 {
         self.total_memory
     }

@@ -13,7 +13,7 @@ pub mod objects;
 pub mod support;
 
 #[cfg(doc)]
-use crate::support::MiscSupport;
+use crate::support::{CpuBindingSupport, DiscoverySupport, MemoryBindingSupport, MiscSupport};
 use crate::{
     bitmap::{Bitmap, BitmapKind, CpuSet, NodeSet, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
@@ -38,7 +38,7 @@ use crate::{
         types::{CacheType, ObjectType, RawObjectType},
         TopologyObject,
     },
-    support::TopologySupport,
+    support::FeatureSupport,
 };
 use bitflags::bitflags;
 use distances::{Distances, DistancesKind, RawDistances};
@@ -260,10 +260,10 @@ impl Topology {
     ///
     /// ```
     /// # let topology = hwloc2::Topology::test_instance();
-    /// println!("{:?}", topology.support());
+    /// println!("{:?}", topology.feature_support());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn support(&self) -> &TopologySupport {
+    pub fn feature_support(&self) -> &FeatureSupport {
         let ptr = unsafe { ffi::hwloc_topology_get_support(self.as_ptr()) };
         assert!(
             !ptr.is_null(),
@@ -272,6 +272,28 @@ impl Topology {
         // This is correct because the output reference will be bound the the
         // lifetime of &self by the borrow checker.
         unsafe { &*ptr }
+    }
+
+    /// Quickly check a support flag
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwloc2::{Topology, support::{FeatureSupport, MiscSupport}};
+    /// let topology = Topology::new()?;
+    /// assert!(
+    ///     !topology.supports(FeatureSupport::misc, MiscSupport::imported)
+    /// );
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn supports<Group>(
+        &self,
+        get_group: fn(&FeatureSupport) -> Option<&Group>,
+        check_feature: fn(&Group) -> bool,
+    ) -> bool {
+        get_group(self.feature_support())
+            .map(check_feature)
+            .unwrap_or(false)
     }
 
     /// Filtering that was applied for the given object type
@@ -634,7 +656,6 @@ impl Topology {
     /// let root = topology.root_object();
     ///
     /// assert_eq!(root.object_type(), ObjectType::Machine);
-    /// assert!(root.total_memory() > 0);
     ///
     /// assert_eq!(root.depth(), Depth::Normal(0));
     /// assert!(root.parent().is_none());
@@ -807,6 +828,22 @@ impl Topology {
     /// will use CPU caches sensibly no matter which CPU core it's running on.
     ///
     /// This functionality is unique to the Rust hwloc bindings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let topology = hwloc2::Topology::test_instance();
+    /// let stats = topology.cpu_cache_stats();
+    /// println!(
+    ///     "Minimal data cache sizes per level: {:?}",
+    ///     stats.smallest_data_cache_sizes()
+    /// );
+    /// println!(
+    ///     "Total data cache size per level: {:?}",
+    ///     stats.total_data_cache_sizes()
+    /// );
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn cpu_cache_stats(&self) -> CPUCacheStats {
         CPUCacheStats::new(self)
     }
@@ -827,11 +864,6 @@ impl Topology {
     /// these expensive migrations. See the documentation of
     /// [`Bitmap::singlify()`] for details.
     ///
-    /// Some operating systems do not provide all hwloc-supported mechanisms to
-    /// bind processes, threads, etc. [`Topology::support()`] may be used to
-    /// query about the actual CPU binding support in the currently used
-    /// operating system.
-    ///
     /// By default, when the requested binding operation is not available, hwloc
     /// will go for a similar binding operation (with side-effects, smaller
     /// binding set, etc). You can inhibit this with [`CpuBindingFlags::STRICT`].
@@ -844,6 +876,9 @@ impl Topology {
     ///
     /// Running `lstopo --top` or `hwloc-ps` can be a very convenient tool to
     /// check how binding actually happened.
+    ///
+    /// Requires [`CpuBindingSupport::set_current_process()`] or
+    /// [`CpuBindingSupport::set_current_thread()`] depending on flags.
     pub fn bind_cpu(&self, set: &CpuSet, flags: CpuBindingFlags) -> Result<(), CpuBindingError> {
         self.bind_cpu_impl(
             set,
@@ -856,6 +891,9 @@ impl Topology {
     /// Get the current process or thread CPU binding
     ///
     /// Flag [`CpuBindingFlags::NO_MEMORY_BINDING`] should not be set.
+    ///
+    /// Requires [`CpuBindingSupport::get_current_process()`] or
+    /// [`CpuBindingSupport::get_current_thread()`] depending on flags.
     pub fn cpu_binding(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         self.cpu_binding_impl(
             flags,
@@ -871,7 +909,9 @@ impl Topology {
     /// the last CPU location of that specific thread is returned. Otherwise,
     /// flag `THREAD` should not be set.
     ///
-    /// See [`Topology::bind_cpu()`] for more informations.
+    /// See [`Topology::bind_cpu()`] for more informations, except this
+    /// requires [`CpuBindingSupport::set_process()`] or
+    /// [`CpuBindingSupport::set_thread()`] depending on flags.
     pub fn bind_process_cpu(
         &self,
         pid: ProcessId,
@@ -896,6 +936,9 @@ impl Topology {
     /// a pid (process ID) and [`CpuBindingFlags::THREAD`] is passed in flags,
     /// the last CPU location of that specific thread is returned. Otherwise,
     /// flag `THREAD` should not be set.
+    ///
+    /// Requires [`CpuBindingSupport::get_process()`] or
+    /// [`CpuBindingSupport::get_thread()`] depending on flags.
     pub fn process_cpu_binding(
         &self,
         pid: ProcessId,
@@ -914,7 +957,8 @@ impl Topology {
     ///
     /// Flag [`CpuBindingFlags::PROCESS`] should not be set.
     ///
-    /// See [`Topology::bind_cpu()`] for more informations.
+    /// See [`Topology::bind_cpu()`] for more informations, except this always
+    /// requires [`CpuBindingSupport::set_thread()`].
     pub fn bind_thread_cpu(
         &self,
         tid: ThreadId,
@@ -934,6 +978,8 @@ impl Topology {
     /// Get the current physical binding of thread `tid`
     ///
     /// Flags [PROCESS], [STRICT] and [NO_MEMORY_BINDING] should not be set.
+    ///
+    /// Requires [`CpuBindingSupport::get_thread()`].
     ///
     /// [PROCESS]: CpuBindingFlags::PROCESS
     /// [STRICT]: CpuBindingFlags::STRICT
@@ -965,6 +1011,10 @@ impl Topology {
     /// or only the current thread. If the process is single-threaded, `flags`
     /// can be left empty to let hwloc use whichever method is available on the
     /// underlying OS, which increases portability.
+    ///
+    /// Requires [`CpuBindingSupport::get_current_process_last_cpu_location()`]
+    /// or [`CpuBindingSupport::get_current_thread_last_cpu_location()`]
+    /// depending on flags.
     pub fn last_cpu_location(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         self.last_cpu_location_impl(
             flags,
@@ -985,6 +1035,8 @@ impl Topology {
     /// a pid (process ID) and [`CpuBindingFlags::THREAD`] is passed in flags,
     /// the last CPU location of that specific thread is returned. Otherwise,
     /// only [`CpuBindingFlags::PROCESS`] may be used in `flags`.
+    ///
+    /// Requires [`CpuBindingSupport::get_process_last_cpu_location()`].
     pub fn last_process_cpu_location(
         &self,
         pid: ProcessId,
@@ -1076,6 +1128,8 @@ impl Topology {
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
     ///
+    /// Requires [`MemoryBindingSupport::alloc()`].
+    ///
     /// [PROCESS]: MemoryBindingFlags::PROCESS
     /// [THREAD]: MemoryBindingFlags::THREAD
     /// [MIGRATE]: MemoryBindingFlags::MIGRATE
@@ -1113,6 +1167,10 @@ impl Topology {
     /// Allocating memory that matches the current process/thread configuration
     /// is supported on more operating systems, so this is the most portable way
     /// to obtain a bound memory buffer.
+    ///
+    /// Requires either [`MemoryBindingSupport::alloc()`] or one of
+    /// [`MemoryBindingSupport::set_current_process()`] and
+    /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
     pub fn binding_allocate_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -1158,6 +1216,9 @@ impl Topology {
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
+    ///
+    /// Requires [`MemoryBindingSupport::set_current_process()`] or
+    /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
     pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
         set: &Set,
@@ -1190,6 +1251,9 @@ impl Topology {
     /// assumed to be single-threaded. This is the most portable form as it
     /// permits hwloc to use either process-based OS functions or thread-based
     /// OS functions, depending on which are available.
+    ///
+    /// Requires [`MemoryBindingSupport::set_current_process()`] or
+    /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
     #[doc(alias = "HWLOC_MEMBIND_DEFAULT")]
     pub fn unbind_memory(&self, flags: MemoryBindingFlags) -> Result<(), MemoryBindingSetupError> {
         self.unbind_memory_impl(
@@ -1232,6 +1296,9 @@ impl Topology {
     /// Bindings can be queried as [`CpuSet`] or [`NodeSet`]. Querying by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
+    ///
+    /// Requires [`MemoryBindingSupport::get_current_process()`] or
+    /// [`MemoryBindingSupport::get_current_thread()`] depending on flags.
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
@@ -1257,6 +1324,8 @@ impl Topology {
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
+    ///
+    /// Requires [`MemoryBindingSupport::set_process()`].
     pub fn bind_process_memory<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -1279,7 +1348,8 @@ impl Topology {
     /// system default
     ///
     /// See also [`Topology::unbind_memory()`] for general semantics, except
-    /// [`MemoryBindingFlags::THREAD`] cannot be used with this operation.
+    /// [`MemoryBindingFlags::THREAD`] cannot be used with this operation and
+    /// it requires [`MemoryBindingSupport::set_process()`].
     pub fn unbind_process_memory(
         &self,
         pid: ProcessId,
@@ -1298,7 +1368,8 @@ impl Topology {
     /// specified process
     ///
     /// See [`Topology::memory_binding()`] for general semantics, except it does
-    /// not make sense to pass [`MemoryBindingFlags::THREAD`] to this function.
+    /// not make sense to pass [`MemoryBindingFlags::THREAD`] to this function,
+    /// and it requires [`MemoryBindingSupport::get_process()`].
     pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -1330,6 +1401,8 @@ impl Topology {
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
+    ///
+    /// Requires [`MemoryBindingSupport::set_area()`].
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1363,7 +1436,8 @@ impl Topology {
     ///
     /// See [`Topology::unbind_memory()`] for general documentation, except
     /// [`MemoryBindingFlags::PROCESS`] and [`MemoryBindingFlags::THREAD`]
-    /// cannot be used with this operation.
+    /// cannot be used with this operation, and it requires
+    /// [`MemoryBindingSupport::set_area()`].
     pub fn unbind_memory_area<Target: ?Sized>(
         &self,
         target: &Target,
@@ -1401,10 +1475,11 @@ impl Topology {
     /// pages in the address range is calculated. If all pages in the target
     /// have the same policy, it is returned, otherwise no policy is returned.
     ///
-    /// See also [`Topology::memory_binding()`] for general semantics, except
-    /// [`MemoryBindingFlags::PROCESS`] and [`MemoryBindingFlags::THREAD`]
-    /// cannot be used with this operation, and as mentioned above the semantics
-    /// of `STRICT` are different.
+    /// See also [`Topology::memory_binding()`] for general semantics, except...
+    /// - [`MemoryBindingFlags::PROCESS`] and [`MemoryBindingFlags::THREAD`]
+    ///   cannot be used with this operation
+    /// - As mentioned above, the semantics of `STRICT` are different.
+    /// - This requires [`MemoryBindingSupport::get_area()`].
     pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1446,7 +1521,8 @@ impl Topology {
     ///
     /// See also [`Topology::memory_binding()`] for general semantics, except
     /// [`MemoryBindingFlags::PROCESS`], [`MemoryBindingFlags::THREAD`]
-    /// and [`MemoryBindingFlags::STRICT`] cannot be used with this operation.
+    /// and [`MemoryBindingFlags::STRICT`] cannot be used with this operation,
+    /// and it requires [`MemoryBindingSupport::get_area_memory_location()`].
     pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1871,12 +1947,16 @@ impl Topology {
     /// If you want to convert an entire CPU set into the PU objects it
     /// contains, using `pus_from_cpuset` will be more efficient than repeatedly
     /// calling this function with every OS index from the CpuSet.
+    ///
+    /// Requires [`DiscoverySupport::pu_count()`].
     pub fn pu_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::PU)
             .find_map(|(pu, pu_os_index)| (pu_os_index == os_index).then_some(pu))
     }
 
     /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
+    ///
+    /// Requires [`DiscoverySupport::pu_count()`].
     pub fn pus_from_cpuset<'result>(
         &'result self,
         cpuset: &'result CpuSet,
@@ -1891,12 +1971,17 @@ impl Topology {
     /// If you want to convert an entire NodeSet into the NUMANode objects it
     /// contains, using `nodes_from_cpuset` will be more efficient than repeatedly
     /// calling this function with every OS index from the NodeSet.
+    ///
+    /// Requires [`DiscoverySupport::numa_count()`].
     pub fn node_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::NUMANode)
             .find_map(|(node, node_os_index)| (node_os_index == os_index).then_some(node))
     }
 
-    /// Get the objects of type [`ObjectType::NUMANode`] covered by the specified nodeset
+    /// Get the objects of type [`ObjectType::NUMANode`] covered by the
+    /// specified nodeset
+    ///
+    /// Requires [`DiscoverySupport::numa_count()`].
     pub fn nodes_from_nodeset<'result>(
         &'result self,
         nodeset: &'result NodeSet,

@@ -4,6 +4,8 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 
+#[cfg(doc)]
+use crate::support::DiscoverySupport;
 use crate::{
     bitmap::{CpuSet, RawBitmap},
     objects::TopologyObject,
@@ -26,10 +28,14 @@ pub struct MemoryAttributeID(u32);
 //
 impl MemoryAttributeID {
     /// Node capacity in bytes (see [`TopologyObject::total_memory()`])
+    ///
+    /// Requires [`DiscoverySupport::numa_memory()`].
     #[doc(alias = "HWLOC_MEMATTR_ID_CAPACITY")]
     pub const CAPACITY: Self = Self(0);
 
     /// Number of PUs in that locality (i.e. cpuset weight)
+    ///
+    /// Requires [`DiscoverySupport::pu_count()`].
     #[doc(alias = "HWLOC_MEMATTR_ID_LOCALITY")]
     pub const LOCALITY: Self = Self(1);
 

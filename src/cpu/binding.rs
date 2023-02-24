@@ -101,11 +101,7 @@ impl CpuBindingFlags {
     }
 }
 //
-impl Default for CpuBindingFlags {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
+// NOTE: No default because user must consciously think about need for PROCESS
 //
 /// Binding target
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
