@@ -754,9 +754,11 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///
     /// # Errors
     ///
-    /// - [`BadInitiator`] if initiators are specified for attributes that don't
-    ///   have them, are not specified for attributes that have them, or if
-    ///   there are more or less initiators than (target, value) pairs.
+    /// - [`BadInitiators`] if initiators are specified for attributes that
+    ///   don't have them, are not specified for attributes that have them, or
+    ///   if there are more or less initiators than (target, value) pairs.
+    ///
+    /// [`BadInitiators`]: MemoryAttributeSetValuesError::BadInitiators
     #[doc(alias = "hwloc_memattr_set_value")]
     pub fn set_values(
         &mut self,
