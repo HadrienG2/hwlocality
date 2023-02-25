@@ -38,6 +38,18 @@ specialized features could not make it for various reasons. [Issues with the
 "api coverage" label](https://github.com/HadrienG2/hwlocality/issues?q=is%3Aopen+is%3Aissue+label%3A%22api+coverage%22) keep track of unimplemented features, and are a great place to
 look for potential contributions to this library if you have time!
 
+If you are already familiar with the hwloc C API, you will also be happy to
+know that [`#[doc(alias)]` attributes](https://doc.rust-lang.org/rustdoc/advanced-features.html#add-aliases-for-an-item-in-documentation-search)
+are extensively used so that you can search the documentation for hwloc API
+entities like "hwloc_bitmap_t" or "hwloc_set_cpubind" and be redirected to the
+suggested replacement in the Rust API.
+
+The rare exceptions to this rule are notions that are not needed due to
+ergonomics improvements permitted by the Rust type system, such as manual
+destructors (just let Drop take care of it) or argument-clarification flags like
+`HWLOC_MEMBIND_BYNODESET` (just pass `NodeSet` or a `CpuSet` to the memory
+binding operations and that flag will internally be set/cleared automatically).
+
 ## Prerequisites
 
 A system installed with hwloc >=2.0.0 and associated development packages installed.
