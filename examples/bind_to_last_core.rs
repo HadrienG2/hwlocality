@@ -27,11 +27,10 @@ fn main() -> anyhow::Result<()> {
         .cpu_binding()
         .context("This example requires CPU binding support")?;
     ensure!(
-        support.get_current_process() && support.set_current_process(),
+        (support.get_current_process() | support.get_current_thread())
+            && (support.set_current_process() || support.set_current_thread()),
         "This example needs support for querying and setting current process CPU bindings"
     );
-
-    let topology = Topology::new()?;
 
     // Grab last core and exctract its CpuSet
     let cpuset = last_core(&topology)?
@@ -42,12 +41,12 @@ fn main() -> anyhow::Result<()> {
     let print_binding_location = |situation: &str| -> anyhow::Result<()> {
         println!(
             "Cpu Binding {situation}: {:?}",
-            topology.cpu_binding(CpuBindingFlags::PROCESS)?
+            topology.cpu_binding(CpuBindingFlags::ASSUME_SINGLE_THREAD)?
         );
         if support.get_current_process_last_cpu_location() {
             println!(
                 "Cpu Location {situation}: {:?}",
-                topology.last_cpu_location(CpuBindingFlags::PROCESS)?
+                topology.last_cpu_location(CpuBindingFlags::ASSUME_SINGLE_THREAD)?
             )
         }
         Ok(())
@@ -57,7 +56,7 @@ fn main() -> anyhow::Result<()> {
     print_binding_location("before explicit binding")?;
 
     // Try to bind all threads of the current (possibly multithreaded) process.
-    topology.bind_cpu(cpuset, CpuBindingFlags::PROCESS)?;
+    topology.bind_cpu(cpuset, CpuBindingFlags::ASSUME_SINGLE_THREAD)?;
     println!("Correctly bound to last core");
 
     // Check binding and location before binding

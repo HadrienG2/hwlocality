@@ -860,6 +860,14 @@ impl Topology {
 }
 
 /// # CPU binding
+///
+/// You should specify one of the [ASSUME_SINGLE_THREAD], [PROCESS] and
+/// [THREAD] flags when using any of the following functions, but some
+/// functions may only support a subset of them.
+///
+/// [ASSUME_SINGLE_THREAD]: CpuBindingFlags::ASSUME_SINGLE_THREAD
+/// [PROCESS]: CpuBindingFlags::PROCESS
+/// [THREAD]: CpuBindingFlags::THREAD
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 impl Topology {
@@ -876,19 +884,22 @@ impl Topology {
     ///
     /// By default, when the requested binding operation is not available, hwloc
     /// will go for a similar binding operation (with side-effects, smaller
-    /// binding set, etc). You can inhibit this with [`CpuBindingFlags::STRICT`].
+    /// binding set, etc). You can inhibit this with flag [STRICT].
     ///
     /// To unbind, just call the binding function with either a full cpuset or a
     /// cpuset equal to the system cpuset.
     ///
     /// On some operating systems, CPU binding may have effects on memory
-    /// binding, see [`CpuBindingFlags::NO_MEMORY_BINDING`].
+    /// binding, you can forbid this with flag [NO_MEMORY_BINDING].
     ///
     /// Running `lstopo --top` or `hwloc-ps` can be a very convenient tool to
     /// check how binding actually happened.
     ///
     /// Requires [`CpuBindingSupport::set_current_process()`] or
     /// [`CpuBindingSupport::set_current_thread()`] depending on flags.
+    ///
+    /// [STRICT]: CpuBindingFlags::STRICT
+    /// [NO_MEMORY_BINDING]: CpuBindingFlags::NO_MEMORY_BINDING
     pub fn bind_cpu(&self, set: &CpuSet, flags: CpuBindingFlags) -> Result<(), CpuBindingError> {
         self.bind_cpu_impl(
             set,
@@ -900,10 +911,12 @@ impl Topology {
 
     /// Get the current process or thread CPU binding
     ///
-    /// Flag [`CpuBindingFlags::NO_MEMORY_BINDING`] should not be set.
+    /// Flag [NO_MEMORY_BINDING] should not be used with this function.
     ///
     /// Requires [`CpuBindingSupport::get_current_process()`] or
     /// [`CpuBindingSupport::get_current_thread()`] depending on flags.
+    ///
+    /// [NO_MEMORY_BINDING]: CpuBindingFlags::NO_MEMORY_BINDING
     pub fn cpu_binding(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         self.cpu_binding_impl(
             flags,
@@ -915,13 +928,14 @@ impl Topology {
     /// Binds a process (identified by its `pid`) on given CPUs
     ///
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
-    /// a pid (process ID) and [`CpuBindingFlags::THREAD`] is passed in flags,
-    /// the last CPU location of that specific thread is returned. Otherwise,
-    /// flag `THREAD` should not be set.
+    /// a pid (process ID) and flag [THREAD] is specified, the specified thread
+    /// is bound. Otherwise, flag [THREAD] should not be used with this function.
     ///
     /// See [`Topology::bind_cpu()`] for more informations, except this
     /// requires [`CpuBindingSupport::set_process()`] or
     /// [`CpuBindingSupport::set_thread()`] depending on flags.
+    ///
+    /// [THREAD]: CpuBindingFlags::THREAD
     pub fn bind_process_cpu(
         &self,
         pid: ProcessId,
@@ -940,15 +954,18 @@ impl Topology {
 
     /// Get the current physical binding of a process, identified by its `pid`
     ///
-    /// Flag [`CpuBindingFlags::NO_MEMORY_BINDING`] should not be set.
-    ///
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
-    /// a pid (process ID) and [`CpuBindingFlags::THREAD`] is passed in flags,
-    /// the last CPU location of that specific thread is returned. Otherwise,
-    /// flag `THREAD` should not be set.
+    /// a pid (process ID) and flag [THREAD] is specified, the binding of the
+    /// specified thread is returned. Otherwise, flag [THREAD] should not be
+    /// used with this function.
+    ///
+    /// Flag [NO_MEMORY_BINDING] should not be used with this function.
     ///
     /// Requires [`CpuBindingSupport::get_process()`] or
     /// [`CpuBindingSupport::get_thread()`] depending on flags.
+    ///
+    /// [THREAD]: CpuBindingFlags::THREAD
+    /// [NO_MEMORY_BINDING]: CpuBindingFlags::NO_MEMORY_BINDING
     pub fn process_cpu_binding(
         &self,
         pid: ProcessId,
@@ -963,12 +980,14 @@ impl Topology {
         )
     }
 
-    /// Bind a thread (by its `tid`) on given CPUs
+    /// Bind a thread, identified by its `tid`, on the given CPUs
     ///
-    /// Flag [`CpuBindingFlags::PROCESS`] should not be set.
+    /// Flag [PROCESS] should not be used with this function.
     ///
     /// See [`Topology::bind_cpu()`] for more informations, except this always
     /// requires [`CpuBindingSupport::set_thread()`].
+    ///
+    /// [PROCESS]: CpuBindingFlags::PROCESS
     pub fn bind_thread_cpu(
         &self,
         tid: ThreadId,
@@ -987,7 +1006,8 @@ impl Topology {
 
     /// Get the current physical binding of thread `tid`
     ///
-    /// Flags [PROCESS], [STRICT] and [NO_MEMORY_BINDING] should not be set.
+    /// Flags [PROCESS], [STRICT] and [NO_MEMORY_BINDING] should not be used
+    /// with this function.
     ///
     /// Requires [`CpuBindingSupport::get_thread()`].
     ///
@@ -1015,16 +1035,13 @@ impl Topology {
     /// so this function may return something that is already
     /// outdated.
     ///
-    /// `flags` can include either [`CpuBindingFlags::PROCESS`] or
-    /// [`CpuBindingFlags::THREAD`] to specify whether the query should be for
-    /// the whole process (union of all CPUs on which all threads are running),
-    /// or only the current thread. If the process is single-threaded, `flags`
-    /// can be left empty to let hwloc use whichever method is available on the
-    /// underlying OS, which increases portability.
+    /// Flag [NO_MEMORY_BINDING] should not be used with this function.
     ///
     /// Requires [`CpuBindingSupport::get_current_process_last_cpu_location()`]
     /// or [`CpuBindingSupport::get_current_thread_last_cpu_location()`]
     /// depending on flags.
+    ///
+    /// [NO_MEMORY_BINDING]: CpuBindingFlags::NO_MEMORY_BINDING
     pub fn last_cpu_location(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         self.last_cpu_location_impl(
             flags,
@@ -1042,11 +1059,16 @@ impl Topology {
     /// something that is already outdated.
     ///
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
-    /// a pid (process ID) and [`CpuBindingFlags::THREAD`] is passed in flags,
-    /// the last CPU location of that specific thread is returned. Otherwise,
-    /// only [`CpuBindingFlags::PROCESS`] may be used in `flags`.
+    /// a pid (process ID) and flag [THREAD] is specified, the last cpu location
+    /// of the specified thread is returned. Otherwise, flag [THREAD] should not
+    /// be used with this function.
+    ///
+    /// Flag [NO_MEMORY_BINDING] should not be used with this function.
     ///
     /// Requires [`CpuBindingSupport::get_process_last_cpu_location()`].
+    ///
+    /// [NO_MEMORY_BINDING]: CpuBindingFlags::NO_MEMORY_BINDING
+    /// [THREAD]: CpuBindingFlags::THREAD
     pub fn last_process_cpu_location(
         &self,
         pid: ProcessId,
@@ -1131,15 +1153,16 @@ impl Topology {
     /// thread, you can maximize portability by using
     /// [`Topology::binding_allocate_memory()`] instead.
     ///
-    /// The memory binding flags [PROCESS], [THREAD] and [MIGRATE] should not be
-    /// used with this function.
-    ///
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
     ///
+    /// Flags [ASSUME_SINGLE_THREAD], [PROCESS], [THREAD] and [MIGRATE] should
+    /// not be used with this function.
+    ///
     /// Requires [`MemoryBindingSupport::alloc()`].
     ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [PROCESS]: MemoryBindingFlags::PROCESS
     /// [THREAD]: MemoryBindingFlags::THREAD
     /// [MIGRATE]: MemoryBindingFlags::MIGRATE
@@ -1178,9 +1201,16 @@ impl Topology {
     /// is supported on more operating systems, so this is the most portable way
     /// to obtain a bound memory buffer.
     ///
-    /// Requires either [`MemoryBindingSupport::alloc()`] or one of
+    /// You should specify one of the [ASSUME_SINGLE_THREAD], [PROCESS] and
+    /// [THREAD] flags when using this function.
+    ///
+    /// Requires either [`MemoryBindingSupport::alloc()`], or one of
     /// [`MemoryBindingSupport::set_current_process()`] and
     /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
     pub fn binding_allocate_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -1217,18 +1247,19 @@ impl Topology {
     /// Set the default memory binding policy of the current process or thread
     /// to prefer the NUMA node(s) specified by `set`.
     ///
-    /// If neither [`MemoryBindingFlags::PROCESS`] nor
-    /// [`MemoryBindingFlags::THREAD`] is specified, the current process is
-    /// assumed to be single-threaded. This is the most portable form as it
-    /// permits hwloc to use either process-based OS functions or thread-based
-    /// OS functions, depending on which are available.
-    ///
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
     ///
+    /// You should specify one of the [ASSUME_SINGLE_THREAD], [PROCESS] and
+    /// [THREAD] flags when using this function.
+    ///
     /// Requires [`MemoryBindingSupport::set_current_process()`] or
     /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
     pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
         set: &Set,
@@ -1253,17 +1284,18 @@ impl Topology {
     /// [`MemoryBindingPolicy::FirstTouch`] (Linux, FreeBSD) or
     /// [`MemoryBindingPolicy::Bind`] (AIX, HP-UX, Solaris, Windows).
     ///
-    /// [`MemoryBindingFlags::STRICT`] and [`MemoryBindingFlags::MIGRATE`]
-    /// should not be used with this operation.
-    ///
-    /// If neither [`MemoryBindingFlags::PROCESS`] nor
-    /// [`MemoryBindingFlags::THREAD`] is specified, the current process is
-    /// assumed to be single-threaded. This is the most portable form as it
-    /// permits hwloc to use either process-based OS functions or thread-based
-    /// OS functions, depending on which are available.
+    /// You should specify one of the [ASSUME_SINGLE_THREAD], [PROCESS] and
+    /// [THREAD] flags when using this function, but the [STRICT] and [MIGRATE]
+    /// flags should **not** be used with this function.
     ///
     /// Requires [`MemoryBindingSupport::set_current_process()`] or
     /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
+    /// [STRICT]: MemoryBindingFlags::STRICT
+    /// [MIGRATE]: MemoryBindingFlags::MIGRATE
     #[doc(alias = "HWLOC_MEMBIND_DEFAULT")]
     pub fn unbind_memory(&self, flags: MemoryBindingFlags) -> Result<(), MemoryBindingSetupError> {
         self.unbind_memory_impl(
@@ -1278,30 +1310,22 @@ impl Topology {
     /// Query the default memory binding policy and physical locality of the
     /// current process or thread
     ///
-    /// Passing the [`MemoryBindingFlags::PROCESS`] flag specifies that the
-    /// query target is the current policies and nodesets for all the threads
-    /// in the current process. Passing [`MemoryBindingFlags::THREAD`] instead
-    /// specifies that the query target is the current policy and nodeset for
-    /// only the thread invoking this function.
+    /// You should specify one of the [ASSUME_SINGLE_THREAD], [PROCESS] and
+    /// [THREAD] flags when using this function.
     ///
-    /// If neither of these flags are passed (which is the most portable
-    /// method), the process is assumed to be single threaded. This allows hwloc
-    /// to use either process-based OS functions or thread-based OS functions,
-    /// depending on which are available.
+    /// The [STRICT] flag is only meaningful when [PROCESS] is also specified.
+    /// In this case, hwloc will check the default memory policies and nodesets
+    /// for all threads in the process. If they are not identical,
+    /// Err([`MemoryBindingQueryError::MixedResults`]) is returned. Otherwise,
+    /// the shared configuration is returned.
     ///
-    /// [`MemoryBindingFlags::STRICT`] is only meaningful when
-    /// `PROCESS` is also specified. In this case, hwloc will check the default
-    /// memory policies and nodesets for all threads in the process. If they are
-    /// not identical, Err([`MemoryBindingQueryError::MixedResults`]) is
-    /// returned. Otherwise, the shared configuration is returned.
-    ///
-    /// Otherwise, if `PROCESS` is specified and `STRICT` is not specified, the
+    /// Otherwise, if [PROCESS] is specified and [STRICT] is not specified, the
     /// default sets from each thread are logically OR'ed together. If all
     /// threads' default policies are the same, that shared policy is returned,
     /// otherwise no policy is returned.
     ///
-    /// In the `THREAD` case (or when neither `PROCESS` nor `THREAD` is
-    /// specified), there is only one set and policy, they are returned.
+    /// In the [THREAD] and [ASSUME_SINGLE_THREAD] case, there is only one set
+    /// and policy, they are returned.
     ///
     /// Bindings can be queried as [`CpuSet`] or [`NodeSet`]. Querying by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
@@ -1309,6 +1333,11 @@ impl Topology {
     ///
     /// Requires [`MemoryBindingSupport::get_current_process()`] or
     /// [`MemoryBindingSupport::get_current_thread()`] depending on flags.
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
+    /// [STRICT]: MemoryBindingFlags::STRICT
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
@@ -1326,16 +1355,8 @@ impl Topology {
     /// Set the default memory binding policy of the specified process to prefer
     /// the NUMA node(s) specified by `set`.
     ///
-    /// If [`MemoryBindingFlags::PROCESS`] is not specified, the target process
-    /// is assumed to be single-threaded. This is the most portable form as it
-    /// permits hwloc to use either process-based OS functions or thread-based
-    /// OS functions, depending on which are available.
-    ///
-    /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
-    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
-    /// to CPUs, and thus cannot be bound by [`CpuSet`].
-    ///
-    /// Requires [`MemoryBindingSupport::set_process()`].
+    /// See also [`Topology::bind_memory()`] for general semantics, except this
+    /// function requires [`MemoryBindingSupport::set_process()`].
     pub fn bind_process_memory<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -1358,8 +1379,7 @@ impl Topology {
     /// system default
     ///
     /// See also [`Topology::unbind_memory()`] for general semantics, except
-    /// [`MemoryBindingFlags::THREAD`] cannot be used with this operation and
-    /// it requires [`MemoryBindingSupport::set_process()`].
+    /// this function requires [`MemoryBindingSupport::set_process()`].
     pub fn unbind_process_memory(
         &self,
         pid: ProcessId,
@@ -1377,9 +1397,8 @@ impl Topology {
     /// Query the default memory binding policy and physical locality of the
     /// specified process
     ///
-    /// See [`Topology::memory_binding()`] for general semantics, except it does
-    /// not make sense to pass [`MemoryBindingFlags::THREAD`] to this function,
-    /// and it requires [`MemoryBindingSupport::get_process()`].
+    /// See [`Topology::memory_binding()`] for general semantics, except this
+    /// function requires [`MemoryBindingSupport::get_process()`].
     pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -1405,14 +1424,13 @@ impl Topology {
     /// to manually specify the `Target` type via turbofish to make sure that
     /// you don't get tripped up by references of references like `&&[T]`.
     ///
-    /// [`MemoryBindingFlags::PROCESS`] and [`MemoryBindingFlags::THREAD`]
-    /// cannot be used with this operation.
+    /// See also [`Topology::bind_memory()`] for general semantics, except the
+    /// [ASSUME_SINGLE_THREAD], [PROCESS] and [THREAD] flags cannot be used
+    /// with this function and it requires [`MemoryBindingSupport::set_area()`].
     ///
-    /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
-    /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
-    /// to CPUs, and thus cannot be bound by [`CpuSet`].
-    ///
-    /// Requires [`MemoryBindingSupport::set_area()`].
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1444,10 +1462,14 @@ impl Topology {
     /// The warning about `Target` coverage in the documentation of
     /// [`Topology::bind_memory_area()`] also applies here.
     ///
-    /// See [`Topology::unbind_memory()`] for general documentation, except
-    /// [`MemoryBindingFlags::PROCESS`] and [`MemoryBindingFlags::THREAD`]
-    /// cannot be used with this operation, and it requires
+    /// See also [`Topology::unbind_memory()`] for general semantics, except the
+    /// [ASSUME_SINGLE_THREAD], [PROCESS] and [THREAD] flags cannot be used
+    ///  with this function, and it requires
     /// [`MemoryBindingSupport::set_area()`].
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
     pub fn unbind_memory_area<Target: ?Sized>(
         &self,
         target: &Target,
@@ -1475,21 +1497,26 @@ impl Topology {
     /// The warning about `Target` coverage in the documentation of
     /// [`Topology::bind_memory_area()`] also applies here.
     ///
-    /// If [`MemoryBindingFlags::STRICT`] is specified, hwloc will check the
-    /// default memory policies and nodesets for all memory pages covered by
-    /// `target`. If these are not identical,
+    /// If the [STRICT] flag is specified, hwloc will check the default memory
+    /// policies and nodesets for all memory pages covered by `target`. If these
+    /// are not identical,
     /// Err([`MemoryBindingQueryError::MixedResults`]) is returned. Otherwise,
     /// the shared configuration is returned.
     ///
-    /// If `STRICT` is not specified, the union of all NUMA nodes containing
+    /// If [STRICT] is not specified, the union of all NUMA nodes containing
     /// pages in the address range is calculated. If all pages in the target
     /// have the same policy, it is returned, otherwise no policy is returned.
     ///
     /// See also [`Topology::memory_binding()`] for general semantics, except...
-    /// - [`MemoryBindingFlags::PROCESS`] and [`MemoryBindingFlags::THREAD`]
-    ///   cannot be used with this operation
-    /// - As mentioned above, the semantics of `STRICT` are different.
-    /// - This requires [`MemoryBindingSupport::get_area()`].
+    /// - The [ASSUME_SINGLE_THREAD], [PROCESS] and [THREAD] flags cannot be
+    ///   used with this function
+    /// - As mentioned above, [STRICT] has a specific meaning with this function.
+    /// - This function requires [`MemoryBindingSupport::get_area()`].
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
+    /// [STRICT]: MemoryBindingFlags::STRICT
     pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1530,9 +1557,13 @@ impl Topology {
     /// something that is already outdated.
     ///
     /// See also [`Topology::memory_binding()`] for general semantics, except
-    /// [`MemoryBindingFlags::PROCESS`], [`MemoryBindingFlags::THREAD`]
-    /// and [`MemoryBindingFlags::STRICT`] cannot be used with this operation,
-    /// and it requires [`MemoryBindingSupport::get_area_memory_location()`].
+    /// the [ASSUME_SINGLE_THREAD], [PROCESS] and [THREAD] flags cannot be
+    /// used with this function, and it requires
+    /// [`MemoryBindingSupport::get_area_memory_location()`].
+    ///
+    /// [ASSUME_SINGLE_THREAD]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
+    /// [PROCESS]: MemoryBindingFlags::PROCESS
+    /// [THREAD]: MemoryBindingFlags::THREAD
     pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,

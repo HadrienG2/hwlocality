@@ -23,9 +23,10 @@ use thiserror::Error;
 bitflags! {
     /// Memory binding flags.
     ///
-    /// These flags can be used to refine the binding policy. All flags can be
-    /// logically OR'ed together with the exception of `PROCESS` and `THREAD`;
-    /// these two flags are mutually exclusive.
+    /// These bit flags can be used to refine the binding policy. All flags can
+    /// be OR'ed together with the exception of `ASSUME_SINGLE_THREAD`, `THREAD`
+    /// and `PROCESS`, of which at most one must be specified. The most portable
+    /// option is `ASSUME_SINGLE_THREAD`, when it is applicable.
     ///
     /// Not all systems support all kinds of binding,
     /// [`Topology::feature_support()`] may be used to query the
@@ -33,15 +34,23 @@ bitflags! {
     #[repr(C)]
     #[doc(alias = "hwloc_membind_flags_t")]
     pub struct MemoryBindingFlags: c_int {
-        /// Set policy for all threads of the specified (possibly multithreaded) process
+        /// Assume that the target process is single threaded
         ///
-        /// This flag is mutually exclusive with `THREAD`.
+        /// This lets hwloc pick between thread and process binding for
+        /// increased portability.
+        ///
+        /// This is mutually exclusive with `PROCESS` and `THREAD`.
+        const ASSUME_SINGLE_THREAD = 0;
+
+        /// Set policy for all threads of the specified process
+        ///
+        /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
         #[doc(alias = "HWLOC_MEMBIND_PROCESS")]
         const PROCESS = (1<<0);
 
-        /// Set policy for a specific thread of the current process
+        /// Set policy for a specific thread of the specified process
         ///
-        /// This flag is mutually exclusive with `PROCESS`.
+        /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `THREAD`.
         #[doc(alias = "HWLOC_MEMBIND_THREAD")]
         const THREAD = (1<<1);
 
@@ -85,6 +94,8 @@ bitflags! {
         ///
         /// Memory binding by CPU set cannot work for CPU-less NUMA memory nodes.
         /// Binding by nodeset should therefore be preferred whenever possible.
+        //
+        // NOTE: This flag is automatically set by the implementation
         #[doc(hidden)]
         #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
         const BY_NODE_SET = (1<<5);

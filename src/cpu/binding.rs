@@ -12,27 +12,38 @@ use thiserror::Error;
 bitflags! {
     /// Process/Thread binding flags.
     ///
-    /// These bit flags can be used to refine the binding policy.
+    /// These bit flags can be used to refine the binding policy. All flags can
+    /// be OR'ed together with the exception of `ASSUME_SINGLE_THREAD`, `THREAD`
+    /// and `PROCESS`, of which exactly one must be specified.
     ///
-    /// The default is to bind the current process, assumed to be
-    /// single-threaded, in a non-strict way.  This is the most portable
-    /// way to bind as all operating systems usually provide it.
+    /// The most portable binding targets are `ASSUME_SINGLE_THREAD`, `THREAD`
+    /// and `PROCESS`, in this order.
     ///
-    /// For multi-threaded processes, `THREAD` should be used instead as the
-    /// most portable option.
-    ///
-    /// **Note:** Not all systems support all kinds of binding.
+    /// Not all systems support all kinds of binding,
+    /// [`Topology::feature_support()`] may be used to query the
+    /// actual CPU binding support in the currently used operating system.
     #[repr(C)]
     pub struct CpuBindingFlags: u32 {
-        /// Bind all threads of the current (possibly) multithreaded process
+        /// Assume that the target process is single threaded
         ///
-        /// This is mutually exclusive with `THREAD`.
-        const PROCESS = (1<<0);
+        /// This lets hwloc pick between thread and process binding for
+        /// increased portability.
+        ///
+        /// This is mutually exclusive with `PROCESS` and `THREAD`.
+        const ASSUME_SINGLE_THREAD = 0;
 
-        /// Bind current thread of current process
+        /// Bind current thread of target process
         ///
-        /// This is mutually exclusive with `PROCESS`.
+        /// This is the second most portable option where `ASSUME_SINGLE_THREAD`
+        /// is inapplicable.
+        ///
+        /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
         const THREAD  = (1<<1);
+
+        /// Bind all threads of the target process
+        ///
+        /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `THREAD`.
+        const PROCESS = (1<<0);
 
         /// Request for strict binding from the OS
         ///
@@ -72,6 +83,8 @@ bitflags! {
     }
 }
 //
+// NOTE: No Default because user must consciously think about need for PROCESS
+//
 impl CpuBindingFlags {
     /// Truth that these flags are in a valid state
     pub(crate) fn is_valid(self, target: CpuBindingTarget, operation: CpuBindingOperation) -> bool {
@@ -101,8 +114,6 @@ impl CpuBindingFlags {
         }
     }
 }
-//
-// NOTE: No default because user must consciously think about need for PROCESS
 //
 /// Binding target
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
