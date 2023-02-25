@@ -1,4 +1,4 @@
-use hwloc2::{
+use hwlocality::{
     support::{CpuBindingSupport, FeatureSupport, MemoryBindingSupport},
     Topology,
 };

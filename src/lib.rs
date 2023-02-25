@@ -138,7 +138,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
+    /// # use hwlocality::Topology;
     /// let topology = Topology::new()?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
@@ -170,7 +170,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, builder::BuildFlags};
+    /// # use hwlocality::{Topology, builder::BuildFlags};
     /// let flags = BuildFlags::IGNORE_DISTANCES
     ///             | BuildFlags::IGNORE_MEMORY_ATTRIBUTES
     ///             | BuildFlags::IGNORE_CPU_KINDS;
@@ -195,7 +195,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
+    /// # use hwlocality::Topology;
     /// assert!(Topology::new()?.is_abi_compatible());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
@@ -217,7 +217,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, builder::BuildFlags};
+    /// # use hwlocality::{Topology, builder::BuildFlags};
     /// assert_eq!(Topology::new()?.build_flags(), BuildFlags::empty());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
@@ -236,7 +236,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::Topology;
+    /// # use hwlocality::Topology;
     /// assert!(Topology::new()?.is_this_system());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
@@ -267,7 +267,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// println!("{:?}", topology.feature_support());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
@@ -287,7 +287,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{Topology, support::{FeatureSupport, MiscSupport}};
+    /// # use hwlocality::{Topology, support::{FeatureSupport, MiscSupport}};
     /// let topology = Topology::new()?;
     /// assert!(
     ///     !topology.supports(FeatureSupport::misc, MiscSupport::imported)
@@ -309,11 +309,11 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{
+    /// # use hwlocality::{
     /// #     objects::types::ObjectType,
     /// #     builder::TypeFilter
     /// # };
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// // PUs, NUMANodes and Machine are always kept
     /// let always_there = [ObjectType::PU,
@@ -354,7 +354,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// // The Machine and PU depths are always present
     /// assert!(topology.depth() >= 2);
     /// # Ok::<(), anyhow::Error>(())
@@ -375,8 +375,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::objects::TopologyObject;
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # use hwlocality::objects::TopologyObject;
+    /// # let topology = hwlocality::Topology::test_instance();
     /// if let Ok(depth) = topology.memory_parents_depth() {
     ///     let num_memory_objects =
     ///         topology.objects_at_depth(depth)
@@ -404,9 +404,9 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::objects::types::ObjectType;
+    /// # use hwlocality::objects::types::ObjectType;
     /// #
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
@@ -439,9 +439,9 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{objects::types::ObjectType};
+    /// # use hwlocality::{objects::types::ObjectType};
     /// #
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let package_or_below = topology.depth_or_below_for_type(ObjectType::Package)?;
@@ -493,9 +493,9 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::objects::types::ObjectType;
+    /// # use hwlocality::objects::types::ObjectType;
     /// #
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     /// let core_or_above = topology.depth_or_below_for_type(ObjectType::Core)?;
@@ -556,8 +556,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::objects::types::CacheType;
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # use hwlocality::objects::types::CacheType;
+    /// # let topology = hwlocality::Topology::test_instance();
     /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
     /// assert!(l1d_depth.is_ok());
     /// # Ok::<(), anyhow::Error>(())
@@ -614,8 +614,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{depth::Depth, objects::types::ObjectType};
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # use hwlocality::{depth::Depth, objects::types::ObjectType};
+    /// # let topology = hwlocality::Topology::test_instance();
     /// let numa_type = topology.type_at_depth(Depth::NUMANode);
     /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
     /// # Ok::<(), anyhow::Error>(())
@@ -641,7 +641,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// let num_roots = topology.size_at_depth(0);
     /// assert_eq!(num_roots, 1);
@@ -660,8 +660,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{objects::types::ObjectType, depth::Depth};
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # use hwlocality::{objects::types::ObjectType, depth::Depth};
+    /// # let topology = hwlocality::Topology::test_instance();
     /// let root = topology.root_object();
     ///
     /// assert_eq!(root.object_type(), ObjectType::Machine);
@@ -689,8 +689,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::objects::types::ObjectType;
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # use hwlocality::objects::types::ObjectType;
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// use anyhow::Context;
     ///
@@ -741,8 +741,8 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwloc2::{depth::Depth, objects::types::ObjectType};
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # use hwlocality::{depth::Depth, objects::types::ObjectType};
+    /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// use anyhow::Context;
     ///
@@ -842,7 +842,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # let topology = hwloc2::Topology::test_instance();
+    /// # let topology = hwlocality::Topology::test_instance();
     /// let stats = topology.cpu_cache_stats();
     /// println!(
     ///     "Minimal data cache sizes per level: {:?}",

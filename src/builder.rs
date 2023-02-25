@@ -213,7 +213,7 @@ impl TopologyBuilder {
     /// # Examples
     ///
     /// ```
-    /// use hwloc2::{Topology, builder::BuildFlags};
+    /// use hwlocality::{Topology, builder::BuildFlags};
     ///
     /// let topology = Topology::builder()
     ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()

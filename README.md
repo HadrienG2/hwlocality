@@ -1,27 +1,46 @@
-# hwloc2-rs: Rust bindings for the hwloc library
+# hwlocality: Rust bindings for the hwloc library
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![crates.io](http://meritbadge.herokuapp.com/hwloc2)](https://crates.io/crates/hwloc2)
+[![On crates.io](https://img.shields.io/crates/v/hwlocality.svg)](https://crates.io/crates/hwlocality)
+[![On docs.rs](https://docs.rs/hwlocality/badge.svg)](https://docs.rs/hwlocality/)
+[![Continuous Integration](https://github.com/HadrienG2/hwlocality/workflows/Continuous%20Integration/badge.svg)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
 
-This project is a successor to
-[daschl/hwloc-rs](https://github.com/daschl/hwloc-rs), except that this library
-supports 2.x.x versions of hwloc. This library tries to maintain most of the
-API layer that [daschl/hwloc-rs](https://github.com/daschl/hwloc-rs) set forth.
+## What is this?
 
+To optimize programs for parallel performance on all hardware, you must accept
+that on many common platforms,
+[symmetric multiprocessing](https://en.wikipedia.org/wiki/Symmetric_multiprocessing)
+is a lie. "CPUs" detected by the operating system often have inequal access
+to shared resources like caches, DRAM and I/O peripherals, and significant
+performance gains can be obtained by taking this into account in your code.
 
-[Hwloc](http://www.open-mpi.org/projects/hwloc) is a C library from Open MPI
+This is the latest maintained Rust binding to
+[hwloc](http://www.open-mpi.org/projects/hwloc), a C library from Open MPI
 for detecting the hierarchical topology of modern architectures. This includes
 objects such as NUMA memory nodes, sockets, shared data & instruction caches,
 cores, and simultaneous multi threading.
 
+It is based on and still shares some code and design with previous,
+now-unmaintained attempts to write Rust hwloc bindings at
+[Ichbinjoe/hwloc2-rs](https://github.com/Ichbinjoe/hwloc2-rs) and
+[daschl/hwloc-rs](https://github.com/daschl/hwloc-rs), but it does not aim for
+API compatibility with them. Indeed, many changes have been made with respect to
+hwloc2-rs in the aim of improving ergonomics, performance, and removing avenues
+for Undefined Behaviour like assuming pointers are non-null or union fields are
+valid when nobody tells you they will always be.
+
 ## Prerequisites
 
-A system installed with hwloc >=2.2.0 and associated development packages installed.
+A system installed with hwloc >=2.0.0 and associated development packages installed.
+
+By default, compatibility with all hwloc 2.x versions is aimed for, which means
+features from newer versions in the 2.x series (or, in the near future,
+compatibility with breaking changes from the 3.x series) are not provided by
+default. To tune this compatibility compromise, you can use Cargo features
+(TODO explain once implemented).
 
 Beware that some Linux distributions provide older hwloc versions. You may have
-to install it from source.
-
-You can download the source from <https://www.open-mpi.org/projects/hwloc/>.
+to install it from [source code](https://www.open-mpi.org/projects/hwloc/).
 
 ## Usage
 
@@ -29,13 +48,13 @@ First, add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-hwloc2 = "2.2.0"
+hwlocality = "1.0.0"
 ```
 
 Here is a quick example which walks the `Topology` and prints it out:
 
 ```rust
-use hwloc2::Topology;
+use hwlocality::Topology;
 
 fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
@@ -52,15 +71,16 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-You can also [look at](https://github.com/ichbinjoe/hwloc2-rs/tree/master/examples)
+You can also [look at](https://github.com/ichbinjoe/hwlocality/tree/master/examples)
 more examples, if you want to run them check out the next section below.
 
 ## Running Examples
+
 The library ships with examples, and to run them you need to clone the repository
 and then run them through `cargo run --example=`.
 
 ```text
-$ git clone https://github.com/ichbinjoe/hwloc2-rs.git
+$ git clone https://github.com/hadrieng2/hwlocality.git
 $ cd hwloc-rs
 ```
 
@@ -69,7 +89,7 @@ use `cargo run -example=`:
 
 ```text
 $ cargo run --example=walk_tree
-   Compiling hwloc2 v2.2.0 (/home/hadrien/Bureau/Programmation/hwloc2-rs)
+   Compiling hwlocality v1.0.0 (/home/hadrien/Bureau/Programmation/hwlocality)
     Finished dev [unoptimized + debuginfo] target(s) in 0.45s
      Running `target/debug/examples/walk_tree`
 *** Printing overall tree
@@ -130,5 +150,5 @@ Machine: #0
 
 ## License
 This project uses the MIT license, please see the
-[LICENSE](https://github.com/ichbinjoe/hwloc2-rs/blob/master/LICENSE) file for
+[LICENSE](https://github.com/hadrieng2/hwlocality/blob/master/LICENSE) file for
 more information.

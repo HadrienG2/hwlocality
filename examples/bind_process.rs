@@ -1,5 +1,5 @@
 use anyhow::{ensure, Context};
-use hwloc2::{
+use hwlocality::{
     cpu::binding::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
     ProcessId, Topology,

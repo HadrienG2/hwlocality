@@ -1,5 +1,5 @@
 use anyhow::Context;
-use hwloc2::{objects::TopologyObject, Topology};
+use hwlocality::{objects::TopologyObject, Topology};
 
 /// Walk the topologylogy in a tree-style and print it.
 fn main() -> anyhow::Result<()> {

@@ -1,13 +1,12 @@
 [package]
-name = "hwloc2"
-# TODO: Bump major version before pushing as there are some API-breaking updates
-version = "2.2.0"
+name = "hwlocality"
+version = "1.0.0"
 authors = ["Hadrien G. <knights_of_ni@gmx.com>", "Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
 license = "MIT"
 keywords = ["hwloc"]
-description = "Rust bindings for the hwloc hardware locality library 2.x."
-repository = "https://github.com/HadrienG2/hwloc2-rs"
-documentation = "http://docs.rs/hwloc2/"
+description = "Rust bindings for the hwloc hardware locality library"
+repository = "https://github.com/HadrienG2/hwlocality"
+documentation = "http://docs.rs/hwlocality/"
 build = "build.rs"
 links = "hwloc"
 readme = "README.md"

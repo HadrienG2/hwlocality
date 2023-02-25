@@ -1,4 +1,4 @@
-use hwloc2::Topology;
+use hwlocality::Topology;
 
 /// Walk the topology with an array style, from depth 0 (always Machine)
 /// to the lowest depth (always logical processors).

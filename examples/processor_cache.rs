@@ -1,5 +1,5 @@
 use anyhow::Context;
-use hwloc2::{
+use hwlocality::{
     objects::{attributes::ObjectAttributes, types::ObjectType},
     Topology,
 };

@@ -1,4 +1,4 @@
-use hwloc2::{depth::DepthError, objects::types::ObjectType, Topology};
+use hwlocality::{depth::DepthError, objects::types::ObjectType, Topology};
 
 /// Prints the number of packages.
 fn main() -> anyhow::Result<()> {
