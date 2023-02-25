@@ -38,15 +38,15 @@ Here is a quick example which walks the `Topology` and prints it out:
 use hwloc2::Topology;
 
 fn main() -> anyhow::Result<()> {
-	let topology = Topology::new()?;
+   let topology = Topology::new()?;
 
-	for i in 0..topology.depth() {
-		println!("*** Objects at level {}", i);
+   for i in 0..topology.depth() {
+      println!("*** Objects at level {}", i);
 
-		for (idx, object) in topology.objects_at_depth(i).enumerate() {
-			println!("{}: {}", idx, object);
-		}
-	}
+      for (idx, object) in topology.objects_at_depth(i).enumerate() {
+         println!("{}: {}", idx, object);
+      }
+   }
 
    Ok(())
 }
