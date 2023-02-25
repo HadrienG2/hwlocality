@@ -22,42 +22,36 @@ fn main() -> anyhow::Result<()> {
     // load the current pid through libc
     let pid = get_pid();
 
-    println!("Binding Process with PID {:?}", pid);
+    println!("Binding Process with PID {pid:?}");
 
     // Grab last PU and extract its CpuSet
     let cpuset = last_pu(&topology)?
         .cpuset()
         .context("PU objects should have a CpuSet")?;
 
-    println!(
-        "Before Bind: {:?}",
-        topology.process_cpu_binding(pid, CpuBindingFlags::PROCESS)?
-    );
-
-    // Print last CPU Location, if supported
-    let print_last_location = || -> anyhow::Result<()> {
+    // Query the current cpu binding, and location if supported
+    let print_binding_location = |situation: &str| -> anyhow::Result<()> {
+        println!(
+            "Cpu Binding {situation}: {:?}",
+            topology.process_cpu_binding(pid, CpuBindingFlags::PROCESS)?
+        );
         if support.get_process_last_cpu_location() {
             println!(
-                "Last Known CPU Location: {:?}",
+                "Cpu Location {situation}: {:?}",
                 topology.last_process_cpu_location(pid, CpuBindingFlags::PROCESS)?
             )
         }
         Ok(())
     };
 
-    // Print last CPU location before binding
-    print_last_location()?;
+    // Query binding and CPU location before binding
+    print_binding_location("before binding")?;
 
     // Bind to one core.
     topology.bind_process_cpu(pid, cpuset, CpuBindingFlags::PROCESS)?;
 
-    println!(
-        "After Bind: {:?}",
-        topology.process_cpu_binding(pid, CpuBindingFlags::PROCESS)?
-    );
-
-    // Print last CPU location after binding
-    print_last_location()?;
+    // Query binding and CPU location after binding
+    print_binding_location("after binding")?;
 
     Ok(())
 }

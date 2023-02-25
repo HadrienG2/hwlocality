@@ -5,19 +5,19 @@ use hwloc2::{
     Topology,
 };
 
-/// Bind to only one thread of the last core of the machine.
+/// Bind to the CPU last core of the machine.
 ///
-/// First find out where cores are, or else smaller sets of CPUs if
+/// First find out where cores are, or else smaller sets of logical CPUs if
 /// the OS doesn't have the notion of a "core".
 ///
 /// Example Output with 2 cores (no HT) on linux:
 ///
 /// ```
-/// Cpu Binding before explicit bind: 0-1
-/// Cpu Location before explicit bind: 0
+/// Cpu Binding before explicit binding: 0-1
+/// Cpu Location before explicit binding: 0
 /// Correctly bound to last core
-/// Cpu Binding after explicit bind: 1
-/// Cpu Location after explicit bind: 1
+/// Cpu Binding after explicit binding: 1
+/// Cpu Location after explicit binding: 1
 /// ```
 fn main() -> anyhow::Result<()> {
     // Create topology and check feature support
@@ -39,14 +39,14 @@ fn main() -> anyhow::Result<()> {
         .context("Cores should have CPUsets")?;
 
     // Query the current cpu binding, and location if supported
-    let print_binding_location = || -> anyhow::Result<()> {
+    let print_binding_location = |situation: &str| -> anyhow::Result<()> {
         println!(
-            "Cpu Binding before explicit bind: {:?}",
+            "Cpu Binding {situation}: {:?}",
             topology.cpu_binding(CpuBindingFlags::PROCESS)?
         );
         if support.get_current_process_last_cpu_location() {
             println!(
-                "Cpu Location before explicit bind: {:?}",
+                "Cpu Location {situation}: {:?}",
                 topology.last_cpu_location(CpuBindingFlags::PROCESS)?
             )
         }
@@ -54,14 +54,14 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Check binding and location before binding
-    print_binding_location()?;
+    print_binding_location("before explicit binding")?;
 
     // Try to bind all threads of the current (possibly multithreaded) process.
     topology.bind_cpu(cpuset, CpuBindingFlags::PROCESS)?;
     println!("Correctly bound to last core");
 
     // Check binding and location before binding
-    print_binding_location()?;
+    print_binding_location("after explicit binding")?;
 
     Ok(())
 }

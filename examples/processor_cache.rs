@@ -27,8 +27,7 @@ fn main() -> anyhow::Result<()> {
             (levels + 1, total_size + level_size)
         });
     println!(
-        "*** Logical processor 0 is covered by {} caches totalling {} KB",
-        levels,
+        "*** Logical processor 0 is covered by {levels} caches totalling {} KiB",
         size / 1024
     );
 

@@ -64,10 +64,7 @@ fn main() -> anyhow::Result<()> {
                 let after = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
 
                 // Report what was done
-                println!(
-                    "Thread {}: Binding went from {:?} to {:?}",
-                    core, before, after
-                );
+                println!("Thread {core}: Binding went from {before:?} to {after:?}");
 
                 Ok(())
             });
