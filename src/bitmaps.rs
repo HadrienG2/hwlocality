@@ -16,7 +16,7 @@ use std::{
     cmp::Ordering,
     convert::TryFrom,
     ffi::c_int,
-    fmt,
+    fmt::{self, Debug, Display},
     iter::{FromIterator, FusedIterator},
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
@@ -24,7 +24,9 @@ use std::{
 };
 
 /// Trait for manipulating specialized bitmaps in a homogeneous way
-pub trait SpecializedBitmap: AsRef<Bitmap> + AsMut<Bitmap> + From<Bitmap> + Into<Bitmap> {
+pub trait SpecializedBitmap:
+    AsRef<Bitmap> + AsMut<Bitmap> + Clone + Display + From<Bitmap> + Into<Bitmap> + 'static
+{
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;
 
@@ -65,7 +67,6 @@ macro_rules! impl_bitmap_newtype {
             Clone,
             Debug,
             Default,
-            Display,
             Eq,
             From,
             Into,
@@ -83,6 +84,12 @@ macro_rules! impl_bitmap_newtype {
 
             fn from_bitmap_ref(bitmap: &Bitmap) -> &Self {
                 bitmap.as_ref()
+            }
+        }
+
+        impl Display for $newtype {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{}({})", stringify!($newtype), &self.0)
             }
         }
 
@@ -603,7 +610,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::new();
     /// assert_eq!("", format!("{}", bitmap));
@@ -621,7 +628,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::full();
     /// assert_eq!("0-", format!("{}", bitmap));
@@ -639,7 +646,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(0..=5);
     /// assert_eq!("0-5", format!("{}", bitmap));
@@ -657,7 +664,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(0..=5);
     /// let mut bitmap2 = Bitmap::new();
@@ -677,7 +684,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=5);
     /// assert_eq!(Some(5), bitmap.weight());
@@ -696,7 +703,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=5);
     /// assert_eq!(Some(5), bitmap.weight());
@@ -713,7 +720,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=5);
     /// assert_eq!(Some(5), bitmap.weight());
@@ -734,7 +741,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=5);
     /// assert_eq!(Some(5), bitmap.weight());
@@ -757,7 +764,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// bitmap.set(4);
@@ -773,7 +780,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// bitmap.set_range(3..=5);
@@ -801,7 +808,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=3);
     /// bitmap.unset(1);
@@ -817,7 +824,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=5);
     /// bitmap.unset_range(4..6);
@@ -857,7 +864,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// bitmap.set_range(0..=127);
@@ -878,7 +885,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// assert_eq!(false, bitmap.is_set(2));
@@ -900,7 +907,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// assert_eq!(true, bitmap.is_empty());
@@ -925,7 +932,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let empty_bitmap = Bitmap::new();
     /// assert_eq!(false, empty_bitmap.is_full());
@@ -949,7 +956,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..=10);
     /// assert_eq!(Some(4), bitmap.first_set());
@@ -968,7 +975,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..=10);
     /// let indices = bitmap.iter_set().collect::<Vec<_>>();
@@ -983,7 +990,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..=10);
     /// assert_eq!(Some(10), bitmap.last_set());
@@ -1004,7 +1011,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(1..=5);
     /// assert_eq!(Some(5), bitmap.weight());
@@ -1027,7 +1034,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(..10);
     /// assert_eq!(Some(10), bitmap.first_unset());
@@ -1046,7 +1053,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..);
     /// let indices = bitmap.iter_unset().collect::<Vec<_>>();
@@ -1061,7 +1068,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..);
     /// assert_eq!(Some(3), bitmap.last_unset());
@@ -1080,7 +1087,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..=10);
     /// let bitmap2 = Bitmap::from_range(5..=6);
@@ -1100,7 +1107,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(4..=10);
     /// let mut bitmap2 = bitmap.clone();
@@ -1119,7 +1126,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let mut bitmap = Bitmap::new();
     /// bitmap.set(3);
@@ -1137,7 +1144,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap1 = Bitmap::from_range(1..3);
     /// let bitmap2 = Bitmap::from_range(3..6);
@@ -1161,7 +1168,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmap::Bitmap;
+    /// use hwlocality::bitmaps::Bitmap;
     ///
     /// let bitmap1 = Bitmap::from_range(3..8);
     /// let bitmap2 = Bitmap::from_range(5..9);
@@ -1389,9 +1396,9 @@ impl Clone for Bitmap {
     }
 }
 
-impl fmt::Debug for Bitmap {
+impl Debug for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        <Self as fmt::Display>::fmt(self, f)
+        <Self as Display>::fmt(self, f)
     }
 }
 
@@ -1401,7 +1408,7 @@ impl Default for Bitmap {
     }
 }
 
-impl fmt::Display for Bitmap {
+impl Display for Bitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         ffi::write_snprintf(f, |buf, len| unsafe {
             ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())

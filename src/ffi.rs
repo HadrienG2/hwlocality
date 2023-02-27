@@ -1,9 +1,10 @@
 use crate::{
-    bitmap::RawBitmap,
+    bitmaps::RawBitmap,
     builder::RawTypeFilter,
     depth::RawDepth,
     distances::{RawDistances, RawDistancesTransform},
     editor::DistancesAddHandle,
+    errors::NulError,
     memory::{
         attributes::{MemoryAttributeID, RawLocation},
         binding::RawMemoryBindingPolicy,
@@ -18,7 +19,6 @@ use std::{
     marker::{PhantomData, PhantomPinned},
     ptr::{self, NonNull},
 };
-use thiserror::Error;
 
 /// Dereference a C pointer with correct lifetime (*const -> & version)
 pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
@@ -146,10 +146,6 @@ impl Drop for LibcString {
         unsafe { libc::free(self.0.as_ptr() as *mut c_void) }
     }
 }
-//
-#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
-#[error("string cannot be used by C because it contains NUL chars")]
-pub(crate) struct NulError;
 
 /// Rust model of a C incomplete type (struct declaration without a definition)
 /// From https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs

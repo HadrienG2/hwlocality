@@ -10,7 +10,6 @@ use std::{
     fmt::{self, Debug, Display},
     hash::Hash,
     ops::{Deref, Index},
-    path::Path,
     ptr::NonNull,
 };
 
@@ -104,12 +103,6 @@ impl AsRef<str> for XML<'_> {
 
 impl AsRef<OsStr> for XML<'_> {
     fn as_ref(&self) -> &OsStr {
-        self.as_str().as_ref()
-    }
-}
-
-impl AsRef<Path> for XML<'_> {
-    fn as_ref(&self) -> &Path {
         self.as_str().as_ref()
     }
 }

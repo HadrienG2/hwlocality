@@ -3,6 +3,8 @@
 #[cfg(doc)]
 use crate::{editor::TopologyEditor, support::MiscSupport};
 use crate::{
+    errors::{FlagsError, NulError, ParameterError, UnsupportedError},
+    export::{self, PathError},
     ffi::{self, LibcString},
     objects::types::ObjectType,
     ProcessId, RawTopology, Topology,
@@ -17,7 +19,6 @@ use std::{
     path::Path,
     ptr::NonNull,
 };
-use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
 #[derive(Debug)]
@@ -61,6 +62,21 @@ impl TopologyBuilder {
 }
 
 /// # Discovery source
+///
+/// If none of the functions below is called, the default is to detect all the
+/// objects of the machine that the caller is allowed to access.
+///
+/// This default behavior may also be modified through environment variables if
+/// the application did not modify it already. Setting HWLOC_XMLFILE in the
+/// environment enforces the discovery from a XML file as if [`from_xml_file()`]
+/// had been called. Setting HWLOC_SYNTHETIC enforces a synthetic topology as if
+/// [`from_synthetic()`] had been called.
+///
+/// Finally, HWLOC_THISSYSTEM forces [`Topology::is_this_system()`] to return
+/// true.
+///
+/// [`from_xml_file()`]: TopologyBuilder::from_xml_file()
+/// [`from_synthetic()`]: TopologyBuilder::from_synthetic()
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 impl TopologyBuilder {
@@ -70,14 +86,19 @@ impl TopologyBuilder {
     /// instance the set of allowed CPUs. By default, hwloc exposes the view
     /// from the current process. Calling this method permits to make it expose
     /// the topology of the machine from the point of view of another process.
-    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, Unsupported> {
+    ///
+    /// # Errors
+    ///
+    /// - [`UnsupportedError`] if hwloc does not support this feature (on this
+    ///   system, for this process).
+    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, UnsupportedError> {
         let result = unsafe { ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid) };
         match result {
             0 => Ok(self),
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    ENOSYS => Err(Unsupported),
+                    ENOSYS => Err(UnsupportedError),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -95,8 +116,19 @@ impl TopologyBuilder {
     /// this behavior.
     ///
     /// CPU and memory binding operations will be ineffective with this backend.
-    pub fn from_synthetic(mut self, description: &str) -> Result<Self, InvalidParameter> {
-        let Ok(description) = LibcString::new(description) else { return Err(InvalidParameter) };
+    ///
+    /// # Errors
+    ///
+    /// - [`RustSide(NulError)`](NulError) if `description` contains NUL chars.
+    /// - [`HwlocSide`] if `description` failed hwloc-side validation (most
+    ///   likely it is not a valid Synthetic description)
+    ///
+    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    pub fn from_synthetic(
+        mut self,
+        description: impl AsRef<str>,
+    ) -> Result<Self, ParameterError<NulError>> {
+        let description = LibcString::new(description)?;
         let result =
             unsafe { ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow()) };
         match result {
@@ -104,7 +136,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter),
+                    EINVAL => Err(ParameterError::HwlocSide),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -121,8 +153,16 @@ impl TopologyBuilder {
     /// CPU and memory binding operations will be ineffective with this backend,
     /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
     /// loaded XML file truly matches the underlying system.
-    pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, InvalidParameter> {
-        let Ok(xml) = LibcString::new(xml) else { return Err(InvalidParameter) };
+    ///
+    /// # Errors
+    ///
+    /// - [`RustSide(NulError)`](NulError) if `xml` contains NUL chars.
+    /// - [`HwlocSide`] if `xml` failed hwloc-side validation (most
+    ///   likely it is not a valid XML description)
+    ///
+    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, ParameterError<NulError>> {
+        let xml = LibcString::new(xml)?;
         let result = unsafe {
             ffi::hwloc_topology_set_xmlbuffer(
                 self.as_mut_ptr(),
@@ -137,7 +177,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter),
+                    EINVAL => Err(ParameterError::HwlocSide),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -153,17 +193,27 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - `InvalidPath` if `path` is not UTF-8 or contains inner NUL chars.
-    pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, InvalidParameter> {
-        let Some(path) = path.as_ref().to_str() else { return Err(InvalidParameter) };
-        let Ok(path) = LibcString::new(path) else { return Err(InvalidParameter) };
+    /// - [`RustSide(ContainsNul)`] if `path` contains NUL chars.
+    /// - [`RustSide(NotUnicode)`] if `path` is not valid Unicode.
+    /// - [`HwlocSide`] if `path` fails hwloc-side validation (most likely the
+    ///   path does not exist, is not accessible for reading, or the file does
+    ///   not context valid XML)
+    ///
+    /// [`RustSide(ContainsNul)`]: PathError::ContainsNul
+    /// [`RustSide(NotUnicode)`]: PathError::NotUnicode
+    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    pub fn from_xml_file(
+        mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, ParameterError<PathError>> {
+        let path = export::make_hwloc_path(path)?;
         let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow()) };
         match result {
             0 => Ok(self),
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter),
+                    EINVAL => Err(ParameterError::HwlocSide),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -183,8 +233,16 @@ impl TopologyBuilder {
     /// This may be used to avoid expensive parts of the discovery process. For
     /// instance, CUDA-specific discovery may be expensive and unneeded while
     /// generic I/O discovery could still be useful.
-    pub fn blacklist_component(mut self, name: &str) -> Result<Self, InvalidParameter> {
-        let Ok(name) = LibcString::new(name) else { return Err(InvalidParameter) };
+    ///
+    /// # Errors
+    ///
+    /// - [`RustSide(NulError)`](NulError) if `name` contains NUL chars.
+    /// - [`HwlocSide`] if `name` failed hwloc-side validation (most
+    ///   likely it is not a valid component/phase name)
+    ///
+    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    pub fn blacklist_component(mut self, name: &str) -> Result<Self, ParameterError<NulError>> {
+        let name = LibcString::new(name)?;
         let result = unsafe {
             ffi::hwloc_topology_set_components(
                 self.as_mut_ptr(),
@@ -210,19 +268,31 @@ impl TopologyBuilder {
     /// If this function is called multiple times, the last invocation will
     /// erase and replace the set of flags that was previously set.
     ///
+    /// # Errors
+    ///
+    /// - [`RustSide(FlagsError)`](FlagsError) if `flags` were found to be
+    ///   invalid on the Rust side. You may want to cross-check the
+    ///   documentation of [`BuildFlags`] for more information about which
+    ///   combinations of flags are considered valid.
+    /// - [`HwlocSide`] if `flags` failed hwloc-side validation.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::{Topology, builder::BuildFlags};
-    ///
-    /// let topology = Topology::builder()
-    ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM).unwrap()
-    ///                         .build().unwrap();
+    /// # use hwlocality::Topology;
+    /// let topology = Topology::builder()?
+    ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM)?
+    ///                         .build()?;
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     ///
-    pub fn with_flags(mut self, flags: BuildFlags) -> Result<Self, InvalidParameter> {
+    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    pub fn with_flags(
+        mut self,
+        flags: BuildFlags,
+    ) -> Result<Self, ParameterError<FlagsError<BuildFlags>>> {
         if !flags.is_valid() {
-            return Err(InvalidParameter);
+            return Err(ParameterError::RustSide(flags.into()));
         }
         let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
         match result {
@@ -230,7 +300,7 @@ impl TopologyBuilder {
             -1 => {
                 let errno = errno();
                 match errno.0 {
-                    EINVAL => Err(InvalidParameter),
+                    EINVAL => Err(ParameterError::HwlocSide),
                     _ => panic!("Unexpected errno {errno}"),
                 }
             }
@@ -616,13 +686,3 @@ pub enum TypeFilter {
     /// since they are likely important.
     KeepImportant = 3,
 }
-
-/// Error returned when an invalid parameter was passed
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("invalid parameter specified")]
-pub struct InvalidParameter;
-
-/// Error returned when the platform does not support this feature
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("platform does not support this feature")]
-pub struct Unsupported;

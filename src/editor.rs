@@ -9,7 +9,7 @@
 #[cfg(doc)]
 use crate::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
-    bitmap::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
+    bitmaps::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
     depth::Depth,
     distances::{Distances, DistancesKind},
     ffi::{self, LibcString},
@@ -272,7 +272,7 @@ impl TopologyEditor<'_> {
         // So letting the client keep hold of it would be highly problematic.
         //
         let parent = find_parent(self.topology()) as *const TopologyObject as *mut TopologyObject;
-        let name = LibcString::new(name).ok()?;
+        let name = LibcString::new(name)?;
         unsafe {
             let ptr = ffi::hwloc_topology_insert_misc_object(
                 self.topology_mut_ptr(),
@@ -477,9 +477,7 @@ impl TopologyEditor<'_> {
         ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
     ) -> Result<(), AddDistancesFailed<'args>> {
         // Prepare arguments for C consumption and validate them
-        let Ok(name) = name.map(LibcString::new).transpose() else {
-            return Err(AddDistancesFailed::BadName(name.expect("Must be Some if this happens")));
-        };
+        let name = name.map(LibcString::new).transpose()?;
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
         //
         if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
@@ -661,7 +659,7 @@ impl TopologyEditor<'_> {
         if let Ok(depth) = topology.depth_for_type(ty) {
             self.remove_distances_at_depth(depth);
         } else {
-            let depths = (0..topology.depth())
+            let depths = (0..topology.full_depth())
                 .map(Depth::from)
                 .filter_map(|depth| {
                     let depth_ty = topology
@@ -695,12 +693,12 @@ impl<'topology> TopologyEditor<'topology> {
         if !flags.is_valid() {
             return Err(MemoryAttributeRegisterError::BadFlags(flags));
         }
-        let cname = LibcString::new(name).expect("Can't pass NUL to hwloc");
+        let name = LibcString::new(name)?;
         let mut id = MemoryAttributeID::default();
         let result = unsafe {
             ffi::hwloc_memattr_register(
                 self.topology_mut_ptr(),
-                cname.borrow(),
+                name.borrow(),
                 flags.bits(),
                 &mut id,
             )

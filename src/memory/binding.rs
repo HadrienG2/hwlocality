@@ -4,16 +4,21 @@
 
 #[cfg(doc)]
 use crate::support::MemoryBindingSupport;
-use crate::{ffi, Topology};
+use crate::{
+    bitmaps::SpecializedBitmap,
+    errors::{self, FlagsError, RawIntError, RawNullError},
+    ffi, Topology,
+};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};
-use libc::{EINVAL, ENOMEM, ENOSYS, EXDEV};
+use libc::{ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     borrow::{Borrow, BorrowMut},
+    error::Error,
     ffi::{c_int, c_void},
-    fmt::{self, Debug},
+    fmt::{self, Debug, Display},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -106,7 +111,7 @@ impl MemoryBindingFlags {
     /// Truth that these flags are in a valid state
     pub(crate) fn is_valid(
         self,
-        target: MemoryBindingTarget,
+        target: MemoryBoundObject,
         operation: MemoryBindingOperation,
     ) -> bool {
         // Intrinsically incompatible flag combination
@@ -116,9 +121,9 @@ impl MemoryBindingFlags {
 
         // Support for PROCESS and THREAD
         let good_for_target = match target {
-            MemoryBindingTarget::Area => !self.intersects(Self::PROCESS | Self::THREAD),
-            MemoryBindingTarget::Process => !self.contains(Self::THREAD),
-            MemoryBindingTarget::None => true,
+            MemoryBoundObject::Area => !self.intersects(Self::PROCESS | Self::THREAD),
+            MemoryBoundObject::Process => !self.contains(Self::THREAD),
+            MemoryBoundObject::ThisProgram => true,
         };
 
         // Support fo STRICT, MIGRATE and NO_CPU_BINDING
@@ -132,8 +137,8 @@ impl MemoryBindingFlags {
                         return false;
                     }
                     match target {
-                        MemoryBindingTarget::Area | MemoryBindingTarget::Process => true,
-                        MemoryBindingTarget::None => {
+                        MemoryBoundObject::Area | MemoryBoundObject::Process => true,
+                        MemoryBoundObject::ThisProgram => {
                             !self.contains(Self::STRICT) || self.contains(Self::PROCESS)
                         }
                     }
@@ -145,14 +150,30 @@ impl MemoryBindingFlags {
     }
 }
 //
-// NOTE: No default because user must consciously think about need for PROCESS
+// NOTE: No default because user must consciously think about the need for PROCESS
 //
-/// Binding target
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
-pub(crate) enum MemoryBindingTarget {
+/// Object that is being bound to particular NUMA nodes
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MemoryBoundObject {
+    /// A process, identified by its PID
     Process,
+
+    /// A range of memory adresses, identified by a reference
     Area,
-    None,
+
+    /// The currently running program
+    ThisProgram,
+}
+//
+impl Display for MemoryBoundObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display = match self {
+            Self::Process => "the target process",
+            Self::Area => "the target location",
+            Self::ThisProgram => "the current process/thread",
+        };
+        write!(f, "{display}")
+    }
 }
 //
 /// Binding operation
@@ -229,111 +250,190 @@ pub enum MemoryBindingPolicy {
     NextTouch = 4,
 }
 
-/// Errors that can occur when binding memory to NUMA nodes
+/// Errors that can occur when binding memory to NUMA nodes, querying bindings,
+/// or allocating (possibly bound) memory
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum MemoryBindingSetupError {
-    /// Requested action or policy is not supported
+pub enum MemoryError<Set: SpecializedBitmap, RawHwlocError: Error> {
+    /// The system does not support the specified action or policy
+    ///
+    /// For example, some systems only allow binding memory on a per-thread
+    /// basis, whereas other systems only allow binding memory for all threads
+    /// in a process.
     ///
     /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
     /// not set. Instead, the implementation is allowed to try to use a slightly
-    /// different operation (with side-effects, smaller binding set, etc.) when
+    /// different operation (with side-effects, binding more objects, etc.) when
     /// the requested operation is not exactly supported.
-    #[error("action is not supported")]
+    #[error("requested memory binding action or policy is not supported")]
     Unsupported,
 
+    /// Requested memory binding flags are not valid in this context
+    ///
+    /// Not all memory binding flag combinations make sense, either in isolation
+    /// or in the context of a particular binding function. Please cross-check
+    /// the documentation of [`MemoryBindingFlags`] and the function you were
+    /// trying to call for more information.
+    #[error(transparent)]
+    BadFlags(FlagsError<MemoryBindingFlags>),
+
     /// Cannot bind to the target CPU or node set
+    ///
+    /// Operating systems can have various restrictions here, e.g. can only bind
+    /// to NUMA node.
+    ///
+    /// This error should only be reported when trying to set memory bindings.
     ///
     /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
     /// not set. Instead, the implementation is allowed to try using a smaller
     /// or larger set to make the operation succeed.
-    #[error("binding cannot be enforced")]
-    BadSet,
+    #[error("cannot bind {0} to {1}")]
+    BadSet(MemoryBoundObject, Set),
 
     /// Memory allocation failed even before trying to bind
     ///
-    /// This error may only be returned by the `Topology::allocate_xyz` methods.
-    #[error("memory allocation failed")]
+    /// This error may only be returned by [`Topology::allocate_bound_memory()`]
+    /// and [`Topology::binding_allocate_memory()`].
+    #[error("failed to allocate memory")]
     AllocationFailed,
 
-    /// Unexpected errno value
-    #[error("unexpected errno value {0}")]
-    UnexpectedErrno(Errno),
+    /// Memory policies and nodesets vary from one thread to another
+    ///
+    /// This error is returned when querying a process' memory bindings with the
+    /// flags [`PROCESS`] and [`STRICT`] specified. It means that the default
+    /// memory policies and nodesets are not homogeneous across all threads of
+    /// the target process.
+    ///
+    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
+    /// [`STRICT`]: MemoryBindingFlags::STRICT
+    #[error("binding varies from one thread of the process to another")]
+    #[doc(alias = "HWLOC_MEMBIND_MIXED")]
+    MixedResults,
 
-    /// Unexpected binding function result
-    #[error("unexpected binding function result {0} with errno {1}")]
-    UnexpectedResult(i32, Errno),
+    /// Unexpected hwloc error
+    ///
+    /// The hwloc documentation isn't exhaustive about what errors can occur in
+    /// general, and new error cases could potentially be added by new hwloc
+    /// releases. If we cannot provide a high-level error description, we will
+    /// fall back to reporting the raw error from the hwloc API.
+    #[error(transparent)]
+    Unexpected(#[from] RawHwlocError),
+}
+//
+impl<Set: SpecializedBitmap, RawHwlocError: Error> From<MemoryBindingFlags>
+    for MemoryError<Set, RawHwlocError>
+{
+    fn from(value: MemoryBindingFlags) -> Self {
+        Self::BadFlags(value.into())
+    }
 }
 
-impl MemoryBindingSetupError {
-    /// Determine error from the current value of errno
-    ///
-    /// Call this after a memory binding function failed.
-    pub(crate) fn from_errno() -> Self {
-        let errno = errno();
-        match errno.0 {
-            ENOSYS => MemoryBindingSetupError::Unsupported,
-            EXDEV => MemoryBindingSetupError::BadSet,
-            ENOMEM => MemoryBindingSetupError::AllocationFailed,
-            _ => MemoryBindingSetupError::UnexpectedErrno(errno),
+/// Errors that can occur when querying or setting memory bindings
+pub type MemoryBindingError<Set: SpecializedBitmap> = MemoryError<Set, RawIntError>;
+
+/// Call an hwloc API that is about manipulating memory bindings and translate
+/// known errors into higher-level `MemoryBindingError`s.
+///
+/// Validating flags is left up to the caller, to avoid allocating result
+/// objects when it can be proved upfront that the request is invalid.
+pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
+    api: &'static str,
+    object: MemoryBoundObject,
+    operation: MemoryBindingOperation,
+    set: Option<&Set>,
+    ffi: impl FnOnce() -> c_int,
+) -> Result<(), MemoryBindingError<Set>> {
+    match errors::call_hwloc_int(api, ffi) {
+        Ok(_positive) => Ok(()),
+        Err(
+            raw_err @ RawIntError::Errno {
+                errno: Some(errno), ..
+            },
+        ) => {
+            if let Some(error) = decode_errno(object, operation, set, errno) {
+                Err(error)
+            } else {
+                Err(MemoryBindingError::Unexpected(raw_err))
+            }
+        }
+        Err(raw_err) => Err(MemoryBindingError::Unexpected(raw_err)),
+    }
+}
+
+/// Errors that can occur when allocating memory
+pub type MemoryAllocationError<Set: SpecializedBitmap> = MemoryError<Set, RawNullError>;
+//
+impl<Set: SpecializedBitmap> From<MemoryBindingError<Set>> for MemoryAllocationError<Set> {
+    fn from(value: MemoryBindingError<Set>) -> Self {
+        match value {
+            MemoryBindingError::Unsupported => Self::Unsupported,
+            MemoryBindingError::BadFlags(flags) => Self::BadFlags(flags),
+            MemoryBindingError::BadSet(MemoryBoundObject, Set) => {
+                Self::BadSet(MemoryBoundObject, Set)
+            }
+            MemoryBindingError::AllocationFailed => Self::AllocationFailed,
+            MemoryBindingError::MixedResults => Self::MixedResults,
+            MemoryError::Unexpected(RawIntError::Errno { api, errno })
+            | MemoryError::Unexpected(RawIntError::ReturnValue { api, errno, .. }) => {
+                Self::Unexpected(RawNullError { api, errno })
+            }
         }
     }
 }
 
-/// Result of an operation that sets memory bindings
-pub(crate) fn setup_result(result: i32) -> Result<(), MemoryBindingSetupError> {
-    match result {
-        x if x >= 0 => Ok(()),
-        -1 => Err(MemoryBindingSetupError::from_errno()),
-        negative => Err(MemoryBindingSetupError::UnexpectedResult(negative, errno())),
-    }
-}
-
-/// Errors that can occur when querying current memory binding status
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum MemoryBindingQueryError {
-    /// Memory policies and nodesets vary from one thread to another
-    ///
-    /// This error is returned when [`MemoryBindingFlags::PROCESS`] and
-    /// [`MemoryBindingFlags::STRICT`] are both specified and the default memory
-    /// policies and nodesets are not homogeneous across all threads of the
-    /// target process.
-    #[error("result varies from one thread of the process to another")]
-    #[doc(alias = "HWLOC_MEMBIND_MIXED")]
-    MixedResults,
-
-    /// An invalid flag was specified
-    ///
-    /// Some memory binding flags like [`MemoryBindingFlags::MIGRATE`] do not
-    /// make sense in the context of querying the current memory binding status
-    /// and should not be used then.
-    #[error("invalid request")]
-    InvalidRequest,
-
-    /// Unexpected errno value
-    #[error("unexpected errno value {0}")]
-    UnexpectedErrno(Errno),
-
-    /// Unexpected binding function result
-    #[error("unexpected binding function result {0} with errno {1}")]
-    UnexpectedResult(i32, Errno),
-}
-
-/// Result of an operation that sets memory bindings
-pub(crate) fn query_result_lazy<T>(
-    result: i32,
-    ok: impl FnOnce() -> T,
-) -> Result<T, MemoryBindingQueryError> {
-    match result {
-        x if x >= 0 => Ok(ok()),
-        -1 => Err({
-            let errno = errno();
-            match errno.0 {
-                EXDEV => MemoryBindingQueryError::MixedResults,
-                EINVAL => MemoryBindingQueryError::InvalidRequest,
-                _ => MemoryBindingQueryError::UnexpectedErrno(errno),
+/// Call an hwloc API that allocates (possibly bound) memory and translate
+/// known errors into higher-level `MemoryBindingError`s.
+///
+/// Validating flags is left up to the caller, to avoid allocating result
+/// objects when it can be proved upfront that the request is invalid.
+pub(crate) fn call_hwloc_allocate<Set: SpecializedBitmap>(
+    api: &'static str,
+    set: Option<&Set>,
+    ffi: impl FnOnce() -> *mut c_void,
+) -> Result<NonNull<c_void>, MemoryAllocationError<Set>> {
+    errors::call_hwloc_ptr_mut("hwloc_alloc", ffi).map_err(|raw_err| {
+        if let RawNullError {
+            errno: Some(errno), ..
+        } = raw_err
+        {
+            if let Some(error) = decode_errno(
+                MemoryBoundObject::Area,
+                MemoryBindingOperation::Allocate,
+                set,
+                errno,
+            ) {
+                return error;
             }
-        }),
-        negative => Err(MemoryBindingQueryError::UnexpectedResult(negative, errno())),
+        }
+        MemoryAllocationError::Unexpected(raw_err)
+    })
+}
+
+/// Translating hwloc errno into high-level errors
+fn decode_errno<Set: SpecializedBitmap, RawHwlocError: Error>(
+    object: MemoryBoundObject,
+    operation: MemoryBindingOperation,
+    set: Option<&Set>,
+    errno: Errno,
+) -> Option<MemoryError<Set, RawHwlocError>> {
+    match errno.0 {
+        ENOSYS => Some(MemoryError::Unsupported),
+        EXDEV => match operation {
+            MemoryBindingOperation::Bind | MemoryBindingOperation::Allocate => {
+                Some(MemoryError::BadSet(
+                    object,
+                    set.expect("This error should only be observed on commands that set bindings")
+                        .clone(),
+                ))
+            }
+            MemoryBindingOperation::GetBinding | MemoryBindingOperation::GetLastLocation => {
+                Some(MemoryError::MixedResults)
+            }
+            MemoryBindingOperation::Unbind => {
+                unreachable!("The empty set should always be considered valid")
+            }
+        },
+        ENOMEM => Some(MemoryError::AllocationFailed),
+        _ => None,
     }
 }
 
@@ -353,18 +453,15 @@ impl<'topology> Bytes<'topology> {
     /// Wrap an hwloc allocation
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
-        base: *mut c_void,
+        base: NonNull<c_void>,
         len: usize,
-    ) -> Option<Self> {
-        // Handle null pointers
-        if base.is_null() {
-            return None;
-        }
-
-        // Wrap the allocation
-        let base = base as *mut MaybeUninit<u8>;
+    ) -> Self {
+        let base = base.as_ptr() as *mut MaybeUninit<u8>;
         let data = std::ptr::slice_from_raw_parts_mut(base, len);
-        NonNull::new(data).map(|data| Self { topology, data })
+        Self {
+            topology,
+            data: NonNull::new_unchecked(data),
+        }
     }
 }
 

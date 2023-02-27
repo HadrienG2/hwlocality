@@ -4,10 +4,14 @@
 
 use bitflags::bitflags;
 use derive_more::Display;
-use errno::{errno, Errno};
 use libc::{ENOSYS, EXDEV};
-use std::ffi::c_int;
+use std::{ffi::c_int, fmt::Display};
 use thiserror::Error;
+
+use crate::{
+    bitmaps::CpuSet,
+    errors::{self, FlagsError, RawIntError},
+};
 
 bitflags! {
     /// Process/Thread binding flags.
@@ -87,15 +91,15 @@ bitflags! {
 //
 impl CpuBindingFlags {
     /// Truth that these flags are in a valid state
-    pub(crate) fn is_valid(self, target: CpuBindingTarget, operation: CpuBindingOperation) -> bool {
+    pub(crate) fn is_valid(self, target: CpuBoundObject, operation: CpuBindingOperation) -> bool {
         if self.contains(Self::PROCESS | Self::THREAD) {
             return false;
         }
-        if self.contains(Self::PROCESS) && target == CpuBindingTarget::Thread {
+        if self.contains(Self::PROCESS) && target == CpuBoundObject::Thread {
             return false;
         }
         if self.contains(Self::THREAD)
-            && target == CpuBindingTarget::Process
+            && target == CpuBoundObject::ProcessOrThread
             && cfg!(not(target_os = "linux"))
         {
             return false;
@@ -106,7 +110,7 @@ impl CpuBindingFlags {
             }
             CpuBindingOperation::SetBinding => true,
             CpuBindingOperation::GetBinding => {
-                if self.contains(Self::STRICT) && target == CpuBindingTarget::Thread {
+                if self.contains(Self::STRICT) && target == CpuBoundObject::Thread {
                     return false;
                 }
                 !self.contains(Self::NO_MEMORY_BINDING)
@@ -115,15 +119,31 @@ impl CpuBindingFlags {
     }
 }
 //
-/// Binding target
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
-pub(crate) enum CpuBindingTarget {
-    Process,
+/// Object that is being bound to particular CPUs
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub enum CpuBoundObject {
+    /// A process, identified by its PID, or possibly a thread on Linux
+    ProcessOrThread,
+
+    /// A thread, identified by its TID
     Thread,
-    None,
+
+    /// The currently running program
+    ThisProgram,
 }
 //
-/// Binding operation
+impl Display for CpuBoundObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display = match self {
+            Self::ProcessOrThread => "the target process/thread",
+            Self::Thread => "the target thread",
+            Self::ThisProgram => "the current process/thread",
+        };
+        write!(f, "{display}")
+    }
+}
+//
+/// Operation on that object's CPU binding
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub(crate) enum CpuBindingOperation {
     GetBinding,
@@ -132,47 +152,77 @@ pub(crate) enum CpuBindingOperation {
 }
 
 /// Errors that can occur when binding processes or threads to CPUSets
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum CpuBindingError {
-    /// Action is not supported
+    /// Cannot query or set CPU bindings for this kind of object
+    ///
+    /// This error might not be reported if [`CpuBindingFlags::STRICT`] is not
+    /// set. Instead, the implementation is allowed to try to use a slightly
+    /// different operation (with side-effects, larger object, etc.) when the
+    /// requested operation is not exactly supported.
+    #[error("cannot query or set the CPU binding of {0}")]
+    BadObject(CpuBoundObject),
+
+    /// Requested CPU binding flags are not valid in this context
+    ///
+    /// Not all CPU binding flag combinations make sense, either in isolation or
+    /// in the context of a particular binding function. Please cross-check the
+    /// documentation of [`CpuBindingFlags`] and the function you were trying to
+    /// call for more information.
+    #[error(transparent)]
+    BadFlags(#[from] FlagsError<CpuBindingFlags>),
+
+    /// Cannot bind the requested object to the target cpu set
+    ///
+    /// Operating systems can have various restrictions here, e.g. can only bind
+    /// to one CPU, one NUMA node, etc.
+    ///
+    /// This error should only be reported when trying to set CPU bindings.
     ///
     /// This error might not be reported if [`CpuBindingFlags::STRICT`] is not
     /// set. Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
-    #[error("action is not supported")]
-    Unsupported,
+    #[error("cannot bind {0} to {1}")]
+    BadCpuSet(CpuBoundObject, CpuSet),
 
-    /// Binding cannot be enforced
+    /// Unexpected hwloc error
     ///
-    /// This error might not be reported if [`CpuBindingFlags::STRICT`] is not
-    /// set. Instead, the implementation is allowed to try to use a slightly
-    /// different operation (with side-effects, smaller binding set, etc.) when
-    /// the requested operation is not exactly supported.
-    #[error("binding cannot be enforced")]
-    Ineffective,
-
-    /// Unexpected errno value
-    #[error("unexpected errno value {0}")]
-    UnexpectedErrno(Errno),
-
-    /// Unexpected binding function result
-    #[error("unexpected binding function result {0} with errno {1}")]
-    UnexpectedResult(c_int, Errno),
+    /// The hwloc documentation isn't exhaustive about what errors can occur in
+    /// general, and new error cases could potentially be added by new hwloc
+    /// releases. If we can't provide a high-level error description, we will
+    /// fall back to reporting the raw error from the hwloc API.
+    #[error(transparent)]
+    Unexpected(#[from] RawIntError),
 }
 
-/// CPU binding result builder
-pub(crate) fn result<T>(result: i32, ok: T) -> Result<T, CpuBindingError> {
-    match result {
-        x if x >= 0 => Ok(ok),
-        -1 => Err({
-            let errno = errno();
-            match errno.0 {
-                ENOSYS => CpuBindingError::Unsupported,
-                EXDEV => CpuBindingError::Ineffective,
-                _ => CpuBindingError::UnexpectedErrno(errno),
-            }
-        }),
-        negative => Err(CpuBindingError::UnexpectedResult(negative, errno())),
+/// Call an hwloc API that is about getting or setting CPU bindings, translate
+/// known errors into higher-level `CpuBindingError`s.
+///
+/// Validating flags is left up to the caller, to avoid allocating result
+/// objects when it can be proved upfront that the request is invalid.
+pub(crate) fn call_hwloc(
+    api: &'static str,
+    object: CpuBoundObject,
+    cpuset: Option<&CpuSet>,
+    ffi: impl FnOnce() -> c_int,
+) -> Result<(), CpuBindingError> {
+    match errors::call_hwloc_int(api, ffi) {
+        Ok(_positive) => Ok(()),
+        Err(
+            raw_err @ RawIntError::Errno {
+                errno: Some(errno), ..
+            },
+        ) => match errno.0 {
+            ENOSYS => Err(CpuBindingError::BadObject(object)),
+            EXDEV => Err(CpuBindingError::BadCpuSet(
+                object,
+                cpuset
+                    .expect("This error should only be observed on commands that bind to CPUs")
+                    .clone(),
+            )),
+            _ => Err(CpuBindingError::Unexpected(raw_err)),
+        },
+        Err(raw_err) => Err(CpuBindingError::Unexpected(raw_err)),
     }
 }

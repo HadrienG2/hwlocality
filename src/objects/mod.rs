@@ -11,8 +11,9 @@ use self::{
     types::{ObjectType, RawObjectType},
 };
 use crate::{
-    bitmap::{CpuSet, NodeSet, RawBitmap},
+    bitmaps::{CpuSet, NodeSet, RawBitmap},
     depth::{Depth, RawDepth},
+    errors::NulError,
     ffi::{self, LibcString},
     info::TextualInfo,
 };
@@ -97,14 +98,12 @@ impl TopologyObject {
     /// This is something you'll often want to do when creating Group or Misc
     /// objects in order to make them more descriptive.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This function will panic if the requested string contains NUL bytes, as
-    /// hwloc, like all C libraries, doesn't handle that well.
-    pub fn set_subtype(&mut self, subtype: &str) {
-        self.subtype = LibcString::new(subtype)
-            .expect("Can't have NUL bytes in subtype string")
-            .into_raw()
+    /// - [`NulError`] if `subtype` contains NUL chars.
+    pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
+        self.subtype = LibcString::new(subtype)?.into_raw();
+        Ok(())
     }
 
     /// The OS-provided physical index number.
@@ -624,12 +623,17 @@ impl TopologyObject {
     ///
     /// If value contains some non-printable characters, they will be dropped
     /// when exporting to XML.
-    pub fn add_info(&mut self, name: &str, value: &str) {
-        let name = LibcString::new(name).expect("Name is not supported by hwloc");
-        let value = LibcString::new(value).expect("Value is not supported by hwloc");
+    ///
+    /// # Errors
+    ///
+    /// - [`NulError`] if `name` or `value` contains NUL chars.
+    pub fn add_info(&mut self, name: &str, value: &str) -> Result<(), NulError> {
+        let name = LibcString::new(name)?;
+        let value = LibcString::new(value)?;
         let result = unsafe { ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow()) };
         assert_ne!(result, -1, "Failed to add info to object");
         assert_eq!(result, 0, "Unexpected result from hwloc_obj_add_info");
+        Ok(())
     }
 }
 

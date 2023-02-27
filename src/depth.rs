@@ -130,8 +130,17 @@ pub enum DepthError {
     #[error("objects of given type exist at different depths in the topology")]
     Multiple,
 
-    /// Unexpected hwloc error or special depth value
-    #[error("unexpected hwloc error or special depth value {0}")]
+    /// Unexpected special depth value or hwloc error
+    ///
+    /// You can get this error for two different reasons:
+    ///
+    /// - hwloc introduced a new virtual depth, and the version of the Rust
+    ///   bindings that you are using has not yet been extended to handle this
+    ///   new virtual depth. This is the most likely scenario.
+    /// - hwloc failed to probe the requested depth and returned a negative
+    ///   value to indicate that, but this negative value is not documented so
+    ///   the Rust bindings couldn't figure out what's not going on.
+    #[error("unexpected special depth value or hwloc error: {0}")]
     Unknown(i32),
 }
 
