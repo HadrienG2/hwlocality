@@ -669,8 +669,7 @@ impl Topology {
     /// assert_eq!(root.depth(), Depth::Normal(0));
     /// assert!(root.parent().is_none());
     /// assert_eq!(root.logical_index(), 0);
-    /// assert!(root.first_normal_child().is_some());
-    /// assert!(root.last_normal_child().is_some());
+    /// assert_ne!(root.normal_arity(), 0);
     ///
     /// assert!(root.cpuset().is_some());
     /// assert!(root.nodeset().is_some());

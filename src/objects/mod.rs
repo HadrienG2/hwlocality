@@ -367,16 +367,6 @@ impl TopologyObject {
         })
     }
 
-    /// First normal child of this object
-    pub fn first_normal_child(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.first_child) }
-    }
-
-    /// Last normal child of this object
-    pub fn last_normal_child(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.last_child) }
-    }
-
     /// Truth that this object is symmetric, which means all normal children and
     /// their children have identical subtrees.
     ///
@@ -408,8 +398,10 @@ impl TopologyObject {
     /// A memory hierarchy starts from a normal CPU-side object (e.g. Package)
     /// and ends with NUMA nodes as leaves. There might exist some memory-side
     /// caches between them in the middle of the memory subtree.
-    pub fn memory_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
-        LinkedChildren(&self.memory_first_child)
+    pub fn memory_children(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+        self.singly_linked_children(self.memory_first_child, self.memory_arity())
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -429,8 +421,10 @@ impl TopologyObject {
     /// Bridges, PCI and OS devices are listed here instead of in the
     /// [`TopologyObject::normal_children()`] list. See also
     /// [`ObjectType::is_io()`].
-    pub fn io_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
-        LinkedChildren(&self.io_first_child)
+    pub fn io_children(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+        self.singly_linked_children(self.io_first_child, self.io_arity())
     }
 
     /// Truth that this is a bridge covering the specified PCI bus
@@ -450,8 +444,10 @@ impl TopologyObject {
     ///
     /// Misc objects are listed here instead of in the
     /// [`TopologyObject::normal_children()`] list.
-    pub fn misc_children(&self) -> impl Iterator<Item = &TopologyObject> + Copy + FusedIterator {
-        LinkedChildren(&self.misc_first_child)
+    pub fn misc_children(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+        self.singly_linked_children(self.misc_first_child, self.misc_arity())
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
@@ -461,23 +457,22 @@ impl TopologyObject {
             .chain(self.io_children())
             .chain(self.misc_children())
     }
-}
 
-/// Iterator over C-style linked lists of child TopologyObjects
-#[derive(Copy, Clone, Debug)]
-struct LinkedChildren<'object>(&'object *mut TopologyObject);
-//
-impl<'object> Iterator for LinkedChildren<'object> {
-    type Item = &'object TopologyObject;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let current = (!self.0.is_null()).then_some(unsafe { &**self.0 })?;
-        self.0 = &current.next_sibling;
-        Some(current)
+    /// Iterator over singly linked lists of child TopologyObjects with arity
+    fn singly_linked_children(
+        &self,
+        first: *mut TopologyObject,
+        arity: u32,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+        let mut current = first;
+        (0..arity).map(move |_| {
+            assert!(current.is_null(), "Got null child before expected arity");
+            let result = unsafe { &*current };
+            current = result.next_sibling as *mut TopologyObject;
+            result
+        })
     }
 }
-//
-impl FusedIterator for LinkedChildren<'_> {}
 
 /// # CPU set
 impl TopologyObject {
