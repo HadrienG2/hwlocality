@@ -14,7 +14,7 @@ edition = "2021"
 
 [dependencies]
 arrayvec = "0.7"
-bitflags = "1.0"
+bitflags = "2.0"
 derive_more = "0.99"
 errno = "0.3"
 libc = "0.2"
