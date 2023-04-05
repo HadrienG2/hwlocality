@@ -12,6 +12,7 @@ use crate::{
     bitmaps::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
     depth::Depth,
     distances::{Distances, DistancesKind},
+    errors::{self, NulError, RawNullError},
     ffi::{self, LibcString},
     memory::attributes::{
         MemoryAttributeFlags, MemoryAttributeID, MemoryAttributeLocation, RawLocation,
@@ -250,7 +251,7 @@ impl TopologyEditor<'_> {
         &mut self,
         name: &str,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
-    ) -> Option<&mut TopologyObject> {
+    ) -> Result<&mut TopologyObject, MiscInsertError> {
         // This is on the edge of violating Rust's aliasing rules, but I think
         // it should work out because...
         //
@@ -274,12 +275,14 @@ impl TopologyEditor<'_> {
         let parent = find_parent(self.topology()) as *const TopologyObject as *mut TopologyObject;
         let name = LibcString::new(name)?;
         unsafe {
-            let ptr = ffi::hwloc_topology_insert_misc_object(
-                self.topology_mut_ptr(),
-                parent,
-                name.borrow(),
-            );
-            (!ptr.is_null()).then(|| &mut *ptr)
+            let ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || {
+                ffi::hwloc_topology_insert_misc_object(
+                    self.topology_mut_ptr(),
+                    parent,
+                    name.borrow(),
+                )
+            })?;
+            Ok(ptr.as_mut())
         }
     }
 }
@@ -420,6 +423,29 @@ pub enum GroupInsertResult<'topology> {
     /// - The union of the cpusets and nodeset of all proposed children of the
     ///   Group object is empty.
     Failed,
+}
+
+/// Error while inserting a Misc object
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum MiscInsertError {
+    /// Object name contains the NUL char, and is thus not compatible with C
+    #[error("name contains the NUL char")]
+    NameContainsNul,
+
+    /// Insertion failed for another reason
+    ///
+    /// One documented reason for Misc object insertion failure is when Misc
+    /// objects are filtered out of the topology via
+    /// [`TypeFilter::KeepNone`]. However, the hwloc doc suggests that this
+    /// process can fail for other reasons, without detailing them.
+    #[error("{0}, maybe Misc objects are filtered out of the topology?")]
+    HwlocError(#[from] RawNullError),
+}
+//
+impl From<NulError> for MiscInsertError {
+    fn from(_: NulError) -> Self {
+        Self::NameContainsNul
+    }
 }
 
 /// A method was passed an invalid parameter
