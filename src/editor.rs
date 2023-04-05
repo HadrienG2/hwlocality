@@ -738,41 +738,40 @@ impl<'topology> TopologyEditor<'topology> {
         &mut self,
         name: &'name str,
         flags: MemoryAttributeFlags,
-    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError<'name>> {
+    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError> {
         if !flags.is_valid() {
             return Err(MemoryAttributeRegisterError::BadFlags(flags));
         }
         let name = LibcString::new(name)?;
         let mut id = MemoryAttributeID::default();
         let result = unsafe {
-            ffi::hwloc_memattr_register(
-                self.topology_mut_ptr(),
-                name.borrow(),
-                flags.bits(),
-                &mut id,
-            )
+            errors::call_hwloc_int("hwloc_memattr_register", || {
+                ffi::hwloc_memattr_register(
+                    self.topology_mut_ptr(),
+                    name.borrow(),
+                    flags.bits(),
+                    &mut id,
+                )
+            })
         };
         match result {
-            0 => Ok(MemoryAttributeBuilder {
+            Ok(_) => Ok(MemoryAttributeBuilder {
                 editor: self,
                 flags,
                 id,
             }),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EBUSY => Err(MemoryAttributeRegisterError::AlreadyExists(name)),
-                    _ => panic!("Unexpected errno from hwloc_memattr_register: {errno}"),
-                }
-            }
-            other => panic!("Unexpected result from hwloc_memattr_register: {other}"),
+            Err(RawIntError::Errno {
+                api: _,
+                errno: Some(Errno(EBUSY)),
+            }) => Err(MemoryAttributeRegisterError::AlreadyExists),
+            Err(e) => Err(MemoryAttributeRegisterError::HwlocError(e)),
         }
     }
 }
 
 /// Error returned when trying to create an memory attribute
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
-pub enum MemoryAttributeRegisterError<'name> {
+pub enum MemoryAttributeRegisterError {
     /// Specified flags are not correct
     ///
     /// You must specify exactly one of [`MemoryAttributeFlags::HIGHER_IS_BEST`]
@@ -780,9 +779,23 @@ pub enum MemoryAttributeRegisterError<'name> {
     #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
     BadFlags(MemoryAttributeFlags),
 
+    /// Provided `name` contains NUL chars
+    #[error("provided name contains NUL chars")]
+    NameContainsNul,
+
     /// A memory attribute with this name already exists
-    #[error("a memory attribute called {0:?} already exists")]
-    AlreadyExists(&'name str),
+    #[error("a memory attribute with this name already exists")]
+    AlreadyExists,
+
+    /// An unkown hwloc error has occured
+    #[error(transparent)]
+    HwlocError(#[from] RawIntError),
+}
+//
+impl From<NulError> for MemoryAttributeRegisterError {
+    fn from(_: NulError) -> Self {
+        Self::NameContainsNul
+    }
 }
 
 /// Mechanism to configure a memory attribute
