@@ -12,7 +12,7 @@ use crate::{
     bitmaps::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
     depth::Depth,
     distances::{Distances, DistancesKind},
-    errors::{self, NulError, RawNullError},
+    errors::{self, NulError, RawIntError, RawNullError},
     ffi::{self, LibcString},
     memory::attributes::{
         MemoryAttributeFlags, MemoryAttributeID, MemoryAttributeLocation, RawLocation,
@@ -429,7 +429,7 @@ pub enum GroupInsertResult<'topology> {
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum MiscInsertError {
     /// Object name contains the NUL char, and is thus not compatible with C
-    #[error("name contains the NUL char")]
+    #[error("provided name contains the NUL char")]
     NameContainsNul,
 
     /// Insertion failed for another reason
@@ -501,7 +501,7 @@ impl TopologyEditor<'_> {
         collect_objects_and_distances: impl FnOnce(
             &Topology,
         ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
-    ) -> Result<(), AddDistancesFailed<'args>> {
+    ) -> Result<(), AddDistancesFailed> {
         // Prepare arguments for C consumption and validate them
         let name = name.map(LibcString::new).transpose()?;
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
@@ -533,39 +533,51 @@ impl TopologyEditor<'_> {
 
         // Create new empty distances structure
         let handle = unsafe {
-            ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
+            errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || {
+                ffi::hwloc_distances_add_create(
+                    self.topology_mut_ptr(),
+                    name,
+                    kind,
+                    create_add_flags,
+                )
+            })?
         };
-        if handle.is_null() {
-            return Err(AddDistancesFailed::HwlocError);
-        }
 
         // Add objects to the distance structure
         let result = unsafe {
-            ffi::hwloc_distances_add_values(
-                self.topology_mut_ptr(),
-                handle,
-                nbobjs,
-                objs,
-                values,
-                create_add_flags,
-            )
+            errors::call_hwloc_int("hwloc_distances_add_values", || {
+                ffi::hwloc_distances_add_values(
+                    self.topology_mut_ptr(),
+                    handle.as_ptr(),
+                    nbobjs,
+                    objs,
+                    values,
+                    create_add_flags,
+                )
+            })
         };
         match result {
-            0 => {}
+            Ok(0) => {}
             // Per hwloc documentation, handle is auto-freed on failure
-            1 => return Err(AddDistancesFailed::HwlocError),
-            other => panic!("Unexpected result from hwloc_distances_add_values: {other}"),
+            Err(e) => return Err(AddDistancesFailed::AddValuesFailed(e)),
+            Ok(other) => panic!("Unexpected result from hwloc_distances_add_values: {other}"),
         }
 
         // Finalize the distance structure and insert it into the topology
         let result = unsafe {
-            ffi::hwloc_distances_add_commit(self.topology_mut_ptr(), handle, commit_flags)
+            errors::call_hwloc_int("hwloc_distances_add_commit", || {
+                ffi::hwloc_distances_add_commit(
+                    self.topology_mut_ptr(),
+                    handle.as_ptr(),
+                    commit_flags,
+                )
+            })
         };
         match result {
-            0 => Ok(()),
+            Ok(0) => Ok(()),
             // Per hwloc documentation, handle is auto-freed on failure
-            1 => Err(AddDistancesFailed::HwlocError),
-            other => panic!("Unexpected result from hwloc_distances_add_commit: {other}"),
+            Err(e) => Err(AddDistancesFailed::CommitFailed(e)),
+            Ok(other) => panic!("Unexpected result from hwloc_distances_add_commit: {other}"),
         }
     }
 }
@@ -598,10 +610,10 @@ impl Default for AddDistancesFlags {
 
 /// Failed to add a new distance matrix to the topology
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum AddDistancesFailed<'args> {
+pub enum AddDistancesFailed {
     /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars: {0:?}")]
-    BadName(&'args str),
+    #[error("provided name contains NUL chars")]
+    NameContainsNul,
 
     /// Provided `kind` contains [`DistancesKind::HETEROGENEOUS_TYPES`]
     ///
@@ -626,12 +638,23 @@ pub enum AddDistancesFailed<'args> {
         actual_distances_len: usize,
     },
 
-    /// hwloc API signaled a failure
-    ///
-    /// The detailed error reporting semantics of hwloc are not documented, so
-    /// good luck with this error :(
-    #[error("hwloc errored out")]
-    HwlocError,
+    /// hwloc_distances_add_create failed in an unspecified manner
+    #[error(transparent)]
+    CreateFailed(#[from] RawNullError),
+
+    /// hwloc_distances_add_values failed in an unspecified manner
+    #[error(transparent)]
+    AddValuesFailed(RawIntError),
+
+    /// hwloc_distances_add_commit failed in an unspecified manner
+    #[error(transparent)]
+    CommitFailed(RawIntError),
+}
+//
+impl From<NulError> for AddDistancesFailed {
+    fn from(_: NulError) -> Self {
+        Self::NameContainsNul
+    }
 }
 
 /// Handle to a new distances structure during its addition to the topology
