@@ -47,7 +47,7 @@ use crate::{
 };
 #[cfg(doc)]
 use crate::{
-    memory::attributes::LocalNUMANodeFlags,
+    memory::{attributes::LocalNUMANodeFlags, binding::GenericMemoryBindingError},
     support::{CpuBindingSupport, DiscoverySupport, MemoryBindingSupport, MiscSupport},
 };
 use bitflags::bitflags;
@@ -1323,8 +1323,8 @@ impl Topology {
     /// - [`Unsupported`] if the system cannot allocate page-aligned memory
     /// - [`AllocationFailed`] if memory allocation failed
     ///
-    /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`AllocationFailed`]: GenericMemoryBindingError::AllocationFailed
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn allocate_memory(&self, len: usize) -> Result<Bytes, MemoryAllocationError<NodeSet>> {
         self.allocate_memory_impl(len)
     }
@@ -1364,14 +1364,14 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`AllocationFailed`] if memory allocation failed
     ///
-    /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
+    /// [`AllocationFailed`]: GenericMemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadSet`]: GenericMemoryBindingError::BadSet
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn allocate_bound_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -1422,13 +1422,13 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`AllocationFailed`] if memory allocation failed
     ///
-    /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
+    /// [`AllocationFailed`]: GenericMemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadSet`]: GenericMemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn binding_allocate_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -1481,11 +1481,11 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadSet`]: GenericMemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
         set: &Set,
@@ -1525,12 +1525,12 @@ impl Topology {
     ///   or if flags [`PROCESS`] and [`THREAD`] were both specified
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     #[doc(alias = "HWLOC_MEMBIND_DEFAULT")]
     pub fn unbind_memory(
         &self,
@@ -1585,13 +1585,13 @@ impl Topology {
     ///   and memory binding is inhomogeneous across threads in the process
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`MixedResults`]: MemoryBindingError::MixedResults
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
@@ -1620,11 +1620,11 @@ impl Topology {
     /// - [`BadFlags`] if flags [`PROCESS`] and [`THREAD`] were both specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadSet`]: GenericMemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn bind_process_memory<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -1657,12 +1657,12 @@ impl Topology {
     /// - [`BadFlags`] if one of flags [`STRICT`] and [`MIGRATE`] was specified,
     ///   or if flags [`PROCESS`] and [`THREAD`] were both specified
     ///
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn unbind_process_memory(
         &self,
         pid: ProcessId,
@@ -1694,13 +1694,13 @@ impl Topology {
     /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
     ///   and memory binding is inhomogeneous across threads in the process
     ///
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`MixedResults`]: MemoryBindingError::MixedResults
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -1740,11 +1740,11 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadSet`]: GenericMemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1789,12 +1789,12 @@ impl Topology {
     ///   and [`MIGRATE`] was specified
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn unbind_memory_area<Target: ?Sized>(
         &self,
         target: &Target,
@@ -1850,14 +1850,14 @@ impl Topology {
     ///   and memory binding is inhomogeneous across target memory pages
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`MixedResults`]: MemoryBindingError::MixedResults
+    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1913,14 +1913,14 @@ impl Topology {
     ///   and memory binding is inhomogeneous across target memory pages
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`MixedResults`]: MemoryBindingError::MixedResults
+    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: MemoryBindingError::Unsupported
+    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
     pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,

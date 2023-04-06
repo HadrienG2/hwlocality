@@ -123,7 +123,7 @@ impl TopologyBuilder {
     /// - [`HwlocSide`] if `description` failed hwloc-side validation (most
     ///   likely it is not a valid Synthetic description)
     ///
-    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    /// [`HwlocSide`]: ParameterError::HwlocSide
     pub fn from_synthetic(
         mut self,
         description: impl AsRef<str>,
@@ -160,7 +160,7 @@ impl TopologyBuilder {
     /// - [`HwlocSide`] if `xml` failed hwloc-side validation (most
     ///   likely it is not a valid XML description)
     ///
-    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    /// [`HwlocSide`]: ParameterError::HwlocSide
     pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, ParameterError<NulError>> {
         let xml = LibcString::new(xml)?;
         let result = unsafe {
@@ -201,7 +201,7 @@ impl TopologyBuilder {
     ///
     /// [`RustSide(ContainsNul)`]: PathError::ContainsNul
     /// [`RustSide(NotUnicode)`]: PathError::NotUnicode
-    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    /// [`HwlocSide`]: ParameterError::HwlocSide
     pub fn from_xml_file(
         mut self,
         path: impl AsRef<Path>,
@@ -240,7 +240,7 @@ impl TopologyBuilder {
     /// - [`HwlocSide`] if `name` failed hwloc-side validation (most
     ///   likely it is not a valid component/phase name)
     ///
-    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    /// [`HwlocSide`]: ParameterError::HwlocSide
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, ParameterError<NulError>> {
         let name = LibcString::new(name)?;
         let result = unsafe {
@@ -286,7 +286,7 @@ impl TopologyBuilder {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     ///
-    /// [`HwlocSide`]: ParameterValidation::HwlocSide
+    /// [`HwlocSide`]: ParameterError::HwlocSide
     pub fn with_flags(
         mut self,
         flags: BuildFlags,

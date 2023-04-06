@@ -253,7 +253,7 @@ pub enum MemoryBindingPolicy {
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum MemoryError<Set: SpecializedBitmap, RawHwlocError: Error> {
+pub enum GenericMemoryBindingError<Set: SpecializedBitmap, RawHwlocError: Error> {
     /// The system does not support the specified action or policy
     ///
     /// For example, some systems only allow binding memory on a per-thread
@@ -320,7 +320,7 @@ pub enum MemoryError<Set: SpecializedBitmap, RawHwlocError: Error> {
 }
 //
 impl<Set: SpecializedBitmap, RawHwlocError: Error> From<MemoryBindingFlags>
-    for MemoryError<Set, RawHwlocError>
+    for GenericMemoryBindingError<Set, RawHwlocError>
 {
     fn from(value: MemoryBindingFlags) -> Self {
         Self::BadFlags(value.into())
@@ -328,7 +328,7 @@ impl<Set: SpecializedBitmap, RawHwlocError: Error> From<MemoryBindingFlags>
 }
 
 /// Errors that can occur when querying or setting memory bindings
-pub type MemoryBindingError<Set> = MemoryError<Set, RawIntError>;
+pub type MemoryBindingError<Set> = GenericMemoryBindingError<Set, RawIntError>;
 
 /// Call an hwloc API that is about manipulating memory bindings and translate
 /// known errors into higher-level `MemoryBindingError`s.
@@ -360,7 +360,7 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
 }
 
 /// Errors that can occur when allocating memory
-pub type MemoryAllocationError<Set> = MemoryError<Set, RawNullError>;
+pub type MemoryAllocationError<Set> = GenericMemoryBindingError<Set, RawNullError>;
 //
 impl<Set: SpecializedBitmap> From<MemoryBindingError<Set>> for MemoryAllocationError<Set> {
     fn from(value: MemoryBindingError<Set>) -> Self {
@@ -372,10 +372,10 @@ impl<Set: SpecializedBitmap> From<MemoryBindingError<Set>> for MemoryAllocationE
             }
             MemoryBindingError::AllocationFailed => Self::AllocationFailed,
             MemoryBindingError::MixedResults => Self::MixedResults,
-            MemoryError::Unexpected(RawIntError::Errno { api, errno })
-            | MemoryError::Unexpected(RawIntError::ReturnValue { api, errno, .. }) => {
-                Self::Unexpected(RawNullError { api, errno })
-            }
+            GenericMemoryBindingError::Unexpected(RawIntError::Errno { api, errno })
+            | GenericMemoryBindingError::Unexpected(RawIntError::ReturnValue {
+                api, errno, ..
+            }) => Self::Unexpected(RawNullError { api, errno }),
         }
     }
 }
@@ -414,25 +414,25 @@ fn decode_errno<Set: SpecializedBitmap, RawHwlocError: Error>(
     operation: MemoryBindingOperation,
     set: Option<&Set>,
     errno: Errno,
-) -> Option<MemoryError<Set, RawHwlocError>> {
+) -> Option<GenericMemoryBindingError<Set, RawHwlocError>> {
     match errno.0 {
-        ENOSYS => Some(MemoryError::Unsupported),
+        ENOSYS => Some(GenericMemoryBindingError::Unsupported),
         EXDEV => match operation {
             MemoryBindingOperation::Bind | MemoryBindingOperation::Allocate => {
-                Some(MemoryError::BadSet(
+                Some(GenericMemoryBindingError::BadSet(
                     object,
                     set.expect("This error should only be observed on commands that set bindings")
                         .clone(),
                 ))
             }
             MemoryBindingOperation::GetBinding | MemoryBindingOperation::GetLastLocation => {
-                Some(MemoryError::MixedResults)
+                Some(GenericMemoryBindingError::MixedResults)
             }
             MemoryBindingOperation::Unbind => {
                 unreachable!("The empty set should always be considered valid")
             }
         },
-        ENOMEM => Some(MemoryError::AllocationFailed),
+        ENOMEM => Some(GenericMemoryBindingError::AllocationFailed),
         _ => None,
     }
 }
