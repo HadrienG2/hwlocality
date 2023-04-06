@@ -516,17 +516,19 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// - Err([`BadName`](AddDistancesFailed::BadName)) if the provided `name`
-    ///   contains NUL chars
-    /// - Err([`BadKind`](AddDistancesFailed::BadKind)) if the provided `kind`
+    /// - [`NameContainsNul`](AddDistancesError::NameContainsNul) if the
+    ///   provided `name` contains NUL chars
+    /// - [`BadKind`](AddDistancesError::BadKind) if the provided `kind`
     ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES).
-    /// - Err([`BadObjectsCount`](AddDistancesFailed::BadObjectsCount)) if less
+    /// - [`BadObjectsCount`](AddDistancesError::BadObjectsCount) if less
     ///   than 2 or more than `u32::MAX` objects are returned by the callback
     ///   (hwloc does not support such configurations).
-    /// - Err([`BadDistancesCount`](AddDistancesFailed::BadDistancesCount)) if
+    /// - [`BadDistancesCount`](AddDistancesError::BadDistancesCount) if
     ///   the number of distances returned by the callback is not compatible
     ///   with the number of objects (it should be the square of it).
-    /// - Err([`HwlocError`](AddDistancesFailed::HwlocError)) if hwloc failed
+    /// - [`CreateFailed`](AddDistancesError::CreateFailed),
+    ///   [`AddValuesFailed`](AddDistancesError::AddValuesFailed) or
+    ///   [`CommitFailed`](AddDistancesError::CommitFailed) if hwloc failed
     ///   for another (undocumented) reason.
     #[doc(alias = "hwloc_distances_add_create")]
     #[doc(alias = "hwloc_distances_add_values")]
