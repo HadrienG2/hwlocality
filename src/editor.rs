@@ -22,10 +22,10 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
-use errno::{errno, Errno};
+use errno::Errno;
 use libc::{c_void, EBUSY, EINVAL, ENOMEM};
 use std::{
-    ffi::{c_int, c_uint, c_ulong},
+    ffi::{c_uint, c_ulong},
     fmt, ptr,
 };
 use thiserror::Error;
@@ -89,6 +89,7 @@ impl TopologyEditor<'_> {
     /// Failure to allocate internal data will lead to a process abort, because
     /// the topology gets corrupted in this case and must not be touched again,
     /// but we have no way to prevent this in a safe API.
+    #[doc(alias = "hwloc_topology_restrict")]
     pub fn restrict<Set: SpecializedBitmap>(
         &mut self,
         set: &Set,
@@ -146,6 +147,7 @@ impl TopologyEditor<'_> {
     ///
     /// Removing objects from a topology should rather be performed with
     /// [`TopologyEditor::restrict()`].
+    #[doc(alias = "hwloc_topology_allow")]
     pub fn allow(&mut self, allow_set: AllowSet) -> Result<(), RawIntError> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
@@ -185,31 +187,45 @@ impl TopologyEditor<'_> {
     // NOTE: In the future, find_children will be an
     //       impl FnOnce(&Topology) -> impl IntoIterator<Item = &TopologyObject>
     //       but impl Trait is not yet allowed on function return types.
+    #[doc(alias = "hwloc_topology_alloc_group_object")]
+    #[doc(alias = "hwloc_obj_add_other_obj_sets")]
+    #[doc(alias = "hwloc_topology_insert_group_object")]
     pub fn insert_group_object(
         &mut self,
         merge: Option<GroupMerge>,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
     ) -> GroupInsertResult {
         // Allocate group object
-        let group = unsafe { ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr()) };
-        assert!(!group.is_null(), "Failed to allocate group object");
+        let group = unsafe {
+            errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || {
+                ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
+            })
+        };
+        let mut group = match group {
+            Ok(group) => group,
+            Err(e) => return GroupInsertResult::Failed(GroupInsertError::AllocFailed(e)),
+        };
 
         // Expand cpu sets and node sets to cover designated children
         // NOTE: This function may panic, in which case an allocation will be
         //       leaked, but hwloc does not provide a way to liberate it...
         let children = find_children(self.topology());
         for child in children {
-            let result = unsafe { ffi::hwloc_obj_add_other_obj_sets(group, child) };
-            assert!(
-                result >= 0,
-                "Unexpected result from hwloc_obj_add_other_obj_sets"
-            );
+            let result = unsafe {
+                errors::call_hwloc_int("hwloc_obj_add_other_obj_sets", || {
+                    ffi::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
+                })
+            };
+            if let Err(e) = result {
+                return GroupInsertResult::Failed(e.into());
+            }
         }
 
         // Adjust hwloc's propension to merge groups if instructed to do so
         if let Some(merge) = merge {
-            let group_attributes = unsafe {
-                &mut (*group)
+            let mut group_attributes = unsafe {
+                group
+                    .as_mut()
                     .raw_attributes()
                     .expect("Expected group attributes")
                     .group
@@ -221,14 +237,15 @@ impl TopologyEditor<'_> {
         }
 
         // Insert the group object into the topology
-        let result =
-            unsafe { ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group) };
-        if result == group {
-            GroupInsertResult::New(unsafe { &mut *group })
-        } else if !result.is_null() {
-            GroupInsertResult::Existing(unsafe { &mut *result })
-        } else {
-            GroupInsertResult::Failed
+        let result = unsafe {
+            errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || {
+                ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group.as_ptr())
+            })
+        };
+        match result {
+            Ok(result) if result == group => GroupInsertResult::New(unsafe { group.as_mut() }),
+            Ok(mut other) => GroupInsertResult::Existing(unsafe { other.as_mut() }),
+            Err(e) => GroupInsertResult::Failed(GroupInsertError::InsertFailed(e)),
         }
     }
 
@@ -251,7 +268,7 @@ impl TopologyEditor<'_> {
     ///
     /// None will be returned if an error occurs or if Misc objects are
     /// filtered out of the topology via [`TypeFilter::KeepNone`].
-    #[must_use]
+    #[doc(alias = "hwloc_topology_insert_misc_object")]
     pub fn insert_misc_object(
         &mut self,
         name: &str,
@@ -418,16 +435,32 @@ pub enum GroupInsertResult<'topology> {
     /// it in favor of existing topology object at the same location.
     Existing(&'topology mut TopologyObject),
 
-    /// Insertion failed
+    /// One hwloc API call failed
+    Failed(GroupInsertError),
+}
+
+/// Error while inserting a Group object
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum GroupInsertError {
+    /// `hwloc_topology_alloc_group_object` failed in an unspecified manner
+    #[error(transparent)]
+    AllocFailed(RawNullError),
+
+    /// `hwloc_obj_add_other_obj_sets` failed in an unspecified manner
+    #[error(transparent)]
+    AddObjectsFailed(#[from] RawIntError),
+
+    /// `hwloc_topology_insert_group_object` failed
     ///
-    /// This can happen for several reasons
+    /// There are several documented reasons why this may happen
     ///
-    /// - Conflicting sets in the topology tree
+    /// - There are conflicting sets in the topology tree
     /// - Group objects are filtered out of the topology with
     ///   [`TypeFilter::KeepNone`]
     /// - The union of the cpusets and nodeset of all proposed children of the
     ///   Group object is empty.
-    Failed,
+    #[error(transparent)]
+    InsertFailed(RawNullError),
 }
 
 /// Error while inserting a Misc object
@@ -498,9 +531,9 @@ impl TopologyEditor<'_> {
     #[doc(alias = "hwloc_distances_add_create")]
     #[doc(alias = "hwloc_distances_add_values")]
     #[doc(alias = "hwloc_distances_add_commit")]
-    pub fn add_distances<'args>(
+    pub fn add_distances(
         &mut self,
-        name: Option<&'args str>,
+        name: Option<&str>,
         kind: DistancesKind,
         flags: AddDistancesFlags,
         collect_objects_and_distances: impl FnOnce(
@@ -643,15 +676,15 @@ pub enum AddDistancesFailed {
         actual_distances_len: usize,
     },
 
-    /// hwloc_distances_add_create failed in an unspecified manner
+    /// `hwloc_distances_add_create` failed in an unspecified manner
     #[error(transparent)]
     CreateFailed(#[from] RawNullError),
 
-    /// hwloc_distances_add_values failed in an unspecified manner
+    /// `hwloc_distances_add_values` failed in an unspecified manner
     #[error(transparent)]
     AddValuesFailed(RawIntError),
 
-    /// hwloc_distances_add_commit failed in an unspecified manner
+    /// `hwloc_distances_add_commit` failed in an unspecified manner
     #[error(transparent)]
     CommitFailed(RawIntError),
 }
@@ -673,45 +706,58 @@ impl TopologyEditor<'_> {
     ///
     /// The distances matrix to be removed can be selected using the
     /// `find_distances` callback.
-    pub fn remove_distances(&mut self, find_distances: impl FnOnce(&Topology) -> Distances) {
+    #[doc(alias = "hwloc_distances_release_remove")]
+    pub fn remove_distances(
+        &mut self,
+        find_distances: impl FnOnce(&Topology) -> Distances,
+    ) -> Result<(), RawIntError> {
         let distances = find_distances(self.topology()).into_inner();
-        let result =
-            unsafe { ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances) };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_distances_release_remove"
-        );
+        unsafe {
+            errors::call_hwloc_int("hwloc_distances_release_remove", || {
+                ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
+            })
+        }
+        .map(|_| ())
     }
 
     /// Remove all distance matrices from a topology
     ///
     /// If these distances were used to group objects, these additional Group
     /// objects are not removed from the topology.
-    pub fn remove_all_distances(&mut self) {
-        let result = unsafe { ffi::hwloc_distances_remove(self.topology_mut_ptr()) };
-        assert!(result >= 0, "Unexpected result from hwloc_distances_remove");
+    #[doc(alias = "hwloc_distances_remove")]
+    pub fn remove_all_distances(&mut self) -> Result<(), RawIntError> {
+        unsafe {
+            errors::call_hwloc_int("hwloc_distances_remove", || {
+                ffi::hwloc_distances_remove(self.topology_mut_ptr())
+            })
+        }
+        .map(|_| ())
     }
 
     /// Remove distance matrices for objects at a specific depth in the topology
     ///
     /// See also [`TopologyEditor::remove_all_distances()`].
-    pub fn remove_distances_at_depth(&mut self, depth: impl Into<Depth>) {
-        let result = unsafe {
-            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
-        };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_distances_remove_by_depth"
-        );
+    #[doc(alias = "hwloc_distances_remove_by_depth")]
+    pub fn remove_distances_at_depth(
+        &mut self,
+        depth: impl Into<Depth>,
+    ) -> Result<(), RawIntError> {
+        unsafe {
+            errors::call_hwloc_int("hwloc_distances_remove_by_depth", || {
+                ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
+            })
+        }
+        .map(|_| ())
     }
 
     /// Remove distance matrices for objects of a specific type in the topology
     ///
     /// See also [`TopologyEditor::remove_all_distances()`].
-    pub fn remove_distances_with_type(&mut self, ty: ObjectType) {
+    #[doc(alias = "hwloc_distances_remove_by_type")]
+    pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawIntError> {
         let topology = self.topology();
         if let Ok(depth) = topology.depth_for_type(ty) {
-            self.remove_distances_at_depth(depth);
+            self.remove_distances_at_depth(depth)?;
         } else {
             let depths = (0..topology.full_depth())
                 .map(Depth::from)
@@ -723,9 +769,10 @@ impl TopologyEditor<'_> {
                 })
                 .collect::<Vec<_>>();
             for depth in depths {
-                self.remove_distances_at_depth(depth);
+                self.remove_distances_at_depth(depth)?;
             }
-        };
+        }
+        Ok(())
     }
 }
 
@@ -873,25 +920,17 @@ impl MemoryAttributeBuilder<'_, '_> {
         for (initiator_ptr, (target_ptr, value)) in
             initiator_ptrs.zip(target_ptrs_and_values.into_iter())
         {
-            let result = unsafe {
-                ffi::hwloc_memattr_set_value(
-                    self.editor.topology_mut_ptr(),
-                    self.id,
-                    target_ptr,
-                    initiator_ptr,
-                    0,
-                    value,
-                )
-            };
-            match result {
-                0 => {}
-                -1 => return Err(MemoryAttributeSetValuesError::UnexpectedErrno(errno())),
-                other => {
-                    return Err(MemoryAttributeSetValuesError::UnexpectedResult(
-                        other,
-                        errno(),
-                    ))
-                }
+            unsafe {
+                errors::call_hwloc_int("hwloc_memattr_set_value", || {
+                    ffi::hwloc_memattr_set_value(
+                        self.editor.topology_mut_ptr(),
+                        self.id,
+                        target_ptr,
+                        initiator_ptr,
+                        0,
+                        value,
+                    )
+                })?;
             }
         }
         Ok(())
@@ -912,13 +951,9 @@ pub enum MemoryAttributeSetValuesError {
     #[error("incorrect initiators")]
     BadInitiators,
 
-    /// Unexpected errno value
-    #[error("unexpected errno value {0}")]
-    UnexpectedErrno(Errno),
-
-    /// Unexpected query result
-    #[error("unexpected memory attribute setup result {0} with errno {1}")]
-    UnexpectedResult(c_int, Errno),
+    /// Unexpected hwloc API result
+    #[error(transparent)]
+    UnexpectedResult(#[from] RawIntError),
 }
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
