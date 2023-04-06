@@ -539,13 +539,13 @@ impl TopologyEditor<'_> {
         collect_objects_and_distances: impl FnOnce(
             &Topology,
         ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
-    ) -> Result<(), AddDistancesFailed> {
+    ) -> Result<(), AddDistancesError> {
         // Prepare arguments for C consumption and validate them
         let name = name.map(LibcString::new).transpose()?;
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
         //
         if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
-            return Err(AddDistancesFailed::BadKind);
+            return Err(AddDistancesError::BadKind);
         }
         let kind = kind.bits();
         //
@@ -554,14 +554,14 @@ impl TopologyEditor<'_> {
         //
         let (objects, distances) = collect_objects_and_distances(self.topology());
         if objects.len() < 2 {
-            return Err(AddDistancesFailed::BadObjectsCount(objects.len()));
+            return Err(AddDistancesError::BadObjectsCount(objects.len()));
         }
         let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
-            return Err(AddDistancesFailed::BadObjectsCount(objects.len()))
+            return Err(AddDistancesError::BadObjectsCount(objects.len()))
         };
         let expected_distances_len = objects.len().pow(2);
         if distances.len() != expected_distances_len {
-            return Err(AddDistancesFailed::BadDistancesCount {
+            return Err(AddDistancesError::BadDistancesCount {
                 expected_distances_len,
                 actual_distances_len: distances.len(),
             });
@@ -597,7 +597,7 @@ impl TopologyEditor<'_> {
         match result {
             Ok(0) => {}
             // Per hwloc documentation, handle is auto-freed on failure
-            Err(e) => return Err(AddDistancesFailed::AddValuesFailed(e)),
+            Err(e) => return Err(AddDistancesError::AddValuesFailed(e)),
             Ok(other) => panic!("Unexpected result from hwloc_distances_add_values: {other}"),
         }
 
@@ -614,7 +614,7 @@ impl TopologyEditor<'_> {
         match result {
             Ok(0) => Ok(()),
             // Per hwloc documentation, handle is auto-freed on failure
-            Err(e) => Err(AddDistancesFailed::CommitFailed(e)),
+            Err(e) => Err(AddDistancesError::CommitFailed(e)),
             Ok(other) => panic!("Unexpected result from hwloc_distances_add_commit: {other}"),
         }
     }
@@ -648,7 +648,7 @@ impl Default for AddDistancesFlags {
 
 /// Failed to add a new distance matrix to the topology
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum AddDistancesFailed {
+pub enum AddDistancesError {
     /// Provided `name` contains NUL chars
     #[error("provided name contains NUL chars")]
     NameContainsNul,
@@ -689,7 +689,7 @@ pub enum AddDistancesFailed {
     CommitFailed(RawIntError),
 }
 //
-impl From<NulError> for AddDistancesFailed {
+impl From<NulError> for AddDistancesError {
     fn from(_: NulError) -> Self {
         Self::NameContainsNul
     }
