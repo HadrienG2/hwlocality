@@ -109,26 +109,28 @@ impl TopologyEditor<'_> {
 
         // Apply requested restriction
         let result = unsafe {
-            ffi::hwloc_topology_restrict(
-                self.topology_mut_ptr(),
-                set.as_ref().as_ptr(),
-                flags.bits(),
-            )
+            errors::call_hwloc_int("hwloc_topology_restrict", || {
+                ffi::hwloc_topology_restrict(
+                    self.topology_mut_ptr(),
+                    set.as_ref().as_ptr(),
+                    flags.bits(),
+                )
+            })
         };
         match result {
-            0 => Ok(()),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EINVAL => Err(InvalidParameter),
-                    ENOMEM => {
-                        eprintln!("Topology stuck in an invalid state, must abort");
-                        std::process::abort()
-                    }
-                    _ => panic!("Unexpected errno {errno}"),
+            Ok(0) => Ok(()),
+            Err(RawIntError::Errno {
+                api: _,
+                errno: Some(errno),
+            }) => match errno.0 {
+                EINVAL => Err(InvalidParameter),
+                ENOMEM => {
+                    eprintln!("Topology stuck in an invalid state, must abort");
+                    std::process::abort()
                 }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
+                _ => panic!("Unexpected errno {errno} from hwloc_topology_restrict"),
+            },
+            other => panic!("Unexpected result {other:?} from hwloc_topology_restrict"),
         }
     }
 
@@ -144,7 +146,7 @@ impl TopologyEditor<'_> {
     ///
     /// Removing objects from a topology should rather be performed with
     /// [`TopologyEditor::restrict()`].
-    pub fn allow(&mut self, allow_set: AllowSet) {
+    pub fn allow(&mut self, allow_set: AllowSet) -> Result<(), RawIntError> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
             AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
@@ -159,10 +161,13 @@ impl TopologyEditor<'_> {
             }
         };
 
-        // Call `hwloc_topology_allow`
-        let result =
-            unsafe { ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags) };
-        assert!(result >= 0, "Unexpected result from hwloc_topology_allow");
+        // Call hwloc
+        unsafe {
+            errors::call_hwloc_int("hwloc_topology_allow", || {
+                ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
+            })
+        }
+        .map(|_| ())
     }
 
     /// Add more structure to the topology by adding an intermediate Group
