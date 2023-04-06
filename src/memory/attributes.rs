@@ -431,14 +431,14 @@ impl<'topology> MemoryAttribute<'topology> {
         };
 
         // Query node count
-        let result = call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut())?;
+        call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut())?;
         let len = usize::try_from(nr).expect("Impossible array size from hwloc");
 
         // Allocate storage and fill arrays
         let mut endpoints = vec![placeholder; len];
         let mut values = vec![0; len];
         let old_nr = nr;
-        let result = call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
+        call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
         assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
         Ok((endpoints, values))
     }

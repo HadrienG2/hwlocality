@@ -328,7 +328,7 @@ impl<Set: SpecializedBitmap, RawHwlocError: Error> From<MemoryBindingFlags>
 }
 
 /// Errors that can occur when querying or setting memory bindings
-pub type MemoryBindingError<Set: SpecializedBitmap> = MemoryError<Set, RawIntError>;
+pub type MemoryBindingError<Set> = MemoryError<Set, RawIntError>;
 
 /// Call an hwloc API that is about manipulating memory bindings and translate
 /// known errors into higher-level `MemoryBindingError`s.
@@ -360,15 +360,15 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
 }
 
 /// Errors that can occur when allocating memory
-pub type MemoryAllocationError<Set: SpecializedBitmap> = MemoryError<Set, RawNullError>;
+pub type MemoryAllocationError<Set> = MemoryError<Set, RawNullError>;
 //
 impl<Set: SpecializedBitmap> From<MemoryBindingError<Set>> for MemoryAllocationError<Set> {
     fn from(value: MemoryBindingError<Set>) -> Self {
         match value {
             MemoryBindingError::Unsupported => Self::Unsupported,
             MemoryBindingError::BadFlags(flags) => Self::BadFlags(flags),
-            MemoryBindingError::BadSet(MemoryBoundObject, Set) => {
-                Self::BadSet(MemoryBoundObject, Set)
+            MemoryBindingError::BadSet(memory_bound_object, set) => {
+                Self::BadSet(memory_bound_object, set)
             }
             MemoryBindingError::AllocationFailed => Self::AllocationFailed,
             MemoryBindingError::MixedResults => Self::MixedResults,
@@ -390,7 +390,7 @@ pub(crate) fn call_hwloc_allocate<Set: SpecializedBitmap>(
     set: Option<&Set>,
     ffi: impl FnOnce() -> *mut c_void,
 ) -> Result<NonNull<c_void>, MemoryAllocationError<Set>> {
-    errors::call_hwloc_ptr_mut("hwloc_alloc", ffi).map_err(|raw_err| {
+    errors::call_hwloc_ptr_mut(api, ffi).map_err(|raw_err| {
         if let RawNullError {
             errno: Some(errno), ..
         } = raw_err

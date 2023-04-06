@@ -28,7 +28,7 @@ use crate::{
     export::{
         synthetic::SyntheticExportFlags,
         xml::{XMLExportFlags, XML},
-        PathError,
+        XMLFileExportError,
     },
     ffi::{IncompleteType, LibcString},
     memory::{
@@ -209,12 +209,10 @@ impl Topology {
         match result {
             Ok(0) => true,
             Ok(other) => panic!("Unexpected return value from hwloc_topology_abi_check: {other}"),
-            Err(
-                raw_err @ RawIntError::Errno {
-                    errno: Some(Errno(EINVAL)),
-                    ..
-                },
-            ) => false,
+            Err(RawIntError::Errno {
+                errno: Some(Errno(EINVAL)),
+                ..
+            }) => false,
             Err(raw_err) => panic!("Unexpected hwloc error: {raw_err}"),
         }
     }
@@ -2975,22 +2973,18 @@ impl Topology {
         &self,
         path: Option<impl AsRef<Path>>,
         flags: XMLExportFlags,
-    ) -> Result<(), PathError> {
+    ) -> Result<(), XMLFileExportError> {
         let path = if let Some(path) = path {
-            path.as_ref()
+            export::make_hwloc_path(path.as_ref())?
         } else {
-            Path::new("-")
+            export::make_hwloc_path(Path::new("-"))?
         };
-        let path = export::make_hwloc_path(path)?;
-        let result =
-            unsafe { ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits()) };
-        match result {
-            0 => Ok(()),
-            -1 => Err(errno()),
-            other => {
-                unreachable!("Unexpected return value from hwloc_topology_export_xml: {other}")
-            }
-        }
+        unsafe {
+            errors::call_hwloc_int("hwloc_topology_export_xml", || {
+                ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
+            })?
+        };
+        Ok(())
     }
 
     /// Export the topology into an XML memory buffer

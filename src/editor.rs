@@ -280,7 +280,7 @@ impl TopologyEditor<'_> {
         let parent = find_parent(self.topology()) as *const TopologyObject as *mut TopologyObject;
         let name = LibcString::new(name)?;
         unsafe {
-            let ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || {
+            let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || {
                 ffi::hwloc_topology_insert_misc_object(
                     self.topology_mut_ptr(),
                     parent,
