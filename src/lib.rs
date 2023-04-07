@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod bitmaps;
 pub mod builder;
@@ -932,7 +933,7 @@ impl Topology {
     ///
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(ThisProgram)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(ThisProgram)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`STRICT`]: CpuBindingFlags::STRICT
@@ -962,7 +963,7 @@ impl Topology {
     ///   flags [`PROCESS`] and [`THREAD`] were both specified.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(ThisProgram)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(ThisProgram)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
@@ -998,7 +999,7 @@ impl Topology {
     ///
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(ProcessOrThread)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
     pub fn bind_process_cpu(
@@ -1039,7 +1040,7 @@ impl Topology {
     ///   if flags [`PROCESS`] and [`THREAD`] were both specified.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(ProcessOrThread)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
@@ -1075,7 +1076,7 @@ impl Topology {
     ///
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(Thread)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(Thread)`]: CpuBindingError::BadObject
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     pub fn bind_thread_cpu(
         &self,
@@ -1109,7 +1110,7 @@ impl Topology {
     ///   [`NO_MEMORY_BINDING`] was specified.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(Thread)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(Thread)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`STRICT`]: CpuBindingFlags::STRICT
@@ -1149,7 +1150,7 @@ impl Topology {
     ///   flags [`PROCESS`] and [`THREAD`] were both specified.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(ThisProgram)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(ThisProgram)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
@@ -1188,7 +1189,7 @@ impl Topology {
     ///   if flags [`PROCESS`] and [`THREAD`] were both specified.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
-    /// [`BadObject(ProcessOrThread)`]: CpuBindingFlags::BadObject
+    /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
@@ -1281,8 +1282,9 @@ impl Topology {
 /// - Implicit memory binding through process/thread binding policy through
 ///   [`bind_memory()`] and friends: the binding will be applied to subsequent
 ///   memory allocations by the target process/thread.
-/// - Migration of existing memory ranges through [`bind_area()`] and friends:
-///   already-allocated data will be migrated to the target NUMA nodes.
+/// - Migration of existing memory ranges through [`bind_memory_area()`] and
+///   friends: already-allocated data will be migrated to the target NUMA
+///   nodes.
 ///
 /// Not all operating systems support all three ways.
 /// [`Topology::feature_support()`] may be used to query about the actual memory
@@ -1305,8 +1307,9 @@ impl Topology {
 ///
 /// [`allocate_bound_memory()`]: Topology::allocate_bound_memory()
 /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-/// [`bind_area()`]: Topology::bind_area()
+/// [`bind_memory_area()`]: Topology::bind_memory_area()
 /// [`bind_memory()`]: Topology::bind_memory()
+/// [`binding_allocate_memory()`]: Topology::binding_allocate_memory()
 /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
 /// [`PROCESS`]: MemoryBindingFlags::PROCESS
 /// [`THREAD`]: MemoryBindingFlags::THREAD
@@ -1586,6 +1589,7 @@ impl Topology {
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
@@ -1695,6 +1699,7 @@ impl Topology {
     ///   and memory binding is inhomogeneous across threads in the process
     ///
     /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
@@ -1826,7 +1831,7 @@ impl Topology {
     /// If the [`STRICT`] flag is specified, hwloc will check the default memory
     /// policies and nodesets for all memory pages covered by `target`. If these
     /// are not identical,
-    /// Err([`MemoryBindingQueryError::MixedResults`]) is returned. Otherwise,
+    /// Err([`MixedResults`]) is returned. Otherwise,
     /// the shared configuration is returned.
     ///
     /// If [`STRICT`] is not specified, the union of all NUMA nodes containing

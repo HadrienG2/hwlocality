@@ -219,7 +219,7 @@ impl<'topology> MemoryAttribute<'topology> {
         )
     }
 
-    /// Best target node and associated attribute value for a given initiator
+    /// Best target node and associated attribute value, if any, for a given initiator
     ///
     /// The notes on initiator semantics in [`MemoryAttribute::value()`] also
     /// apply to this function.
@@ -234,10 +234,8 @@ impl<'topology> MemoryAttribute<'topology> {
     /// # Errors
     ///
     /// - [BadInitiator] if the `initiator` parameter was not set correctly
-    /// - [NoMatch] if this attribute has no specified value for this initiator
     ///
     /// [BadInitiator]: MemoryAttributeQueryError::BadInitiator
-    /// [NoMatch]: MemoryAttributeQueryError::NoMatch
     #[doc(alias = "hwloc_memattr_get_best_target")]
     pub fn best_target(
         &self,
@@ -261,7 +259,7 @@ impl<'topology> MemoryAttribute<'topology> {
         .map(|opt| opt.map(|value| (unsafe { self.encapsulate_target_node(best_target) }, value)))
     }
 
-    /// Best initiator and associated attribute value for a given target node
+    /// Best initiator and associated attribute value, if any, for a given target node
     ///
     /// If multiple initiators have the same attribute values, only one is
     /// returned (and there is no way to clarify how that one is chosen).
@@ -273,10 +271,8 @@ impl<'topology> MemoryAttribute<'topology> {
     /// # Errors
     ///
     /// - [NoInitiator] if this attribute cannot have an initiator
-    /// - [NoMatch] if this attribute has no specified value for this target node
     ///
     /// [NoInitiator]: MemoryAttributeQueryError::NoInitiator
-    /// [NoMatch]: MemoryAttributeQueryError::NoMatch
     #[doc(alias = "hwloc_memattr_get_best_initiator")]
     pub fn best_initiator(
         &self,
