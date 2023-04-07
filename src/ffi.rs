@@ -5,6 +5,7 @@ use crate::{
     distances::{RawDistances, RawDistancesTransform},
     editor::DistancesAddHandle,
     errors::NulError,
+    info::TextualInfo,
     memory::{
         attributes::{MemoryAttributeID, RawLocation},
         binding::RawMemoryBindingPolicy,
@@ -897,6 +898,36 @@ macro_rules! extern_c_block {
 
             // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 
+            #[must_use]
+            pub(crate) fn hwloc_cpukinds_get_nr(
+                topology: *const RawTopology,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_cpukinds_get_by_cpuset(
+                topology: *const RawTopology,
+                cpuset: *const RawBitmap,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_cpukinds_get_info(
+                topology: *const RawTopology,
+                kind_index: c_uint,
+                cpuset: *mut RawBitmap,
+                efficiency: *mut c_int,
+                nr_infos: *mut c_uint,
+                infos: *mut *mut TextualInfo,
+                flags: c_ulong,
+            ) -> c_int;
+            #[must_use]
+            pub(crate) fn hwloc_cpukinds_register(
+                topology: *mut RawTopology,
+                cpuset: *const RawBitmap,
+                forced_efficiency: c_int,
+                nr_infos: c_uint,
+                infos: *const TextualInfo,
+                flags: c_ulong,
+            ) -> c_int;
             // TODO: Add register to TopologyEditor, rest elsewhere
 
             // === Linux-specific helpers

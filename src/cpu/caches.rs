@@ -23,7 +23,7 @@ const DATA_CACHE_LEVELS: &[ObjectType] = &[
 /// full locality-aware scheduling but just want to make sure that your code
 /// will use CPU caches sensibly no matter which CPU core it's running on.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CPUCacheStats {
+pub struct CpuCacheStats {
     /// Size of the smallest caches of each type
     smallest_data_cache_sizes: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,
 
@@ -31,7 +31,7 @@ pub struct CPUCacheStats {
     total_data_cache_sizes: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,
 }
 
-impl CPUCacheStats {
+impl CpuCacheStats {
     /// Compute CPU cache statistics
     pub fn new(topology: &Topology) -> Self {
         let mut smallest_data_cache_sizes = ArrayVec::new();
