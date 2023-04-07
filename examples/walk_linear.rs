@@ -5,7 +5,7 @@ use hwlocality::Topology;
 fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
 
-    for depth in 0..topology.full_depth() {
+    for depth in 0..topology.depth() {
         println!("*** Objects at depth {depth}");
 
         for (idx, object) in topology.objects_at_depth(depth).enumerate() {

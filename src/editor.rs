@@ -761,7 +761,7 @@ impl TopologyEditor<'_> {
         if let Ok(depth) = topology.depth_for_type(ty) {
             self.remove_distances_at_depth(depth)?;
         } else {
-            let depths = (0..topology.full_depth())
+            let depths = (0..topology.depth())
                 .map(Depth::from)
                 .filter_map(|depth| {
                     let depth_ty = topology

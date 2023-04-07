@@ -369,7 +369,7 @@ impl Topology {
     /// assert!(topology.depth() >= 2);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn full_depth(&self) -> u32 {
+    pub fn depth(&self) -> u32 {
         unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
             .try_into()
             .expect("Got unexpected depth from hwloc_topology_get_depth")
@@ -522,7 +522,7 @@ impl Topology {
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(DepthError::None) => {
-                for depth in (0..self.full_depth()).rev() {
+                for depth in (0..self.depth()).rev() {
                     if self
                         .type_at_depth(depth)
                         .expect("Depths above bottom depth should exist")
@@ -576,7 +576,7 @@ impl Topology {
     /// [depth_for_type()]: Topology::depth_for_type()
     pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
         let mut result = Err(DepthError::None);
-        for depth in 0..self.full_depth() {
+        for depth in 0..self.depth() {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
             for obj in self.objects_at_depth(depth).take(1) {
@@ -634,7 +634,7 @@ impl Topology {
     pub fn type_at_depth(&self, depth: impl Into<Depth>) -> Option<ObjectType> {
         let depth = depth.into();
         if let Depth::Normal(depth) = depth {
-            if depth >= self.full_depth() {
+            if depth >= self.depth() {
                 return None;
             }
         }
@@ -775,7 +775,7 @@ impl Topology {
            + ExactSizeIterator
            + FusedIterator {
         let type_depth = self.depth_for_type(object_type);
-        let depth_iter = (0..self.full_depth())
+        let depth_iter = (0..self.depth())
             .map(Depth::from)
             .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
             .filter(move |&depth| {

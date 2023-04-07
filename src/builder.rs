@@ -279,8 +279,8 @@ impl TopologyBuilder {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::Topology;
-    /// let topology = Topology::builder()?
+    /// # use hwlocality::{Topology, builder::BuildFlags};
+    /// let topology = Topology::builder()
     ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM)?
     ///                         .build()?;
     /// # Ok::<(), anyhow::Error>(())

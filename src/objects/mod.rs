@@ -385,7 +385,7 @@ impl TopologyObject {
 
     /// Number of memory children
     pub fn memory_arity(&self) -> u32 {
-        self.memory_arity
+        dbg!(self.memory_arity)
     }
 
     /// Memory children of this object
@@ -465,7 +465,7 @@ impl TopologyObject {
     ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
-            assert!(current.is_null(), "Got null child before expected arity");
+            assert!(!current.is_null(), "Got null child before expected arity");
             let result = unsafe { &*current };
             current = result.next_sibling as *mut TopologyObject;
             result
