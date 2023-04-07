@@ -6,18 +6,140 @@
 
 #[cfg(doc)]
 use crate::editor::TopologyEditor;
-use crate::{ffi, objects::TopologyObject, Topology};
+use crate::{
+    depth::Depth,
+    errors::NulError,
+    ffi::{self, LibcString},
+    objects::{types::ObjectType, TopologyObject},
+    RawTopology, Topology,
+};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
-    ffi::{c_uint, c_ulong, CStr},
+    ffi::{c_int, c_uint, c_ulong, CStr},
     fmt::{self, Debug},
     iter::FusedIterator,
     ops::{Index, IndexMut},
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
+
+/// # Retrieve distances between objects
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+impl Topology {
+    /// Retrieve distance matrices from the topology
+    ///
+    /// By default, all available distance matrices are returned. Some filtering
+    /// may be applied using the `kind` parameter: if it contains some
+    /// [`DistancesKind`]`::FROM_xyz` options, only distance matrices matching
+    /// one of them is returned. The same applies for `MEANS_xyz` options.
+    #[doc(alias = "hwloc_distances_get")]
+    pub fn distances(&self, kind: DistancesKind) -> Vec<Distances> {
+        self.get_distances(|topology, nr, distances, flags| unsafe {
+            ffi::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
+        })
+    }
+
+    /// Retrieve distance matrices for object at a specific depth in the topology
+    ///
+    /// Identical to `distances()` with the additional `depth` filter.
+    #[doc(alias = "hwloc_distances_get_by_depth")]
+    pub fn distances_at_depth(
+        &self,
+        kind: DistancesKind,
+        depth: impl Into<Depth>,
+    ) -> Vec<Distances> {
+        let depth = depth.into();
+        self.get_distances(|topology, nr, distances, flags| unsafe {
+            ffi::hwloc_distances_get_by_depth(
+                topology,
+                depth.into(),
+                nr,
+                distances,
+                kind.bits(),
+                flags,
+            )
+        })
+    }
+
+    /// Retrieve distance matrices for object with a specific type
+    ///
+    /// Identical to `distances()` with the additional `ty` filter.
+    #[doc(alias = "hwloc_distances_get_by_type")]
+    pub fn distances_with_type(&self, kind: DistancesKind, ty: ObjectType) -> Vec<Distances> {
+        self.get_distances(|topology, nr, distances, flags| unsafe {
+            ffi::hwloc_distances_get_by_type(topology, ty.into(), nr, distances, kind.bits(), flags)
+        })
+    }
+
+    /// Retrieve a distance matrix with the given name
+    ///
+    /// Usually only one distances matrix may match a given name.
+    ///
+    /// Names of distances matrices currently created by hwloc may be found
+    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+    ///
+    /// # Errors
+    ///
+    /// - [`NulError`] if `name` contains NUL chars.
+    #[doc(alias = "hwloc_distances_get_by_name")]
+    pub fn distances_with_name(&self, name: &str) -> Result<Vec<Distances>, NulError> {
+        let name = LibcString::new(name)?;
+        Ok(self.get_distances(|topology, nr, distances, flags| unsafe {
+            ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
+        }))
+    }
+
+    /// Call one of the hwloc_distances_get(_by)? APIs
+    ///
+    /// Takes care of all parameters except for kind, which is not universal to
+    /// these APIs. So the last c_ulong is the flags parameter.
+    fn get_distances(
+        &self,
+        mut getter: impl FnMut(
+            *const RawTopology,
+            *mut c_uint,
+            *mut *mut RawDistances,
+            c_ulong,
+        ) -> c_int,
+    ) -> Vec<Distances> {
+        // Common setup to all getter calls
+        let mut nr = 0;
+        let flags = 0;
+        let check_result = |result: c_int| {
+            assert!(result >= 0, "Unexpected result from hwloc distances getter");
+        };
+
+        // Allocate array of distances pointers
+        check_result(getter(self.as_ptr(), &mut nr, ptr::null_mut(), flags));
+        let mut distances_ptrs = vec![
+            ptr::null_mut();
+            usize::try_from(nr)
+                .expect("Impossibly large amount of distance matrices")
+        ];
+
+        // Let hwloc fill the distance pointers
+        let old_nr = nr;
+        check_result(getter(
+            self.as_ptr(),
+            &mut nr,
+            distances_ptrs.as_mut_ptr(),
+            flags,
+        ));
+        assert_eq!(
+            nr, old_nr,
+            "Inconsistent reported number of distance matrices"
+        );
+
+        // Wrap them into a safe interface
+        distances_ptrs
+            .into_iter()
+            .map(|raw| unsafe { Distances::wrap(self, raw) })
+            .collect()
+    }
+}
 
 /// Direct mapping of `hwloc_distances_s`. Cannot be exposed to safe code as it
 /// needs a special liberation procedure.

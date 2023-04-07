@@ -27,9 +27,57 @@ use errno::Errno;
 use libc::{c_void, EBUSY, EINVAL, ENOMEM};
 use std::{
     ffi::{c_int, c_uint, c_ulong},
-    fmt, ptr,
+    fmt,
+    panic::{AssertUnwindSafe, UnwindSafe},
+    ptr,
 };
 use thiserror::Error;
+
+/// # Modifying a loaded `Topology`
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+impl Topology {
+    /// Modify this topology
+    ///
+    /// hwloc employs lazy caching patterns that do not interact well with
+    /// Rust's shared XOR mutable aliasing model. This API lets you safely
+    /// modify the active `Topology` through a [`TopologyEditor`] proxy object,
+    /// with the guarantee that by the time `Topology::edit()` returns, the
+    /// `Topology` will be back in a state where it is safe to use `&self` again.
+    pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
+        // Set up topology editing
+        let mut editor = TopologyEditor::new(self);
+        let mut editor = AssertUnwindSafe(&mut editor);
+
+        // Run the user-provided edit callback, catching panics
+        let result = std::panic::catch_unwind(move || edit(&mut editor));
+
+        // Force eager evaluation of all caches
+        self.refresh();
+
+        // Return user callback result or resume unwinding as appropriate
+        match result {
+            Ok(result) => result,
+            Err(e) => std::panic::resume_unwind(e),
+        }
+    }
+
+    /// Force eager evaluation of all lazily evaluated caches in preparation for
+    /// using or exposing &self
+    ///
+    /// # Aborts
+    ///
+    /// A process abort will occur if this fails as we must not let an invalid
+    /// `Topology` state escape, not even via unwinding, as that would result in
+    /// undefined behavior (mutation which the compiler assumes will not happen).
+    pub(crate) fn refresh(&mut self) {
+        let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
+        if refresh_result < 0 {
+            eprintln!("Topology stuck in a state that violates Rust aliasing rules, must abort");
+            std::process::abort();
+        }
+    }
+}
 
 /// Proxy for modifying a `Topology`
 ///

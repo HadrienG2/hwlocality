@@ -8,6 +8,36 @@ use crate::{
 };
 use arrayvec::ArrayVec;
 
+/// # CPU cache statistics
+impl Topology {
+    /// Compute high-level CPU cache statistics
+    ///
+    /// These statistics can be used in scenarios where you're not yet ready for
+    /// full locality-aware scheduling but just want to make sure that your code
+    /// will use CPU caches sensibly no matter which CPU core it's running on.
+    ///
+    /// This functionality is unique to the Rust hwloc bindings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// let stats = topology.cpu_cache_stats();
+    /// println!(
+    ///     "Minimal data cache sizes per level: {:?}",
+    ///     stats.smallest_data_cache_sizes()
+    /// );
+    /// println!(
+    ///     "Total data cache size per level: {:?}",
+    ///     stats.total_data_cache_sizes()
+    /// );
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn cpu_cache_stats(&self) -> CpuCacheStats {
+        CpuCacheStats::new(self)
+    }
+}
+
 /// Data (or unified) caches levels supported by hwloc
 const DATA_CACHE_LEVELS: &[ObjectType] = &[
     ObjectType::L1Cache,

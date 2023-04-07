@@ -1,9 +1,6 @@
 //! Exporting topologies and loading exported topologies
 
-use crate::{
-    errors::{NulError, RawIntError},
-    ffi::LibcString,
-};
+use crate::{errors::NulError, ffi::LibcString};
 use std::path::Path;
 use thiserror::Error;
 
@@ -37,16 +34,4 @@ pub(crate) fn make_hwloc_path(path: impl AsRef<Path>) -> Result<LibcString, Path
     Ok(LibcString::new(
         path.as_ref().to_str().ok_or(PathError::NotUnicode)?,
     )?)
-}
-
-/// Failed to export a topology to XML file
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum XMLFileExportError {
-    /// Requested file path is wrong
-    #[error(transparent)]
-    PathError(#[from] PathError),
-
-    /// Hwloc failed for another, unspecified reason
-    #[error(transparent)]
-    HwlocError(#[from] RawIntError),
 }
