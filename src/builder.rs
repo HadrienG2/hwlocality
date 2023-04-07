@@ -4,9 +4,9 @@
 use crate::{editor::TopologyEditor, support::MiscSupport};
 use crate::{
     errors::{FlagsError, NulError, ParameterError, UnsupportedError},
-    export::{self, PathError},
     ffi::{self, LibcString},
     objects::types::ObjectType,
+    path::{self, PathError},
     ProcessId, RawTopology, Topology,
 };
 use bitflags::bitflags;
@@ -206,7 +206,7 @@ impl TopologyBuilder {
         mut self,
         path: impl AsRef<Path>,
     ) -> Result<Self, ParameterError<PathError>> {
-        let path = export::make_hwloc_path(path)?;
+        let path = path::make_hwloc_path(path)?;
         let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow()) };
         match result {
             0 => Ok(self),

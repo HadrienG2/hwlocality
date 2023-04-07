@@ -6,8 +6,9 @@
 use crate::{builder::TopologyBuilder, errors::NulError};
 use crate::{
     errors::{self, RawIntError},
-    export::{self, PathError},
-    ffi, Topology,
+    ffi,
+    path::{self, PathError},
+    Topology,
 };
 use bitflags::bitflags;
 use errno::{errno, Errno};
@@ -57,9 +58,9 @@ impl Topology {
         flags: XMLExportFlags,
     ) -> Result<(), XMLFileExportError> {
         let path = if let Some(path) = path {
-            export::make_hwloc_path(path.as_ref())?
+            path::make_hwloc_path(path.as_ref())?
         } else {
-            export::make_hwloc_path(Path::new("-"))?
+            path::make_hwloc_path(Path::new("-"))?
         };
         unsafe {
             errors::call_hwloc_int("hwloc_topology_export_xml", || {

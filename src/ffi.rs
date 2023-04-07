@@ -14,6 +14,8 @@ use crate::{
     support::FeatureSupport,
     ProcessId, RawTopology, ThreadId,
 };
+#[cfg(target_os = "linux")]
+use libc::pid_t;
 use std::{
     ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr},
     fmt,
@@ -928,9 +930,36 @@ macro_rules! extern_c_block {
                 infos: *const TextualInfo,
                 flags: c_ulong,
             ) -> c_int;
-            // TODO: Add register to TopologyEditor, rest elsewhere
 
             // === Linux-specific helpers
+
+            #[cfg(target_os = "linux")]
+            #[must_use]
+            pub(crate) fn hwloc_linux_set_tid_cpubind(
+                topology: *const RawTopology,
+                tid: pid_t,
+                set: *const RawBitmap,
+            ) -> c_int;
+            #[cfg(target_os = "linux")]
+            #[must_use]
+            pub(crate) fn hwloc_linux_get_tid_cpubind(
+                topology: *const RawTopology,
+                tid: pid_t,
+                set: *mut RawBitmap,
+            ) -> c_int;
+            #[cfg(target_os = "linux")]
+            #[must_use]
+            pub(crate) fn hwloc_linux_get_tid_last_cpu_location(
+                topology: *const RawTopology,
+                tid: pid_t,
+                set: *mut RawBitmap,
+            ) -> c_int;
+            #[cfg(target_os = "linux")]
+            #[must_use]
+            pub(crate) fn hwloc_linux_read_path_as_cpumask(
+                path: *const c_char,
+                set: *const RawBitmap,
+            ) -> c_int;
 
             // TODO
 

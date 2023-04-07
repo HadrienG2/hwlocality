@@ -11,8 +11,11 @@ pub mod errors;
 pub mod export;
 pub(crate) mod ffi;
 pub mod info;
+#[cfg(target_os = "linux")]
+pub mod linux;
 pub mod memory;
 pub mod objects;
+pub mod path;
 pub mod support;
 
 use crate::{
@@ -103,6 +106,10 @@ pub(crate) struct RawTopology(IncompleteType);
 /// - [Retrieve distances between objects](#retrieve-distances-between-objects)
 /// - [Comparing memory node attributes for finding where to allocate on](#comparing-memory-node-attributes-for-finding-where-to-allocate-on)
 /// - [Kinds of CPU cores](#kinds-of-cpu-cores)
+#[cfg_attr(
+    target_os = "linux",
+    doc = "- [Linux-specific helpers](#linux-specific-helpers)"
+)]
 //
 // NOTE: Since the Topology API is _huge_, not all of it is implemented in the
 // root lib.rs module. Instead, functionality which is very strongly related to

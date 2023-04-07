@@ -79,6 +79,7 @@ impl Topology {
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[doc(alias = "hwloc_set_cpubind")]
     pub fn bind_cpu(&self, set: &CpuSet, flags: CpuBindingFlags) -> Result<(), CpuBindingError> {
         self.bind_cpu_impl(
             set,
@@ -108,6 +109,7 @@ impl Topology {
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[doc(alias = "hwloc_get_cpubind")]
     pub fn cpu_binding(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         self.cpu_binding_impl(
             flags,
@@ -143,6 +145,7 @@ impl Topology {
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[doc(alias = "hwloc_set_proc_cpubind")]
     pub fn bind_process_cpu(
         &self,
         pid: ProcessId,
@@ -185,6 +188,7 @@ impl Topology {
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[doc(alias = "hwloc_get_proc_cpubind")]
     pub fn process_cpu_binding(
         &self,
         pid: ProcessId,
@@ -219,6 +223,7 @@ impl Topology {
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(Thread)`]: CpuBindingError::BadObject
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
+    #[doc(alias = "hwloc_set_thread_cpubind")]
     pub fn bind_thread_cpu(
         &self,
         tid: ThreadId,
@@ -255,6 +260,7 @@ impl Topology {
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`STRICT`]: CpuBindingFlags::STRICT
+    #[doc(alias = "hwloc_get_thread_cpubind")]
     pub fn thread_cpu_binding(
         &self,
         tid: ThreadId,
@@ -295,6 +301,7 @@ impl Topology {
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[doc(alias = "hwloc_get_last_cpu_location")]
     pub fn last_cpu_location(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
         self.last_cpu_location_impl(
             flags,
@@ -334,6 +341,7 @@ impl Topology {
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[doc(alias = "hwloc_get_proc_last_cpu_location")]
     pub fn last_process_cpu_location(
         &self,
         pid: ProcessId,
