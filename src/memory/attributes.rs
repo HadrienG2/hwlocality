@@ -6,7 +6,7 @@
 
 use crate::{
     bitmaps::{CpuSet, RawBitmap},
-    errors::{self, NulError, RawIntError},
+    errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::TopologyObject,
     RawTopology, Topology,
@@ -456,9 +456,13 @@ impl<'topology> MemoryAttribute<'topology> {
     pub fn targets(
         &self,
         initiator: Option<MemoryAttributeLocation>,
-    ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), MemoryAttributeQueryError> {
+    ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
+    {
         // Check parameters and query target list + associated values
-        let initiator = self.checked_initiator(initiator, true)?;
+        let initiator = match self.checked_initiator(initiator, true) {
+            Ok(initiator) => initiator,
+            Err(error) => return Err(HybridError::Rust(error)),
+        };
         let (targets, values) = self.array_query(
             "hwloc_memattr_get_targets",
             ptr::null(),
@@ -494,10 +498,11 @@ impl<'topology> MemoryAttribute<'topology> {
     pub fn initiators(
         &self,
         target_node: &TopologyObject,
-    ) -> Result<(Vec<MemoryAttributeLocation>, Vec<u64>), MemoryAttributeQueryError> {
+    ) -> Result<(Vec<MemoryAttributeLocation>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
+    {
         // Validate the query
         if !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) {
-            return Err(MemoryAttributeQueryError::NoInitiator);
+            return Err(HybridError::Rust(MemoryAttributeQueryError::NoInitiator));
         }
 
         // Run it
@@ -538,11 +543,11 @@ impl<'topology> MemoryAttribute<'topology> {
             *mut Endpoint,
             *mut u64,
         ) -> c_int,
-    ) -> Result<(Vec<Endpoint>, Vec<u64>), MemoryAttributeQueryError> {
+    ) -> Result<(Vec<Endpoint>, Vec<u64>), HybridError<MemoryAttributeQueryError>> {
         // Prepare to call hwloc
         let mut nr = 0;
         let mut call_ffi = |nr_mut, endpoint_out, values_out| {
-            errors::call_hwloc_int(api, || {
+            errors::call_hwloc_int_normal(api, || {
                 query(
                     self.topology.as_ptr(),
                     self.id,
@@ -574,19 +579,15 @@ impl<'topology> MemoryAttribute<'topology> {
         query: impl FnOnce(*const RawTopology, MemoryAttributeID, c_ulong, *mut u64) -> c_int,
     ) -> Result<Option<u64>, MemoryAttributeQueryError> {
         let mut value = u64::MAX;
-        match errors::call_hwloc_int(api, || {
+        match errors::call_hwloc_int_normal(api, || {
             query(self.topology.as_ptr(), self.id, 0, &mut value)
         }) {
             Ok(_positive) => Ok(Some(value)),
-            Err(
-                raw_err @ RawIntError::Errno {
-                    errno: Some(errno), ..
-                },
-            ) => match errno.0 {
-                ENOENT => Ok(None),
-                _ => Err(MemoryAttributeQueryError::Unexpected(raw_err)),
-            },
-            Err(raw_err) => Err(MemoryAttributeQueryError::Unexpected(raw_err)),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(ENOENT)),
+            }) => Ok(None),
+            Err(raw_err) => unreachable!("{raw_err}"),
         }
     }
 
@@ -650,15 +651,6 @@ pub enum MemoryAttributeQueryError {
     /// have initiators (e.g. Capacity).
     #[error("requested a memory attribute's initiator, but it has none")]
     NoInitiator,
-
-    /// Unexpected hwloc error
-    ///
-    /// The hwloc documentation isn't exhaustive about what errors can occur in
-    /// general, and new error cases could potentially be added by new hwloc
-    /// releases. If we cannot provide a high-level error description, we will
-    /// fall back to reporting the raw error from the hwloc API.
-    #[error(transparent)]
-    Unexpected(#[from] RawIntError),
 }
 
 /// Where to measure attributes from

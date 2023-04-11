@@ -7,7 +7,7 @@ use crate::{bitmaps::Bitmap, support::CpuBindingSupport};
 use crate::{
     bitmaps::{CpuSet, RawBitmap},
     cpu,
-    errors::{self, FlagsError, RawIntError},
+    errors::{self, FlagsError, RawHwlocError},
     ffi, ProcessId, RawTopology, ThreadId, Topology,
 };
 use bitflags::bitflags;
@@ -594,15 +594,6 @@ pub enum CpuBindingError {
     /// the requested operation is not exactly supported.
     #[error("cannot bind {0} to {1}")]
     BadCpuSet(CpuBoundObject, CpuSet),
-
-    /// Unexpected hwloc error
-    ///
-    /// The hwloc documentation isn't exhaustive about what errors can occur in
-    /// general, and new error cases could potentially be added by new hwloc
-    /// releases. If we can't provide a high-level error description, we will
-    /// fall back to reporting the raw error from the hwloc API.
-    #[error(transparent)]
-    Unexpected(#[from] RawIntError),
 }
 
 /// Call an hwloc API that is about getting or setting CPU bindings, translate
@@ -616,10 +607,10 @@ pub(crate) fn call_hwloc(
     cpuset: Option<&CpuSet>,
     ffi: impl FnOnce() -> c_int,
 ) -> Result<(), CpuBindingError> {
-    match errors::call_hwloc_int(api, ffi) {
+    match errors::call_hwloc_int_normal(api, ffi) {
         Ok(_positive) => Ok(()),
         Err(
-            raw_err @ RawIntError::Errno {
+            raw_err @ RawHwlocError {
                 errno: Some(errno), ..
             },
         ) => match errno.0 {
@@ -630,8 +621,8 @@ pub(crate) fn call_hwloc(
                     .expect("This error should only be observed on commands that bind to CPUs")
                     .clone(),
             )),
-            _ => Err(CpuBindingError::Unexpected(raw_err)),
+            _ => unreachable!("{raw_err}"),
         },
-        Err(raw_err) => Err(CpuBindingError::Unexpected(raw_err)),
+        Err(raw_err) => unreachable!("{raw_err}"),
     }
 }

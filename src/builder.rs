@@ -3,14 +3,14 @@
 #[cfg(doc)]
 use crate::{editor::TopologyEditor, support::MiscSupport};
 use crate::{
-    errors::{FlagsError, NulError, ParameterError, UnsupportedError},
+    errors::{self, FlagsError, HybridError, NulError, RawHwlocError, UnsupportedError},
     ffi::{self, LibcString},
     objects::types::ObjectType,
     path::{self, PathError},
     ProcessId, RawTopology, Topology,
 };
 use bitflags::bitflags;
-use errno::{errno, Errno};
+use errno::Errno;
 use libc::{EINVAL, ENOSYS};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
@@ -19,6 +19,7 @@ use std::{
     path::Path,
     ptr::NonNull,
 };
+use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
 #[derive(Debug)]
@@ -29,35 +30,28 @@ pub struct TopologyBuilder(NonNull<RawTopology>);
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 impl TopologyBuilder {
     /// Start building a [`Topology`]
+    #[doc(alias = "hwloc_topology_init")]
     pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
-        let result = unsafe { ffi::hwloc_topology_init(&mut topology) };
-        assert_ne!(result, -1, "Failed to allocate topology");
-        assert_eq!(result, 0, "Unexpected hwloc_topology_init result {result}");
+        errors::call_hwloc_int_normal("hwloc_topology_init", || unsafe {
+            ffi::hwloc_topology_init(&mut topology)
+        })
+        .expect("Failed to allocate topology");
         Self(NonNull::new(topology).expect("Got null pointer from hwloc_topology_init"))
     }
 
     /// Load the topology with the previously specified parameters
-    ///
-    /// hwloc does not specify how this function can error out, but it usually
-    /// sets Errno, hopefully you will find its value insightful...
-    pub fn build(mut self) -> Result<Topology, Errno> {
+    #[doc(alias = "hwloc_topology_load")]
+    pub fn build(mut self) -> Result<Topology, RawHwlocError> {
         // Finalize the topology building
-        let result = unsafe { ffi::hwloc_topology_load(self.as_mut_ptr()) };
-        assert!(
-            result == 0 || result == -1,
-            "Unexpected hwloc_topology_load result {result} with errno {}",
-            errno()
-        );
+        errors::call_hwloc_int_normal("hwloc_topology_load", || unsafe {
+            ffi::hwloc_topology_load(self.as_mut_ptr())
+        })?;
 
         // If that was successful, transfer RawTopology ownership to a Topology
-        if result == 0 {
-            let result = Topology(self.0);
-            std::mem::forget(self);
-            Ok(result)
-        } else {
-            Err(errno())
-        }
+        let result = Topology(self.0);
+        std::mem::forget(self);
+        Ok(result)
     }
 }
 
@@ -91,18 +85,18 @@ impl TopologyBuilder {
     ///
     /// - [`UnsupportedError`] if hwloc does not support this feature (on this
     ///   system, for this process).
+    #[doc(alias = "hwloc_topology_set_pid")]
     pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, UnsupportedError> {
-        let result = unsafe { ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid) };
+        let result = errors::call_hwloc_int_normal("hwloc_topology_set_pid", || unsafe {
+            ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
+        });
         match result {
-            0 => Ok(self),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    ENOSYS => Err(UnsupportedError),
-                    _ => panic!("Unexpected errno {errno}"),
-                }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
+            Ok(_) => Ok(self),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(ENOSYS)),
+            }) => Err(UnsupportedError),
+            Err(other_err) => unreachable!("{other_err}"),
         }
     }
 
@@ -119,28 +113,25 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`RustSide(NulError)`](NulError) if `description` contains NUL chars.
-    /// - [`HwlocSide`] if `description` failed hwloc-side validation (most
-    ///   likely it is not a valid Synthetic description)
+    /// - [`ContainsNul`] if `description` contains NUL chars.
+    /// - [`Invalid`] if `description` failed hwloc-side validation (most
+    ///   likely it is not a valid Synthetic topology description)
     ///
-    /// [`HwlocSide`]: ParameterError::HwlocSide
-    pub fn from_synthetic(
-        mut self,
-        description: impl AsRef<str>,
-    ) -> Result<Self, ParameterError<NulError>> {
+    /// [`ContainsNul`]: TextInputError::ContainsNul
+    /// [`Invalid`]: TextInputError::Invalid
+    #[doc(alias = "hwloc_topology_set_synthetic")]
+    pub fn from_synthetic(mut self, description: impl AsRef<str>) -> Result<Self, TextInputError> {
         let description = LibcString::new(description)?;
-        let result =
-            unsafe { ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow()) };
+        let result = errors::call_hwloc_int_normal("hwloc_topology_set_synthetic", || unsafe {
+            ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow())
+        });
         match result {
-            0 => Ok(self),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EINVAL => Err(ParameterError::HwlocSide),
-                    _ => panic!("Unexpected errno {errno}"),
-                }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
+            Ok(_) => Ok(self),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Err(TextInputError::Invalid),
+            Err(other_err) => unreachable!("{other_err}"),
         }
     }
 
@@ -156,14 +147,16 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`RustSide(NulError)`](NulError) if `xml` contains NUL chars.
-    /// - [`HwlocSide`] if `xml` failed hwloc-side validation (most
-    ///   likely it is not a valid XML description)
+    /// - [`ContainsNul`] if `description` contains NUL chars.
+    /// - [`Invalid`] if `description` failed hwloc-side validation (most
+    ///   likely it is not a valid XML topology description)
     ///
-    /// [`HwlocSide`]: ParameterError::HwlocSide
-    pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, ParameterError<NulError>> {
+    /// [`ContainsNul`]: TextInputError::ContainsNul
+    /// [`Invalid`]: TextInputError::Invalid
+    #[doc(alias = "hwloc_topology_set_xmlbuffer")]
+    pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, TextInputError> {
         let xml = LibcString::new(xml)?;
-        let result = unsafe {
+        let result = errors::call_hwloc_int_normal("hwloc_topology_set_xmlbuffer", || unsafe {
             ffi::hwloc_topology_set_xmlbuffer(
                 self.as_mut_ptr(),
                 xml.borrow(),
@@ -171,17 +164,14 @@ impl TopologyBuilder {
                     .try_into()
                     .expect("XML buffer is too big for hwloc"),
             )
-        };
+        });
         match result {
-            0 => Ok(self),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EINVAL => Err(ParameterError::HwlocSide),
-                    _ => panic!("Unexpected errno {errno}"),
-                }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
+            Ok(_) => Ok(self),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Err(TextInputError::Invalid),
+            Err(other_err) => unreachable!("{other_err}"),
         }
     }
 
@@ -193,31 +183,28 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`RustSide(ContainsNul)`] if `path` contains NUL chars.
-    /// - [`RustSide(NotUnicode)`] if `path` is not valid Unicode.
-    /// - [`HwlocSide`] if `path` fails hwloc-side validation (most likely the
+    /// - [`BadRustPath(ContainsNul)`] if `path` contains NUL chars.
+    /// - [`BadRustPath(NotUnicode)`] if `path` is not valid Unicode.
+    /// - [`Invalid`] if `path` fails hwloc-side validation (most likely the
     ///   path does not exist, is not accessible for reading, or the file does
     ///   not context valid XML)
     ///
-    /// [`RustSide(ContainsNul)`]: PathError::ContainsNul
-    /// [`RustSide(NotUnicode)`]: PathError::NotUnicode
-    /// [`HwlocSide`]: ParameterError::HwlocSide
-    pub fn from_xml_file(
-        mut self,
-        path: impl AsRef<Path>,
-    ) -> Result<Self, ParameterError<PathError>> {
+    /// [`BadRustPath(ContainsNul)`]: PathError::ContainsNul
+    /// [`BadRustPath(NotUnicode)`]: PathError::NotUnicode
+    /// [`Invalid`]: XMLFileInputError::Invalid
+    #[doc(alias = "hwloc_topology_set_xml")]
+    pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
         let path = path::make_hwloc_path(path)?;
-        let result = unsafe { ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow()) };
+        let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
+            ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow())
+        });
         match result {
-            0 => Ok(self),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EINVAL => Err(ParameterError::HwlocSide),
-                    _ => panic!("Unexpected errno {errno}"),
-                }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
+            Ok(_) => Ok(self),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Err(XMLFileInputError::Invalid),
+            Err(other_err) => unreachable!("{other_err}"),
         }
     }
 
@@ -236,27 +223,52 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`RustSide(NulError)`](NulError) if `name` contains NUL chars.
-    /// - [`HwlocSide`] if `name` failed hwloc-side validation (most
-    ///   likely it is not a valid component/phase name)
-    ///
-    /// [`HwlocSide`]: ParameterError::HwlocSide
-    pub fn blacklist_component(mut self, name: &str) -> Result<Self, ParameterError<NulError>> {
-        let name = LibcString::new(name)?;
-        let result = unsafe {
+    /// - [`Rust(NulError)`](NulError) if `name` contains NUL chars.
+    #[doc(alias = "hwloc_topology_set_components")]
+    pub fn blacklist_component(mut self, name: &str) -> Result<Self, HybridError<NulError>> {
+        let name = match LibcString::new(name) {
+            Ok(name) => name,
+            Err(error) => return Err(HybridError::Rust(error)),
+        };
+        errors::call_hwloc_int_normal("hwloc_topology_set_components", || unsafe {
             ffi::hwloc_topology_set_components(
                 self.as_mut_ptr(),
                 ComponentsFlags::BLACKLIST.bits(),
                 name.borrow(),
             )
-        };
-        assert!(
-            result >= 0,
-            "Unexpected result {result} with errno {}",
-            errno()
-        );
+        })?;
         Ok(self)
     }
+}
+
+/// Invalid text was specified as the topology source
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum TextInputError {
+    /// Input string contains NUL chars and hwloc cannot handle that
+    #[error("string cannot be used by hwloc, it contains the NUL char")]
+    ContainsNul,
+
+    /// Hwloc rejected the input string as invalid for the specified input type
+    #[error("hwloc rejected the input string as invalid")]
+    Invalid,
+}
+//
+impl From<NulError> for TextInputError {
+    fn from(NulError: NulError) -> Self {
+        Self::ContainsNul
+    }
+}
+
+/// An invalid XML file path was specified as the topology source
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum XMLFileInputError {
+    /// Rust-side file path is not suitable for hwloc consumption
+    #[error(transparent)]
+    BadRustPath(#[from] PathError),
+
+    /// Hwloc rejected the XML file path or its contents as invalid
+    #[error("hwloc rejected the input file as invalid")]
+    Invalid,
 }
 
 /// # Detection configuration and query
@@ -270,11 +282,10 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`RustSide(FlagsError)`](FlagsError) if `flags` were found to be
+    /// - [`Rust(FlagsError)`](FlagsError) if `flags` were found to be
     ///   invalid on the Rust side. You may want to cross-check the
     ///   documentation of [`BuildFlags`] for more information about which
     ///   combinations of flags are considered valid.
-    /// - [`HwlocSide`] if `flags` failed hwloc-side validation.
     ///
     /// # Examples
     ///
@@ -285,30 +296,22 @@ impl TopologyBuilder {
     ///                         .build()?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    ///
-    /// [`HwlocSide`]: ParameterError::HwlocSide
+    #[doc(alias = "hwloc_topology_set_flags")]
     pub fn with_flags(
         mut self,
         flags: BuildFlags,
-    ) -> Result<Self, ParameterError<FlagsError<BuildFlags>>> {
+    ) -> Result<Self, HybridError<FlagsError<BuildFlags>>> {
         if !flags.is_valid() {
-            return Err(ParameterError::RustSide(flags.into()));
+            return Err(HybridError::Rust(flags.into()));
         }
-        let result = unsafe { ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits()) };
-        match result {
-            0 => Ok(self),
-            -1 => {
-                let errno = errno();
-                match errno.0 {
-                    EINVAL => Err(ParameterError::HwlocSide),
-                    _ => panic!("Unexpected errno {errno}"),
-                }
-            }
-            other => panic!("Unexpected result {other} with errno {}", errno()),
-        }
+        errors::call_hwloc_int_normal("hwloc_topology_set_flags", || unsafe {
+            ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits())
+        })?;
+        Ok(self)
     }
 
-    /// Check current topology building flags
+    /// Check current topology building flags (empty by default)
+    #[doc(alias = "hwloc_topology_get_flags")]
     pub fn flags(&self) -> BuildFlags {
         let result =
             BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) });
@@ -317,78 +320,71 @@ impl TopologyBuilder {
     }
 
     /// Set the filtering for the given object type
-    pub fn with_type_filter(mut self, ty: ObjectType, filter: TypeFilter) -> Self {
-        let result = unsafe {
+    #[doc(alias = "hwloc_topology_set_type_filter")]
+    pub fn with_type_filter(
+        mut self,
+        ty: ObjectType,
+        filter: TypeFilter,
+    ) -> Result<Self, RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_topology_set_type_filter", || unsafe {
             ffi::hwloc_topology_set_type_filter(self.as_mut_ptr(), ty.into(), filter.into())
-        };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_set_type_filter"
-        );
-        self
+        })?;
+        Ok(self)
     }
 
     /// Set the filtering for all object types
     ///
     /// If some types do not support this filtering, they are silently ignored.
-    pub fn with_common_type_filter(mut self, filter: TypeFilter) -> Self {
-        let result =
-            unsafe { ffi::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into()) };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_set_all_types_filter"
-        );
-        self
+    #[doc(alias = "hwloc_topology_set_all_types_filter")]
+    pub fn with_common_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_topology_set_all_types_filter", || unsafe {
+            ffi::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into())
+        })?;
+        Ok(self)
     }
 
     /// Set the filtering for all CPU cache object types
     ///
     /// Memory-side caches are not involved since they are not CPU caches.
-    pub fn with_cache_type_filter(mut self, filter: TypeFilter) -> Self {
-        let result =
-            unsafe { ffi::hwloc_topology_set_cache_types_filter(self.as_mut_ptr(), filter.into()) };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_set_cache_types_filter"
-        );
-        self
+    #[doc(alias = "hwloc_topology_set_cache_types_filter")]
+    pub fn with_cpu_cache_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_topology_set_cache_types_filter", || unsafe {
+            ffi::hwloc_topology_set_cache_types_filter(self.as_mut_ptr(), filter.into())
+        })?;
+        Ok(self)
     }
 
     /// Set the filtering for all CPU instruction cache object types
     ///
     /// Memory-side caches are not involved since they are not CPU caches.
-    pub fn with_icache_type_filter(mut self, filter: TypeFilter) -> Self {
-        let result = unsafe {
+    #[doc(alias = "hwloc_topology_set_icache_types_filter")]
+    pub fn with_cpu_icache_type_filter(
+        mut self,
+        filter: TypeFilter,
+    ) -> Result<Self, RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_topology_set_icache_types_filter", || unsafe {
             ffi::hwloc_topology_set_icache_types_filter(self.as_mut_ptr(), filter.into())
-        };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_set_icache_types_filter"
-        );
-        self
+        })?;
+        Ok(self)
     }
 
     /// Set the filtering for all I/O object types
-    pub fn with_io_type_filter(mut self, filter: TypeFilter) -> Self {
-        let result =
-            unsafe { ffi::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into()) };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_set_io_types_filter"
-        );
-        self
+    #[doc(alias = "hwloc_topology_set_io_types_filter")]
+    pub fn with_io_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_topology_set_io_types_filter", || unsafe {
+            ffi::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into())
+        })?;
+        Ok(self)
     }
 
     /// Current filtering for the given object type
-    pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
+    #[doc(alias = "hwloc_topology_get_type_filter")]
+    pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = RawTypeFilter::MAX;
-        let result =
-            unsafe { ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter) };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_topology_get_type_filter"
-        );
-        TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
+        errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
+            ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
+        })?;
+        Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
     }
 }
 

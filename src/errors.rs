@@ -35,75 +35,34 @@ fn check_errno<R>(callback: impl FnOnce() -> (R, bool)) -> (R, Option<Errno>) {
     (result, new_errno)
 }
 
-/// Raw error emitted by hwloc functions returning int
+/// Raw error emitted by hwloc functions that follow the usual convention
 ///
-/// This is a last-resort error type that is emitted when the error handling
-/// semantics of hwloc APIs are undocumented, and either they couldn't be easily
-/// guessed from the source code or our guess became invalid as hwloc evolved.
+/// Hwloc APIs almost always error out by returning -1 if they return an
+/// integer, or a null pointer if they return a pointer.
 ///
-/// It this happens, we assume the convention, followed by most hwloc API entry
-/// points, that the function you are calling should return -1 and optionally
-/// set errno when an error occurs.
+/// They may additionally change the value of errno to report additional detail
+/// about what happened.
 ///
-/// Unknown positive return values are considered to indicate success, and
-/// unknown negative return values are considered to indicate failure.
+/// If no additional detail is provided by the hwloc documentation, we will
+/// assume this error handling convention and report errors using the present
+/// struct. Where possible errno values are clarified in the hwloc docs, we will
+/// assume they are the only errors that can occur, translate them into a
+/// higher-level Rust errors and panic if another errno value is observed.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum RawIntError {
-    /// An hwloc API returned -1 and we observed this errno value, which may or
-    /// may not have been set by hwloc.
-    #[error("got -1 from {api} with errno {errno:?} (hopefully from hwloc)")]
-    Errno {
-        api: &'static str,
-        errno: Option<Errno>,
-    },
-
-    /// An hwloc API returned an unexpected integer, and we observed the
-    /// specified errno value which is unlikely to have been set by hwloc
-    #[error("got {result} from {api} with errno {errno:?} (most likely NOT from hwloc)")]
-    ReturnValue {
-        api: &'static str,
-        result: c_int,
-        errno: Option<Errno>,
-    },
-}
-//
-/// Call an hwloc entry point that returns int and post-process its result
-pub(crate) fn call_hwloc_int(
-    api: &'static str,
-    call: impl FnOnce() -> c_int,
-) -> Result<c_uint, RawIntError> {
-    let (result, errno) = check_errno(|| {
-        let result = call();
-        (result, result < 0)
-    });
-    match result {
-        success if success >= 0 => Ok(c_uint::try_from(success).expect("Can't fail if >= 0")),
-        -1 => Err(RawIntError::Errno { api, errno }),
-        _ => Err(RawIntError::ReturnValue { api, result, errno }),
-    }
-}
-
-/// Raw error emitted by hwloc functions returning pointers that should be
-/// non-null
-///
-/// This is a last-resort error type that is emitted when the error handling
-/// semantics of hwloc APIs are undocumented, and either they couldn't be easily
-/// guessed from the source code or our guess became invalid as hwloc evolved.
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-#[error(
-    "got unexpected null pointer from hwloc API {api} with errno {errno:?} (hopefully from hwloc)"
-)]
-pub struct RawNullError {
+#[error("hwloc API {api} errored out with errno {errno:?}")]
+pub struct RawHwlocError {
+    /// Hwloc entry point that failed
     pub api: &'static str,
+
+    /// Observed errno value, if non-zero
     pub errno: Option<Errno>,
 }
-//
-/// Call an hwloc entry point that returns a *const T that should not be null
-/// and post-process its result
+
+/// Call an hwloc entry point that returns a `*mut T` that should not be null
 pub(crate) fn call_hwloc_ptr_mut<T>(
     api: &'static str,
     call: impl FnOnce() -> *mut T,
-) -> Result<NonNull<T>, RawNullError> {
+) -> Result<NonNull<T>, RawHwlocError> {
     let (result, errno) = check_errno(|| {
         let result = call();
         (result, result.is_null())
@@ -111,17 +70,91 @@ pub(crate) fn call_hwloc_ptr_mut<T>(
     if let Some(ptr) = NonNull::new(result) {
         Ok(ptr)
     } else {
-        Err(RawNullError { api, errno })
+        Err(RawHwlocError { api, errno })
     }
 }
 //
-/// Call an hwloc entry point that returns a *mut T that should not be null and
-/// post-process its result
+/// Call an hwloc entry point that returns a `*const T` that should not be null
 pub(crate) fn call_hwloc_ptr<T>(
     api: &'static str,
     call: impl FnOnce() -> *const T,
-) -> Result<NonNull<T>, RawNullError> {
+) -> Result<NonNull<T>, RawHwlocError> {
     call_hwloc_ptr_mut(api, || call() as *mut T)
+}
+//
+/// Call an hwloc entry point that returns an `int` where -1 signals failure
+///
+/// This behavior is followed by almost every hwloc API, though unfortunately
+/// there are a couple of exception.
+pub(crate) fn call_hwloc_int_normal(
+    api: &'static str,
+    call: impl FnOnce() -> c_int,
+) -> Result<c_uint, RawHwlocError> {
+    match call_hwloc_int_raw(api, call) {
+        Ok(positive) => Ok(positive),
+        Err(RawNegIntError {
+            api,
+            result: -1,
+            errno,
+        }) => Err(RawHwlocError { api, errno }),
+        Err(other_err) => unreachable!("{other_err}"),
+    }
+}
+
+/// Raw error emitted by hwloc functions that returns a negative int on failure
+///
+/// A few hwloc functions (most prominently topology diffing) return negative
+/// integer values other than -1 when erroring out. This error type is an
+/// extension of [`RawHwlocError`] that allows you to catch and process those
+/// negative return values.
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+#[error("hwloc API {api} errored out with result {result} and errno {errno:?}")]
+pub(crate) struct RawNegIntError {
+    /// Hwloc entry point that failed
+    pub api: &'static str,
+
+    /// Return value (may not be positive)
+    pub result: c_int,
+
+    /// Observed errno value, if non-zero
+    pub errno: Option<Errno>,
+}
+//
+/// Call an hwloc entry point that returns int and post-process its result
+pub(crate) fn call_hwloc_int_raw(
+    api: &'static str,
+    call: impl FnOnce() -> c_int,
+) -> Result<c_uint, RawNegIntError> {
+    let (result, errno) = check_errno(|| {
+        let result = call();
+        (result, result < 0)
+    });
+    match result {
+        success if success >= 0 => Ok(c_uint::try_from(success).expect("Can't fail if >= 0")),
+        result => Err(RawNegIntError { api, result, errno }),
+    }
+}
+
+/// A function errored out either on the Rust or hwloc side
+///
+/// This is typically used for functions which have known failure modes on the
+/// Rust side (e.g. takes a string input that must not contain NUL chars), but
+/// whose hwloc-side error reporting policy is undocumented.
+///
+/// If the hwloc documentation contains a list of failure modes, we normally
+/// assume that list to be exhaustive and return a pure Rust error type,
+/// panicking if another hwloc error is observed.
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum HybridError<RustError: Error> {
+    /// An error was caught on the Rust side
+    #[error(transparent)]
+    // Unfortunately, this type cannot implement both #[from] RustError and
+    // #[from] RawHwlocError as nothing prevents RustError to be RawHwlocError...
+    Rust(RustError),
+
+    /// An error was caught on the hwloc side
+    #[error(transparent)]
+    Hwloc(#[from] RawHwlocError),
 }
 
 /// Requested string contains the NUL char
@@ -130,18 +163,6 @@ pub(crate) fn call_hwloc_ptr<T>(
 #[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("string cannot be used by hwloc, it contains the NUL char")]
 pub struct NulError;
-
-/// An invalid parameter was passed to a function
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
-pub enum ParameterError<RustError: Error> {
-    /// Rust-side validation failed
-    #[error(transparent)]
-    RustSide(#[from] RustError),
-
-    /// Hwloc-side validation failed
-    #[error("hwloc-side parameter validation failed")]
-    HwlocSide,
-}
 
 /// An invalid set of flags was passed to a function
 ///

@@ -2,9 +2,11 @@
 
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
 
+#[cfg(doc)]
+use crate::cpu::binding::CpuBindingFlags;
 use crate::{
     bitmaps::CpuSet,
-    errors::{self, ParameterError, RawIntError},
+    errors::{self, HybridError, RawHwlocError},
     ffi,
     path::{self, PathError},
     Topology,
@@ -29,8 +31,8 @@ impl Topology {
     /// [`bind_process_cpu()`]: Topology::bind_process_cpu()
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
-    pub fn bind_tid_cpu(&self, tid: pid_t, set: &CpuSet) -> Result<(), RawIntError> {
-        errors::call_hwloc_int("hwloc_linux_set_tid_cpubind", || unsafe {
+    pub fn bind_tid_cpu(&self, tid: pid_t, set: &CpuSet) -> Result<(), RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
             ffi::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.as_ptr())
         })
         .map(|_| ())
@@ -46,12 +48,12 @@ impl Topology {
     /// This is equivalent to calling [`process_cpu_binding()`] with the
     /// [`THREAD`] binding flag.
     ///
-    /// [`process_cpu_bindings()`]: Topology::process_cpu_bindings()
+    /// [`process_cpu_binding()`]: Topology::process_cpu_binding()
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_linux_get_tid_cpubind")]
-    pub fn tid_cpu_binding(&self, tid: pid_t) -> Result<CpuSet, RawIntError> {
+    pub fn tid_cpu_binding(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
-        errors::call_hwloc_int("hwloc_linux_get_tid_cpubind", || unsafe {
+        errors::call_hwloc_int_normal("hwloc_linux_get_tid_cpubind", || unsafe {
             ffi::hwloc_linux_get_tid_cpubind(self.as_ptr(), tid, set.as_mut_ptr())
         })
         .map(|_| set)
@@ -61,15 +63,15 @@ impl Topology {
     ///
     /// Indicates the PU which the thread last ran on, as a singleton [`CpuSet`].
     ///
-    /// This is equivalent to calling [`process_last_cpu_location()`] with the
+    /// This is equivalent to calling [`last_process_cpu_location()`] with the
     /// [`THREAD`] binding flag.
     ///
-    /// [`process_last_cpu_location()`]: Topology::process_last_cpu_location()
+    /// [`last_process_cpu_location()`]: Topology::last_process_cpu_location()
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_linux_get_tid_last_cpu_location")]
-    pub fn tid_last_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawIntError> {
+    pub fn tid_last_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
-        errors::call_hwloc_int("hwloc_linux_get_tid_last_cpu_location", || unsafe {
+        errors::call_hwloc_int_normal("hwloc_linux_get_tid_last_cpu_location", || unsafe {
             ffi::hwloc_linux_get_tid_last_cpu_location(self.as_ptr(), tid, set.as_mut_ptr())
         })
         .map(|_| set)
@@ -86,10 +88,13 @@ impl Topology {
     pub fn read_path_as_cpumask(
         &self,
         path: impl AsRef<Path>,
-    ) -> Result<CpuSet, ParameterError<PathError>> {
-        let path = path::make_hwloc_path(path)?;
+    ) -> Result<CpuSet, HybridError<PathError>> {
+        let path = match path::make_hwloc_path(path) {
+            Ok(path) => path,
+            Err(error) => return Err(HybridError::Rust(error)),
+        };
         let mut set = CpuSet::new();
-        errors::call_hwloc_int("hwloc_linux_read_path_as_cpumask", || unsafe {
+        errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             ffi::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
         })?;
         Ok(set)

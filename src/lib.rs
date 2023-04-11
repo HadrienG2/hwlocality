@@ -22,7 +22,7 @@ use crate::{
     bitmaps::{CpuSet, NodeSet},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
     depth::{Depth, DepthError, DepthResult, RawDepth},
-    errors::{NulError, RawIntError},
+    errors::{NulError, RawHwlocError},
     ffi::{IncompleteType, LibcString},
     objects::{
         attributes::ObjectAttributes,
@@ -33,7 +33,7 @@ use crate::{
 };
 #[cfg(doc)]
 use crate::{
-    memory::{attributes::LocalNUMANodeFlags, binding::GenericMemoryBindingError},
+    memory::{attributes::LocalNUMANodeFlags, binding::MemoryBindingError},
     support::{CpuBindingSupport, DiscoverySupport, MemoryBindingSupport, MiscSupport},
 };
 use bitflags::bitflags;
@@ -138,7 +138,7 @@ impl Topology {
     /// let topology = Topology::new()?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn new() -> Result<Topology, Errno> {
+    pub fn new() -> Result<Topology, RawHwlocError> {
         TopologyBuilder::new().build()
     }
 
@@ -196,17 +196,17 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn is_abi_compatible(&self) -> bool {
-        let result = errors::call_hwloc_int("hwloc_topology_abi_check", || unsafe {
+        let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
             ffi::hwloc_topology_abi_check(self.as_ptr())
         });
         match result {
             Ok(0) => true,
             Ok(other) => panic!("Unexpected return value from hwloc_topology_abi_check: {other}"),
-            Err(RawIntError::Errno {
+            Err(RawHwlocError {
+                api: _,
                 errno: Some(Errno(EINVAL)),
-                ..
             }) => false,
-            Err(raw_err) => panic!("Unexpected hwloc error: {raw_err}"),
+            Err(raw_err) => unreachable!("{raw_err}"),
         }
     }
 
@@ -239,7 +239,7 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn is_this_system(&self) -> bool {
-        let result = errors::call_hwloc_int("hwloc_topology_is_thissystem", || unsafe {
+        let result = errors::call_hwloc_int_normal("hwloc_topology_is_thissystem", || unsafe {
             ffi::hwloc_topology_is_thissystem(self.as_ptr())
         })
         .expect("Unexpected hwloc error");
@@ -330,7 +330,7 @@ impl Topology {
     /// ```
     pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
         let mut filter = RawTypeFilter::MAX;
-        errors::call_hwloc_int("hwloc_topology_get_type_filter", || unsafe {
+        errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })
         .expect("Unexpected hwloc error");

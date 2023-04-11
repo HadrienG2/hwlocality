@@ -6,12 +6,12 @@
 use crate::support::DiscoverySupport;
 use crate::{
     bitmaps::CpuSet,
-    errors::{self, RawIntError},
+    errors::{self, RawHwlocError},
     ffi,
     info::TextualInfo,
     Topology,
 };
-use libc::{ENOENT, EXDEV};
+use libc::{EINVAL, ENOENT, EXDEV};
 use std::{
     ffi::{c_int, c_uint},
     iter::FusedIterator,
@@ -72,16 +72,15 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`Unknown`] if no information about CPU kinds was found
-    ///
-    /// [`Unknown`]: CpuKindEnumerationError::Unknown
+    /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_nr")]
-    pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindEnumerationError> {
-        let count = errors::call_hwloc_int("hwloc_cpukinds_get_nr", || unsafe {
+    pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindsUnknown> {
+        let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
             ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
-        })?;
+        })
+        .expect("All known failure cases are prevented by API design");
         NonZeroUsize::new(usize::try_from(count).expect("Unexpectedly high number of CPU kinds"))
-            .ok_or(CpuKindEnumerationError::Unknown)
+            .ok_or(CpuKindsUnknown)
     }
 
     /// Enumerate CPU kinds, from least efficient efficient to most efficient
@@ -92,19 +91,17 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`Unknown`] if no information about CPU kinds was found
-    ///
-    /// [`Unknown`]: CpuKindEnumerationError::Unknown
+    /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_info")]
     pub fn cpu_kinds(
         &self,
     ) -> Result<
-        impl Iterator<Item = Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), RawIntError>>
+        impl Iterator<Item = (CpuSet, Option<CpuEfficiency>, &[TextualInfo])>
             + Clone
             + DoubleEndedIterator
             + ExactSizeIterator
             + FusedIterator,
-        CpuKindEnumerationError,
+        CpuKindsUnknown,
     > {
         // Iterate over all CPU kinds
         let num_cpu_kinds = usize::from(self.num_cpu_kinds()?);
@@ -112,17 +109,14 @@ impl Topology {
     }
 
     /// Tell what we know about a CPU kind
-    fn cpu_kind(
-        &self,
-        kind_index: usize,
-    ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), RawIntError> {
+    fn cpu_kind(&self, kind_index: usize) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
         // Let hwloc tell us everything it knows about this CPU kind
         let kind_index = kind_index as c_uint;
         let mut cpuset = CpuSet::new();
         let mut efficiency = c_int::MAX;
         let mut nr_infos = 0 as c_uint;
         let mut infos = ptr::null_mut();
-        errors::call_hwloc_int("hwloc_cpukinds_get_info", || unsafe {
+        errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
             ffi::hwloc_cpukinds_get_info(
                 self.as_ptr(),
                 kind_index,
@@ -132,7 +126,8 @@ impl Topology {
                 &mut infos,
                 0,
             )
-        })?;
+        })
+        .expect("All documented failure cases are prevented by API design");
 
         // Post-process hwloc results, then emit them
         let efficiency = match efficiency {
@@ -149,7 +144,7 @@ impl Topology {
                 usize::try_from(nr_infos).expect("Unexpected info attribute count"),
             )
         };
-        Ok((cpuset, efficiency, infos))
+        (cpuset, efficiency, infos)
     }
 
     /// Query information about the CPU kind that contains CPUs listed in `set`
@@ -168,24 +163,25 @@ impl Topology {
         &self,
         set: &CpuSet,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
-        let result = errors::call_hwloc_int("hwloc_cpukinds_get_by_cpuset", || unsafe {
+        let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
             ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.as_ptr(), 0)
         });
         let kind_index = match result {
+            Ok(idx) => usize::try_from(idx).expect("Unexpectedly high CPU kind index"),
             Err(
-                raw_error @ RawIntError::Errno {
+                raw_error @ RawHwlocError {
                     api: _,
                     errno: Some(errno),
                 },
             ) => match errno.0 {
                 EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
                 ENOENT => return Err(CpuKindFromSetError::NotIncluded),
-                _ => return Err(CpuKindFromSetError::from(raw_error)),
+                EINVAL => return Err(CpuKindFromSetError::InvalidSet),
+                _ => unreachable!("{raw_error}"),
             },
-            other => usize::try_from(other?).expect("Unexpectedly high CPU kind index"),
+            Err(raw_error) => unreachable!("{raw_error}"),
         };
-        let output = self.cpu_kind(kind_index)?;
-        Ok(output)
+        Ok(self.cpu_kind(kind_index))
     }
 }
 
@@ -197,17 +193,10 @@ impl Topology {
 /// Efficiency ranges from 0 to the number of CPU kinds minus one.
 pub type CpuEfficiency = usize;
 
-/// Error while enumerating CPU kinds
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum CpuKindEnumerationError {
-    /// No information about CPU kinds was found
-    #[error("no information about CPU kinds was found")]
-    Unknown,
-
-    /// An unspecified hwloc error occured
-    #[error(transparent)]
-    HwlocError(#[from] RawIntError),
-}
+/// No information about CPU kinds was found
+#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
+#[error("no information about CPU kinds was found")]
+pub struct CpuKindsUnknown;
 
 /// Error while querying a CPU kind from a CPU set
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
@@ -224,7 +213,8 @@ pub enum CpuKindFromSetError {
     #[error("CPU set is not included in any kind, even partially")]
     NotIncluded,
 
-    /// An unspecified hwloc error occured
-    #[error(transparent)]
-    HwlocError(#[from] RawIntError),
+    /// CPU set is considered invalid by hwloc (most likely it contains
+    /// non-existent CPUs)
+    #[error("CPU set is invalid")]
+    InvalidSet,
 }

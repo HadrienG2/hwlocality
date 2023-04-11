@@ -6,7 +6,7 @@
 use crate::{bitmaps::CpuSet, support::MemoryBindingSupport};
 use crate::{
     bitmaps::{Bitmap, BitmapKind, NodeSet, RawBitmap, SpecializedBitmap},
-    errors::{self, FlagsError, RawIntError, RawNullError},
+    errors::{self, FlagsError, RawHwlocError},
     ffi, memory, ProcessId, RawTopology, Topology,
 };
 use bitflags::bitflags;
@@ -16,7 +16,6 @@ use libc::{ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use std::{
     borrow::{Borrow, BorrowMut},
-    error::Error,
     ffi::{c_int, c_void},
     fmt::{self, Debug, Display},
     mem::MaybeUninit,
@@ -78,8 +77,8 @@ impl Topology {
     /// - [`Unsupported`] if the system cannot allocate page-aligned memory
     /// - [`AllocationFailed`] if memory allocation failed
     ///
-    /// [`AllocationFailed`]: GenericMemoryBindingError::AllocationFailed
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn allocate_memory(&self, len: usize) -> Result<Bytes, MemoryAllocationError<NodeSet>> {
         self.allocate_memory_impl(len)
     }
@@ -119,14 +118,14 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`AllocationFailed`] if memory allocation failed
     ///
-    /// [`AllocationFailed`]: GenericMemoryBindingError::AllocationFailed
+    /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
-    /// [`BadSet`]: GenericMemoryBindingError::BadSet
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn allocate_bound_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -177,13 +176,13 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`AllocationFailed`] if memory allocation failed
     ///
-    /// [`AllocationFailed`]: GenericMemoryBindingError::AllocationFailed
+    /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
-    /// [`BadSet`]: GenericMemoryBindingError::BadSet
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn binding_allocate_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -236,11 +235,11 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
-    /// [`BadSet`]: GenericMemoryBindingError::BadSet
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
         set: &Set,
@@ -280,12 +279,12 @@ impl Topology {
     ///   or if flags [`PROCESS`] and [`THREAD`] were both specified
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "HWLOC_MEMBIND_DEFAULT")]
     pub fn unbind_memory(
         &self,
@@ -340,14 +339,14 @@ impl Topology {
     ///   and memory binding is inhomogeneous across threads in the process
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
+    /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
@@ -376,11 +375,11 @@ impl Topology {
     /// - [`BadFlags`] if flags [`PROCESS`] and [`THREAD`] were both specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
-    /// [`BadSet`]: GenericMemoryBindingError::BadSet
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn bind_process_memory<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -413,12 +412,12 @@ impl Topology {
     /// - [`BadFlags`] if one of flags [`STRICT`] and [`MIGRATE`] was specified,
     ///   or if flags [`PROCESS`] and [`THREAD`] were both specified
     ///
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn unbind_process_memory(
         &self,
         pid: ProcessId,
@@ -450,14 +449,14 @@ impl Topology {
     /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
     ///   and memory binding is inhomogeneous across threads in the process
     ///
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
+    /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -497,11 +496,11 @@ impl Topology {
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
-    /// [`BadSet`]: GenericMemoryBindingError::BadSet
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -546,12 +545,12 @@ impl Topology {
     ///   and [`MIGRATE`] was specified
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn unbind_memory_area<Target: ?Sized>(
         &self,
         target: &Target,
@@ -607,14 +606,14 @@ impl Topology {
     ///   and memory binding is inhomogeneous across target memory pages
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
+    /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -670,14 +669,14 @@ impl Topology {
     ///   and memory binding is inhomogeneous across target memory pages
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
-    /// [`BadFlags`]: GenericMemoryBindingError::BadFlags
+    /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`MixedResults`]: GenericMemoryBindingError::MixedResults
+    /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
-    /// [`Unsupported`]: GenericMemoryBindingError::Unsupported
+    /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -1031,7 +1030,7 @@ pub enum MemoryBindingPolicy {
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum GenericMemoryBindingError<Set: SpecializedBitmap, RawHwlocError: Error> {
+pub enum MemoryBindingError<Set: SpecializedBitmap> {
     /// The system does not support the specified action or policy
     ///
     /// For example, some systems only allow binding memory on a per-thread
@@ -1086,27 +1085,13 @@ pub enum GenericMemoryBindingError<Set: SpecializedBitmap, RawHwlocError: Error>
     #[error("binding varies from one thread of the process to another")]
     #[doc(alias = "HWLOC_MEMBIND_MIXED")]
     MixedResults,
-
-    /// Unexpected hwloc error
-    ///
-    /// The hwloc documentation isn't exhaustive about what errors can occur in
-    /// general, and new error cases could potentially be added by new hwloc
-    /// releases. If we cannot provide a high-level error description, we will
-    /// fall back to reporting the raw error from the hwloc API.
-    #[error(transparent)]
-    Unexpected(#[from] RawHwlocError),
 }
 //
-impl<Set: SpecializedBitmap, RawHwlocError: Error> From<MemoryBindingFlags>
-    for GenericMemoryBindingError<Set, RawHwlocError>
-{
+impl<Set: SpecializedBitmap> From<MemoryBindingFlags> for MemoryBindingError<Set> {
     fn from(value: MemoryBindingFlags) -> Self {
         Self::BadFlags(value.into())
     }
 }
-
-/// Errors that can occur when querying or setting memory bindings
-pub type MemoryBindingError<Set> = GenericMemoryBindingError<Set, RawIntError>;
 
 /// Call an hwloc API that is about manipulating memory bindings and translate
 /// known errors into higher-level `MemoryBindingError`s.
@@ -1120,43 +1105,20 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
     set: Option<&Set>,
     ffi: impl FnOnce() -> c_int,
 ) -> Result<(), MemoryBindingError<Set>> {
-    match errors::call_hwloc_int(api, ffi) {
-        Ok(_positive) => Ok(()),
-        Err(
-            raw_err @ RawIntError::Errno {
-                errno: Some(errno), ..
-            },
-        ) => {
-            if let Some(error) = decode_errno(object, operation, set, errno) {
-                Err(error)
-            } else {
-                Err(MemoryBindingError::Unexpected(raw_err))
-            }
-        }
-        Err(raw_err) => Err(MemoryBindingError::Unexpected(raw_err)),
+    match errors::call_hwloc_int_normal(api, ffi) {
+        Ok(_) => Ok(()),
+        Err(RawHwlocError { errno, .. }) => Err(decode_errno(
+            object,
+            operation,
+            set,
+            errno.expect("Unexpected hwloc error without errno"),
+        )
+        .expect("Unexpected errno value")),
     }
 }
 
 /// Errors that can occur when allocating memory
-pub type MemoryAllocationError<Set> = GenericMemoryBindingError<Set, RawNullError>;
-//
-impl<Set: SpecializedBitmap> From<MemoryBindingError<Set>> for MemoryAllocationError<Set> {
-    fn from(value: MemoryBindingError<Set>) -> Self {
-        match value {
-            MemoryBindingError::Unsupported => Self::Unsupported,
-            MemoryBindingError::BadFlags(flags) => Self::BadFlags(flags),
-            MemoryBindingError::BadSet(memory_bound_object, set) => {
-                Self::BadSet(memory_bound_object, set)
-            }
-            MemoryBindingError::AllocationFailed => Self::AllocationFailed,
-            MemoryBindingError::MixedResults => Self::MixedResults,
-            GenericMemoryBindingError::Unexpected(RawIntError::Errno { api, errno })
-            | GenericMemoryBindingError::Unexpected(RawIntError::ReturnValue {
-                api, errno, ..
-            }) => Self::Unexpected(RawNullError { api, errno }),
-        }
-    }
-}
+pub type MemoryAllocationError<Set> = MemoryBindingError<Set>;
 
 /// Call an hwloc API that allocates (possibly bound) memory and translate
 /// known errors into higher-level `MemoryBindingError`s.
@@ -1169,48 +1131,41 @@ pub(crate) fn call_hwloc_allocate<Set: SpecializedBitmap>(
     ffi: impl FnOnce() -> *mut c_void,
 ) -> Result<NonNull<c_void>, MemoryAllocationError<Set>> {
     errors::call_hwloc_ptr_mut(api, ffi).map_err(|raw_err| {
-        if let RawNullError {
-            errno: Some(errno), ..
-        } = raw_err
-        {
-            if let Some(error) = decode_errno(
-                MemoryBoundObject::Area,
-                MemoryBindingOperation::Allocate,
-                set,
-                errno,
-            ) {
-                return error;
-            }
-        }
-        MemoryAllocationError::Unexpected(raw_err)
+        decode_errno(
+            MemoryBoundObject::Area,
+            MemoryBindingOperation::Allocate,
+            set,
+            raw_err.errno.expect("Unexpected hwloc error without errno"),
+        )
+        .expect("Unexpected errno value")
     })
 }
 
 /// Translating hwloc errno into high-level errors
-fn decode_errno<Set: SpecializedBitmap, RawHwlocError: Error>(
+fn decode_errno<Set: SpecializedBitmap>(
     object: MemoryBoundObject,
     operation: MemoryBindingOperation,
     set: Option<&Set>,
     errno: Errno,
-) -> Option<GenericMemoryBindingError<Set, RawHwlocError>> {
+) -> Option<MemoryBindingError<Set>> {
     match errno.0 {
-        ENOSYS => Some(GenericMemoryBindingError::Unsupported),
+        ENOSYS => Some(MemoryBindingError::Unsupported),
         EXDEV => match operation {
             MemoryBindingOperation::Bind | MemoryBindingOperation::Allocate => {
-                Some(GenericMemoryBindingError::BadSet(
+                Some(MemoryBindingError::BadSet(
                     object,
                     set.expect("This error should only be observed on commands that set bindings")
                         .clone(),
                 ))
             }
             MemoryBindingOperation::GetBinding | MemoryBindingOperation::GetLastLocation => {
-                Some(GenericMemoryBindingError::MixedResults)
+                Some(MemoryBindingError::MixedResults)
             }
             MemoryBindingOperation::Unbind => {
                 unreachable!("The empty set should always be considered valid")
             }
         },
-        ENOMEM => Some(GenericMemoryBindingError::AllocationFailed),
+        ENOMEM => Some(MemoryBindingError::AllocationFailed),
         _ => None,
     }
 }

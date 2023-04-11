@@ -5,13 +5,12 @@
 #[cfg(doc)]
 use crate::{builder::TopologyBuilder, errors::NulError};
 use crate::{
-    errors::{self, RawIntError},
+    errors::{self, HybridError, RawHwlocError},
     ffi,
     path::{self, PathError},
     Topology,
 };
 use bitflags::bitflags;
-use errno::{errno, Errno};
 use std::{
     borrow::Borrow,
     ffi::{c_char, c_int, c_ulong, CStr, OsStr},
@@ -21,7 +20,6 @@ use std::{
     path::Path,
     ptr::{self, NonNull},
 };
-use thiserror::Error;
 
 /// # Exporting Topologies to XML
 //
@@ -56,17 +54,19 @@ impl Topology {
         &self,
         path: Option<impl AsRef<Path>>,
         flags: XMLExportFlags,
-    ) -> Result<(), XMLFileExportError> {
-        let path = if let Some(path) = path {
-            path::make_hwloc_path(path.as_ref())?
+    ) -> Result<(), HybridError<PathError>> {
+        let path_res = if let Some(path) = path {
+            path::make_hwloc_path(path.as_ref())
         } else {
-            path::make_hwloc_path(Path::new("-"))?
+            path::make_hwloc_path(Path::new("-"))
         };
-        unsafe {
-            errors::call_hwloc_int("hwloc_topology_export_xml", || {
-                ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
-            })?
+        let path = match path_res {
+            Ok(path) => path,
+            Err(error) => return Err(HybridError::Rust(error)),
         };
+        errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
+            ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
+        })?;
         Ok(())
     }
 
@@ -90,25 +90,19 @@ impl Topology {
     /// other character, especially any non-ASCII character, will be silently
     /// dropped.
     #[doc(alias = "hwloc_topology_export_xmlbuffer")]
-    pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML, Errno> {
+    pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML, RawHwlocError> {
         let mut xmlbuffer = ptr::null_mut();
         let mut buflen = 0;
-        let result = unsafe {
+        errors::call_hwloc_int_normal("hwloc_topology_export_xmlbuffer", || unsafe {
             ffi::hwloc_topology_export_xmlbuffer(
                 self.as_ptr(),
                 &mut xmlbuffer,
                 &mut buflen,
                 flags.bits(),
             )
-        };
-        match result {
-            0 => Ok(unsafe { XML::wrap(self, xmlbuffer, buflen) }
-                .expect("Got null pointer from hwloc_topology_export_xmlbuffer")),
-            -1 => Err(errno()),
-            other => {
-                unreachable!("Unexpected return value from hwloc_topology_export_xml: {other}")
-            }
-        }
+        })?;
+        Ok(unsafe { XML::wrap(self, xmlbuffer, buflen) }
+            .expect("Got null pointer from hwloc_topology_export_xmlbuffer"))
     }
 }
 
@@ -127,18 +121,6 @@ impl Default for XMLExportFlags {
     fn default() -> Self {
         Self::empty()
     }
-}
-
-/// Failed to export a topology to XML file
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum XMLFileExportError {
-    /// Requested file path is wrong
-    #[error(transparent)]
-    PathError(#[from] PathError),
-
-    /// Hwloc failed for another, unspecified reason
-    #[error(transparent)]
-    HwlocError(#[from] RawIntError),
 }
 
 /// XML string emitted by hwloc
