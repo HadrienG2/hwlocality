@@ -961,8 +961,6 @@ macro_rules! extern_c_block {
                 set: *const RawBitmap,
             ) -> c_int;
 
-            // TODO
-
             // === TODO: Other APIs
 
             // TODO: Cover more later: interop, differences, sharing, etc...
