@@ -11,8 +11,8 @@ use crate::{
     path::{self, PathError},
     Topology,
 };
-use libc::pid_t;
-use std::path::Path;
+use libc::{cpu_set_t, pid_t};
+use std::{path::Path, ptr::NonNull};
 
 /// # Linux-specific helpers
 ///

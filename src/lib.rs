@@ -112,6 +112,10 @@ pub(crate) struct RawTopology(IncompleteType);
     target_os = "linux",
     doc = "- [Linux-specific helpers](#linux-specific-helpers)"
 )]
+#[cfg_attr(
+    target_os = "windows",
+    doc = "- [Windows-specific helpers](#windows-specific-helpers)"
+)]
 //
 // NOTE: Since the Topology API is _huge_, not all of it is implemented in the
 // root lib.rs module. Instead, functionality which is very strongly related to

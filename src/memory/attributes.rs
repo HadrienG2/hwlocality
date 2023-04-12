@@ -157,7 +157,7 @@ impl MemoryAttributeID {
     const LATENCY: Self = Self(3);
     const READ_LATENCY: Self = Self(6);
     const WRITE_LATENCY: Self = Self(7);
-    // TODO: Add new attributes to methods below and MemoryAttribute constructors
+    // NOTE: Add new attributes to methods below and MemoryAttribute constructors
 
     /// For predefined attributes, flags are known at compile time
     fn static_flags(self) -> Option<MemoryAttributeFlags> {

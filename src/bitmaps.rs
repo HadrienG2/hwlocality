@@ -419,6 +419,7 @@ pub trait SpecializedBitmap:
     const BITMAP_KIND: BitmapKind;
 
     /// Convert a reference to bitmap to a reference to this
+    //
     // FIXME: Adding a `where Bitmap: AsRef<Self>` bound on the trait should
     //        suffice, but for some unknown reason rustc v1.67.1 rejects this
     //        claiming the trait isn't implemented.

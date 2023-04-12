@@ -961,6 +961,8 @@ macro_rules! extern_c_block {
                 set: *const RawBitmap,
             ) -> c_int;
 
+            // NOTE: libnuma interop is waiting for higher quality libnuma bindings
+
             // === Windows-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
 
             #[cfg(target_os = "windows")]
@@ -977,6 +979,11 @@ macro_rules! extern_c_block {
                 cpuset: *mut RawBitmap,
                 flags: c_ulong,
             ) -> c_int;
+
+            // NOTE: glibc interop is waiting for higher quality cpuset support
+            //       in the libc crate: right now, it is not possible to safely
+            //       crate a `cpu_set_t`, but functions that manipulate them
+            //       expect `&mut cpu_set_t`...
 
             // === TODO: Other APIs
 
