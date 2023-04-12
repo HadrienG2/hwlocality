@@ -958,6 +958,14 @@ pub(crate) struct RawBitmap(IncompleteType);
 /// Both [`CpuSet`] and [`NodeSet`] are always indexed by OS physical number.
 ///
 /// A `Bitmap` may be of infinite size.
+///
+/// # Panics
+///
+/// Unlike most hwloc entry points in this crate, `Bitmap` functions always
+/// handle errors by panicking. The rationale for this is that the bitmap is
+/// just a simple data structures, without any kind of complicated interactions
+/// with the operating system, for which the only failure mode should be running
+/// out of memory. And panicking is the normal way to handle this in Rust.
 #[repr(transparent)]
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
@@ -1049,7 +1057,7 @@ impl Bitmap {
         unsafe {
             let ptr =
                 errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || ffi::hwloc_bitmap_alloc())
-                    .expect("hwloc_bitmap_alloc failed");
+                    .unwrap();
             Self::from_non_null(ptr)
         }
     }
@@ -1071,7 +1079,7 @@ impl Bitmap {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc_full", || {
                 ffi::hwloc_bitmap_alloc_full()
             })
-            .expect("hwloc_bitmap_alloc_full failed");
+            .unwrap();
             Self::from_non_null(ptr)
         }
     }
@@ -1111,7 +1119,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
             ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
         })
-        .expect("hwloc_bitmap_copy failed");
+        .unwrap();
     }
 
     /// Clear all indices
@@ -1170,7 +1178,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
             ffi::hwloc_bitmap_only(self.as_mut_ptr(), id)
         })
-        .expect("hwloc_bitmap_only failed");
+        .unwrap();
     }
 
     /// Set all indices except for `id`, which is cleared
@@ -1193,7 +1201,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
             ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), id)
         })
-        .expect("hwloc_bitmap_allbut failed");
+        .unwrap();
     }
 
     /// Set index `id`
@@ -1212,7 +1220,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
             ffi::hwloc_bitmap_set(self.as_mut_ptr(), id)
         })
-        .expect("hwloc_bitmap_set failed");
+        .unwrap();
     }
 
     /// Set indexes covered by `range`
@@ -1240,7 +1248,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_set_range", || unsafe {
             ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end)
         })
-        .expect("hwloc_bitmap_set_range failed");
+        .unwrap();
     }
 
     /// Clear index `id`
@@ -1259,7 +1267,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
             ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id)
         })
-        .expect("hwloc_bitmap_clr failed");
+        .unwrap();
     }
 
     /// Clear indexes covered by `range`
@@ -1287,7 +1295,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_clr_range", || unsafe {
             ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end)
         })
-        .expect("hwloc_bitmap_clr_range failed");
+        .unwrap();
     }
 
     /// Keep a single index among those set in the bitmap
@@ -1324,7 +1332,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify", || unsafe {
             ffi::hwloc_bitmap_singlify(self.as_mut_ptr())
         })
-        .expect("hwloc_bitmap_singlify failed");
+        .unwrap();
     }
 
     /// Check if index `id` is set
@@ -1588,7 +1596,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
             ffi::hwloc_bitmap_andnot(target, lhs, rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_andnot failed");
+        .unwrap();
     }
 
     /// Inverts the current `Bitmap`.
@@ -1609,7 +1617,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
         })
-        .expect("hwloc_bitmap_not failed");
+        .unwrap();
     }
 
     /// Truth that `self` and `rhs` have some set indices in common
@@ -1726,7 +1734,7 @@ impl BitAnd<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
             ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_and failed");
+        .unwrap();
         result
     }
 }
@@ -1760,7 +1768,7 @@ impl BitAndAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
             ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_and failed");
+        .unwrap();
     }
 }
 
@@ -1779,7 +1787,7 @@ impl BitOr<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
             ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_or failed");
+        .unwrap();
         result
     }
 }
@@ -1813,7 +1821,7 @@ impl BitOrAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
             ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_or failed");
+        .unwrap();
     }
 }
 
@@ -1832,7 +1840,7 @@ impl BitXor<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
             ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_xor failed");
+        .unwrap();
         result
     }
 }
@@ -1866,7 +1874,7 @@ impl BitXorAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
             ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .expect("hwloc_bitmap_xor failed");
+        .unwrap();
     }
 }
 
@@ -1883,7 +1891,7 @@ impl Clone for Bitmap {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_dup", || {
                 ffi::hwloc_bitmap_dup(self.as_ptr())
             })
-            .expect("hwloc_bitmap_dup failed");
+            .unwrap();
             Self::from_non_null(ptr)
         }
     }
@@ -2003,7 +2011,7 @@ impl Not for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr())
         })
-        .expect("hwloc_bitmap_not failed");
+        .unwrap();
         result
     }
 }
