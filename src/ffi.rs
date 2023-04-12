@@ -597,7 +597,7 @@ macro_rules! extern_c_block {
                 begin: c_uint,
                 end: c_int,
             ) -> c_int;
-            pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut RawBitmap);
+            pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut RawBitmap) -> c_int;
             // NOTE: Not exposing ulong-based APIs for now, so no to_ulong, to_ith_ulong, to_ulongs and nr_ulongs
 
             #[must_use]

@@ -55,18 +55,15 @@ impl Topology {
         path: Option<impl AsRef<Path>>,
         flags: XMLExportFlags,
     ) -> Result<(), HybridError<PathError>> {
-        let path_res = if let Some(path) = path {
-            path::make_hwloc_path(path.as_ref())
+        let path = if let Some(path) = path {
+            path::make_hwloc_path(path.as_ref())?
         } else {
-            path::make_hwloc_path(Path::new("-"))
-        };
-        let path = match path_res {
-            Ok(path) => path,
-            Err(error) => return Err(HybridError::Rust(error)),
+            path::make_hwloc_path(Path::new("-"))?
         };
         errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
             ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(())
     }
 
@@ -138,6 +135,10 @@ pub struct XML<'topology> {
 
 impl<'topology> XML<'topology> {
     /// Wrap an hwloc XML string
+    ///
+    /// # Safety
+    ///
+    /// `base` must originate from `topology`.
     ///
     /// # Panics
     ///

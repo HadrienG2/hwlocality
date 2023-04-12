@@ -148,13 +148,17 @@ pub(crate) fn call_hwloc_int_raw(
 pub enum HybridError<RustError: Error> {
     /// An error was caught on the Rust side
     #[error(transparent)]
-    // Unfortunately, this type cannot implement both #[from] RustError and
-    // #[from] RawHwlocError as nothing prevents RustError to be RawHwlocError...
-    Rust(RustError),
+    Rust(#[from] RustError),
 
     /// An error was caught on the hwloc side
     #[error(transparent)]
-    Hwloc(#[from] RawHwlocError),
+    // Unfortunately, this type cannot implement both #[from] RustError and
+    // #[from] RawHwlocError as rustc rightly complains that nothing prevents
+    // RustError to be RawHwlocError at the type system level.
+    //
+    // I choose to implement for RustError because that type has unbounded
+    // complexity and thus benefits the most from it.
+    Hwloc(RawHwlocError),
 }
 
 /// Requested string contains the NUL char

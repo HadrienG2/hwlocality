@@ -2,9 +2,11 @@
 
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 
-use crate::{ffi, Topology};
+use crate::{
+    errors::{self, RawHwlocError},
+    ffi, Topology,
+};
 use bitflags::bitflags;
-use errno::{errno, Errno};
 use std::ffi::{c_char, c_ulong, CString};
 
 /// # Exporting Topologies to Synthetic
@@ -28,41 +30,29 @@ impl Topology {
     /// topologies. An error will be returned if the current topology cannot be
     /// expressed as a synthetic topology.
     #[doc(alias = "hwloc_topology_export_synthetic")]
-    pub fn export_synthetic(&self, flags: SyntheticExportFlags) -> Result<String, Errno> {
+    pub fn export_synthetic(&self, flags: SyntheticExportFlags) -> Result<String, RawHwlocError> {
         let mut buf = vec![0u8; 1024];
         loop {
-            let result = unsafe {
-                ffi::hwloc_topology_export_synthetic(
-                    self.as_ptr(),
-                    buf.as_mut_ptr() as *mut c_char,
-                    buf.len(),
-                    flags.bits(),
-                )
-            };
-            match result {
-                len if len >= 0 => {
-                    if usize::try_from(len).expect("Should fit if I can build the vec")
-                        == buf.len() - 1
-                    {
-                        // hwloc exactly filled the buffer, which suggests the
-                        // output was truncated. Try a larget buffer.
-                        buf.resize(2 * buf.len(), 0);
-                        continue;
-                    } else {
-                        // Buffer seems alright, return it
-                        return Ok(CString::from_vec_with_nul(buf)
-                            .expect("Missing NUL from hwloc")
-                            .into_string()
-                            .expect("Synthetic export should yield an ASCII string"));
-                    }
-                }
-                // An error occured
-                -1 => return Err(errno()),
-                other => {
-                    unreachable!(
-                        "Unexpected return value from hwloc_topology_export_synthetic: {other}"
+            let len =
+                errors::call_hwloc_int_normal("hwloc_topology_export_synthetic", || unsafe {
+                    ffi::hwloc_topology_export_synthetic(
+                        self.as_ptr(),
+                        buf.as_mut_ptr() as *mut c_char,
+                        buf.len(),
+                        flags.bits(),
                     )
-                }
+                })?;
+            if usize::try_from(len).expect("Should fit if I can build the vec") == buf.len() - 1 {
+                // hwloc exactly filled the buffer, which suggests the
+                // output was truncated. Try a larget buffer.
+                buf.resize(2 * buf.len(), 0);
+                continue;
+            } else {
+                // Buffer seems alright, return it
+                return Ok(CString::from_vec_with_nul(buf)
+                    .expect("Missing NUL from hwloc")
+                    .into_string()
+                    .expect("Synthetic export should yield an ASCII string"));
             }
         }
     }

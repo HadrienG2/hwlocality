@@ -151,9 +151,9 @@ impl Topology {
     /// Do not use this in doctests where the fact that the topology is default
     /// initialized is important for the code sample to make sense.
     ///
-    /// FIXME: In an ideal world, this would be cfg(any(test, doctest)) and
-    ///        once_cell would be a dev-dependency, but that doesn't work for
-    ///        doctests yet: https://github.com/rust-lang/rust/issues/67295
+    /// NOTE: In an ideal world, this would be cfg(any(test, doctest)) and
+    ///       once_cell would be a dev-dependency, but that doesn't work for
+    ///       doctests yet: https://github.com/rust-lang/rust/issues/67295
     pub fn test_instance() -> &'static Self {
         use once_cell::sync::Lazy;
         static INSTANCE: Lazy<Topology> =
@@ -174,6 +174,7 @@ impl Topology {
     /// assert_eq!(topology.build_flags(), flags);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_topology_init")]
     pub fn builder() -> TopologyBuilder {
         TopologyBuilder::new()
     }
@@ -195,6 +196,7 @@ impl Topology {
     /// assert!(Topology::new()?.is_abi_compatible());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_topology_abi_check")]
     pub fn is_abi_compatible(&self) -> bool {
         let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
             ffi::hwloc_topology_abi_check(self.as_ptr())
@@ -219,6 +221,7 @@ impl Topology {
     /// assert_eq!(Topology::new()?.build_flags(), BuildFlags::empty());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_topology_get_flags")]
     pub fn build_flags(&self) -> BuildFlags {
         let result =
             BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) });
@@ -238,6 +241,7 @@ impl Topology {
     /// assert!(Topology::new()?.is_this_system());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_topology_is_thissystem")]
     pub fn is_this_system(&self) -> bool {
         let result = errors::call_hwloc_int_normal("hwloc_topology_is_thissystem", || unsafe {
             ffi::hwloc_topology_is_thissystem(self.as_ptr())
@@ -245,7 +249,7 @@ impl Topology {
         .expect("Unexpected hwloc error");
         assert!(
             result == 0 || result == 1,
-            "Unexpected result from hwloc_topology_is_thissystem"
+            "Unexpected result from hwloc_topology_is_thissystem: {result}"
         );
         result == 1
     }
@@ -272,6 +276,7 @@ impl Topology {
     /// println!("{:?}", topology.feature_support());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_topology_get_support")]
     pub fn feature_support(&self) -> &FeatureSupport {
         let ptr = errors::call_hwloc_ptr("hwloc_topology_get_support", || unsafe {
             ffi::hwloc_topology_get_support(self.as_ptr())
@@ -321,20 +326,20 @@ impl Topology {
     ///                     ObjectType::NUMANode,
     ///                     ObjectType::Machine];
     /// for ty in always_there {
-    ///     assert_eq!(topology.type_filter(ty), TypeFilter::KeepAll);
+    ///     assert_eq!(topology.type_filter(ty)?, TypeFilter::KeepAll);
     /// }
     ///
     /// // Groups are only kept if they bring extra structure
-    /// assert_ne!(topology.type_filter(ObjectType::Group), TypeFilter::KeepAll);
+    /// assert_ne!(topology.type_filter(ObjectType::Group)?, TypeFilter::KeepAll);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn type_filter(&self, ty: ObjectType) -> TypeFilter {
+    #[doc(alias = "hwloc_topology_get_type_filter")]
+    pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = RawTypeFilter::MAX;
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
-        })
-        .expect("Unexpected hwloc error");
-        TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc")
+        })?;
+        Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
     }
 }
 
@@ -362,6 +367,7 @@ impl Topology {
     /// assert!(topology.depth() >= 2);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_topology_get_depth")]
     pub fn depth(&self) -> u32 {
         unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
             .try_into()
@@ -389,6 +395,7 @@ impl Topology {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_memory_parents_depth")]
     pub fn memory_parents_depth(&self) -> DepthResult {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
     }
@@ -422,6 +429,7 @@ impl Topology {
     ///
     /// [depth_or_below_for_type()]: Topology::depth_or_below_for_type()
     /// [depth_or_above_for_type()]: Topology::depth_or_above_for_type()
+    #[doc(alias = "hwloc_get_type_depth")]
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
         Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
     }
@@ -453,6 +461,7 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_type_or_below_depth")]
     pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
             object_type.is_normal(),
@@ -507,6 +516,7 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_type_or_above_depth")]
     pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
             object_type.is_normal(),
@@ -567,6 +577,7 @@ impl Topology {
     /// ```
     ///
     /// [depth_for_type()]: Topology::depth_for_type()
+    #[doc(alias = "hwloc_get_cache_type_depth")]
     pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
         let mut result = Err(DepthError::None);
         for depth in 0..self.depth() {
@@ -624,6 +635,7 @@ impl Topology {
     /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_depth_type")]
     pub fn type_at_depth(&self, depth: impl Into<Depth>) -> Option<ObjectType> {
         let depth = depth.into();
         if let Depth::Normal(depth) = depth {
@@ -657,6 +669,7 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_nbobjs_by_depth")]
     pub fn size_at_depth(&self, depth: impl Into<Depth>) -> u32 {
         unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into()) }
     }
@@ -686,6 +699,8 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_obj_by_depth")]
+    #[doc(alias = "hwloc_get_next_obj_by_depth")]
     pub fn objects_at_depth(
         &self,
         depth: impl Into<Depth>,
@@ -729,6 +744,7 @@ impl Topology {
     /// println!("{root:#}");
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_root_obj")]
     pub fn root_object(&self) -> &TopologyObject {
         self.objects_at_depth(0)
             .next()
@@ -759,6 +775,8 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[doc(alias = "hwloc_get_obj_by_type")]
+    #[doc(alias = "hwloc_get_next_obj_by_type")]
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
@@ -1057,6 +1075,7 @@ impl Topology {
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` or `name_prefix` contains NUL chars.
+    #[doc(alias = "hwloc_get_obj_with_same_locality")]
     pub fn object_with_same_locality(
         &self,
         src: &TopologyObject,
@@ -1128,6 +1147,7 @@ impl Topology {
     ///
     /// - If there are no CPUs to distribute work to (the union of all root
     ///   cpusets is empty).
+    #[doc(alias = "hwloc_distrib")]
     pub fn distribute_items(
         &self,
         roots: &[&TopologyObject],
@@ -1365,10 +1385,13 @@ impl Topology {
 }
 
 impl Clone for Topology {
+    #[doc(alias = "hwloc_topology_dup")]
     fn clone(&self) -> Self {
         let mut clone = ptr::null_mut();
-        let result = unsafe { ffi::hwloc_topology_dup(&mut clone, self.as_ptr()) };
-        assert!(result >= 0, "Topology clone failed with error {result}");
+        errors::call_hwloc_int_normal("hwloc_topology_dup", || unsafe {
+            ffi::hwloc_topology_dup(&mut clone, self.as_ptr())
+        })
+        .expect("Failed to clone topology");
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
     }
 }

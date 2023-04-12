@@ -43,6 +43,7 @@ impl Topology {
     /// modify the active `Topology` through a [`TopologyEditor`] proxy object,
     /// with the guarantee that by the time `Topology::edit()` returns, the
     /// `Topology` will be back in a state where it is safe to use `&self` again.
+    #[doc(alias = "hwloc_topology_refresh")]
     pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
         // Set up topology editing
         let mut editor = TopologyEditor::new(self);
@@ -70,10 +71,12 @@ impl Topology {
     /// `Topology` state escape, not even via unwinding, as that would result in
     /// undefined behavior (mutation which the compiler assumes will not happen).
     pub(crate) fn refresh(&mut self) {
-        let refresh_result = unsafe { ffi::hwloc_topology_refresh(self.as_mut_ptr()) };
-        if refresh_result < 0 {
-            eprintln!("Topology stuck in a state that violates Rust aliasing rules, must abort");
-            std::process::abort();
+        let result = errors::call_hwloc_int_normal("hwloc_topology_refresh", || unsafe {
+            ffi::hwloc_topology_refresh(self.as_mut_ptr())
+        });
+        if let Err(e) = result {
+            eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
+            std::process::abort()
         }
     }
 }
@@ -157,15 +160,13 @@ impl TopologyEditor<'_> {
         }
 
         // Apply requested restriction
-        let result = unsafe {
-            errors::call_hwloc_int_normal("hwloc_topology_restrict", || {
-                ffi::hwloc_topology_restrict(
-                    self.topology_mut_ptr(),
-                    set.as_ref().as_ptr(),
-                    flags.bits(),
-                )
-            })
-        };
+        let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
+            ffi::hwloc_topology_restrict(
+                self.topology_mut_ptr(),
+                set.as_ref().as_ptr(),
+                flags.bits(),
+            )
+        });
         match result {
             Ok(_) => Ok(()),
             Err(
@@ -214,11 +215,9 @@ impl TopologyEditor<'_> {
         };
 
         // Call hwloc
-        unsafe {
-            errors::call_hwloc_int_normal("hwloc_topology_allow", || {
-                ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
-            })
-        }
+        errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
+            ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
+        })
         .map(|_| ())
     }
 
@@ -246,11 +245,9 @@ impl TopologyEditor<'_> {
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
     ) -> GroupInsertResult {
         // Allocate group object
-        let group = unsafe {
-            errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || {
-                ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
-            })
-        };
+        let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
+            ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
+        });
         let mut group = match group {
             Ok(group) => group,
             Err(e) => return GroupInsertResult::Failed(e),
@@ -261,11 +258,9 @@ impl TopologyEditor<'_> {
         //       leaked, but hwloc does not provide a way to liberate it...
         let children = find_children(self.topology());
         for child in children {
-            let result = unsafe {
-                errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || {
-                    ffi::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
-                })
-            };
+            let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
+                ffi::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
+            });
             if let Err(e) = result {
                 return GroupInsertResult::Failed(e);
             }
@@ -287,11 +282,9 @@ impl TopologyEditor<'_> {
         }
 
         // Insert the group object into the topology
-        let result = unsafe {
-            errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || {
-                ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group.as_ptr())
-            })
-        };
+        let result = errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
+            ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group.as_ptr())
+        });
         match result {
             Ok(result) if result == group => GroupInsertResult::New(unsafe { group.as_mut() }),
             Ok(mut other) => GroupInsertResult::Existing(unsafe { other.as_mut() }),
@@ -345,20 +338,12 @@ impl TopologyEditor<'_> {
         // So letting the client keep hold of it would be highly problematic.
         //
         let parent = find_parent(self.topology()) as *const TopologyObject as *mut TopologyObject;
-        let name = match LibcString::new(name) {
-            Ok(name) => name,
-            Err(error) => return Err(HybridError::Rust(error)),
-        };
-        unsafe {
-            let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || {
-                ffi::hwloc_topology_insert_misc_object(
-                    self.topology_mut_ptr(),
-                    parent,
-                    name.borrow(),
-                )
-            })?;
-            Ok(ptr.as_mut())
-        }
+        let name = LibcString::new(name)?;
+        let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
+            ffi::hwloc_topology_insert_misc_object(self.topology_mut_ptr(), parent, name.borrow())
+        })
+        .map_err(HybridError::Hwloc)?;
+        Ok(unsafe { ptr.as_mut() })
     }
 }
 
@@ -547,12 +532,12 @@ impl TopologyEditor<'_> {
         // Prepare arguments for C consumption and validate them
         let name = match name.map(LibcString::new).transpose() {
             Ok(name) => name,
-            Err(error) => return Err(HybridError::Rust(error.into())),
+            Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
         };
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
         //
         if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
-            return Err(HybridError::Rust(AddDistancesError::BadKind));
+            return Err(AddDistancesError::BadKind.into());
         }
         let kind = kind.bits();
         //
@@ -561,19 +546,18 @@ impl TopologyEditor<'_> {
         //
         let (objects, distances) = collect_objects_and_distances(self.topology());
         if objects.len() < 2 {
-            return Err(HybridError::Rust(AddDistancesError::BadObjectsCount(
-                objects.len(),
-            )));
+            return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
         }
         let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
-            return Err(HybridError::Rust(AddDistancesError::BadObjectsCount(objects.len())))
+            return Err(AddDistancesError::BadObjectsCount(objects.len()).into())
         };
         let expected_distances_len = objects.len().pow(2);
         if distances.len() != expected_distances_len {
-            return Err(HybridError::Rust(AddDistancesError::BadDistancesCount {
+            return Err(AddDistancesError::BadDistancesCount {
                 expected_distances_len,
                 actual_distances_len: distances.len(),
-            }));
+            }
+            .into());
         }
         let objs = objects.as_ptr() as *const *const TopologyObject;
         let values = distances.as_ptr() as *const u64;
@@ -581,7 +565,8 @@ impl TopologyEditor<'_> {
         // Create new empty distances structure
         let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
             ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
 
         // Add objects to the distance structure
         errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
@@ -593,12 +578,14 @@ impl TopologyEditor<'_> {
                 values,
                 create_add_flags,
             )
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
 
         // Finalize the distance structure and insert it into the topology
         errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
             ffi::hwloc_distances_add_commit(self.topology_mut_ptr(), handle.as_ptr(), commit_flags)
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(())
     }
 }
@@ -683,11 +670,9 @@ impl TopologyEditor<'_> {
         find_distances: impl FnOnce(&Topology) -> Distances,
     ) -> Result<(), RawHwlocError> {
         let distances = find_distances(self.topology()).into_inner();
-        unsafe {
-            errors::call_hwloc_int_normal("hwloc_distances_release_remove", || {
-                ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
-            })
-        }
+        errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
+            ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
+        })
         .map(|_| ())
     }
 
@@ -697,11 +682,9 @@ impl TopologyEditor<'_> {
     /// objects are not removed from the topology.
     #[doc(alias = "hwloc_distances_remove")]
     pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
-        unsafe {
-            errors::call_hwloc_int_normal("hwloc_distances_remove", || {
-                ffi::hwloc_distances_remove(self.topology_mut_ptr())
-            })
-        }
+        errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
+            ffi::hwloc_distances_remove(self.topology_mut_ptr())
+        })
         .map(|_| ())
     }
 
@@ -713,11 +696,9 @@ impl TopologyEditor<'_> {
         &mut self,
         depth: impl Into<Depth>,
     ) -> Result<(), RawHwlocError> {
-        unsafe {
-            errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || {
-                ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
-            })
-        }
+        errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
+            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
+        })
         .map(|_| ())
     }
 
@@ -764,25 +745,22 @@ impl<'topology> TopologyEditor<'topology> {
     ) -> Result<MemoryAttributeBuilder<'_, 'topology>, HybridError<MemoryAttributeRegisterError>>
     {
         if !flags.is_valid() {
-            return Err(HybridError::Rust(MemoryAttributeRegisterError::BadFlags(
-                flags,
-            )));
+            return Err(MemoryAttributeRegisterError::BadFlags(flags).into());
         }
         let name = match LibcString::new(name) {
             Ok(name) => name,
-            Err(error) => return Err(HybridError::Rust(error.into())),
+            Err(NulError) => return Err(MemoryAttributeRegisterError::NameContainsNul.into()),
         };
         let mut id = MemoryAttributeID::default();
-        unsafe {
-            errors::call_hwloc_int_normal("hwloc_memattr_register", || {
-                ffi::hwloc_memattr_register(
-                    self.topology_mut_ptr(),
-                    name.borrow(),
-                    flags.bits(),
-                    &mut id,
-                )
-            })?;
-        }
+        errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
+            ffi::hwloc_memattr_register(
+                self.topology_mut_ptr(),
+                name.borrow(),
+                flags.bits(),
+                &mut id,
+            )
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(MemoryAttributeBuilder {
             editor: self,
             flags,
@@ -808,12 +786,6 @@ pub enum MemoryAttributeRegisterError {
     /// A memory attribute with this name already exists
     #[error("a memory attribute with this name already exists")]
     AlreadyExists,
-}
-//
-impl From<NulError> for MemoryAttributeRegisterError {
-    fn from(_: NulError) -> Self {
-        Self::NameContainsNul
-    }
 }
 
 /// Mechanism to configure a memory attribute
@@ -849,7 +821,7 @@ impl MemoryAttributeBuilder<'_, '_> {
         // Run user callback, validate results for correctness
         let (initiators, targets_and_values) = find_values(self.editor.topology());
         if !(self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) ^ initiators.is_some()) {
-            return Err(HybridError::Rust(InitiatorsError));
+            return Err(InitiatorsError.into());
         }
         let size_ok = match (&initiators, &targets_and_values) {
             (Some(initiators), targets_and_values)
@@ -861,7 +833,7 @@ impl MemoryAttributeBuilder<'_, '_> {
             _ => false,
         };
         if !size_ok {
-            return Err(HybridError::Rust(InitiatorsError));
+            return Err(InitiatorsError.into());
         }
 
         // Post-process results to fit hwloc and borrow checker expectations
@@ -884,18 +856,17 @@ impl MemoryAttributeBuilder<'_, '_> {
         for (initiator_ptr, (target_ptr, value)) in
             initiator_ptrs.zip(target_ptrs_and_values.into_iter())
         {
-            unsafe {
-                errors::call_hwloc_int_normal("hwloc_memattr_set_value", || {
-                    ffi::hwloc_memattr_set_value(
-                        self.editor.topology_mut_ptr(),
-                        self.id,
-                        target_ptr,
-                        initiator_ptr,
-                        0,
-                        value,
-                    )
-                })?;
-            }
+            errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
+                ffi::hwloc_memattr_set_value(
+                    self.editor.topology_mut_ptr(),
+                    self.id,
+                    target_ptr,
+                    initiator_ptr,
+                    0,
+                    value,
+                )
+            })
+            .map_err(HybridError::Hwloc)?;
         }
         Ok(())
     }

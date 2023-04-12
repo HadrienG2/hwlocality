@@ -89,14 +89,12 @@ impl Topology {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<CpuSet, HybridError<PathError>> {
-        let path = match path::make_hwloc_path(path) {
-            Ok(path) => path,
-            Err(error) => return Err(HybridError::Rust(error)),
-        };
+        let path = path::make_hwloc_path(path)?;
         let mut set = CpuSet::new();
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             ffi::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(set)
     }
 }

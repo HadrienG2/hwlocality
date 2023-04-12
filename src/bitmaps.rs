@@ -6,6 +6,7 @@
 use crate::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     depth::Depth,
+    errors::{self, RawHwlocError},
     ffi::{self, IncompleteType},
     objects::{types::ObjectType, TopologyObject},
     RawTopology, Topology,
@@ -22,7 +23,7 @@ use std::{
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
     },
-    ptr,
+    ptr::{self, NonNull},
 };
 
 /// # Finding objects inside a CPU set
@@ -42,6 +43,7 @@ impl Topology {
     /// In the common case where `set` is a subset of the root cpuset, this
     /// operation can be more efficiently performed by using
     /// `coarsest_cpuset_partition()`.
+    #[doc(alias = "hwloc_get_first_largest_obj_inside_cpuset")]
     pub fn largest_objects_inside_cpuset(
         &self,
         set: CpuSet,
@@ -61,6 +63,7 @@ impl Topology {
     ///
     /// If the requested cpuset is not a subset of the root cpuset, we can't
     /// find children covering the indices outside of the root cpuset
+    #[doc(alias = "hwloc_get_largest_objs_inside_cpuset")]
     pub fn coarsest_cpuset_partition(&self, set: &CpuSet) -> Vec<&TopologyObject> {
         // Make sure each set index actually maps into a hardware PU
         let root = self.root_object();
@@ -113,6 +116,9 @@ impl Topology {
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
     /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
+    #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
+    #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
     pub fn objects_inside_cpuset_at_depth<'result>(
         &'result self,
         set: &'result CpuSet,
@@ -129,6 +135,9 @@ impl Topology {
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty Vec will
     /// always be returned for I/O or Misc objects as they don't have cpusets.
+    #[doc(alias = "hwloc_get_obj_inside_cpuset_by_type")]
+    #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_type")]
+    #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_type")]
     pub fn objects_inside_cpuset_with_type<'result>(
         &'result self,
         set: &'result CpuSet,
@@ -227,6 +236,7 @@ impl Topology {
     /// No object is considered to cover the empty cpuset, therefore such a
     /// request will always return None, as if a set going outside of the root
     /// cpuset were passed as input.
+    #[doc(alias = "hwloc_get_obj_covering_cpuset")]
     pub fn smallest_object_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
         let root = self.root_object();
         if !root.covers_cpuset(set) || set.is_empty() {
@@ -240,6 +250,7 @@ impl Topology {
     }
 
     /// Get the first data (or unified) cache covering the given cpuset
+    #[doc(alias = "hwloc_get_cache_covering_cpuset")]
     pub fn first_cache_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
         let first_obj = self.smallest_object_covering_cpuset(set)?;
         std::iter::once(first_obj)
@@ -252,6 +263,7 @@ impl Topology {
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). Therefore, an empty iterator will
     /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
     pub fn objects_covering_cpuset_at_depth<'result>(
         &'result self,
         set: &'result CpuSet,
@@ -268,6 +280,7 @@ impl Topology {
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). Therefore, an empty iterator will
     /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_type")]
     pub fn objects_covering_cpuset_with_type<'result>(
         &'result self,
         set: &'result CpuSet,
@@ -287,16 +300,28 @@ impl Topology {
     ///
     /// This is equivalent to calling [`TopologyObject::cpuset()`] on
     /// the topology's root object.
-    pub fn cpuset(&self) -> &CpuSet {
-        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_topology_cpuset(topology) })
+    #[doc(alias = "hwloc_topology_get_topology_cpuset")]
+    pub fn cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_topology_cpuset",
+                ffi::hwloc_topology_get_topology_cpuset,
+            )
+        }
     }
 
     /// Complete CPU set
     ///
     /// This is equivalent to calling [`TopologyObject::complete_cpuset()`] on
     /// the topology's root object.
-    pub fn complete_cpuset(&self) -> &CpuSet {
-        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_complete_cpuset(topology) })
+    #[doc(alias = "hwloc_topology_get_complete_cpuset")]
+    pub fn complete_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_complete_cpuset",
+                ffi::hwloc_topology_get_complete_cpuset,
+            )
+        }
     }
 
     /// Allowed CPU set
@@ -308,24 +333,42 @@ impl Topology {
     /// PUs by calling `cpuset.intersects(topology.allowed_cpuset())`, and if so
     /// you can get the set of allowed PUs with
     /// `cpuset & topology.allowed_cpuset()`.
-    pub fn allowed_cpuset(&self) -> &CpuSet {
-        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_allowed_cpuset(topology) })
+    #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
+    pub fn allowed_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_allowed_cpuset",
+                ffi::hwloc_topology_get_allowed_cpuset,
+            )
+        }
     }
 
     /// Topology node set
     ///
     /// This is equivalent to calling [`TopologyObject::nodeset()`] on
     /// the topology's root object.
-    pub fn nodeset(&self) -> &NodeSet {
-        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_topology_nodeset(topology) })
+    #[doc(alias = "hwloc_topology_get_topology_nodeset")]
+    pub fn nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_topology_nodeset",
+                ffi::hwloc_topology_get_topology_nodeset,
+            )
+        }
     }
 
     /// Complete node set
     ///
     /// This is equivalent to calling [`TopologyObject::complete_nodeset()`] on
     /// the topology's root object.
-    pub fn complete_nodeset(&self) -> &NodeSet {
-        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_complete_nodeset(topology) })
+    #[doc(alias = "hwloc_topology_get_complete_nodeset")]
+    pub fn complete_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_complete_nodeset",
+                ffi::hwloc_topology_get_complete_nodeset,
+            )
+        }
     }
 
     /// Allowed node set
@@ -337,25 +380,34 @@ impl Topology {
     /// NUMA nodes by calling `nodeset.intersects(topology.allowed_nodeset())`,
     /// and if so you can get the set of allowed NUMA nodes with
     /// `nodeset & topology.allowed_nodeset()`.
-    pub fn allowed_nodeset(&self) -> &NodeSet {
-        self.topology_set(|topology| unsafe { ffi::hwloc_topology_get_allowed_nodeset(topology) })
+    #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
+    pub fn allowed_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_allowed_nodeset",
+                ffi::hwloc_topology_get_allowed_nodeset,
+            )
+        }
     }
 
-    fn topology_set<'topology, Set: SpecializedBitmap>(
+    /// Query a topology-wide `CpuSet` or `NodeSet`
+    ///
+    /// # Safety
+    ///
+    /// The `*const RawBitmap` returned by `getter` must originate from `self`.
+    unsafe fn topology_set<'topology, Set: SpecializedBitmap>(
         &'topology self,
-        getter: impl Fn(*const RawTopology) -> *const RawBitmap,
-    ) -> &Set {
-        Set::from_bitmap_ref(
-            unsafe {
-                let bitmap_ptr = getter(self.as_ptr());
-                let bitmap_ref = std::mem::transmute::<
-                    &*const RawBitmap,
-                    &'topology *const RawBitmap,
-                >(&bitmap_ptr);
-                Bitmap::borrow_from_raw(bitmap_ref)
-            }
-            .expect("Topology bitmap getters should return non-null bitmaps"),
-        )
+        getter_name: &'static str,
+        getter: unsafe extern "C" fn(*const RawTopology) -> *const RawBitmap,
+    ) -> Result<&Set, RawHwlocError> {
+        Ok(Set::from_bitmap_ref(unsafe {
+            let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))?;
+            let bitmap_ref = std::mem::transmute::<
+                &NonNull<RawBitmap>,
+                &'topology NonNull<RawBitmap>,
+            >(&bitmap_ptr);
+            Bitmap::borrow_from_non_null(bitmap_ref)
+        }))
     }
 }
 
@@ -449,6 +501,14 @@ macro_rules! impl_bitmap_newtype {
                 Bitmap::from_raw(bitmap).map(Self::from)
             }
 
+            /// Wrap an owned bitmap from hwloc
+            ///
+            /// See [`Bitmap::from_non_null`].
+            #[allow(unused)]
+            pub(crate) unsafe fn from_non_null(bitmap: NonNull<RawBitmap>) -> Self {
+                Self::from(Bitmap::from_non_null(bitmap))
+            }
+
             /// Wrap an hwloc-originated borrowed bitmap pointer
             ///
             /// See [`Bitmap::borrow_from_raw`].
@@ -463,6 +523,14 @@ macro_rules! impl_bitmap_newtype {
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
                 Bitmap::borrow_from_raw_mut(bitmap).map(Bitmap::as_ref)
+            }
+
+            /// Wrap an hwloc-originated borrowed bitmap pointer
+            ///
+            /// See [`Bitmap::borrow_from_non_null`].
+            #[allow(unused)]
+            pub(crate) unsafe fn borrow_from_non_null(bitmap: &NonNull<RawBitmap>) -> &Self {
+                <Bitmap as AsRef<Self>>::as_ref(Bitmap::borrow_from_non_null(bitmap))
             }
 
             /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
@@ -800,6 +868,7 @@ impl CpuSet {
     ///
     /// PUs that are not below a Core object (for instance if the topology does
     /// not contain any Core object) are kept in the cpuset.
+    #[doc(alias = "hwloc_bitmap_singlify_per_core")]
     pub fn singlify_per_core(&mut self, topology: &Topology, which: u32) {
         let result = unsafe {
             ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
@@ -901,29 +970,52 @@ impl Bitmap {
 
     /// Wraps an owned bitmap from hwloc
     ///
+    /// # Safety
+    ///
     /// If non-null, the pointer must target a valid bitmap that we will acquire
     /// ownership of and automatically free on Drop.
-    ///
     pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
-        (!bitmap.is_null()).then_some(Self(bitmap))
+        NonNull::new(bitmap).map(|ptr| unsafe { Self::from_non_null(ptr) })
+    }
+
+    /// Wraps an owned bitmap from hwloc
+    ///
+    /// # Safety
+    ///
+    /// The pointer must target a valid bitmap that we will acquire ownership of
+    /// and automatically free on Drop.
+    pub(crate) unsafe fn from_non_null(bitmap: NonNull<RawBitmap>) -> Self {
+        Self(bitmap.as_ptr())
     }
 
     /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
     ///
+    /// # Safety
+    ///
     /// If non-null, the pointer must target a valid bitmap, but unlike with
     /// from_raw, it will not be automatically freed on Drop.
-    ///
     pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
         (!bitmap.is_null()).then_some(std::mem::transmute::<&*const RawBitmap, &Self>(bitmap))
     }
 
     /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
     ///
+    /// # Safety
+    ///
     /// If non-null, the pointer must target a valid bitmap, but unlike with
     /// from_raw, it will not be automatically freed on Drop.
-    ///
     pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
         (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut RawBitmap, &Self>(bitmap))
+    }
+
+    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    ///
+    /// # Safety
+    ///
+    /// If non-null, the pointer must target a valid bitmap, but unlike with
+    /// from_raw, it will not be automatically freed on Drop.
+    pub(crate) unsafe fn borrow_from_non_null(bitmap: &NonNull<RawBitmap>) -> &Self {
+        std::mem::transmute::<&NonNull<RawBitmap>, &Self>(bitmap)
     }
 
     // NOTE: There is no borrow_mut_from_raw because it would not be safe as if
@@ -952,10 +1044,13 @@ impl Bitmap {
     /// assert_eq!("", format!("{}", bitmap));
     /// assert_eq!(true, bitmap.is_empty());
     // ```
+    #[doc(alias = "hwloc_bitmap_alloc")]
     pub fn new() -> Self {
         unsafe {
-            Self::from_raw(ffi::hwloc_bitmap_alloc())
-                .expect("Got null pointer from hwloc_bitmap_alloc")
+            let ptr =
+                errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || ffi::hwloc_bitmap_alloc())
+                    .expect("hwloc_bitmap_alloc failed");
+            Self::from_non_null(ptr)
         }
     }
 
@@ -970,10 +1065,14 @@ impl Bitmap {
     /// assert_eq!("0-", format!("{}", bitmap));
     /// assert_eq!(false, bitmap.is_empty());
     // ```
+    #[doc(alias = "hwloc_bitmap_alloc_full")]
     pub fn full() -> Self {
         unsafe {
-            Self::from_raw(ffi::hwloc_bitmap_alloc_full())
-                .expect("Got null pointer from hwloc_bitmap_alloc_full")
+            let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc_full", || {
+                ffi::hwloc_bitmap_alloc_full()
+            })
+            .expect("hwloc_bitmap_alloc_full failed");
+            Self::from_non_null(ptr)
         }
     }
 
@@ -1007,12 +1106,12 @@ impl Bitmap {
     /// bitmap2.copy_from(&bitmap);
     /// assert_eq!("0-5", format!("{}", bitmap2));
     // ```
+    #[doc(alias = "hwloc_bitmap_copy")]
     pub fn copy_from(&mut self, other: &Self) {
-        let result = unsafe { ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr()) };
-        assert!(
-            result >= 0,
-            "hwloc_bitmap_copy returned error code {result}"
-        );
+        errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
+            ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
+        })
+        .expect("hwloc_bitmap_copy failed");
     }
 
     /// Clear all indices
@@ -1030,6 +1129,7 @@ impl Bitmap {
     /// assert_eq!(Some(0), bitmap.weight());
     /// assert_eq!(true, bitmap.is_empty());
     /// ```
+    #[doc(alias = "hwloc_bitmap_zero")]
     pub fn clear(&mut self) {
         unsafe { ffi::hwloc_bitmap_zero(self.as_mut_ptr()) }
     }
@@ -1047,6 +1147,7 @@ impl Bitmap {
     /// bitmap.fill();
     /// assert_eq!(None, bitmap.weight());
     /// ```
+    #[doc(alias = "hwloc_bitmap_fill")]
     pub fn fill(&mut self) {
         unsafe { ffi::hwloc_bitmap_fill(self.as_mut_ptr()) }
     }
@@ -1064,12 +1165,12 @@ impl Bitmap {
     /// bitmap.set_only(0);
     /// assert_eq!(Some(1), bitmap.weight());
     /// ```
+    #[doc(alias = "hwloc_bitmap_only")]
     pub fn set_only(&mut self, id: u32) {
-        let result = unsafe { ffi::hwloc_bitmap_only(self.as_mut_ptr(), id) };
-        assert!(
-            result >= 0,
-            "hwloc_bitmap_only returned error code {result}"
-        );
+        errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
+            ffi::hwloc_bitmap_only(self.as_mut_ptr(), id)
+        })
+        .expect("hwloc_bitmap_only failed");
     }
 
     /// Set all indices except for `id`, which is cleared
@@ -1087,12 +1188,12 @@ impl Bitmap {
     /// assert!(!bitmap.is_set(42));
     /// assert!(bitmap.is_set(43));
     /// ```
+    #[doc(alias = "hwloc_bitmap_allbut")]
     pub fn set_all_but(&mut self, id: u32) {
-        let result = unsafe { ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), id) };
-        assert!(
-            result >= 0,
-            "hwloc_bitmap_allbut returned error code {result}"
-        );
+        errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
+            ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), id)
+        })
+        .expect("hwloc_bitmap_allbut failed");
     }
 
     /// Set index `id`
@@ -1106,9 +1207,12 @@ impl Bitmap {
     /// bitmap.set(4);
     /// assert_eq!("4", format!("{}", bitmap));
     // ```
+    #[doc(alias = "hwloc_bitmap_set")]
     pub fn set(&mut self, id: u32) {
-        let result = unsafe { ffi::hwloc_bitmap_set(self.as_mut_ptr(), id) };
-        assert!(result >= 0, "hwloc_bitmap_set returned error code {result}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
+            ffi::hwloc_bitmap_set(self.as_mut_ptr(), id)
+        })
+        .expect("hwloc_bitmap_set failed");
     }
 
     /// Set indexes covered by `range`
@@ -1125,6 +1229,7 @@ impl Bitmap {
     /// bitmap.set_range(2..);
     /// assert_eq!("2-", format!("{}", bitmap));
     // ```
+    #[doc(alias = "hwloc_bitmap_set_range")]
     pub fn set_range(&mut self, range: impl RangeBounds<u32>) {
         if (range.start_bound(), range.end_bound()) == (Bound::Unbounded, Bound::Unbounded) {
             self.fill();
@@ -1132,11 +1237,10 @@ impl Bitmap {
         }
 
         let (begin, end) = Self::hwloc_range(range);
-        let result = unsafe { ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end) };
-        assert!(
-            result >= 0,
-            "hwloc_bitmap_set_range returned error code {result}"
-        );
+        errors::call_hwloc_int_normal("hwloc_bitmap_set_range", || unsafe {
+            ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end)
+        })
+        .expect("hwloc_bitmap_set_range failed");
     }
 
     /// Clear index `id`
@@ -1150,9 +1254,12 @@ impl Bitmap {
     /// bitmap.unset(1);
     /// assert_eq!("2-3", format!("{}", bitmap));
     // ```
+    #[doc(alias = "hwloc_bitmap_clr")]
     pub fn unset(&mut self, id: u32) {
-        let result = unsafe { ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id) };
-        assert!(result >= 0, "hwloc_bitmap_clr returned error code {result}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
+            ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id)
+        })
+        .expect("hwloc_bitmap_clr failed");
     }
 
     /// Clear indexes covered by `range`
@@ -1169,6 +1276,7 @@ impl Bitmap {
     /// bitmap.unset_range(2..);
     /// assert_eq!("1", format!("{}", bitmap));
     // ```
+    #[doc(alias = "hwloc_bitmap_clr_range")]
     pub fn unset_range(&mut self, range: impl RangeBounds<u32>) {
         if (range.start_bound(), range.end_bound()) == (Bound::Unbounded, Bound::Unbounded) {
             self.clear();
@@ -1176,11 +1284,10 @@ impl Bitmap {
         }
 
         let (begin, end) = Self::hwloc_range(range);
-        let result = unsafe { ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end) };
-        assert!(
-            result >= 0,
-            "hwloc_bitmap_clr_range returned error code {result}"
-        );
+        errors::call_hwloc_int_normal("hwloc_bitmap_clr_range", || unsafe {
+            ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end)
+        })
+        .expect("hwloc_bitmap_clr_range failed");
     }
 
     /// Keep a single index among those set in the bitmap
@@ -1212,8 +1319,12 @@ impl Bitmap {
     /// bitmap.singlify();
     /// assert_eq!(Some(1), bitmap.weight());
     /// ```
+    #[doc(alias = "hwloc_bitmap_singlify")]
     pub fn singlify(&mut self) {
-        unsafe { ffi::hwloc_bitmap_singlify(self.as_mut_ptr()) }
+        errors::call_hwloc_int_normal("hwloc_bitmap_singlify", || unsafe {
+            ffi::hwloc_bitmap_singlify(self.as_mut_ptr())
+        })
+        .expect("hwloc_bitmap_singlify failed");
     }
 
     /// Check if index `id` is set
@@ -1229,6 +1340,7 @@ impl Bitmap {
     /// bitmap.set(2);
     /// assert_eq!(true, bitmap.is_set(2));
     /// ```
+    #[doc(alias = "hwloc_bitmap_isset")]
     pub fn is_set(&self, id: u32) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isset(self.as_ptr(), id) };
         assert!(
@@ -1254,6 +1366,7 @@ impl Bitmap {
     /// bitmap.clear();
     /// assert_eq!(true, bitmap.is_empty());
     /// ```
+    #[doc(alias = "hwloc_bitmap_iszero")]
     pub fn is_empty(&self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_iszero(self.as_ptr()) };
         assert!(
@@ -1276,6 +1389,7 @@ impl Bitmap {
     /// let full_bitmap = Bitmap::full();
     /// assert_eq!(true, full_bitmap.is_full());
     /// ```
+    #[doc(alias = "hwloc_bitmap_isfull")]
     pub fn is_full(&self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isfull(self.as_ptr()) };
         assert!(
@@ -1297,6 +1411,7 @@ impl Bitmap {
     /// let bitmap = Bitmap::from_range(4..=10);
     /// assert_eq!(Some(4), bitmap.first_set());
     /// ```
+    #[doc(alias = "hwloc_bitmap_first")]
     pub fn first_set(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_first(self.as_ptr()) };
         assert!(
@@ -1317,6 +1432,7 @@ impl Bitmap {
     /// let indices = bitmap.iter_set().collect::<Vec<_>>();
     /// assert_eq!(indices, &[4, 5, 6, 7, 8, 9, 10]);
     /// ```
+    #[doc(alias = "hwloc_bitmap_next")]
     pub fn iter_set(&self) -> BitmapIterator<&Bitmap> {
         BitmapIterator::new(self, Bitmap::next_set)
     }
@@ -1331,6 +1447,7 @@ impl Bitmap {
     /// let bitmap = Bitmap::from_range(4..=10);
     /// assert_eq!(Some(10), bitmap.last_set());
     /// ```
+    #[doc(alias = "hwloc_bitmap_last")]
     pub fn last_set(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_last(self.as_ptr()) };
         assert!(
@@ -1354,6 +1471,7 @@ impl Bitmap {
     /// bitmap.unset(3);
     /// assert_eq!(Some(4), bitmap.weight());
     /// ```
+    #[doc(alias = "hwloc_bitmap_weight")]
     pub fn weight(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_weight(self.as_ptr()) };
         assert!(
@@ -1375,6 +1493,7 @@ impl Bitmap {
     /// let bitmap = Bitmap::from_range(..10);
     /// assert_eq!(Some(10), bitmap.first_unset());
     /// ```
+    #[doc(alias = "hwloc_bitmap_first_unset")]
     pub fn first_unset(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_first_unset(self.as_ptr()) };
         assert!(
@@ -1395,6 +1514,7 @@ impl Bitmap {
     /// let indices = bitmap.iter_unset().collect::<Vec<_>>();
     /// assert_eq!(indices, &[0, 1, 2, 3]);
     /// ```
+    #[doc(alias = "hwloc_bitmap_next_unset")]
     pub fn iter_unset(&self) -> BitmapIterator<&Bitmap> {
         BitmapIterator::new(self, Bitmap::next_unset)
     }
@@ -1409,6 +1529,7 @@ impl Bitmap {
     /// let bitmap = Bitmap::from_range(4..);
     /// assert_eq!(Some(3), bitmap.last_unset());
     /// ```
+    #[doc(alias = "hwloc_bitmap_last_unset")]
     pub fn last_unset(&self) -> Option<u32> {
         let result = unsafe { ffi::hwloc_bitmap_last_unset(self.as_ptr()) };
         assert!(
@@ -1430,11 +1551,12 @@ impl Bitmap {
     /// let result = bitmap.and_not(&bitmap2);
     /// assert_eq!(bitmap.and_not(&bitmap2), bitmap & !bitmap2);
     /// ```
+    #[doc(alias = "hwloc_bitmap_andnot")]
     pub fn and_not(&self, rhs: &Self) -> Self {
         let mut result = Self::new();
-        let code =
-            unsafe { ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_andnot returned error code {code}");
+        unsafe {
+            Self::and_not_impl(result.as_mut_ptr(), self.as_ptr(), rhs);
+        }
         result
     }
 
@@ -1452,9 +1574,21 @@ impl Bitmap {
     /// assert_eq!(bitmap2, bitmap.and_not(&rhs));
     /// ```
     pub fn and_not_assign(&mut self, rhs: &Self) {
-        let code =
-            unsafe { ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_andnot returned error code {code}");
+        unsafe {
+            Self::and_not_impl(self.as_mut_ptr(), self.as_ptr(), rhs);
+        }
+    }
+
+    /// General `*target = (lhs & !rhs)`
+    ///
+    /// # Safety
+    ///
+    /// `target` and `lhs` must be valid bitmap pointers.
+    unsafe fn and_not_impl(target: *mut RawBitmap, lhs: *const RawBitmap, rhs: &Bitmap) {
+        errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
+            ffi::hwloc_bitmap_andnot(target, lhs, rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_andnot failed");
     }
 
     /// Inverts the current `Bitmap`.
@@ -1470,9 +1604,12 @@ impl Bitmap {
     /// assert_eq!("3", format!("{}", bitmap));
     /// assert_eq!("0-2,4-", format!("{}", !bitmap));
     /// ```
+    #[doc(alias = "hwloc_bitmap_not")]
     pub fn invert(&mut self) {
-        let result = unsafe { ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr()) };
-        assert!(result >= 0, "hwloc_bitmap_not returned error code {result}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
+            ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
+        })
+        .expect("hwloc_bitmap_not failed");
     }
 
     /// Truth that `self` and `rhs` have some set indices in common
@@ -1490,6 +1627,7 @@ impl Bitmap {
     /// assert!(bitmap1.intersects(&bitmap3));
     /// assert!(bitmap2.intersects(&bitmap3));
     /// ```
+    #[doc(alias = "hwloc_bitmap_intersects")]
     pub fn intersects(&self, rhs: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr()) };
         assert!(
@@ -1514,6 +1652,7 @@ impl Bitmap {
     /// assert!(bitmap1.includes(&bitmap3));
     /// assert!(!bitmap2.includes(&bitmap3));
     /// ```
+    #[doc(alias = "hwloc_bitmap_isincluded")]
     pub fn includes(&self, inner: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr()) };
         assert!(
@@ -1581,11 +1720,13 @@ impl Bitmap {
 impl BitAnd<&Bitmap> for &Bitmap {
     type Output = Bitmap;
 
+    #[doc(alias = "hwloc_bitmap_and")]
     fn bitand(self, rhs: &Bitmap) -> Bitmap {
         let mut result = Bitmap::new();
-        let code =
-            unsafe { ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
+            ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_and failed");
         result
     }
 }
@@ -1616,8 +1757,10 @@ impl BitAnd<Bitmap> for Bitmap {
 
 impl BitAndAssign<&Bitmap> for Bitmap {
     fn bitand_assign(&mut self, rhs: &Bitmap) {
-        let code = unsafe { ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_and returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
+            ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_and failed");
     }
 }
 
@@ -1630,11 +1773,13 @@ impl BitAndAssign<Bitmap> for Bitmap {
 impl BitOr<&Bitmap> for &Bitmap {
     type Output = Bitmap;
 
+    #[doc(alias = "hwloc_bitmap_or")]
     fn bitor(self, rhs: &Bitmap) -> Bitmap {
         let mut result = Bitmap::new();
-        let code =
-            unsafe { ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
+            ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_or failed");
         result
     }
 }
@@ -1665,8 +1810,10 @@ impl BitOr<Bitmap> for Bitmap {
 
 impl BitOrAssign<&Bitmap> for Bitmap {
     fn bitor_assign(&mut self, rhs: &Bitmap) {
-        let code = unsafe { ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
+            ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_or failed");
     }
 }
 
@@ -1679,11 +1826,13 @@ impl BitOrAssign<Bitmap> for Bitmap {
 impl BitXor<&Bitmap> for &Bitmap {
     type Output = Bitmap;
 
+    #[doc(alias = "hwloc_bitmap_xor")]
     fn bitxor(self, rhs: &Bitmap) -> Bitmap {
         let mut result = Bitmap::new();
-        let code =
-            unsafe { ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_xor returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
+            ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_xor failed");
         result
     }
 }
@@ -1714,8 +1863,10 @@ impl BitXor<Bitmap> for Bitmap {
 
 impl BitXorAssign<&Bitmap> for Bitmap {
     fn bitxor_assign(&mut self, rhs: &Bitmap) {
-        let code = unsafe { ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_xor returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
+            ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("hwloc_bitmap_xor failed");
     }
 }
 
@@ -1726,9 +1877,15 @@ impl BitXorAssign<Bitmap> for Bitmap {
 }
 
 impl Clone for Bitmap {
+    #[doc(alias = "hwloc_bitmap_dup")]
     fn clone(&self) -> Bitmap {
-        unsafe { Self::from_raw(ffi::hwloc_bitmap_dup(self.as_ptr())) }
-            .expect("Got null pointer from hwloc_bitmap_dup")
+        unsafe {
+            let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_dup", || {
+                ffi::hwloc_bitmap_dup(self.as_ptr())
+            })
+            .expect("hwloc_bitmap_dup failed");
+            Self::from_non_null(ptr)
+        }
     }
 }
 
@@ -1745,6 +1902,7 @@ impl Default for Bitmap {
 }
 
 impl Display for Bitmap {
+    #[doc(alias = "hwloc_bitmap_list_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         ffi::write_snprintf(f, |buf, len| unsafe {
             ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
@@ -1839,10 +1997,13 @@ impl IntoIterator for Bitmap {
 impl Not for &Bitmap {
     type Output = Bitmap;
 
+    #[doc(alias = "hwloc_bitmap_not")]
     fn not(self) -> Bitmap {
         let mut result = Bitmap::new();
-        let code = unsafe { ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr()) };
-        assert!(code >= 0, "hwloc_bitmap_or returned error code {code}");
+        errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
+            ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr())
+        })
+        .expect("hwloc_bitmap_not failed");
         result
     }
 }
@@ -1856,6 +2017,7 @@ impl Not for Bitmap {
 }
 
 impl Ord for Bitmap {
+    #[doc(alias = "hwloc_bitmap_compare")]
     fn cmp(&self, other: &Self) -> Ordering {
         let result = unsafe { ffi::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
         match result {
@@ -1868,6 +2030,7 @@ impl Ord for Bitmap {
 }
 
 impl PartialEq for Bitmap {
+    #[doc(alias = "hwloc_bitmap_isequal")]
     fn eq(&self, other: &Self) -> bool {
         let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
         assert!(

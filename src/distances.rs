@@ -8,14 +8,13 @@
 use crate::editor::TopologyEditor;
 use crate::{
     depth::Depth,
-    errors::NulError,
+    errors::{self, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::{types::ObjectType, TopologyObject},
     RawTopology, Topology,
 };
 use bitflags::bitflags;
 use derive_more::Display;
-use errno::{errno, Errno};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     ffi::{c_int, c_uint, c_ulong, CStr},
@@ -37,9 +36,11 @@ impl Topology {
     /// one of them is returned. The same applies for `MEANS_xyz` options.
     #[doc(alias = "hwloc_distances_get")]
     pub fn distances(&self, kind: DistancesKind) -> Vec<Distances> {
-        self.get_distances(|topology, nr, distances, flags| unsafe {
-            ffi::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
-        })
+        unsafe {
+            self.get_distances(|topology, nr, distances, flags| {
+                ffi::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
+            })
+        }
     }
 
     /// Retrieve distance matrices for object at a specific depth in the topology
@@ -52,16 +53,18 @@ impl Topology {
         depth: impl Into<Depth>,
     ) -> Vec<Distances> {
         let depth = depth.into();
-        self.get_distances(|topology, nr, distances, flags| unsafe {
-            ffi::hwloc_distances_get_by_depth(
-                topology,
-                depth.into(),
-                nr,
-                distances,
-                kind.bits(),
-                flags,
-            )
-        })
+        unsafe {
+            self.get_distances(|topology, nr, distances, flags| {
+                ffi::hwloc_distances_get_by_depth(
+                    topology,
+                    depth.into(),
+                    nr,
+                    distances,
+                    kind.bits(),
+                    flags,
+                )
+            })
+        }
     }
 
     /// Retrieve distance matrices for object with a specific type
@@ -69,9 +72,18 @@ impl Topology {
     /// Identical to `distances()` with the additional `ty` filter.
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(&self, kind: DistancesKind, ty: ObjectType) -> Vec<Distances> {
-        self.get_distances(|topology, nr, distances, flags| unsafe {
-            ffi::hwloc_distances_get_by_type(topology, ty.into(), nr, distances, kind.bits(), flags)
-        })
+        unsafe {
+            self.get_distances(|topology, nr, distances, flags| {
+                ffi::hwloc_distances_get_by_type(
+                    topology,
+                    ty.into(),
+                    nr,
+                    distances,
+                    kind.bits(),
+                    flags,
+                )
+            })
+        }
     }
 
     /// Retrieve a distance matrix with the given name
@@ -87,16 +99,22 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_name")]
     pub fn distances_with_name(&self, name: &str) -> Result<Vec<Distances>, NulError> {
         let name = LibcString::new(name)?;
-        Ok(self.get_distances(|topology, nr, distances, flags| unsafe {
-            ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
-        }))
+        unsafe {
+            Ok(self.get_distances(|topology, nr, distances, flags| {
+                ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
+            }))
+        }
     }
 
     /// Call one of the hwloc_distances_get(_by)? APIs
     ///
-    /// Takes care of all parameters except for kind, which is not universal to
-    /// these APIs. So the last c_ulong is the flags parameter.
-    fn get_distances(
+    /// Takes care of all parameters except for `kind`, which is not universal
+    /// to these APIs. So the last c_ulong is the flags parameter.
+    ///
+    /// # Safety
+    ///
+    /// `getter` must perform a correct call to a `hwloc_distances_get` API
+    unsafe fn get_distances(
         &self,
         mut getter: impl FnMut(
             *const RawTopology,
@@ -199,6 +217,10 @@ pub struct Distances<'topology> {
 //
 impl<'topology> Distances<'topology> {
     /// Wrap a distance matrix from hwloc
+    ///
+    /// # Safety
+    ///
+    /// `inner` must originate from `topology`
     pub(crate) unsafe fn wrap(topology: &'topology Topology, inner: *mut RawDistances) -> Self {
         let inner = NonNull::new(inner).expect("Got null distance matrix pointer from hwloc");
         inner.as_ref().check();
@@ -456,8 +478,9 @@ impl<'topology> Distances<'topology> {
     /// [`Distances::replace_objects()`]. One may use e.g.
     /// [`Topology::object_with_same_locality()`] to easily convert between
     /// similar objects of different types.
-    pub fn transform(&mut self, transform: DistancesTransform) -> Result<(), Errno> {
-        let result = unsafe {
+    #[doc(alias = "hwloc_distances_transform")]
+    pub fn transform(&mut self, transform: DistancesTransform) -> Result<(), RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
             ffi::hwloc_distances_transform(
                 self.topology.as_ptr(),
                 self.inner_mut(),
@@ -465,12 +488,8 @@ impl<'topology> Distances<'topology> {
                 std::ptr::null_mut(),
                 0,
             )
-        };
-        match result {
-            -1 => Err(errno()),
-            0 => Ok(()),
-            other => panic!("Unexpected result from hwloc_distances_transform: {other}"),
-        }
+        })
+        .map(|_| ())
     }
 }
 //

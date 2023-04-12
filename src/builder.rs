@@ -30,7 +30,6 @@ pub struct TopologyBuilder(NonNull<RawTopology>);
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 impl TopologyBuilder {
     /// Start building a [`Topology`]
-    #[doc(alias = "hwloc_topology_init")]
     pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
         errors::call_hwloc_int_normal("hwloc_topology_init", || unsafe {
@@ -226,17 +225,15 @@ impl TopologyBuilder {
     /// - [`Rust(NulError)`](NulError) if `name` contains NUL chars.
     #[doc(alias = "hwloc_topology_set_components")]
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, HybridError<NulError>> {
-        let name = match LibcString::new(name) {
-            Ok(name) => name,
-            Err(error) => return Err(HybridError::Rust(error)),
-        };
+        let name = LibcString::new(name)?;
         errors::call_hwloc_int_normal("hwloc_topology_set_components", || unsafe {
             ffi::hwloc_topology_set_components(
                 self.as_mut_ptr(),
                 ComponentsFlags::BLACKLIST.bits(),
                 name.borrow(),
             )
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(self)
     }
 }
@@ -306,12 +303,12 @@ impl TopologyBuilder {
         }
         errors::call_hwloc_int_normal("hwloc_topology_set_flags", || unsafe {
             ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits())
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(self)
     }
 
     /// Check current topology building flags (empty by default)
-    #[doc(alias = "hwloc_topology_get_flags")]
     pub fn flags(&self) -> BuildFlags {
         let result =
             BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) });
@@ -378,7 +375,6 @@ impl TopologyBuilder {
     }
 
     /// Current filtering for the given object type
-    #[doc(alias = "hwloc_topology_get_type_filter")]
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = RawTypeFilter::MAX;
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
