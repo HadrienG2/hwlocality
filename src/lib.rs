@@ -17,6 +17,8 @@ pub mod memory;
 pub mod objects;
 pub mod path;
 pub mod support;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 use crate::{
     bitmaps::{CpuSet, NodeSet},

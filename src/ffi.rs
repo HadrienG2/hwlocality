@@ -931,7 +931,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
             ) -> c_int;
 
-            // === Linux-specific helpers
+            // === Linux-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
 
             #[cfg(target_os = "linux")]
             #[must_use]
@@ -959,6 +959,23 @@ macro_rules! extern_c_block {
             pub(crate) fn hwloc_linux_read_path_as_cpumask(
                 path: *const c_char,
                 set: *const RawBitmap,
+            ) -> c_int;
+
+            // === Windows-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
+
+            #[cfg(target_os = "windows")]
+            #[must_use]
+            pub(crate) fn hwloc_windows_get_nr_processor_groups(
+                topology: *const RawTopology,
+                flags: c_ulong,
+            ) -> c_int;
+            #[cfg(target_os = "windows")]
+            #[must_use]
+            pub(crate) fn hwloc_windows_get_processor_group_cpuset(
+                topology: *const RawTopology,
+                pg_index: c_uint,
+                cpuset: *mut RawBitmap,
+                flags: c_ulong,
             ) -> c_int;
 
             // === TODO: Other APIs
