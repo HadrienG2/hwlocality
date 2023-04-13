@@ -5,15 +5,14 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 
 #[cfg(doc)]
-use crate::support::DiscoverySupport;
+use crate::topology::support::DiscoverySupport;
 use crate::{
     bitmaps::RawBitmap,
     cpu::sets::CpuSet,
-    editor::TopologyEditor,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::TopologyObject,
-    RawTopology, Topology,
+    topology::{editor::TopologyEditor, RawTopology, Topology},
 };
 use bitflags::bitflags;
 use derive_more::Display;

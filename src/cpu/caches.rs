@@ -4,7 +4,7 @@
 
 use crate::{
     objects::{attributes::ObjectAttributes, types::ObjectType},
-    Topology,
+    topology::Topology,
 };
 use arrayvec::ArrayVec;
 

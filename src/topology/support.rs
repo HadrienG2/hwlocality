@@ -335,7 +335,7 @@ fn support_flag(flag: c_uchar) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{support::CpuBindingSupport, Topology};
+    use crate::topology::Topology;
 
     fn cpu_binding_supported(kind: fn(&CpuBindingSupport) -> bool) -> bool {
         Topology::test_instance().supports(FeatureSupport::cpu_binding, kind)

@@ -7,10 +7,11 @@ use crate::{
     errors::{self, FlagsError, RawHwlocError},
     ffi,
     memory::{self, nodesets::NodeSet},
-    ProcessId, RawTopology, Topology,
+    topology::{RawTopology, Topology},
+    ProcessId,
 };
 #[cfg(doc)]
-use crate::{cpu::sets::CpuSet, support::MemoryBindingSupport};
+use crate::{cpu::sets::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};

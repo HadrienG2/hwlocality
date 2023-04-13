@@ -4,23 +4,25 @@
 // - Attributes: https://hwloc.readthedocs.io/en/v2.9/attributes.html
 
 pub mod attributes;
+pub mod depth;
+pub mod distances;
 pub mod types;
 
 use self::{
     attributes::{DownstreamAttributes, ObjectAttributes, RawObjectAttributes},
+    depth::{Depth, RawDepth},
     types::{ObjectType, RawObjectType},
 };
+#[cfg(doc)]
+use crate::topology::{builder::BuildFlags, support::DiscoverySupport, Topology};
 use crate::{
     bitmaps::RawBitmap,
     cpu::sets::CpuSet,
-    depth::{Depth, RawDepth},
     errors::NulError,
     ffi::{self, LibcString},
     info::TextualInfo,
     memory::nodesets::NodeSet,
 };
-#[cfg(doc)]
-use crate::{builder::BuildFlags, support::DiscoverySupport, Topology};
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,

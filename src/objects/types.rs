@@ -6,9 +6,11 @@
 use crate::ffi;
 #[cfg(doc)]
 use crate::{
-    builder::{TopologyBuilder, TypeFilter},
     objects::TopologyObject,
-    support::DiscoverySupport,
+    topology::{
+        builder::{TopologyBuilder, TypeFilter},
+        support::DiscoverySupport,
+    },
 };
 use derive_more::Display;
 use num_enum::{IntoPrimitive, TryFromPrimitive};

@@ -1,10 +1,11 @@
-//! Synthetic topologies
+//! Exporting topologies to Synthetic
 
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 
 use crate::{
     errors::{self, RawHwlocError},
-    ffi, Topology,
+    ffi,
+    topology::Topology,
 };
 use bitflags::bitflags;
 use std::ffi::{c_char, c_ulong, CString};

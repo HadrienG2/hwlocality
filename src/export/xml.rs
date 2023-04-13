@@ -3,12 +3,12 @@
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
 
 #[cfg(doc)]
-use crate::{builder::TopologyBuilder, errors::NulError};
+use crate::{errors::NulError, topology::builder::TopologyBuilder};
 use crate::{
     errors::{self, HybridError, RawHwlocError},
     ffi,
     path::{self, PathError},
-    Topology,
+    topology::Topology,
 };
 use bitflags::bitflags;
 use std::{

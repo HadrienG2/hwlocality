@@ -1,4 +1,4 @@
-//! Handling of file paths fed to hwloc
+//! File path handling
 
 use crate::{errors::NulError, ffi::LibcString};
 use std::path::Path;

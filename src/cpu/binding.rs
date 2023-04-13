@@ -3,12 +3,14 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 
 #[cfg(doc)]
-use crate::{bitmaps::Bitmap, support::CpuBindingSupport};
+use crate::{bitmaps::Bitmap, topology::support::CpuBindingSupport};
 use crate::{
     bitmaps::RawBitmap,
     cpu::sets::CpuSet,
     errors::{self, FlagsError, RawHwlocError},
-    ffi, ProcessId, RawTopology, ThreadId, Topology,
+    ffi,
+    topology::{RawTopology, Topology},
+    ProcessId, ThreadId,
 };
 use bitflags::bitflags;
 use derive_more::Display;

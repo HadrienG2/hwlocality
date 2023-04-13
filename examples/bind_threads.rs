@@ -2,7 +2,7 @@ use anyhow::{ensure, Context};
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     objects::types::ObjectType,
-    support::{DiscoverySupport, FeatureSupport},
+    topology::support::{DiscoverySupport, FeatureSupport},
     ThreadId, Topology,
 };
 

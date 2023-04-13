@@ -3,7 +3,11 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 #[cfg(doc)]
-use crate::{builder::BuildFlags, cpu::sets::CpuSet, memory::nodesets::NodeSet, Topology};
+use crate::{
+    cpu::sets::CpuSet,
+    memory::nodesets::NodeSet,
+    topology::{builder::BuildFlags, Topology},
+};
 use crate::{
     errors,
     ffi::{self, IncompleteType},
@@ -1496,7 +1500,7 @@ impl FromIterator<u32> for Bitmap {
     }
 }
 
-/// Borrowed iterator over set [`Bitmap`] indices
+/// Iterator over set or unset [`Bitmap`] indices
 #[derive(Copy, Clone)]
 pub struct BitmapIterator<B> {
     /// Bitmap over which we're iterating

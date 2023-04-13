@@ -1,8 +1,8 @@
 //! NUMA node sets
 
 #[cfg(doc)]
-use crate::{bitmaps::Bitmap, support::DiscoverySupport};
-use crate::{cpu::sets::CpuSet, depth::Depth, impl_bitmap_newtype, Topology};
+use crate::{bitmaps::Bitmap, topology::support::DiscoverySupport};
+use crate::{cpu::sets::CpuSet, impl_bitmap_newtype, objects::depth::Depth, topology::Topology};
 
 /// # NodeSet-specific API
 //

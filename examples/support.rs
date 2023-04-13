@@ -1,5 +1,5 @@
 use hwlocality::{
-    support::{CpuBindingSupport, FeatureSupport, MemoryBindingSupport},
+    topology::support::{CpuBindingSupport, FeatureSupport, MemoryBindingSupport},
     Topology,
 };
 

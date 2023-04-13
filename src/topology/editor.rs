@@ -1,4 +1,4 @@
-//! Facilities for modifying a loaded Topology
+//! Modifying a loaded Topology
 //!
 //! hwloc employs lazy evaluation patterns that are thread-unsafe and violate
 //! Rust's aliasing rules. It is possible to force eager evaluation of the lazy
@@ -6,8 +6,9 @@
 //! modifications must be carried out through a proxy object that does not
 //! permit shared references to unevaluated caches to escape.
 
+use super::RawTopology;
 #[cfg(doc)]
-use crate::builder::{BuildFlags, TopologyBuilder, TypeFilter};
+use crate::topology::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
     bitmaps::{BitmapKind, SpecializedBitmap},
     cpu::sets::CpuSet,
@@ -15,7 +16,7 @@ use crate::{
     ffi::{self, LibcString},
     memory::nodesets::NodeSet,
     objects::TopologyObject,
-    RawTopology, Topology,
+    topology::Topology,
 };
 use bitflags::bitflags;
 use derive_more::Display;

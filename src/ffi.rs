@@ -1,17 +1,19 @@
 use crate::{
     bitmaps::RawBitmap,
-    builder::RawTypeFilter,
-    depth::RawDepth,
-    distances::{DistancesAddHandle, RawDistances, RawDistancesTransform},
     errors::NulError,
     info::TextualInfo,
     memory::{
         attributes::{MemoryAttributeID, RawLocation},
         binding::RawMemoryBindingPolicy,
     },
-    objects::{types::RawObjectType, TopologyObject},
-    support::FeatureSupport,
-    ProcessId, RawTopology, ThreadId,
+    objects::{
+        depth::RawDepth,
+        distances::{DistancesAddHandle, RawDistances, RawDistancesTransform},
+        types::RawObjectType,
+        TopologyObject,
+    },
+    topology::{builder::RawTypeFilter, support::FeatureSupport, RawTopology},
+    ProcessId, ThreadId,
 };
 #[cfg(target_os = "linux")]
 use libc::pid_t;

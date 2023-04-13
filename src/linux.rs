@@ -9,7 +9,7 @@ use crate::{
     errors::{self, HybridError, RawHwlocError},
     ffi,
     path::{self, PathError},
-    Topology,
+    topology::Topology,
 };
 use libc::pid_t;
 use std::path::Path;

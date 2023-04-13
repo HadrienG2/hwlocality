@@ -3,14 +3,13 @@
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 
 #[cfg(doc)]
-use crate::support::DiscoverySupport;
+use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::sets::CpuSet,
-    editor::TopologyEditor,
     errors::{self, RawHwlocError},
     ffi,
     info::TextualInfo,
-    Topology,
+    topology::{editor::TopologyEditor, Topology},
 };
 use libc::{EINVAL, ENOENT, EXDEV};
 use std::{

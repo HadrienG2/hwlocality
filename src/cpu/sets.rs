@@ -1,13 +1,12 @@
 //! CPU sets
 
 #[cfg(doc)]
-use crate::{bitmaps::Bitmap, support::DiscoverySupport};
+use crate::{bitmaps::Bitmap, topology::support::DiscoverySupport};
 use crate::{
-    depth::Depth,
     ffi, impl_bitmap_newtype,
     memory::nodesets::NodeSet,
-    objects::{types::ObjectType, TopologyObject},
-    Topology,
+    objects::{depth::Depth, types::ObjectType, TopologyObject},
+    topology::Topology,
 };
 use std::{clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
 

@@ -1,13 +1,14 @@
-//! Topology building
+//! Building a topology with a custom configuration
 
+use super::{RawTopology, Topology};
 #[cfg(doc)]
-use crate::{editor::TopologyEditor, support::MiscSupport};
+use crate::topology::{editor::TopologyEditor, support::MiscSupport};
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError, UnsupportedError},
     ffi::{self, LibcString},
     objects::types::ObjectType,
     path::{self, PathError},
-    ProcessId, RawTopology, Topology,
+    ProcessId,
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -287,7 +288,7 @@ impl TopologyBuilder {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::{Topology, builder::BuildFlags};
+    /// # use hwlocality::topology::{Topology, builder::BuildFlags};
     /// let topology = Topology::builder()
     ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM)?
     ///                         .build()?;

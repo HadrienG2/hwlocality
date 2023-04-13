@@ -1,4 +1,4 @@
-//! Topology object attributes
+//! Object attributes
 
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
@@ -7,7 +7,7 @@ use crate::objects::types::{
     BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType, RawOSDeviceType,
 };
 #[cfg(doc)]
-use crate::support::DiscoverySupport;
+use crate::topology::support::DiscoverySupport;
 use std::{
     ffi::{c_float, c_int, c_uchar, c_uint, c_ulonglong, c_ushort},
     fmt,

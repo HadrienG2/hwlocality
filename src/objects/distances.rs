@@ -5,12 +5,10 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
 
 use crate::{
-    depth::Depth,
-    editor::TopologyEditor,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
-    objects::{types::ObjectType, TopologyObject},
-    RawTopology, Topology,
+    objects::{depth::Depth, types::ObjectType, TopologyObject},
+    topology::{editor::TopologyEditor, RawTopology, Topology},
 };
 use bitflags::bitflags;
 use derive_more::Display;

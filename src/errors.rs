@@ -1,4 +1,4 @@
-//! Errors emitted from multiple points of the crate which do not belong elsewhere
+//! Shared error handling
 
 use errno::Errno;
 use std::{

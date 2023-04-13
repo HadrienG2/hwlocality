@@ -1,8 +1,6 @@
 //! Textual key-value information
 
 use crate::ffi;
-#[cfg(doc)]
-use crate::support::DiscoverySupport;
 use std::{
     ffi::{c_char, CStr},
     fmt,

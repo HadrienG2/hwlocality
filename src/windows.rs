@@ -5,7 +5,8 @@
 use crate::{
     bitmaps::CpuSet,
     errors::{self, RawHwlocError},
-    ffi, Topology,
+    ffi,
+    topology::Topology,
 };
 use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
 
