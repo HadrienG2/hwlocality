@@ -1,4 +1,4 @@
-//! Exporting topologies and loading exported topologies
+//! Exporting topologies to textual data
 
 pub mod synthetic;
 pub mod xml;
