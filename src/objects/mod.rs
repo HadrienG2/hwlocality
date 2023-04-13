@@ -10,11 +10,11 @@ pub mod types;
 
 use self::{
     attributes::{DownstreamAttributes, ObjectAttributes, RawObjectAttributes},
-    depth::{Depth, RawDepth},
-    types::{ObjectType, RawObjectType},
+    depth::{Depth, DepthError, DepthResult, RawDepth},
+    types::{CacheType, ObjectType, RawObjectType},
 };
 #[cfg(doc)]
-use crate::topology::{builder::BuildFlags, support::DiscoverySupport, Topology};
+use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmaps::RawBitmap,
     cpu::sets::CpuSet,
@@ -22,13 +22,861 @@ use crate::{
     ffi::{self, LibcString},
     info::TextualInfo,
     memory::nodesets::NodeSet,
+    topology::Topology,
 };
+use num_enum::TryFromPrimitiveError;
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
     iter::FusedIterator,
     ptr,
 };
+
+/// # Object levels, depths and types
+///
+/// Be sure to see read through the
+/// [Terms and Definitions](https://hwloc.readthedocs.io/en/v2.9/termsanddefs.html)
+/// section of the upstream hwloc documentation to avoid any confusion about
+/// depths, child/sibling/cousin relationships, and see an example of an
+/// asymmetric topology where one package has fewer caches than its peers.
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
+impl Topology {
+    /// Depth of the hierarchical tree of objects
+    ///
+    /// This is the depth of [`ObjectType::PU`] plus one. NUMA nodes, I/O and
+    /// Misc objects are ignored when computing the depth of the tree (they are
+    /// placed on special levels).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// // The Machine and PU depths are always present
+    /// assert!(topology.depth() >= 2);
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_topology_get_depth")]
+    pub fn depth(&self) -> u32 {
+        unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
+            .try_into()
+            .expect("Got unexpected depth from hwloc_topology_get_depth")
+    }
+
+    /// Depth of parents where memory objects are attached
+    ///
+    /// # Errors
+    ///
+    /// - [`DepthError::Multiple`] if memory objects are attached at multiple
+    ///   depths
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::TopologyObject;
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// if let Ok(depth) = topology.memory_parents_depth() {
+    ///     let num_memory_objects =
+    ///         topology.objects_at_depth(depth)
+    ///                 .flat_map(TopologyObject::memory_children)
+    ///                 .count();
+    ///     assert!(num_memory_objects > 0);
+    /// }
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_memory_parents_depth")]
+    pub fn memory_parents_depth(&self) -> DepthResult {
+        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
+    }
+
+    /// Depth for the given [`ObjectType`]
+    ///
+    /// # Errors
+    ///
+    /// - [`DepthError::None`] if no object of this type is present or
+    ///   if the OS doesn't provide this kind of information. If a similar type
+    ///   is acceptable, consider using [depth_or_below_for_type()] or
+    ///   [depth_or_above_for_type()] instead.
+    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    ///   depths.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::types::ObjectType;
+    /// #
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// #
+    /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
+    /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
+    ///
+    /// assert_eq!(machine_depth.assume_normal(), 0);
+    /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    ///
+    /// [depth_or_below_for_type()]: Topology::depth_or_below_for_type()
+    /// [depth_or_above_for_type()]: Topology::depth_or_above_for_type()
+    #[doc(alias = "hwloc_get_type_depth")]
+    pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
+        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
+    }
+
+    /// Depth for the given [`ObjectType`] or below
+    ///
+    /// If no object of this type is present on the underlying architecture, the
+    /// function returns the depth of the first present object typically found
+    /// inside `object_type`.
+    ///
+    /// This function is only meaningful for normal object types.
+    ///
+    /// # Errors
+    ///
+    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    ///   depths
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::{objects::types::ObjectType};
+    /// #
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// #
+    /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
+    /// let package_or_below = topology.depth_or_below_for_type(ObjectType::Package)?;
+    ///
+    /// assert!(machine_depth.assume_normal() < package_or_below.assume_normal());
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_type_or_below_depth")]
+    pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
+        assert!(
+            object_type.is_normal(),
+            "This is only meaningful for normal objects"
+        );
+        match self.depth_for_type(object_type) {
+            Ok(d) => Ok(d),
+            Err(DepthError::None) => {
+                let pu_depth = self
+                    .depth_for_type(ObjectType::PU)
+                    .expect("PU objects should be present")
+                    .assume_normal();
+                for depth in (0..pu_depth).rev() {
+                    if self
+                        .type_at_depth(depth)
+                        .expect("Depths above PU depth should exist")
+                        < object_type
+                    {
+                        return Ok((depth + 1).into());
+                    }
+                }
+                Err(DepthError::None)
+            }
+            other_err => other_err,
+        }
+    }
+
+    /// Depth for the given [`ObjectType`] or above
+    ///
+    /// If no object of this type is present on the underlying architecture, the
+    /// function returns the depth of the first present object typically
+    /// containing `object_type`.
+    ///
+    /// This function is only meaningful for normal object types.
+    ///
+    /// # Errors
+    ///
+    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    ///   depths
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::types::ObjectType;
+    /// #
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// #
+    /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
+    /// let core_or_above = topology.depth_or_below_for_type(ObjectType::Core)?;
+    ///
+    /// assert!(core_or_above.assume_normal() < pu_depth.assume_normal());
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_type_or_above_depth")]
+    pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
+        assert!(
+            object_type.is_normal(),
+            "This is only meaningful for normal objects"
+        );
+        match self.depth_for_type(object_type) {
+            Ok(d) => Ok(d),
+            Err(DepthError::None) => {
+                for depth in (0..self.depth()).rev() {
+                    if self
+                        .type_at_depth(depth)
+                        .expect("Depths above bottom depth should exist")
+                        > object_type
+                    {
+                        return Ok((depth - 1).into());
+                    }
+                }
+                Err(DepthError::None)
+            }
+            other_err => other_err,
+        }
+    }
+
+    /// Depth for the given cache type and level
+    ///
+    /// Return the depth of the topology level that contains cache objects whose
+    /// attributes match `cache_level` and `cache_type`.
+    ///
+    /// This function is similar to calling [depth_for_type()] with
+    /// the corresponding type such as [`ObjectType::L1ICache`], except that it
+    /// may also return a unified cache when looking for an instruction cache.
+    ///
+    /// If `cache_type` is `None`, it is ignored and multiple levels may match.
+    /// The function returns either the depth of a uniquely matching level or
+    /// Err([`DepthError::Multiple`]).
+    ///
+    /// If `cache_type` is Some([`CacheType::Unified`]), the depth of the unique
+    /// matching unified cache level (if any) is returned.
+    ///
+    /// If `cache_type` is Some([`CacheType::Data`]) or
+    /// Some([`CacheType::Instruction`]), either a matching cache or a
+    /// unified cache is returned.
+    ///
+    /// # Errors
+    ///
+    /// - [`DepthError::None`] if no cache level matches
+    /// - [`DepthError::Multiple`] if multiple cache depths match (this can only
+    ///   happen if `cache_type` is `None`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::types::CacheType;
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
+    /// assert!(l1d_depth.is_ok());
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    ///
+    /// [depth_for_type()]: Topology::depth_for_type()
+    #[doc(alias = "hwloc_get_cache_type_depth")]
+    pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
+        let mut result = Err(DepthError::None);
+        for depth in 0..self.depth() {
+            // Cache level and type are homogeneous across a depth level so we
+            // only need to look at one object
+            for obj in self.objects_at_depth(depth).take(1) {
+                // Is this a cache?
+                if let Some(ObjectAttributes::Cache(cache)) = obj.attributes() {
+                    // Check cache level
+                    if cache.depth() != cache_level {
+                        continue;
+                    }
+
+                    // Check cache type if instructed to do so
+                    if let Some(cache_type) = cache_type {
+                        if cache.cache_type() == cache_type
+                            || cache.cache_type() == CacheType::Unified
+                        {
+                            // If both cache type + level are specified, then
+                            // multiple matches cannot occur: stop here.
+                            return Ok(depth.into());
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        // Without a cache type check, multiple matches may
+                        // occur, so we need to check all other depths.
+                        match result {
+                            Err(DepthError::None) => result = Ok(depth.into()),
+                            Ok(_) => {
+                                return Err(DepthError::Multiple);
+                            }
+                            Err(DepthError::Multiple) => {
+                                unreachable!("Setting this value triggers a loop break")
+                            }
+                            Err(DepthError::Unknown(_)) => {
+                                unreachable!("This value is never set")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    /// [`ObjectType`] at the given `depth`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::{depth::Depth, types::ObjectType};
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// let numa_type = topology.type_at_depth(Depth::NUMANode);
+    /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_depth_type")]
+    pub fn type_at_depth(&self, depth: impl Into<Depth>) -> Option<ObjectType> {
+        let depth = depth.into();
+        if let Depth::Normal(depth) = depth {
+            if depth >= self.depth() {
+                return None;
+            }
+        }
+        match unsafe { ffi::hwloc_get_depth_type(self.as_ptr(), depth.into()) }.try_into() {
+            Ok(depth) => Some(depth),
+            Err(TryFromPrimitiveError {
+                number: RawObjectType::MAX,
+            }) => None,
+            Err(unknown) => {
+                unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
+            }
+        }
+    }
+
+    /// Number of objects at the given `depth`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// #
+    /// let num_roots = topology.size_at_depth(0);
+    /// assert_eq!(num_roots, 1);
+    ///
+    /// let num_root_children = topology.size_at_depth(1);
+    /// assert!(num_root_children > 0);
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_nbobjs_by_depth")]
+    pub fn size_at_depth(&self, depth: impl Into<Depth>) -> u32 {
+        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into()) }
+    }
+
+    /// [`TopologyObject`]s at the given `depth`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::{depth::Depth, types::ObjectType};
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// #
+    /// use anyhow::Context;
+    ///
+    /// let root = topology.root_object();
+    ///
+    /// for node in topology.objects_at_depth(Depth::NUMANode) {
+    ///     assert_eq!(node.object_type(), ObjectType::NUMANode);
+    ///     assert!(node.is_in_subtree(root));
+    ///     assert_eq!(node.normal_arity(), 0);
+    ///     assert_eq!(node.memory_arity(), 0);
+    ///     let num_nodes =
+    ///         node.nodeset().context("A NUMANode should have a NodeSet")?
+    ///             .weight().context("A NUMANode's NodeSet should be finite")?;
+    ///     assert_eq!(num_nodes, 1);
+    /// }
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_obj_by_depth")]
+    #[doc(alias = "hwloc_get_next_obj_by_depth")]
+    pub fn objects_at_depth(
+        &self,
+        depth: impl Into<Depth>,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        let depth = depth.into();
+        let size = self.size_at_depth(depth);
+        let depth = RawDepth::from(depth);
+        (0..size).map(move |idx| {
+            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
+            assert!(
+                !ptr.is_null(),
+                "Got null pointer from hwloc_get_obj_by_depth"
+            );
+            unsafe { &*ptr }
+        })
+    }
+
+    /// [`TopologyObject`] at the root of the topology
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::{depth::Depth, types::ObjectType};
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// let root = topology.root_object();
+    ///
+    /// assert_eq!(root.object_type(), ObjectType::Machine);
+    ///
+    /// assert_eq!(root.depth(), Depth::Normal(0));
+    /// assert!(root.parent().is_none());
+    /// assert_eq!(root.logical_index(), 0);
+    /// assert_ne!(root.normal_arity(), 0);
+    ///
+    /// assert!(root.cpuset().is_some());
+    /// assert!(root.nodeset().is_some());
+    ///
+    /// println!("{root:#}");
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_root_obj")]
+    pub fn root_object(&self) -> &TopologyObject {
+        self.objects_at_depth(0)
+            .next()
+            .expect("Root object should exist")
+    }
+
+    /// [`TopologyObject`]s with the given [`ObjectType`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::objects::types::ObjectType;
+    /// # let topology = hwlocality::Topology::test_instance();
+    /// #
+    /// use anyhow::Context;
+    ///
+    /// let root = topology.root_object();
+    ///
+    /// for pu in topology.objects_with_type(ObjectType::PU) {
+    ///     assert_eq!(pu.object_type(), ObjectType::PU);
+    ///     assert!(pu.is_in_subtree(root));
+    ///     assert_eq!(pu.normal_arity(), 0);
+    ///     let num_cpus =
+    ///         pu.cpuset().context("A PU should have a CpuSet")?
+    ///           .weight().context("A PU's CpuSet should be finite")?;
+    ///     assert_eq!(num_cpus, 1);
+    /// }
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    #[doc(alias = "hwloc_get_obj_by_type")]
+    #[doc(alias = "hwloc_get_next_obj_by_type")]
+    pub fn objects_with_type(
+        &self,
+        object_type: ObjectType,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        let type_depth = self.depth_for_type(object_type);
+        let depth_iter = (0..self.depth())
+            .map(Depth::from)
+            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+            .filter(move |&depth| {
+                if let Ok(type_depth) = type_depth {
+                    depth == type_depth
+                } else {
+                    self.type_at_depth(depth).expect("Depth should exist") == object_type
+                }
+            });
+        let size = depth_iter
+            .clone()
+            .map(move |depth| {
+                usize::try_from(self.size_at_depth(depth)).expect("Impossible object count")
+            })
+            .sum();
+        ObjectsWithType {
+            size,
+            inner: depth_iter.flat_map(move |depth| self.objects_at_depth(depth)),
+        }
+    }
+}
+
+/// Iterator emitted by objects_with_type
+#[derive(Copy, Clone)]
+struct ObjectsWithType<Inner> {
+    size: usize,
+    inner: Inner,
+}
+//
+impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> Iterator
+    for ObjectsWithType<Inner>
+{
+    type Item = &'topology TopologyObject;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.size, Some(self.size))
+    }
+
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        self.size
+    }
+}
+//
+impl<'topology, Inner: Iterator<Item = &'topology TopologyObject> + DoubleEndedIterator>
+    DoubleEndedIterator for ObjectsWithType<Inner>
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back()
+    }
+}
+//
+impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> ExactSizeIterator
+    for ObjectsWithType<Inner>
+{
+}
+//
+impl<'topology, Inner: Iterator<Item = &'topology TopologyObject> + FusedIterator> FusedIterator
+    for ObjectsWithType<Inner>
+{
+}
+
+/// # Finding other objects
+//
+// This is inspired by the upstream functionality described at
+// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
+// but the code had to be ported to Rust because it's inline
+impl Topology {
+    /// Get the object of type [`ObjectType::PU`] with the specified OS index
+    ///
+    /// If you want to convert an entire CPU set into the PU objects it
+    /// contains, using `pus_from_cpuset` will be more efficient than repeatedly
+    /// calling this function with every OS index from the CpuSet.
+    ///
+    /// Requires [`DiscoverySupport::pu_count()`].
+    pub fn pu_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
+        self.objs_and_os_indices(ObjectType::PU)
+            .find_map(|(pu, pu_os_index)| (pu_os_index == os_index).then_some(pu))
+    }
+
+    /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
+    ///
+    /// Requires [`DiscoverySupport::pu_count()`].
+    pub fn pus_from_cpuset<'result>(
+        &'result self,
+        cpuset: &'result CpuSet,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
+    {
+        self.objs_and_os_indices(ObjectType::PU)
+            .filter_map(|(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
+    }
+
+    /// Get the object of type [`ObjectType::NUMANode`] with the specified OS index
+    ///
+    /// If you want to convert an entire NodeSet into the NUMANode objects it
+    /// contains, using `nodes_from_cpuset` will be more efficient than repeatedly
+    /// calling this function with every OS index from the NodeSet.
+    ///
+    /// Requires [`DiscoverySupport::numa_count()`].
+    pub fn node_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
+        self.objs_and_os_indices(ObjectType::NUMANode)
+            .find_map(|(node, node_os_index)| (node_os_index == os_index).then_some(node))
+    }
+
+    /// Get the objects of type [`ObjectType::NUMANode`] covered by the
+    /// specified nodeset
+    ///
+    /// Requires [`DiscoverySupport::numa_count()`].
+    pub fn nodes_from_nodeset<'result>(
+        &'result self,
+        nodeset: &'result NodeSet,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
+    {
+        self.objs_and_os_indices(ObjectType::NUMANode)
+            .filter_map(|(node, os_index)| nodeset.is_set(os_index).then_some(node))
+    }
+
+    /// Get a list of `(&TopologyObject, OS index)` tuples for an `ObjectType`
+    /// that is guaranteed to appear only at one depth of the topology and to
+    /// have an OS index.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the object type appears at more than one depth or do not
+    /// have an OS index.
+    fn objs_and_os_indices(
+        &self,
+        ty: ObjectType,
+    ) -> impl Iterator<Item = (&TopologyObject, u32)>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(
+            self.depth_for_type(ty)
+                .expect("These objects should only appear at a single depth"),
+        )
+        .map(|obj| {
+            (
+                obj,
+                obj.os_index()
+                    .expect("These objects should have an OS index"),
+            )
+        })
+    }
+
+    /// Enumerate objects at the same depth as `obj`, but with increasing
+    /// physical distance (i.e. from increasingly higher common ancestors in the
+    /// topology tree)
+    ///
+    /// # Panics
+    ///
+    /// `obj` must have a cpuset, otherwise this function will panic.
+    pub fn closest_objects<'result>(
+        &'result self,
+        obj: &'result TopologyObject,
+    ) -> impl Iterator<Item = &TopologyObject> + Clone + 'result {
+        // Track which CPUs map into objects we don't want to report
+        // (current object or already reported object)
+        let mut known_cpuset = obj.cpuset().expect("Target object must have a cpuset");
+
+        // Assert that an object has a cpuset, return both
+        fn obj_and_cpuset<'obj>(
+            obj: &'obj TopologyObject,
+            error: &str,
+        ) -> (&'obj TopologyObject, &'obj CpuSet) {
+            (obj, obj.cpuset().expect(error))
+        }
+
+        // Find the first ancestor of an object that knows about more objects
+        // than that object (if any), and return it along with its cpuset
+        fn find_larger_parent<'obj>(
+            known_obj: &'obj TopologyObject,
+            known_cpuset: &CpuSet,
+        ) -> Option<(&'obj TopologyObject, &'obj CpuSet)> {
+            known_obj
+                .ancestors()
+                .map(|ancestor| {
+                    obj_and_cpuset(
+                        ancestor,
+                        "Ancestors of an obj with a cpuset should have a cpuset",
+                    )
+                })
+                .find(|&(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
+        }
+        let mut ancestor_and_cpuset = find_larger_parent(obj, known_cpuset);
+
+        // Prepare to jointly iterate over cousins and their cpusets
+        let cousins_and_cpusets = self
+            .objects_at_depth(obj.depth())
+            .map(|cousin| {
+                obj_and_cpuset(
+                    cousin,
+                    "Cousins of an obj with a cpuset should have a cpuset",
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut cousin_idx = 0;
+
+        // Emit the final iterator
+        std::iter::from_fn(move || {
+            loop {
+                // Look for a cousin that is part of ancestor_cpuset but not known_cpuset
+                let (ancestor, ancestor_cpuset) = ancestor_and_cpuset?;
+                while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.get(cousin_idx) {
+                    cousin_idx += 1;
+                    if ancestor_cpuset.includes(cousin_cpuset)
+                        && !known_cpuset.includes(cousin_cpuset)
+                    {
+                        return Some(*cousin);
+                    }
+                }
+
+                // We ran out of cousins, go up one ancestor level or end
+                // iteration if we reached the top of the tree.
+                let known_obj = ancestor;
+                known_cpuset = ancestor_cpuset;
+                let (ancestor, ancestor_cpuset) = find_larger_parent(known_obj, known_cpuset)?;
+                ancestor_and_cpuset = Some((ancestor, ancestor_cpuset));
+                cousin_idx = 0;
+            }
+        })
+    }
+
+    /// Find an object via a parent->child chain specified by types and indices
+    ///
+    /// For example, if called with `&[(NUMANode, 0), (Package, 1), (Core, 2)]`,
+    /// this will return the third core object below the second package below
+    /// the first NUMA node.
+    ///
+    /// # Panics
+    ///
+    /// All objects must have a cpuset, otherwise this function will panic.
+    pub fn object_by_type_index_path(
+        &self,
+        path: &[(ObjectType, usize)],
+    ) -> Option<&TopologyObject> {
+        let mut obj = self.root_object();
+        for &(ty, idx) in path {
+            let cpuset = obj
+                .cpuset()
+                .expect("All objects in path should have a cpuset");
+
+            obj = self.objects_inside_cpuset_with_type(cpuset, ty).nth(idx)?;
+        }
+        Some(obj)
+    }
+
+    /// Find an object of a different type with the same locality
+    ///
+    /// If the source object src is a normal or memory type, this function
+    /// returns an object of type type with same CPU and node sets, either below
+    /// or above in the hierarchy.
+    ///
+    /// If the source object src is a PCI or an OS device within a PCI device,
+    /// the function may either return that PCI device, or another OS device in
+    /// the same PCI parent. This may for instance be useful for converting
+    /// between OS devices such as "nvml0" or "rsmi1" used in distance
+    /// structures into the the PCI device, or the CUDA or OpenCL OS device that
+    /// correspond to the same physical card.
+    ///
+    /// If specified, parameter `subtype` restricts the search to objects whose
+    /// [`TopologyObject::subtype()`] attribute exists and is equal to `subtype`
+    /// (case-insensitively), for instance "OpenCL" or "CUDA".
+    ///
+    /// If specified, parameter `name_prefix` restricts the search to objects
+    /// whose [`TopologyObject::name()`] attribute exists and starts with
+    /// `name_prefix` (case-insensitively), for instance "rsmi" for matching
+    /// "rsmi0".
+    ///
+    /// If multiple objects match, the first one is returned.
+    ///
+    /// This function will not walk the hierarchy across bridges since the PCI
+    /// locality may become different. This function cannot also convert between
+    /// normal/memory objects and I/O or Misc objects.
+    ///
+    /// If no matching object could be found, or if the source object and target
+    /// type are incompatible, `None` will be returned.
+    ///
+    /// # Errors
+    ///
+    /// - [`NulError`] if `subtype` or `name_prefix` contains NUL chars.
+    #[doc(alias = "hwloc_get_obj_with_same_locality")]
+    pub fn object_with_same_locality(
+        &self,
+        src: &TopologyObject,
+        ty: ObjectType,
+        subtype: Option<&str>,
+        name_prefix: Option<&str>,
+    ) -> Result<Option<&TopologyObject>, NulError> {
+        let subtype = subtype.map(LibcString::new).transpose()?;
+        let name_prefix = name_prefix.map(LibcString::new).transpose()?;
+        let borrow_pchar = |opt: &Option<LibcString>| -> *const c_char {
+            opt.as_ref().map(|s| s.borrow()).unwrap_or(ptr::null())
+        };
+        let ptr = unsafe {
+            ffi::hwloc_get_obj_with_same_locality(
+                self.as_ptr(),
+                src,
+                ty.into(),
+                borrow_pchar(&subtype),
+                borrow_pchar(&name_prefix),
+                0,
+            )
+        };
+        Ok((!ptr.is_null()).then(|| unsafe { &*ptr }))
+    }
+}
+
+/// # Finding I/O objects
+//
+// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html
+// but inline functions had to be reimplemented in Rust
+impl Topology {
+    /// Enumerate PCI devices in the system
+    #[doc(alias = "hwloc_get_next_pcidev")]
+    pub fn pci_devices(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(Depth::PCIDevice)
+    }
+
+    /// Find the PCI device object matching the PCI bus id given domain, bus
+    /// device and function PCI bus id
+    #[doc(alias = "hwloc_get_pcidev_by_busid")]
+    pub fn pci_device_by_bus_id(
+        &self,
+        domain: u32,
+        bus_id: u8,
+        bus_device: u8,
+        function: u8,
+    ) -> Option<&TopologyObject> {
+        self.pci_devices().find(|obj| {
+            let Some(ObjectAttributes::PCIDevice(pci)) = obj.attributes() else { unreachable!("All PCI devices should have PCI attributes") };
+            pci.domain() == domain && pci.bus_id() == bus_id && pci.bus_device() == bus_device && pci.function() == function
+        })
+    }
+
+    /// Find the PCI device object matching the PCI bus id given as a string
+    /// of format "xxxx:yy:zz.t" (with domain) or "yy:zz.t" (without domain).
+    ///
+    /// # Panics
+    ///
+    /// If the given string does not match the PCI bus id format given above
+    #[doc(alias = "hwloc_get_pcidev_by_busidstring")]
+    pub fn pci_device_by_bus_id_string(&self, bus_id: &str) -> Option<&TopologyObject> {
+        // Assume well-formatted string
+        let parse_u32 = |s| u32::from_str_radix(s, 16).expect("Bad hex u32 format");
+        let parse_u8 = |s| u8::from_str_radix(s, 16).expect("Bad hex u8 format");
+
+        // Extract initial hex (whose semantics are ambiguous at this stage)
+        let (int1, mut rest) = bus_id.split_once(':').expect("Bad address structure");
+
+        // From presence/absence of second ':', deduce if int1 was a domain or
+        // a bus id in the default 0 domain.
+        let (domain, bus) = if let Some((bus, next_rest)) = rest.split_once(':') {
+            rest = next_rest;
+            (parse_u32(int1), parse_u8(bus))
+        } else {
+            (0, parse_u8(int1))
+        };
+
+        // Parse device and function IDs, and forward to non-textual lookup
+        let (dev, func) = rest.split_once('.').expect("Bad address structure");
+        self.pci_device_by_bus_id(domain, bus, parse_u8(dev), parse_u8(func))
+    }
+
+    /// Enumerate OS devices in the system
+    #[doc(alias = "hwloc_get_next_osdev")]
+    pub fn os_devices(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(Depth::OSDevice)
+    }
+
+    /// Enumerate bridges in the system
+    #[doc(alias = "hwloc_get_next_bridge")]
+    pub fn bridges(
+        &self,
+    ) -> impl Iterator<Item = &TopologyObject>
+           + Clone
+           + DoubleEndedIterator
+           + ExactSizeIterator
+           + FusedIterator {
+        self.objects_at_depth(Depth::Bridge)
+    }
+}
 
 /// Hardware topology object
 ///

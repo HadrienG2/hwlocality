@@ -4,7 +4,6 @@
 pub mod bitmaps;
 pub mod cpu;
 pub mod errors;
-pub mod export;
 pub(crate) mod ffi;
 pub mod info;
 #[cfg(target_os = "linux")]
