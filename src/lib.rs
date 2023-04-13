@@ -21,11 +21,13 @@ pub mod support;
 pub mod windows;
 
 use crate::{
-    bitmaps::{CpuSet, NodeSet},
+    bitmaps::{Bitmap, RawBitmap, SpecializedBitmap},
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
+    cpu::sets::CpuSet,
     depth::{Depth, DepthError, DepthResult, RawDepth},
     errors::{NulError, RawHwlocError},
     ffi::{IncompleteType, LibcString},
+    memory::nodesets::NodeSet,
     objects::{
         attributes::ObjectAttributes,
         types::{CacheType, ObjectType, RawObjectType},
@@ -68,6 +70,7 @@ pub type ProcessId = libc::pid_t;
 /// actually modifies the API.
 ///
 /// Users may check for available features at build time using this number
+#[doc(alias = "hwloc_get_api_version")]
 pub fn get_api_version() -> u32 {
     unsafe { ffi::hwloc_get_api_version() }
 }
@@ -120,7 +123,7 @@ pub(crate) struct RawTopology(IncompleteType);
 // NOTE: Since the Topology API is _huge_, not all of it is implemented in the
 // root lib.rs module. Instead, functionality which is very strongly related to
 // one other code module is implemented inside that module, leaving the root
-// module focused on cross-cutting issues and basic Topology lifecycle.
+// module focused on basic Topology lifecycle and cross-cutting issues.
 #[derive(Debug)]
 #[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<RawTopology>);
@@ -208,8 +211,7 @@ impl Topology {
             ffi::hwloc_topology_abi_check(self.as_ptr())
         });
         match result {
-            Ok(0) => true,
-            Ok(other) => panic!("Unexpected return value from hwloc_topology_abi_check: {other}"),
+            Ok(_) => true,
             Err(RawHwlocError {
                 api: _,
                 errno: Some(Errno(EINVAL)),
@@ -1287,6 +1289,125 @@ bitflags! {
 impl Default for DistributeFlags {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+/// # CPU and node sets of entire topologies
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
+impl Topology {
+    /// Topology CPU set
+    ///
+    /// This is equivalent to calling [`TopologyObject::cpuset()`] on
+    /// the topology's root object.
+    #[doc(alias = "hwloc_topology_get_topology_cpuset")]
+    pub fn cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_topology_cpuset",
+                ffi::hwloc_topology_get_topology_cpuset,
+            )
+        }
+    }
+
+    /// Complete CPU set
+    ///
+    /// This is equivalent to calling [`TopologyObject::complete_cpuset()`] on
+    /// the topology's root object.
+    #[doc(alias = "hwloc_topology_get_complete_cpuset")]
+    pub fn complete_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_complete_cpuset",
+                ffi::hwloc_topology_get_complete_cpuset,
+            )
+        }
+    }
+
+    /// Allowed CPU set
+    ///
+    /// If [`BuildFlags::INCLUDE_DISALLOWED`] was not set, this is identical to
+    /// [`Topology::cpuset()`]: all visible PUs are allowed.
+    ///
+    /// Otherwise, you can check whether a particular cpuset contains allowed
+    /// PUs by calling `cpuset.intersects(topology.allowed_cpuset())`, and if so
+    /// you can get the set of allowed PUs with
+    /// `cpuset & topology.allowed_cpuset()`.
+    #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
+    pub fn allowed_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_allowed_cpuset",
+                ffi::hwloc_topology_get_allowed_cpuset,
+            )
+        }
+    }
+
+    /// Topology node set
+    ///
+    /// This is equivalent to calling [`TopologyObject::nodeset()`] on
+    /// the topology's root object.
+    #[doc(alias = "hwloc_topology_get_topology_nodeset")]
+    pub fn nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_topology_nodeset",
+                ffi::hwloc_topology_get_topology_nodeset,
+            )
+        }
+    }
+
+    /// Complete node set
+    ///
+    /// This is equivalent to calling [`TopologyObject::complete_nodeset()`] on
+    /// the topology's root object.
+    #[doc(alias = "hwloc_topology_get_complete_nodeset")]
+    pub fn complete_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_complete_nodeset",
+                ffi::hwloc_topology_get_complete_nodeset,
+            )
+        }
+    }
+
+    /// Allowed node set
+    ///
+    /// If [`BuildFlags::INCLUDE_DISALLOWED`] was not set, this is identical to
+    /// [`Topology::nodeset()`]: all visible NUMA nodes are allowed.
+    ///
+    /// Otherwise, you can check whether a particular nodeset contains allowed
+    /// NUMA nodes by calling `nodeset.intersects(topology.allowed_nodeset())`,
+    /// and if so you can get the set of allowed NUMA nodes with
+    /// `nodeset & topology.allowed_nodeset()`.
+    #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
+    pub fn allowed_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+        unsafe {
+            self.topology_set(
+                "hwloc_topology_get_allowed_nodeset",
+                ffi::hwloc_topology_get_allowed_nodeset,
+            )
+        }
+    }
+
+    /// Query a topology-wide `CpuSet` or `NodeSet`
+    ///
+    /// # Safety
+    ///
+    /// The `*const RawBitmap` returned by `getter` must originate from `self`.
+    unsafe fn topology_set<'topology, Set: SpecializedBitmap>(
+        &'topology self,
+        getter_name: &'static str,
+        getter: unsafe extern "C" fn(*const RawTopology) -> *const RawBitmap,
+    ) -> Result<&Set, RawHwlocError> {
+        Ok(Set::from_bitmap_ref(unsafe {
+            let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))?;
+            let bitmap_ref = std::mem::transmute::<
+                &NonNull<RawBitmap>,
+                &'topology NonNull<RawBitmap>,
+            >(&bitmap_ptr);
+            Bitmap::borrow_from_non_null(bitmap_ref)
+        }))
     }
 }
 

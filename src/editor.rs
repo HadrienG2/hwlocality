@@ -9,23 +9,19 @@
 #[cfg(doc)]
 use crate::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
-    bitmaps::{BitmapKind, CpuSet, NodeSet, SpecializedBitmap},
-    cpu::kinds::CpuEfficiency,
-    depth::Depth,
-    distances::{Distances, DistancesKind},
+    bitmaps::{BitmapKind, SpecializedBitmap},
+    cpu::sets::CpuSet,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
-    memory::attributes::{
-        MemoryAttributeFlags, MemoryAttributeID, MemoryAttributeLocation, RawLocation,
-    },
-    objects::{types::ObjectType, TopologyObject},
+    memory::nodesets::NodeSet,
+    objects::TopologyObject,
     RawTopology, Topology,
 };
 use bitflags::bitflags;
 use derive_more::Display;
-use libc::{c_void, EINVAL, ENOMEM};
+use libc::{EINVAL, ENOMEM};
 use std::{
-    ffi::{c_int, c_uint, c_ulong},
+    ffi::c_ulong,
     fmt,
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr,
@@ -86,6 +82,11 @@ impl Topology {
 /// This proxy object is carefully crafted to only allow operations that are
 /// safe while modifying a topology and minimize the number of times the hwloc
 /// lazy caches will need to be refreshed.
+//
+// NOTE: Not all of the TopologyEditor API is implemented in the core editor.rs
+//       module. Instead, functionality which is very strongly related to
+//       one other code module is implemented in that module, leaving the editor
+//       module focused on basic lifecycle and cross-cutting issues.
 #[derive(Debug)]
 pub struct TopologyEditor<'topology>(&'topology mut Topology);
 
@@ -106,12 +107,12 @@ impl<'topology> TopologyEditor<'topology> {
     }
 
     /// Get a mutable reference to the inner Topology
-    fn topology_mut(&mut self) -> &mut Topology {
+    pub(crate) fn topology_mut(&mut self) -> &mut Topology {
         self.0
     }
 
     /// Returns the contained hwloc topology pointer for interaction with hwloc
-    fn topology_mut_ptr(&mut self) -> *mut RawTopology {
+    pub(crate) fn topology_mut_ptr(&mut self) -> *mut RawTopology {
         self.topology_mut().as_mut_ptr()
     }
 }
@@ -481,459 +482,6 @@ pub enum GroupInsertResult<'topology> {
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("invalid parameter specified")]
 pub struct InvalidParameter;
-
-/// # Add distances between objects
-//
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
-impl TopologyEditor<'_> {
-    /// Create a new object distances matrix
-    ///
-    /// `kind` specifies the kind of distance. Kind
-    /// [`DistancesKind::HETEROGENEOUS_TYPES`] will be automatically set
-    /// according to objects having different types, so you do not need to set
-    /// it and should not do so.
-    ///
-    /// `flags` can be used to request the grouping of existing objects based on
-    /// distance.
-    ///
-    /// The `collect_objects_and_distances` callback should query the geometry
-    /// to collect references to the objects of interest, and produce the
-    /// corresponding distance matrix. If there are N output objects, then there
-    /// should be N.pow(2) output distances.
-    ///
-    /// Distances must be provided in sender-major order: the distance from
-    /// object 0 to object 1, then object 0 to object 2, ... all the way to
-    /// object N, and then from object 1 to object 0, and so on.
-    ///
-    /// # Errors
-    ///
-    /// - [`NameContainsNul`](AddDistancesError::NameContainsNul) if the
-    ///   provided `name` contains NUL chars
-    /// - [`BadKind`](AddDistancesError::BadKind) if the provided `kind`
-    ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES).
-    /// - [`BadObjectsCount`](AddDistancesError::BadObjectsCount) if less
-    ///   than 2 or more than `u32::MAX` objects are returned by the callback
-    ///   (hwloc does not support such configurations).
-    /// - [`BadDistancesCount`](AddDistancesError::BadDistancesCount) if
-    ///   the number of distances returned by the callback is not compatible
-    ///   with the number of objects (it should be the square of it).
-    #[doc(alias = "hwloc_distances_add_create")]
-    #[doc(alias = "hwloc_distances_add_values")]
-    #[doc(alias = "hwloc_distances_add_commit")]
-    pub fn add_distances(
-        &mut self,
-        name: Option<&str>,
-        kind: DistancesKind,
-        flags: AddDistancesFlags,
-        collect_objects_and_distances: impl FnOnce(
-            &Topology,
-        ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
-    ) -> Result<(), HybridError<AddDistancesError>> {
-        // Prepare arguments for C consumption and validate them
-        let name = match name.map(LibcString::new).transpose() {
-            Ok(name) => name,
-            Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
-        };
-        let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
-        //
-        if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
-            return Err(AddDistancesError::BadKind.into());
-        }
-        let kind = kind.bits();
-        //
-        let create_add_flags = 0;
-        let commit_flags = flags.bits();
-        //
-        let (objects, distances) = collect_objects_and_distances(self.topology());
-        if objects.len() < 2 {
-            return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
-        }
-        let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
-            return Err(AddDistancesError::BadObjectsCount(objects.len()).into())
-        };
-        let expected_distances_len = objects.len().pow(2);
-        if distances.len() != expected_distances_len {
-            return Err(AddDistancesError::BadDistancesCount {
-                expected_distances_len,
-                actual_distances_len: distances.len(),
-            }
-            .into());
-        }
-        let objs = objects.as_ptr() as *const *const TopologyObject;
-        let values = distances.as_ptr() as *const u64;
-
-        // Create new empty distances structure
-        let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
-            ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
-        })
-        .map_err(HybridError::Hwloc)?;
-
-        // Add objects to the distance structure
-        errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
-            ffi::hwloc_distances_add_values(
-                self.topology_mut_ptr(),
-                handle.as_ptr(),
-                nbobjs,
-                objs,
-                values,
-                create_add_flags,
-            )
-        })
-        .map_err(HybridError::Hwloc)?;
-
-        // Finalize the distance structure and insert it into the topology
-        errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
-            ffi::hwloc_distances_add_commit(self.topology_mut_ptr(), handle.as_ptr(), commit_flags)
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(())
-    }
-}
-
-bitflags! {
-    /// Flags to be given to [`TopologyEditor::add_distances()`]
-    #[repr(C)]
-    pub struct AddDistancesFlags: c_ulong {
-        /// Try to group objects based on the newly provided distance information
-        ///
-        /// This is ignored for distances between objects of different types.
-        #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
-        const GROUP = (1<<0);
-
-        /// Like Group, but consider the distance values as inaccurate and relax
-        /// the comparisons during the grouping algorithms. The actual accuracy
-        /// may be modified through the HWLOC_GROUPING_ACCURACY environment
-        /// variable (see
-        /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
-        #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
-        const GROUP_INACCURATE = (1<<0) | (1<<1);
-    }
-}
-
-impl Default for AddDistancesFlags {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
-/// Failed to add a new distance matrix to the topology
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum AddDistancesError {
-    /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars")]
-    NameContainsNul,
-
-    /// Provided `kind` contains [`DistancesKind::HETEROGENEOUS_TYPES`]
-    ///
-    /// You should not set this kind yourself, it will be automatically set by
-    /// hwloc through scanning of the provided object list.
-    #[error("provided kind contains HETEROGENEOUS_TYPES")]
-    BadKind,
-
-    /// Provided callback returned too many or too few objects
-    ///
-    /// hwloc only supports distances matrices with 2 to `u32::MAX` objects.
-    #[error("callback emitted <2 or >u32::MAX objects: {0}")]
-    BadObjectsCount(usize),
-
-    /// Provided callback returned incompatible objects and distances arrays
-    ///
-    /// If we denote N the length of the objects array, the distances array
-    /// should contain N.pow(2) elements.
-    #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
-    BadDistancesCount {
-        expected_distances_len: usize,
-        actual_distances_len: usize,
-    },
-}
-//
-impl From<NulError> for AddDistancesError {
-    fn from(_: NulError) -> Self {
-        Self::NameContainsNul
-    }
-}
-
-/// Handle to a new distances structure during its addition to the topology
-pub(crate) type DistancesAddHandle = *mut c_void;
-
-/// # Remove distances between objects
-//
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
-impl TopologyEditor<'_> {
-    /// Remove a single distances matrix from the topology
-    ///
-    /// The distances matrix to be removed can be selected using the
-    /// `find_distances` callback.
-    #[doc(alias = "hwloc_distances_release_remove")]
-    pub fn remove_distances(
-        &mut self,
-        find_distances: impl FnOnce(&Topology) -> Distances,
-    ) -> Result<(), RawHwlocError> {
-        let distances = find_distances(self.topology()).into_inner();
-        errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
-            ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
-        })
-        .map(|_| ())
-    }
-
-    /// Remove all distance matrices from a topology
-    ///
-    /// If these distances were used to group objects, these additional Group
-    /// objects are not removed from the topology.
-    #[doc(alias = "hwloc_distances_remove")]
-    pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
-        errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
-            ffi::hwloc_distances_remove(self.topology_mut_ptr())
-        })
-        .map(|_| ())
-    }
-
-    /// Remove distance matrices for objects at a specific depth in the topology
-    ///
-    /// See also [`TopologyEditor::remove_all_distances()`].
-    #[doc(alias = "hwloc_distances_remove_by_depth")]
-    pub fn remove_distances_at_depth(
-        &mut self,
-        depth: impl Into<Depth>,
-    ) -> Result<(), RawHwlocError> {
-        errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
-            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
-        })
-        .map(|_| ())
-    }
-
-    /// Remove distance matrices for objects of a specific type in the topology
-    ///
-    /// See also [`TopologyEditor::remove_all_distances()`].
-    #[doc(alias = "hwloc_distances_remove_by_type")]
-    pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawHwlocError> {
-        let topology = self.topology();
-        if let Ok(depth) = topology.depth_for_type(ty) {
-            self.remove_distances_at_depth(depth)?;
-        } else {
-            let depths = (0..topology.depth())
-                .map(Depth::from)
-                .filter_map(|depth| {
-                    let depth_ty = topology
-                        .type_at_depth(depth)
-                        .expect("A type should be present at this depth");
-                    (depth_ty == ty).then_some(depth)
-                })
-                .collect::<Vec<_>>();
-            for depth in depths {
-                self.remove_distances_at_depth(depth)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// # Managing memory attributes
-//
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
-impl<'topology> TopologyEditor<'topology> {
-    /// Register a new memory attribute
-    ///
-    /// # Panics
-    ///
-    /// - `name` contains NUL chars
-    #[doc(alias = "hwloc_memattr_register")]
-    pub fn register_memory_attribute<'name>(
-        &mut self,
-        name: &'name str,
-        flags: MemoryAttributeFlags,
-    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, HybridError<MemoryAttributeRegisterError>>
-    {
-        if !flags.is_valid() {
-            return Err(MemoryAttributeRegisterError::BadFlags(flags).into());
-        }
-        let name = match LibcString::new(name) {
-            Ok(name) => name,
-            Err(NulError) => return Err(MemoryAttributeRegisterError::NameContainsNul.into()),
-        };
-        let mut id = MemoryAttributeID::default();
-        errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
-            ffi::hwloc_memattr_register(
-                self.topology_mut_ptr(),
-                name.borrow(),
-                flags.bits(),
-                &mut id,
-            )
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(MemoryAttributeBuilder {
-            editor: self,
-            flags,
-            id,
-        })
-    }
-}
-
-/// Error returned when trying to create an memory attribute
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
-pub enum MemoryAttributeRegisterError {
-    /// Specified flags are not correct
-    ///
-    /// You must specify exactly one of [`MemoryAttributeFlags::HIGHER_IS_BEST`]
-    /// and [`MemoryAttributeFlags::LOWER_IS_BEST`].
-    #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
-    BadFlags(MemoryAttributeFlags),
-
-    /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars")]
-    NameContainsNul,
-
-    /// A memory attribute with this name already exists
-    #[error("a memory attribute with this name already exists")]
-    AlreadyExists,
-}
-
-/// Mechanism to configure a memory attribute
-pub struct MemoryAttributeBuilder<'editor, 'topology> {
-    editor: &'editor mut TopologyEditor<'topology>,
-    flags: MemoryAttributeFlags,
-    id: MemoryAttributeID,
-}
-//
-impl MemoryAttributeBuilder<'_, '_> {
-    /// Set attribute values for (initiator, target node) pairs
-    ///
-    /// Initiators should be provided if and only if this memory attribute has
-    /// an initiator (flag [`MemoryAttributeFlags::NEED_INITIATOR`] was set at
-    /// registration time. In that case, there should be as many initiators as
-    /// there are targets and attribute values.
-    ///
-    /// # Errors
-    ///
-    /// - [`InitiatorsError`] if initiators are specified for attributes that
-    ///   don't have them, are not specified for attributes that have them, or
-    ///   if there are more or less initiators than (target, value) pairs.
-    #[doc(alias = "hwloc_memattr_set_value")]
-    pub fn set_values(
-        &mut self,
-        find_values: impl FnOnce(
-            &Topology,
-        ) -> (
-            Option<Vec<MemoryAttributeLocation>>,
-            Vec<(&TopologyObject, u64)>,
-        ),
-    ) -> Result<(), HybridError<InitiatorsError>> {
-        // Run user callback, validate results for correctness
-        let (initiators, targets_and_values) = find_values(self.editor.topology());
-        if !(self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) ^ initiators.is_some()) {
-            return Err(InitiatorsError.into());
-        }
-        let size_ok = match (&initiators, &targets_and_values) {
-            (Some(initiators), targets_and_values)
-                if initiators.len() == targets_and_values.len() =>
-            {
-                true
-            }
-            (None, _) => true,
-            _ => false,
-        };
-        if !size_ok {
-            return Err(InitiatorsError.into());
-        }
-
-        // Post-process results to fit hwloc and borrow checker expectations
-        let initiators = initiators.map(|vec| {
-            vec.into_iter()
-                .map(MemoryAttributeLocation::into_raw)
-                .collect::<Vec<_>>()
-        });
-        let initiator_ptrs = initiators
-            .iter()
-            .flatten()
-            .map(|initiator_ref| initiator_ref as *const RawLocation)
-            .chain(std::iter::repeat_with(ptr::null));
-        let target_ptrs_and_values = targets_and_values
-            .into_iter()
-            .map(|(target_ref, value)| (target_ref as *const TopologyObject, value))
-            .collect::<Vec<_>>();
-
-        // Set memory attribute values
-        for (initiator_ptr, (target_ptr, value)) in
-            initiator_ptrs.zip(target_ptrs_and_values.into_iter())
-        {
-            errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
-                ffi::hwloc_memattr_set_value(
-                    self.editor.topology_mut_ptr(),
-                    self.id,
-                    target_ptr,
-                    initiator_ptr,
-                    0,
-                    value,
-                )
-            })
-            .map_err(HybridError::Hwloc)?;
-        }
-        Ok(())
-    }
-}
-
-/// Error returned by [`MemoryAttributeBuilder::set_values`] when the
-/// `find_values` callback returns an incorrect set of initiators.
-///
-/// Either an initiator had to be specified and was not specified, or the
-/// requested attribute has no notion of initiator (e.g. Capacity) but an
-/// initiator was specified nonetheless.
-///
-/// This error is also emitted if the array of initiators is not sized like
-/// the main (target, value) array.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("find_values returned an invalid initiator set")]
-pub struct InitiatorsError;
-
-/// # Kinds of CPU cores
-//
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
-impl<'topology> TopologyEditor<'topology> {
-    /// Register a kind of CPU in the topology.
-    ///
-    /// Mark the PUs listed in `cpuset` as being of the same kind with respect
-    /// to the given attributes.
-    ///
-    /// `forced_efficiency` should be `None` if unknown. Otherwise it is an
-    /// abstracted efficiency value to enforce the ranking of all kinds if all
-    /// of them have valid (and different) efficiencies.
-    ///
-    /// Note that the efficiency reported later by [`Topology::cpu_kinds()`] may
-    /// differ because hwloc will scale efficiency values down to between 0 and
-    /// the number of kinds minus 1.
-    ///
-    /// If `cpuset` overlaps with some existing kinds, those might get modified
-    /// or split. For instance if existing kind A contains PUs 0 and 1, and one
-    /// registers another kind for PU 1 and 2, there will be 3 resulting kinds:
-    /// existing kind A is restricted to only PU 0; new kind B contains only PU
-    /// 1 and combines information from A and from the newly-registered kind;
-    /// new kind C contains only PU 2 and only gets information from the
-    /// newly-registered kind.
-    //
-    // NOTE: Not exposing info setting at the moment because I don't know how to
-    //       make it safe with respect to string allocation/liberation.
-    #[doc(alias = "hwloc_cpukinds_register")]
-    pub fn register_cpu_kind(
-        &mut self,
-        cpuset: &CpuSet,
-        forced_efficiency: Option<CpuEfficiency>,
-    ) -> Result<(), RawHwlocError> {
-        errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
-            let forced_efficiency = forced_efficiency
-                .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
-                .unwrap_or(-1);
-            ffi::hwloc_cpukinds_register(
-                self.topology_mut_ptr(),
-                cpuset.as_ptr(),
-                forced_efficiency,
-                0,
-                ptr::null(),
-                0,
-            )
-        })
-        .map(|_| ())
-    }
-}
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
 //       as it would expose &Topology with unevaluated lazy hwloc caches.

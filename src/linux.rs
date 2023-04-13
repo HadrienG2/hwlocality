@@ -5,14 +5,14 @@
 #[cfg(doc)]
 use crate::cpu::binding::CpuBindingFlags;
 use crate::{
-    bitmaps::CpuSet,
+    cpu::sets::CpuSet,
     errors::{self, HybridError, RawHwlocError},
     ffi,
     path::{self, PathError},
     Topology,
 };
-use libc::{cpu_set_t, pid_t};
-use std::{path::Path, ptr::NonNull};
+use libc::pid_t;
+use std::path::Path;
 
 /// # Linux-specific helpers
 ///

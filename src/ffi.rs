@@ -2,8 +2,7 @@ use crate::{
     bitmaps::RawBitmap,
     builder::RawTypeFilter,
     depth::RawDepth,
-    distances::{RawDistances, RawDistancesTransform},
-    editor::DistancesAddHandle,
+    distances::{DistancesAddHandle, RawDistances, RawDistancesTransform},
     errors::NulError,
     info::TextualInfo,
     memory::{

@@ -3,15 +3,11 @@
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 #[cfg(doc)]
-use crate::{builder::BuildFlags, support::DiscoverySupport};
+use crate::{builder::BuildFlags, cpu::sets::CpuSet, memory::nodesets::NodeSet, Topology};
 use crate::{
-    depth::Depth,
-    errors::{self, RawHwlocError},
+    errors,
     ffi::{self, IncompleteType},
-    objects::{types::ObjectType, TopologyObject},
-    RawTopology, Topology,
 };
-use derive_more::*;
 use std::{
     borrow::Borrow,
     clone::Clone,
@@ -23,393 +19,8 @@ use std::{
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
     },
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
-
-/// # Finding objects inside a CPU set
-//
-// This is inspired by the upstream functionality described at
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
-// but the code had to be ported to Rust as most C code is inline and thus
-// cannot be called from Rust, and the only function that's not inline does not
-// fit Rust's design (assumes caller has allocated large enough storage with no
-// way to tell what is large enough)
-impl Topology {
-    /// Enumerate the largest objects included in the given cpuset `set`
-    ///
-    /// Objects with empty CPU sets are ignored (otherwise they would be
-    /// considered included in any given set).
-    ///
-    /// In the common case where `set` is a subset of the root cpuset, this
-    /// operation can be more efficiently performed by using
-    /// `coarsest_cpuset_partition()`.
-    #[doc(alias = "hwloc_get_first_largest_obj_inside_cpuset")]
-    pub fn largest_objects_inside_cpuset(
-        &self,
-        set: CpuSet,
-    ) -> impl Iterator<Item = &TopologyObject> + FusedIterator {
-        LargestObjectsInsideCpuSet {
-            topology: self,
-            set,
-        }
-    }
-
-    /// Get the largest objects exactly covering the given cpuset `set`
-    ///
-    /// Objects with empty CPU sets are ignored (otherwise they would be
-    /// considered included in any given set).
-    ///
-    /// # Panics
-    ///
-    /// If the requested cpuset is not a subset of the root cpuset, we can't
-    /// find children covering the indices outside of the root cpuset
-    #[doc(alias = "hwloc_get_largest_objs_inside_cpuset")]
-    pub fn coarsest_cpuset_partition(&self, set: &CpuSet) -> Vec<&TopologyObject> {
-        // Make sure each set index actually maps into a hardware PU
-        let root = self.root_object();
-        assert!(
-            set.includes(root.cpuset().expect("Root should have a CPU set")),
-            "Requested set has indices outside the root cpuset"
-        );
-
-        // Start recursion
-        let mut result = Vec::new();
-        let mut cpusets = Vec::new();
-        fn process_object<'a>(
-            parent: &'a TopologyObject,
-            set: &CpuSet,
-            result: &mut Vec<&'a TopologyObject>,
-            cpusets: &mut Vec<CpuSet>,
-        ) {
-            // If the current object does not have a cpuset, ignore it
-            let Some(parent_cpuset) = parent.cpuset() else { return };
-
-            // If it exactly covers the target cpuset, we're done
-            if parent_cpuset == set {
-                result.push(parent);
-                return;
-            }
-
-            // Otherwise, look for children that cover the target cpuset
-            let mut subset = cpusets.pop().unwrap_or_default();
-            for child in parent.normal_children() {
-                // Ignore children without a cpuset, or with a cpuset that
-                // doesn't intersect the target cpuset
-                let Some(child_cpuset) = child.cpuset() else { continue };
-                if !child_cpuset.intersects(set) {
-                    continue;
-                }
-
-                // Split out the cpuset part corresponding to this child and recurse
-                subset.copy_from(set);
-                subset &= child_cpuset;
-                process_object(child, &subset, result, cpusets);
-            }
-            cpusets.push(subset);
-        }
-        process_object(root, set, &mut result, &mut cpusets);
-        result
-    }
-
-    /// Enumerate objects included in the given cpuset `set` at a certain depth
-    ///
-    /// Objects with empty CPU sets are ignored (otherwise they would be
-    /// considered included in any given set). Therefore, an empty iterator will
-    /// always be returned for I/O or Misc depths as those objects have no cpusets.
-    #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
-    #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
-    #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
-    pub fn objects_inside_cpuset_at_depth<'result>(
-        &'result self,
-        set: &'result CpuSet,
-        depth: impl Into<Depth>,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
-        let depth = depth.into();
-        self.objects_at_depth(depth)
-            .filter(|object| object.is_inside_cpuset(set))
-    }
-
-    /// Get objects included in the given cpuset `set` with a certain type
-    ///
-    /// Objects with empty CPU sets are ignored (otherwise they would be
-    /// considered included in any given set). Therefore, an empty Vec will
-    /// always be returned for I/O or Misc objects as they don't have cpusets.
-    #[doc(alias = "hwloc_get_obj_inside_cpuset_by_type")]
-    #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_type")]
-    #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_type")]
-    pub fn objects_inside_cpuset_with_type<'result>(
-        &'result self,
-        set: &'result CpuSet,
-        object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
-        self.objects_with_type(object_type)
-            .filter(|object| object.is_inside_cpuset(set))
-    }
-
-    /// Get the first largest object included in the given cpuset `set`
-    ///
-    /// Returns the first object that is included in `set` and whose parent is
-    /// not, in descending depth and children iteration order.
-    ///
-    /// This is convenient for iterating over all largest objects within a CPU
-    /// set by doing a loop getting the first largest object and clearing its
-    /// CPU set from the remaining CPU set. This very pattern is exposed by
-    /// the `largest_objects_inside_cpuset` method, which is why this method is
-    /// not publicly exposed.
-    ///
-    /// That being said, if the cpuset is a strict subset of the root cpuset of
-    /// this `Topology`, the work may be more efficiently done by
-    /// `largest_cpuset_partition()`, which only needs to walk the topology
-    /// tree once.
-    ///
-    /// Objects with empty CPU sets are ignored (otherwise they would be
-    /// considered included in any given set).
-    fn first_largest_object_inside_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
-        // If root object doesn't intersect this CPU set then no child will
-        let root = self.root_object();
-        let root_cpuset = root.cpuset().expect("Root should have a CPU set");
-        if !root_cpuset.intersects(set) {
-            return None;
-        }
-
-        // Walk the topology tree until we find an object included into set
-        let mut parent = root;
-        let mut parent_cpuset = root_cpuset;
-        while !set.includes(parent_cpuset) {
-            // While the object intersects without being included, look at children
-            let old_parent = parent;
-            for child in parent.normal_children() {
-                if let Some(child_cpuset) = child.cpuset() {
-                    // This child intersects, make it the new parent and recurse
-                    if set.intersects(child_cpuset) {
-                        parent = child;
-                        parent_cpuset = child_cpuset;
-                    }
-                }
-            }
-            assert!(
-                !ptr::eq(parent, old_parent),
-                "This should not happen because...\n\
-                - The root intersects, so it has at least one index from the set\n\
-                - The lowest-level children are PUs, which have only one index set,\
-                  so one of them should pass the includes() test"
-            );
-        }
-        Some(parent)
-    }
-}
-
-/// Iterator over largest objects inside a cpuset
-#[derive(Clone, Debug)]
-struct LargestObjectsInsideCpuSet<'topology> {
-    topology: &'topology Topology,
-    set: CpuSet,
-}
-//
-impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
-    type Item = &'topology TopologyObject;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let object = self
-            .topology
-            .first_largest_object_inside_cpuset(&self.set)?;
-        let object_cpuset = object
-            .cpuset()
-            .expect("Output of first_largest_object_inside_cpuset should have a cpuset");
-        self.set.and_not_assign(object_cpuset);
-        Some(object)
-    }
-}
-//
-impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
-
-/// # Finding objects covering at least a CPU set
-//
-// This is inspired by the upstream functionality described at
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
-// but the code had to be ported to Rust because it's inline
-impl Topology {
-    /// Get the lowest object covering at least the given cpuset `set`
-    ///
-    /// No object is considered to cover the empty cpuset, therefore such a
-    /// request will always return None, as if a set going outside of the root
-    /// cpuset were passed as input.
-    #[doc(alias = "hwloc_get_obj_covering_cpuset")]
-    pub fn smallest_object_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
-        let root = self.root_object();
-        if !root.covers_cpuset(set) || set.is_empty() {
-            return None;
-        }
-        let mut parent = root;
-        while let Some(child) = parent.normal_child_covering_cpuset(set) {
-            parent = child;
-        }
-        Some(parent)
-    }
-
-    /// Get the first data (or unified) cache covering the given cpuset
-    #[doc(alias = "hwloc_get_cache_covering_cpuset")]
-    pub fn first_cache_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
-        let first_obj = self.smallest_object_covering_cpuset(set)?;
-        std::iter::once(first_obj)
-            .chain(first_obj.ancestors())
-            .find(|obj| obj.object_type().is_cpu_data_cache())
-    }
-
-    /// Enumerate objects covering the given cpuset `set` at a certain depth
-    ///
-    /// Objects are not considered to cover the empty CPU set (otherwise a list
-    /// of all objects would be returned). Therefore, an empty iterator will
-    /// always be returned for I/O or Misc depths as those objects have no cpusets.
-    #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
-    pub fn objects_covering_cpuset_at_depth<'result>(
-        &'result self,
-        set: &'result CpuSet,
-        depth: impl Into<Depth>,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
-        let depth = depth.into();
-        self.objects_at_depth(depth)
-            .filter(|object| object.covers_cpuset(set))
-    }
-
-    /// Get objects covering the given cpuset `set` with a certain type
-    ///
-    /// Objects are not considered to cover the empty CPU set (otherwise a list
-    /// of all objects would be returned). Therefore, an empty iterator will
-    /// always be returned for I/O or Misc depths as those objects have no cpusets.
-    #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_type")]
-    pub fn objects_covering_cpuset_with_type<'result>(
-        &'result self,
-        set: &'result CpuSet,
-        object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
-        self.objects_with_type(object_type)
-            .filter(|object| object.covers_cpuset(set))
-    }
-}
-
-/// # CPU and node sets of entire topologies
-//
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
-impl Topology {
-    /// Topology CPU set
-    ///
-    /// This is equivalent to calling [`TopologyObject::cpuset()`] on
-    /// the topology's root object.
-    #[doc(alias = "hwloc_topology_get_topology_cpuset")]
-    pub fn cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
-        unsafe {
-            self.topology_set(
-                "hwloc_topology_get_topology_cpuset",
-                ffi::hwloc_topology_get_topology_cpuset,
-            )
-        }
-    }
-
-    /// Complete CPU set
-    ///
-    /// This is equivalent to calling [`TopologyObject::complete_cpuset()`] on
-    /// the topology's root object.
-    #[doc(alias = "hwloc_topology_get_complete_cpuset")]
-    pub fn complete_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
-        unsafe {
-            self.topology_set(
-                "hwloc_topology_get_complete_cpuset",
-                ffi::hwloc_topology_get_complete_cpuset,
-            )
-        }
-    }
-
-    /// Allowed CPU set
-    ///
-    /// If [`BuildFlags::INCLUDE_DISALLOWED`] was not set, this is identical to
-    /// [`Topology::cpuset()`]: all visible PUs are allowed.
-    ///
-    /// Otherwise, you can check whether a particular cpuset contains allowed
-    /// PUs by calling `cpuset.intersects(topology.allowed_cpuset())`, and if so
-    /// you can get the set of allowed PUs with
-    /// `cpuset & topology.allowed_cpuset()`.
-    #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
-    pub fn allowed_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
-        unsafe {
-            self.topology_set(
-                "hwloc_topology_get_allowed_cpuset",
-                ffi::hwloc_topology_get_allowed_cpuset,
-            )
-        }
-    }
-
-    /// Topology node set
-    ///
-    /// This is equivalent to calling [`TopologyObject::nodeset()`] on
-    /// the topology's root object.
-    #[doc(alias = "hwloc_topology_get_topology_nodeset")]
-    pub fn nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
-        unsafe {
-            self.topology_set(
-                "hwloc_topology_get_topology_nodeset",
-                ffi::hwloc_topology_get_topology_nodeset,
-            )
-        }
-    }
-
-    /// Complete node set
-    ///
-    /// This is equivalent to calling [`TopologyObject::complete_nodeset()`] on
-    /// the topology's root object.
-    #[doc(alias = "hwloc_topology_get_complete_nodeset")]
-    pub fn complete_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
-        unsafe {
-            self.topology_set(
-                "hwloc_topology_get_complete_nodeset",
-                ffi::hwloc_topology_get_complete_nodeset,
-            )
-        }
-    }
-
-    /// Allowed node set
-    ///
-    /// If [`BuildFlags::INCLUDE_DISALLOWED`] was not set, this is identical to
-    /// [`Topology::nodeset()`]: all visible NUMA nodes are allowed.
-    ///
-    /// Otherwise, you can check whether a particular nodeset contains allowed
-    /// NUMA nodes by calling `nodeset.intersects(topology.allowed_nodeset())`,
-    /// and if so you can get the set of allowed NUMA nodes with
-    /// `nodeset & topology.allowed_nodeset()`.
-    #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
-    pub fn allowed_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
-        unsafe {
-            self.topology_set(
-                "hwloc_topology_get_allowed_nodeset",
-                ffi::hwloc_topology_get_allowed_nodeset,
-            )
-        }
-    }
-
-    /// Query a topology-wide `CpuSet` or `NodeSet`
-    ///
-    /// # Safety
-    ///
-    /// The `*const RawBitmap` returned by `getter` must originate from `self`.
-    unsafe fn topology_set<'topology, Set: SpecializedBitmap>(
-        &'topology self,
-        getter_name: &'static str,
-        getter: unsafe extern "C" fn(*const RawTopology) -> *const RawBitmap,
-    ) -> Result<&Set, RawHwlocError> {
-        Ok(Set::from_bitmap_ref(unsafe {
-            let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))?;
-            let bitmap_ref = std::mem::transmute::<
-                &NonNull<RawBitmap>,
-                &'topology NonNull<RawBitmap>,
-            >(&bitmap_ptr);
-            Bitmap::borrow_from_non_null(bitmap_ref)
-        }))
-    }
-}
 
 /// Trait for manipulating specialized bitmaps in a homogeneous way
 pub trait SpecializedBitmap:
@@ -438,6 +49,8 @@ pub enum BitmapKind {
 }
 
 /// Implement a specialized bitmap
+#[macro_export]
+#[doc(hidden)]
 macro_rules! impl_bitmap_newtype {
     (
         $(#[$attr:meta])*
@@ -445,44 +58,45 @@ macro_rules! impl_bitmap_newtype {
     ) => {
         $(#[$attr])*
         #[derive(
-            AsMut,
-            AsRef,
-            BitAnd,
-            BitAndAssign,
-            BitOr,
-            BitOrAssign,
-            BitXor,
-            BitXorAssign,
+            derive_more::AsMut,
+            derive_more::AsRef,
+            derive_more::BitAnd,
+            derive_more::BitAndAssign,
+            derive_more::BitOr,
+            derive_more::BitOrAssign,
+            derive_more::BitXor,
+            derive_more::BitXorAssign,
             Clone,
             Debug,
             Default,
             Eq,
-            From,
-            Into,
-            IntoIterator,
-            Not,
+            derive_more::From,
+            derive_more::Into,
+            derive_more::IntoIterator,
+            derive_more::Not,
             Ord,
             PartialEq,
             PartialOrd,
         )]
         #[repr(transparent)]
-        pub struct $newtype(Bitmap);
+        pub struct $newtype($crate::bitmaps::Bitmap);
 
-        impl SpecializedBitmap for $newtype {
-            const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
+        impl $crate::bitmaps::SpecializedBitmap for $newtype {
+            const BITMAP_KIND: $crate::bitmaps::BitmapKind =
+                $crate::bitmaps::BitmapKind::$newtype;
 
-            fn from_bitmap_ref(bitmap: &Bitmap) -> &Self {
+            fn from_bitmap_ref(bitmap: &$crate::bitmaps::Bitmap) -> &Self {
                 bitmap.as_ref()
             }
         }
 
-        impl Display for $newtype {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        impl std::fmt::Display for $newtype {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}({})", stringify!($newtype), &self.0)
             }
         }
 
-        impl AsRef<$newtype> for Bitmap {
+        impl AsRef<$newtype> for $crate::bitmaps::Bitmap {
             fn as_ref(&self) -> &$newtype {
                 // Safe because $newtype is repr(transparent)
                 unsafe { std::mem::transmute(self) }
@@ -496,257 +110,275 @@ macro_rules! impl_bitmap_newtype {
         impl $newtype {
             /// Wrap an owned bitmap from hwloc
             ///
-            /// See [`Bitmap::from_raw`].
+            /// See [`Bitmap::from_raw`](crate::bitmaps::Bitmap::from_raw).
             #[allow(unused)]
-            pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
-                Bitmap::from_raw(bitmap).map(Self::from)
+            pub(crate) unsafe fn from_raw(
+                bitmap: *mut $crate::bitmaps::RawBitmap
+            ) -> Option<Self> {
+                $crate::bitmaps::Bitmap::from_raw(bitmap).map(Self::from)
             }
 
             /// Wrap an owned bitmap from hwloc
             ///
-            /// See [`Bitmap::from_non_null`].
+            /// See [`Bitmap::from_non_null`](crate::bitmaps::Bitmap::from_non_null).
             #[allow(unused)]
-            pub(crate) unsafe fn from_non_null(bitmap: NonNull<RawBitmap>) -> Self {
-                Self::from(Bitmap::from_non_null(bitmap))
+            pub(crate) unsafe fn from_non_null(
+                bitmap: std::ptr::NonNull<$crate::bitmaps::RawBitmap>
+            ) -> Self {
+                Self::from($crate::bitmaps::Bitmap::from_non_null(bitmap))
             }
 
             /// Wrap an hwloc-originated borrowed bitmap pointer
             ///
-            /// See [`Bitmap::borrow_from_raw`].
+            /// See [`Bitmap::borrow_from_raw`](crate::bitmaps::Bitmap::borrow_from_raw).
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
-                Bitmap::borrow_from_raw(bitmap).map(Bitmap::as_ref)
+            pub(crate) unsafe fn borrow_from_raw(
+                bitmap: &*const $crate::bitmaps::RawBitmap
+            ) -> Option<&Self> {
+                $crate::bitmaps::Bitmap::borrow_from_raw(bitmap)
+                    .map($crate::bitmaps::Bitmap::as_ref)
             }
 
             /// Wrap an hwloc-originated borrowed bitmap pointer
             ///
-            /// See [`Bitmap::borrow_from_raw_mut`].
+            /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmaps::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
-                Bitmap::borrow_from_raw_mut(bitmap).map(Bitmap::as_ref)
+            pub(crate) unsafe fn borrow_from_raw_mut(
+                bitmap: &*mut $crate::bitmaps::RawBitmap
+            ) -> Option<&Self> {
+                $crate::bitmaps::Bitmap::borrow_from_raw_mut(bitmap)
+                    .map($crate::bitmaps::Bitmap::as_ref)
             }
 
             /// Wrap an hwloc-originated borrowed bitmap pointer
             ///
-            /// See [`Bitmap::borrow_from_non_null`].
+            /// See [`Bitmap::borrow_from_non_null`](crate::bitmaps::Bitmap::borrow_from_non_null).
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_non_null(bitmap: &NonNull<RawBitmap>) -> &Self {
-                <Bitmap as AsRef<Self>>::as_ref(Bitmap::borrow_from_non_null(bitmap))
+            pub(crate) unsafe fn borrow_from_non_null(
+                bitmap: &std::ptr::NonNull<$crate::bitmaps::RawBitmap>
+            ) -> &Self {
+                <$crate::bitmaps::Bitmap as AsRef<Self>>::as_ref(
+                    $crate::bitmaps::Bitmap::borrow_from_non_null(bitmap)
+                )
             }
 
             /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
             ///
-            /// See [`Bitmap::as_ptr`].
-            pub(crate) fn as_ptr(&self) -> *const RawBitmap {
+            /// See [`Bitmap::as_ptr`](crate::bitmaps::Bitmap::as_ptr).
+            pub(crate) fn as_ptr(&self) -> *const $crate::bitmaps::RawBitmap {
                 self.0.as_ptr()
             }
 
             /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
             ///
-            /// See [`Bitmap::as_mut_ptr`].
+            /// See [`Bitmap::as_mut_ptr`](crate::bitmaps::Bitmap::as_mut_ptr).
             #[allow(unused)]
-            pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
+            pub(crate) fn as_mut_ptr(&mut self) -> *mut $crate::bitmaps::RawBitmap {
                 self.0.as_mut_ptr()
             }
 
             /// Create an empty bitmap
             ///
-            /// See [`Bitmap::new`].
+            /// See [`Bitmap::new`](crate::bitmaps::Bitmap::new).
             pub fn new() -> Self {
-                Self::from(Bitmap::new())
+                Self::from($crate::bitmaps::Bitmap::new())
             }
 
             /// Create a full bitmap
             ///
-            /// See [`Bitmap::full`].
+            /// See [`Bitmap::full`](crate::bitmaps::Bitmap::full).
             pub fn full() -> Self {
-                Self::from(Bitmap::full())
+                Self::from($crate::bitmaps::Bitmap::full())
             }
 
             /// Creates a new bitmap with the given range of indices set
             ///
-            /// See [`Bitmap::from_range`].
-            pub fn from_range(range: impl RangeBounds<u32>) -> Self {
-                Self::from(Bitmap::from_range(range))
+            /// See [`Bitmap::from_range`](crate::bitmaps::Bitmap::from_range).
+            pub fn from_range(range: impl std::ops::RangeBounds<u32>) -> Self {
+                Self::from($crate::bitmaps::Bitmap::from_range(range))
             }
 
             /// Turn this bitmap into a copy of another bitmap
             ///
-            /// See [`Bitmap::copy_from`].
+            /// See [`Bitmap::copy_from`](crate::bitmaps::Bitmap::copy_from).
             pub fn copy_from(&mut self, other: &Self) {
                 self.0.copy_from(&other.0)
             }
 
             /// Clear all indices
             ///
-            /// See [`Bitmap::clear`].
+            /// See [`Bitmap::clear`](crate::bitmaps::Bitmap::clear).
             pub fn clear(&mut self) {
                 self.0.clear()
             }
 
             /// Set all indices
             ///
-            /// See [`Bitmap::fill`].
+            /// See [`Bitmap::fill`](crate::bitmaps::Bitmap::fill).
             pub fn fill(&mut self) {
                 self.0.fill()
             }
 
             /// Clear all indices except for the `id`, which is set
             ///
-            /// See [`Bitmap::set_only`].
+            /// See [`Bitmap::set_only`](crate::bitmaps::Bitmap::set_only).
             pub fn set_only(&mut self, id: u32) {
                 self.0.set_only(id)
             }
 
             /// Set all indices except for `id`, which is cleared
             ///
-            /// See [`Bitmap::set_all_but`].
+            /// See [`Bitmap::set_all_but`](crate::bitmaps::Bitmap::set_all_but).
             pub fn set_all_but(&mut self, id: u32) {
                 self.0.set_all_but(id)
             }
 
             /// Set index `id`
             ///
-            /// See [`Bitmap::set`].
+            /// See [`Bitmap::set`](crate::bitmaps::Bitmap::set).
             pub fn set(&mut self, id: u32) {
                 self.0.set(id)
             }
 
             /// Set indexes covered by `range`
             ///
-            /// See [`Bitmap::set_range`].
-            pub fn set_range(&mut self, range: impl RangeBounds<u32>) {
+            /// See [`Bitmap::set_range`](crate::bitmaps::Bitmap::set_range).
+            pub fn set_range(&mut self, range: impl std::ops::RangeBounds<u32>) {
                 self.0.set_range(range)
             }
 
             /// Clear index `id`
             ///
-            /// See [`Bitmap::unset`].
+            /// See [`Bitmap::unset`](crate::bitmaps::Bitmap::unset).
             pub fn unset(&mut self, id: u32) {
                 self.0.unset(id)
             }
 
             /// Clear indexes covered by `range`
             ///
-            /// See [`Bitmap::unset_range`].
-            pub fn unset_range(&mut self, range: impl RangeBounds<u32>) {
+            /// See [`Bitmap::unset_range`](crate::bitmaps::Bitmap::unset_range).
+            pub fn unset_range(&mut self, range: impl std::ops::RangeBounds<u32>) {
                 self.0.unset_range(range)
             }
 
             /// Keep a single index among those set in the bitmap
             ///
-            /// See [`Bitmap::singlify`].
+            /// See [`Bitmap::singlify`](crate::bitmaps::Bitmap::singlify).
             pub fn singlify(&mut self) {
                 self.0.singlify()
             }
 
             /// Check if index `id` is set
             ///
-            /// See [`Bitmap::is_set`].
+            /// See [`Bitmap::is_set`](crate::bitmaps::Bitmap::is_set).
             pub fn is_set(&self, id: u32) -> bool {
                 self.0.is_set(id)
             }
 
             /// Check if all indices are unset
             ///
-            /// See [`Bitmap::is_empty`].
+            /// See [`Bitmap::is_empty`](crate::bitmaps::Bitmap::is_empty).
             pub fn is_empty(&self) -> bool {
                 self.0.is_empty()
             }
 
             /// Check if all indices are set
             ///
-            /// See [`Bitmap::is_full`].
+            /// See [`Bitmap::is_full`](crate::bitmaps::Bitmap::is_full).
             pub fn is_full(&self) -> bool {
                 self.0.is_full()
             }
 
             /// Check the first set index, if any
             ///
-            /// See [`Bitmap::first_set`].
+            /// See [`Bitmap::first_set`](crate::bitmaps::Bitmap::first_set).
             pub fn first_set(&self) -> Option<u32> {
                 self.0.first_set()
             }
 
             /// Iterate over set indices
             ///
-            /// See [`Bitmap::iter_set`].
-            pub fn iter_set(&self) -> BitmapIterator<&Bitmap> {
+            /// See [`Bitmap::iter_set`](crate::bitmaps::Bitmap::iter_set).
+            pub fn iter_set(
+                &self
+            ) -> $crate::bitmaps::BitmapIterator<&$crate::bitmaps::Bitmap> {
                 self.0.iter_set()
             }
 
             /// Check the last set index, if any
             ///
-            /// See [`Bitmap::last_set`].
+            /// See [`Bitmap::last_set`](crate::bitmaps::Bitmap::last_set).
             pub fn last_set(&self) -> Option<u32> {
                 self.0.last_set()
             }
 
             /// The number of indexes that are set in the bitmap.
             ///
-            /// See [`Bitmap::weight`].
+            /// See [`Bitmap::weight`](crate::bitmaps::Bitmap::weight).
             pub fn weight(&self) -> Option<u32> {
                 self.0.weight()
             }
 
             /// Check the first unset index, if any
             ///
-            /// See [`Bitmap::first_unset`].
+            /// See [`Bitmap::first_unset`](crate::bitmaps::Bitmap::first_unset).
             pub fn first_unset(&self) -> Option<u32> {
                 self.0.first_unset()
             }
 
             /// Iterate over unset indices
             ///
-            /// See [`Bitmap::iter_unset`].
-            pub fn iter_unset(&self) -> BitmapIterator<&Bitmap> {
+            /// See [`Bitmap::iter_unset`](crate::bitmaps::Bitmap::iter_unset).
+            pub fn iter_unset(
+                &self
+            ) -> $crate::bitmaps::BitmapIterator<&$crate::bitmaps::Bitmap> {
                 self.0.iter_unset()
             }
 
             /// Check the last unset index, if any
             ///
-            /// See [`Bitmap::last_unset`].
+            /// See [`Bitmap::last_unset`](crate::bitmaps::Bitmap::last_unset).
             pub fn last_unset(&self) -> Option<u32> {
                 self.0.last_unset()
             }
 
             /// Optimized `self & !rhs`
             ///
-            /// See [`Bitmap::and_not`].
+            /// See [`Bitmap::and_not`](crate::bitmaps::Bitmap::and_not).
             pub fn and_not(&self, rhs: &Self) -> Self {
                 Self(self.0.and_not(&rhs.0))
             }
 
             /// Optimized `*self &= !rhs`
             ///
-            /// See [`Bitmap::and_not_assign`].
+            /// See [`Bitmap::and_not_assign`](crate::bitmaps::Bitmap::and_not_assign).
             pub fn and_not_assign(&mut self, rhs: &Self) {
                 self.0.and_not_assign(&rhs.0)
             }
 
             /// Inverts the current `Bitmap`.
             ///
-            /// See [`Bitmap::invert`].
+            /// See [`Bitmap::invert`](crate::bitmaps::Bitmap::invert).
             pub fn invert(&mut self) {
                 self.0.invert()
             }
 
             /// Truth that `self` and `rhs` have some set indices in common
             ///
-            /// See [`Bitmap::intersects`].
+            /// See [`Bitmap::intersects`](crate::bitmaps::Bitmap::intersects).
             pub fn intersects(&self, rhs: &Self) -> bool {
                 self.0.intersects(&rhs.0)
             }
 
             /// Truth that the indices set in `inner` are a subset of those set in `self`
             ///
-            /// See [`Bitmap::includes`].
+            /// See [`Bitmap::includes`](crate::bitmaps::Bitmap::includes).
             pub fn includes(&self, inner: &Self) -> bool {
                 self.0.includes(&inner.0)
             }
         }
 
-        impl Not for &$newtype {
+        impl std::ops::Not for &$newtype {
             type Output = $newtype;
 
             fn not(self) -> $newtype {
@@ -754,7 +386,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitOr<&$newtype> for &$newtype {
+        impl std::ops::BitOr<&$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitor(self, rhs: &$newtype) -> $newtype {
@@ -762,7 +394,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitOr<$newtype> for &$newtype {
+        impl std::ops::BitOr<$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitor(self, rhs: $newtype) -> $newtype {
@@ -770,7 +402,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitOr<&$newtype> for $newtype {
+        impl std::ops::BitOr<&$newtype> for $newtype {
             type Output = $newtype;
 
             fn bitor(self, rhs: &$newtype) -> $newtype {
@@ -778,13 +410,13 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitOrAssign<&$newtype> for $newtype {
+        impl std::ops::BitOrAssign<&$newtype> for $newtype {
             fn bitor_assign(&mut self, rhs: &$newtype) {
                 self.0 |= &rhs.0
             }
         }
 
-        impl BitAnd<&$newtype> for &$newtype {
+        impl std::ops::BitAnd<&$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitand(self, rhs: &$newtype) -> $newtype {
@@ -792,7 +424,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitAnd<$newtype> for &$newtype {
+        impl std::ops::BitAnd<$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitand(self, rhs: $newtype) -> $newtype {
@@ -800,7 +432,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitAnd<&$newtype> for $newtype {
+        impl std::ops::BitAnd<&$newtype> for $newtype {
             type Output = $newtype;
 
             fn bitand(self, rhs: &$newtype) -> $newtype {
@@ -808,13 +440,13 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitAndAssign<&$newtype> for $newtype {
+        impl std::ops::BitAndAssign<&$newtype> for $newtype {
             fn bitand_assign(&mut self, rhs: &$newtype) {
                 self.0 &= &rhs.0
             }
         }
 
-        impl BitXor<&$newtype> for &$newtype {
+        impl std::ops::BitXor<&$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitxor(self, rhs: &$newtype) -> $newtype {
@@ -822,7 +454,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitXor<$newtype> for &$newtype {
+        impl std::ops::BitXor<$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitxor(self, rhs: $newtype) -> $newtype {
@@ -830,7 +462,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitXor<&$newtype> for $newtype {
+        impl std::ops::BitXor<&$newtype> for $newtype {
             type Output = $newtype;
 
             fn bitxor(self, rhs: &$newtype) -> $newtype {
@@ -838,7 +470,7 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl BitXorAssign<&$newtype> for $newtype {
+        impl std::ops::BitXorAssign<&$newtype> for $newtype {
             fn bitxor_assign(&mut self, rhs: &$newtype) {
                 self.0 ^= &rhs.0
             }
@@ -851,96 +483,6 @@ macro_rules! impl_bitmap_newtype {
         }
     };
 }
-
-/// # CpuSet-specific API
-//
-// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
-//       before the bitmap API reexport in rustdoc.
-impl CpuSet {
-    /// Remove simultaneous multithreading PUs from a CPU set
-    ///
-    /// For each core in `topology`, if this cpuset contains several PUs of that
-    /// core, modify it to only keep a single PU for that core.
-    ///
-    /// `which` specifies which PU will be kept, in physical index order. If it
-    /// is set to 0, for each core, the function keeps the first PU that was
-    /// originally set in `cpuset`. If it is larger than the number of PUs in a
-    /// core there were originally set in `cpuset`, no PU is kept for that core.
-    ///
-    /// PUs that are not below a Core object (for instance if the topology does
-    /// not contain any Core object) are kept in the cpuset.
-    #[doc(alias = "hwloc_bitmap_singlify_per_core")]
-    pub fn singlify_per_core(&mut self, topology: &Topology, which: u32) {
-        let result = unsafe {
-            ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
-        };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_bitmap_singlify_per_core"
-        )
-    }
-
-    /// Convert a NUMA node set into a CPU set
-    ///
-    /// For each NUMA node included in the input `nodeset`, set the
-    /// corresponding local PUs in the output cpuset.
-    ///
-    /// If some CPUs have no local NUMA nodes, this function never sets their
-    /// indexes in the output CPU set, even if a full node set is given in input.
-    ///
-    /// Hence the entire topology node set, that one can query via
-    /// [`Topology::nodeset()`], would be converted by this function into the
-    /// set of all CPUs that have some local NUMA nodes.
-    ///
-    /// Requires [`DiscoverySupport::numa_count()`].
-    pub fn from_nodeset(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
-        let mut cpuset = CpuSet::new();
-        for obj in topology.objects_at_depth(Depth::NUMANode) {
-            if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
-                cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");
-            }
-        }
-        cpuset
-    }
-}
-
-impl_bitmap_newtype!(
-    /// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical OS indexes.
-    CpuSet
-);
-
-/// # NodeSet-specific API
-//
-// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
-//       before the bitmap API reexport in rustdoc.
-impl NodeSet {
-    /// Convert a CPU set into a NUMA node set
-    ///
-    /// For each PU included in the input `cpuset`, set the corresponding local
-    /// NUMA node(s) in the output nodeset.
-    ///
-    /// If some NUMA nodes have no CPUs at all, this function never sets their
-    /// indices in the output node set, even if a full CPU set is given in input.
-    ///
-    /// Hence the entire topology CPU set, that one can query via
-    /// [`Topology::cpuset()`], would be converted by this functino into the
-    /// set of all nodes that have some local CPUs.
-    ///
-    /// Requires [`DiscoverySupport::numa_count()`].
-    pub fn from_cpuset(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
-        let mut nodeset = NodeSet::new();
-        for obj in topology.objects_covering_cpuset_at_depth(cpuset, Depth::NUMANode) {
-            nodeset.set(obj.os_index().expect("NUMA nodes should have OS indices"));
-        }
-        nodeset
-    }
-}
-
-impl_bitmap_newtype!(
-    /// A `NodeSet` is a [`Bitmap`] whose bits are set according to NUMA memory node
-    /// physical OS indexes.
-    NodeSet
-);
 
 /// Opaque bitmap struct
 ///
@@ -967,6 +509,9 @@ pub(crate) struct RawBitmap(IncompleteType);
 /// just a simple data structures, without any kind of complicated interactions
 /// with the operating system, for which the only failure mode should be running
 /// out of memory. And panicking is the normal way to handle this in Rust.
+///
+/// [`CpuSet`]: crate::cpu::sets::CpuSet
+/// [`NodeSet`]: crate::memory::nodesets::NodeSet
 #[repr(transparent)]
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]

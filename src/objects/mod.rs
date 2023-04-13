@@ -11,11 +11,13 @@ use self::{
     types::{ObjectType, RawObjectType},
 };
 use crate::{
-    bitmaps::{CpuSet, NodeSet, RawBitmap},
+    bitmaps::RawBitmap,
+    cpu::sets::CpuSet,
     depth::{Depth, RawDepth},
     errors::NulError,
     ffi::{self, LibcString},
     info::TextualInfo,
+    memory::nodesets::NodeSet,
 };
 #[cfg(doc)]
 use crate::{builder::BuildFlags, support::DiscoverySupport, Topology};
@@ -38,6 +40,8 @@ use std::{
 /// - [CPU set](#cpu-set)
 /// - [NUMA node set](#numa-node-set)
 /// - [Key-value information](#key-value-information)
+#[doc(alias = "hwloc_obj")]
+#[doc(alias = "hwloc_obj_t")]
 #[repr(C)]
 pub struct TopologyObject {
     // See the matching method names for more details on field semantics

@@ -5,8 +5,8 @@
 #[cfg(doc)]
 use crate::{bitmaps::Bitmap, support::CpuBindingSupport};
 use crate::{
-    bitmaps::{CpuSet, RawBitmap},
-    cpu,
+    bitmaps::RawBitmap,
+    cpu::sets::CpuSet,
     errors::{self, FlagsError, RawHwlocError},
     ffi, ProcessId, RawTopology, ThreadId, Topology,
 };
@@ -369,7 +369,7 @@ impl Topology {
         if !flags.is_valid(target, CpuBindingOperation::SetBinding) {
             return Err(CpuBindingError::BadFlags(flags.into()));
         }
-        cpu::binding::call_hwloc(api, target, Some(set), || {
+        call_hwloc(api, target, Some(set), || {
             ffi(self.as_ptr(), set.as_ptr(), flags.bits() as i32)
         })
     }
@@ -415,7 +415,7 @@ impl Topology {
             return Err(CpuBindingError::BadFlags(flags.into()));
         }
         let mut cpuset = CpuSet::new();
-        cpu::binding::call_hwloc(api, target, None, || {
+        call_hwloc(api, target, None, || {
             ffi(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits() as i32)
         })
         .map(|()| cpuset)

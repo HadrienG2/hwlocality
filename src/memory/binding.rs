@@ -2,13 +2,15 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
 
-#[cfg(doc)]
-use crate::{bitmaps::CpuSet, support::MemoryBindingSupport};
 use crate::{
-    bitmaps::{Bitmap, BitmapKind, NodeSet, RawBitmap, SpecializedBitmap},
+    bitmaps::{Bitmap, BitmapKind, RawBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},
-    ffi, memory, ProcessId, RawTopology, Topology,
+    ffi,
+    memory::{self, nodesets::NodeSet},
+    ProcessId, RawTopology, Topology,
 };
+#[cfg(doc)]
+use crate::{cpu::sets::CpuSet, support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};

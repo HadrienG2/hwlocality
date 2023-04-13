@@ -4,11 +4,10 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
 
-#[cfg(doc)]
-use crate::editor::TopologyEditor;
 use crate::{
     depth::Depth,
-    errors::{self, NulError, RawHwlocError},
+    editor::TopologyEditor,
+    errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::{types::ObjectType, TopologyObject},
     RawTopology, Topology,
@@ -17,12 +16,13 @@ use bitflags::bitflags;
 use derive_more::Display;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
-    ffi::{c_int, c_uint, c_ulong, CStr},
+    ffi::{c_int, c_uint, c_ulong, c_void, CStr},
     fmt::{self, Debug},
     iter::FusedIterator,
     ops::{Index, IndexMut},
     ptr::{self, NonNull},
 };
+use thiserror::Error;
 
 /// # Retrieve distances between objects
 //
@@ -156,6 +156,252 @@ impl Topology {
             .into_iter()
             .map(|raw| unsafe { Distances::wrap(self, raw) })
             .collect()
+    }
+}
+
+/// # Add distances between objects
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+impl TopologyEditor<'_> {
+    /// Create a new object distances matrix
+    ///
+    /// `kind` specifies the kind of distance. Kind
+    /// [`DistancesKind::HETEROGENEOUS_TYPES`] will be automatically set
+    /// according to objects having different types, so you do not need to set
+    /// it and should not do so.
+    ///
+    /// `flags` can be used to request the grouping of existing objects based on
+    /// distance.
+    ///
+    /// The `collect_objects_and_distances` callback should query the geometry
+    /// to collect references to the objects of interest, and produce the
+    /// corresponding distance matrix. If there are N output objects, then there
+    /// should be N.pow(2) output distances.
+    ///
+    /// Distances must be provided in sender-major order: the distance from
+    /// object 0 to object 1, then object 0 to object 2, ... all the way to
+    /// object N, and then from object 1 to object 0, and so on.
+    ///
+    /// # Errors
+    ///
+    /// - [`NameContainsNul`](AddDistancesError::NameContainsNul) if the
+    ///   provided `name` contains NUL chars
+    /// - [`BadKind`](AddDistancesError::BadKind) if the provided `kind`
+    ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES).
+    /// - [`BadObjectsCount`](AddDistancesError::BadObjectsCount) if less
+    ///   than 2 or more than `u32::MAX` objects are returned by the callback
+    ///   (hwloc does not support such configurations).
+    /// - [`BadDistancesCount`](AddDistancesError::BadDistancesCount) if
+    ///   the number of distances returned by the callback is not compatible
+    ///   with the number of objects (it should be the square of it).
+    #[doc(alias = "hwloc_distances_add_create")]
+    #[doc(alias = "hwloc_distances_add_values")]
+    #[doc(alias = "hwloc_distances_add_commit")]
+    pub fn add_distances(
+        &mut self,
+        name: Option<&str>,
+        kind: DistancesKind,
+        flags: AddDistancesFlags,
+        collect_objects_and_distances: impl FnOnce(
+            &Topology,
+        ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
+    ) -> Result<(), HybridError<AddDistancesError>> {
+        // Prepare arguments for C consumption and validate them
+        let name = match name.map(LibcString::new).transpose() {
+            Ok(name) => name,
+            Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
+        };
+        let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
+        //
+        if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
+            return Err(AddDistancesError::BadKind.into());
+        }
+        let kind = kind.bits();
+        //
+        let create_add_flags = 0;
+        let commit_flags = flags.bits();
+        //
+        let (objects, distances) = collect_objects_and_distances(self.topology());
+        if objects.len() < 2 {
+            return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
+        }
+        let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
+            return Err(AddDistancesError::BadObjectsCount(objects.len()).into())
+        };
+        let expected_distances_len = objects.len().pow(2);
+        if distances.len() != expected_distances_len {
+            return Err(AddDistancesError::BadDistancesCount {
+                expected_distances_len,
+                actual_distances_len: distances.len(),
+            }
+            .into());
+        }
+        let objs = objects.as_ptr() as *const *const TopologyObject;
+        let values = distances.as_ptr() as *const u64;
+
+        // Create new empty distances structure
+        let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
+            ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
+        })
+        .map_err(HybridError::Hwloc)?;
+
+        // Add objects to the distance structure
+        errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
+            ffi::hwloc_distances_add_values(
+                self.topology_mut_ptr(),
+                handle.as_ptr(),
+                nbobjs,
+                objs,
+                values,
+                create_add_flags,
+            )
+        })
+        .map_err(HybridError::Hwloc)?;
+
+        // Finalize the distance structure and insert it into the topology
+        errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
+            ffi::hwloc_distances_add_commit(self.topology_mut_ptr(), handle.as_ptr(), commit_flags)
+        })
+        .map_err(HybridError::Hwloc)?;
+        Ok(())
+    }
+}
+
+bitflags! {
+    /// Flags to be given to [`TopologyEditor::add_distances()`]
+    #[repr(C)]
+    pub struct AddDistancesFlags: c_ulong {
+        /// Try to group objects based on the newly provided distance information
+        ///
+        /// This is ignored for distances between objects of different types.
+        #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
+        const GROUP = (1<<0);
+
+        /// Like Group, but consider the distance values as inaccurate and relax
+        /// the comparisons during the grouping algorithms. The actual accuracy
+        /// may be modified through the HWLOC_GROUPING_ACCURACY environment
+        /// variable (see
+        /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+        #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
+        const GROUP_INACCURATE = (1<<0) | (1<<1);
+    }
+}
+
+impl Default for AddDistancesFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+/// Failed to add a new distance matrix to the topology
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum AddDistancesError {
+    /// Provided `name` contains NUL chars
+    #[error("provided name contains NUL chars")]
+    NameContainsNul,
+
+    /// Provided `kind` contains [`DistancesKind::HETEROGENEOUS_TYPES`]
+    ///
+    /// You should not set this kind yourself, it will be automatically set by
+    /// hwloc through scanning of the provided object list.
+    #[error("provided kind contains HETEROGENEOUS_TYPES")]
+    BadKind,
+
+    /// Provided callback returned too many or too few objects
+    ///
+    /// hwloc only supports distances matrices with 2 to `u32::MAX` objects.
+    #[error("callback emitted <2 or >u32::MAX objects: {0}")]
+    BadObjectsCount(usize),
+
+    /// Provided callback returned incompatible objects and distances arrays
+    ///
+    /// If we denote N the length of the objects array, the distances array
+    /// should contain N.pow(2) elements.
+    #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
+    BadDistancesCount {
+        expected_distances_len: usize,
+        actual_distances_len: usize,
+    },
+}
+//
+impl From<NulError> for AddDistancesError {
+    fn from(_: NulError) -> Self {
+        Self::NameContainsNul
+    }
+}
+
+/// Handle to a new distances structure during its addition to the topology
+pub(crate) type DistancesAddHandle = *mut c_void;
+
+/// # Remove distances between objects
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+impl TopologyEditor<'_> {
+    /// Remove a single distances matrix from the topology
+    ///
+    /// The distances matrix to be removed can be selected using the
+    /// `find_distances` callback.
+    #[doc(alias = "hwloc_distances_release_remove")]
+    pub fn remove_distances(
+        &mut self,
+        find_distances: impl FnOnce(&Topology) -> Distances,
+    ) -> Result<(), RawHwlocError> {
+        let distances = find_distances(self.topology()).into_inner();
+        errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
+            ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
+        })
+        .map(|_| ())
+    }
+
+    /// Remove all distance matrices from a topology
+    ///
+    /// If these distances were used to group objects, these additional Group
+    /// objects are not removed from the topology.
+    #[doc(alias = "hwloc_distances_remove")]
+    pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
+            ffi::hwloc_distances_remove(self.topology_mut_ptr())
+        })
+        .map(|_| ())
+    }
+
+    /// Remove distance matrices for objects at a specific depth in the topology
+    ///
+    /// See also [`TopologyEditor::remove_all_distances()`].
+    #[doc(alias = "hwloc_distances_remove_by_depth")]
+    pub fn remove_distances_at_depth(
+        &mut self,
+        depth: impl Into<Depth>,
+    ) -> Result<(), RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
+            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
+        })
+        .map(|_| ())
+    }
+
+    /// Remove distance matrices for objects of a specific type in the topology
+    ///
+    /// See also [`TopologyEditor::remove_all_distances()`].
+    #[doc(alias = "hwloc_distances_remove_by_type")]
+    pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawHwlocError> {
+        let topology = self.topology();
+        if let Ok(depth) = topology.depth_for_type(ty) {
+            self.remove_distances_at_depth(depth)?;
+        } else {
+            let depths = (0..topology.depth())
+                .map(Depth::from)
+                .filter_map(|depth| {
+                    let depth_ty = topology
+                        .type_at_depth(depth)
+                        .expect("A type should be present at this depth");
+                    (depth_ty == ty).then_some(depth)
+                })
+                .collect::<Vec<_>>();
+            for depth in depths {
+                self.remove_distances_at_depth(depth)?;
+            }
+        }
+        Ok(())
     }
 }
 

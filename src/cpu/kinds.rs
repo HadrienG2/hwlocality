@@ -5,7 +5,8 @@
 #[cfg(doc)]
 use crate::support::DiscoverySupport;
 use crate::{
-    bitmaps::CpuSet,
+    cpu::sets::CpuSet,
+    editor::TopologyEditor,
     errors::{self, RawHwlocError},
     ffi,
     info::TextualInfo,
@@ -182,6 +183,56 @@ impl Topology {
             Err(raw_error) => unreachable!("{raw_error}"),
         };
         Ok(self.cpu_kind(kind_index))
+    }
+}
+
+/// # Kinds of CPU cores
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+impl<'topology> TopologyEditor<'topology> {
+    /// Register a kind of CPU in the topology.
+    ///
+    /// Mark the PUs listed in `cpuset` as being of the same kind with respect
+    /// to the given attributes.
+    ///
+    /// `forced_efficiency` should be `None` if unknown. Otherwise it is an
+    /// abstracted efficiency value to enforce the ranking of all kinds if all
+    /// of them have valid (and different) efficiencies.
+    ///
+    /// Note that the efficiency reported later by [`Topology::cpu_kinds()`] may
+    /// differ because hwloc will scale efficiency values down to between 0 and
+    /// the number of kinds minus 1.
+    ///
+    /// If `cpuset` overlaps with some existing kinds, those might get modified
+    /// or split. For instance if existing kind A contains PUs 0 and 1, and one
+    /// registers another kind for PU 1 and 2, there will be 3 resulting kinds:
+    /// existing kind A is restricted to only PU 0; new kind B contains only PU
+    /// 1 and combines information from A and from the newly-registered kind;
+    /// new kind C contains only PU 2 and only gets information from the
+    /// newly-registered kind.
+    //
+    // NOTE: Not exposing info setting at the moment because I don't know how to
+    //       make it safe with respect to string allocation/liberation.
+    #[doc(alias = "hwloc_cpukinds_register")]
+    pub fn register_cpu_kind(
+        &mut self,
+        cpuset: &CpuSet,
+        forced_efficiency: Option<CpuEfficiency>,
+    ) -> Result<(), RawHwlocError> {
+        errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
+            let forced_efficiency = forced_efficiency
+                .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
+                .unwrap_or(-1);
+            ffi::hwloc_cpukinds_register(
+                self.topology_mut_ptr(),
+                cpuset.as_ptr(),
+                forced_efficiency,
+                0,
+                ptr::null(),
+                0,
+            )
+        })
+        .map(|_| ())
     }
 }
 

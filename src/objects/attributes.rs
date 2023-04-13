@@ -29,6 +29,7 @@ pub(crate) union RawObjectAttributes {
 
 /// ObjectType-specific attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[doc(alias = "hwloc_obj_attr_u")]
 pub enum ObjectAttributes<'attr> {
     /// NUMANode-specific attributes
     NUMANode(&'attr NUMANodeAttributes),

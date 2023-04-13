@@ -4,15 +4,17 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 
+#[cfg(doc)]
+use crate::support::DiscoverySupport;
 use crate::{
-    bitmaps::{CpuSet, RawBitmap},
+    bitmaps::RawBitmap,
+    cpu::sets::CpuSet,
+    editor::TopologyEditor,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::TopologyObject,
     RawTopology, Topology,
 };
-#[cfg(doc)]
-use crate::{editor::TopologyEditor, support::DiscoverySupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::Errno;
@@ -139,6 +141,163 @@ impl Topology {
             .collect())
     }
 }
+
+/// # Managing memory attributes
+//
+// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+impl<'topology> TopologyEditor<'topology> {
+    /// Register a new memory attribute
+    ///
+    /// # Panics
+    ///
+    /// - `name` contains NUL chars
+    #[doc(alias = "hwloc_memattr_register")]
+    pub fn register_memory_attribute<'name>(
+        &mut self,
+        name: &'name str,
+        flags: MemoryAttributeFlags,
+    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, HybridError<MemoryAttributeRegisterError>>
+    {
+        if !flags.is_valid() {
+            return Err(MemoryAttributeRegisterError::BadFlags(flags).into());
+        }
+        let name = match LibcString::new(name) {
+            Ok(name) => name,
+            Err(NulError) => return Err(MemoryAttributeRegisterError::NameContainsNul.into()),
+        };
+        let mut id = MemoryAttributeID::default();
+        errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
+            ffi::hwloc_memattr_register(
+                self.topology_mut_ptr(),
+                name.borrow(),
+                flags.bits(),
+                &mut id,
+            )
+        })
+        .map_err(HybridError::Hwloc)?;
+        Ok(MemoryAttributeBuilder {
+            editor: self,
+            flags,
+            id,
+        })
+    }
+}
+
+/// Error returned when trying to create an memory attribute
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum MemoryAttributeRegisterError {
+    /// Specified flags are not correct
+    ///
+    /// You must specify exactly one of [`MemoryAttributeFlags::HIGHER_IS_BEST`]
+    /// and [`MemoryAttributeFlags::LOWER_IS_BEST`].
+    #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
+    BadFlags(MemoryAttributeFlags),
+
+    /// Provided `name` contains NUL chars
+    #[error("provided name contains NUL chars")]
+    NameContainsNul,
+
+    /// A memory attribute with this name already exists
+    #[error("a memory attribute with this name already exists")]
+    AlreadyExists,
+}
+
+/// Mechanism to configure a memory attribute
+pub struct MemoryAttributeBuilder<'editor, 'topology> {
+    editor: &'editor mut TopologyEditor<'topology>,
+    flags: MemoryAttributeFlags,
+    id: MemoryAttributeID,
+}
+//
+impl MemoryAttributeBuilder<'_, '_> {
+    /// Set attribute values for (initiator, target node) pairs
+    ///
+    /// Initiators should be provided if and only if this memory attribute has
+    /// an initiator (flag [`MemoryAttributeFlags::NEED_INITIATOR`] was set at
+    /// registration time. In that case, there should be as many initiators as
+    /// there are targets and attribute values.
+    ///
+    /// # Errors
+    ///
+    /// - [`InitiatorsError`] if initiators are specified for attributes that
+    ///   don't have them, are not specified for attributes that have them, or
+    ///   if there are more or less initiators than (target, value) pairs.
+    #[doc(alias = "hwloc_memattr_set_value")]
+    pub fn set_values(
+        &mut self,
+        find_values: impl FnOnce(
+            &Topology,
+        ) -> (
+            Option<Vec<MemoryAttributeLocation>>,
+            Vec<(&TopologyObject, u64)>,
+        ),
+    ) -> Result<(), HybridError<InitiatorsError>> {
+        // Run user callback, validate results for correctness
+        let (initiators, targets_and_values) = find_values(self.editor.topology());
+        if !(self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) ^ initiators.is_some()) {
+            return Err(InitiatorsError.into());
+        }
+        let size_ok = match (&initiators, &targets_and_values) {
+            (Some(initiators), targets_and_values)
+                if initiators.len() == targets_and_values.len() =>
+            {
+                true
+            }
+            (None, _) => true,
+            _ => false,
+        };
+        if !size_ok {
+            return Err(InitiatorsError.into());
+        }
+
+        // Post-process results to fit hwloc and borrow checker expectations
+        let initiators = initiators.map(|vec| {
+            vec.into_iter()
+                .map(MemoryAttributeLocation::into_raw)
+                .collect::<Vec<_>>()
+        });
+        let initiator_ptrs = initiators
+            .iter()
+            .flatten()
+            .map(|initiator_ref| initiator_ref as *const RawLocation)
+            .chain(std::iter::repeat_with(ptr::null));
+        let target_ptrs_and_values = targets_and_values
+            .into_iter()
+            .map(|(target_ref, value)| (target_ref as *const TopologyObject, value))
+            .collect::<Vec<_>>();
+
+        // Set memory attribute values
+        for (initiator_ptr, (target_ptr, value)) in
+            initiator_ptrs.zip(target_ptrs_and_values.into_iter())
+        {
+            errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
+                ffi::hwloc_memattr_set_value(
+                    self.editor.topology_mut_ptr(),
+                    self.id,
+                    target_ptr,
+                    initiator_ptr,
+                    0,
+                    value,
+                )
+            })
+            .map_err(HybridError::Hwloc)?;
+        }
+        Ok(())
+    }
+}
+
+/// Error returned by [`MemoryAttributeBuilder::set_values`] when the
+/// `find_values` callback returns an incorrect set of initiators.
+///
+/// Either an initiator had to be specified and was not specified, or the
+/// requested attribute has no notion of initiator (e.g. Capacity) but an
+/// initiator was specified nonetheless.
+///
+/// This error is also emitted if the array of initiators is not sized like
+/// the main (target, value) array.
+#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
+#[error("find_values returned an invalid initiator set")]
+pub struct InitiatorsError;
 
 //// Memory attribute identifier
 ///
