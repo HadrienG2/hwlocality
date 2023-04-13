@@ -83,6 +83,16 @@ impl Topology {
 /// This proxy object is carefully crafted to only allow operations that are
 /// safe while modifying a topology and minimize the number of times the hwloc
 /// lazy caches will need to be refreshed.
+///
+/// The API is broken down into sections roughly following the structure of the
+/// upstream hwloc documentation:
+///
+/// - [General-purpose utilities](#general-purpose-utilities)
+/// - [Basic modifications](#basic-modifications)
+/// - [Add distances between objects](#add-distances-between-objects)
+/// - [Remove distances between objects](#remove-distances-between-objects)
+/// - [Managing memory attributes](#managing-memory-attributes)
+/// - [Kinds of CPU cores](#kinds-of-cpu-cores)
 //
 // NOTE: Not all of the TopologyEditor API is implemented in the core editor.rs
 //       module. Instead, functionality which is very strongly related to
