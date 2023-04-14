@@ -106,7 +106,7 @@ hwloc-2_8_0 = ["hwloc-2_5_0"]
 
 [dependencies]
 arrayvec = "0.7"
-bitflags = "1.0"
+bitflags = "2.1"
 derive_more = "0.99"
 errno = "0.3"
 libc = "0.2"
