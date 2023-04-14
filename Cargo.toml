@@ -93,13 +93,16 @@ hwloc-2_5_0 = ["hwloc-2_4_0"]
 # ...in addition to all features listed above
 hwloc-2_8_0 = ["hwloc-2_5_0"]
 
-# To support a new hwloc release that introduces API or ABI changes...
-# - Add a new feature matching that release version
-# - Make it enable features associated with all previous versions
-# - Change hwloc-latest to point to that feature
-# - Change build.rs to up the build requirements
-# - Make the binding honor the API/ABI changes with the right cfg()s
-# - Bump the crate's minor release number unless previous version was unreleased
+# To support a new hwloc release that introduces API or ABI changes (see the
+# NEWS file in the hwloc source tree for release notes)...
+#
+# - Add a new feature matching that release version.
+# - Make it enable features associated with all previous versions.
+# - Change hwloc-latest to point to that feature.
+# - Change build.rs to up the build requirements.
+# - Make the binding honor the API/ABI changes with the right cfg()s.
+# - Bump the crate's minor release number unless previous version was unreleased.
+# - Add a test of this feature to CI.
 
 [dependencies]
 arrayvec = "0.7"
