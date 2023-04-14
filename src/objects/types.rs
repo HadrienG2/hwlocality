@@ -200,12 +200,14 @@ pub enum ObjectType {
     ///
     /// Memory objects are not listed in the main children list, but rather in
     /// the dedicated Memory children list. They also have a special depth.
+    #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_MEMCACHE")]
     MemCache,
 
     /// Die within a physical package
     ///
     /// A subpart of the physical package, that contains multiple cores.
+    #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die,
 }
@@ -285,6 +287,7 @@ impl ObjectType {
     pub fn is_leaf(&self) -> bool {
         match self {
             Self::PU | Self::NUMANode => true,
+            #[cfg(feature = "hwloc-2_1_0")]
             Self::Machine
             | Self::Package
             | Self::Core
@@ -303,6 +306,23 @@ impl ObjectType {
             | Self::Misc
             | Self::MemCache
             | Self::Die => false,
+            #[cfg(not(feature = "hwloc-2_1_0"))]
+            Self::Machine
+            | Self::Package
+            | Self::Core
+            | Self::L1ICache
+            | Self::L2ICache
+            | Self::L3ICache
+            | Self::L1Cache
+            | Self::L2Cache
+            | Self::L3Cache
+            | Self::L4Cache
+            | Self::L5Cache
+            | Self::Group
+            | Self::Bridge
+            | Self::PCIDevice
+            | Self::OSDevice
+            | Self::Misc => false,
         }
     }
 

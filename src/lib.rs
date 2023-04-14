@@ -12,7 +12,7 @@ pub mod memory;
 pub mod objects;
 pub mod path;
 pub mod topology;
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "hwloc-2_5_0", target_os = "windows"))]
 pub mod windows;
 
 #[cfg(target_os = "windows")]

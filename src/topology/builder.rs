@@ -1,8 +1,10 @@
 //! Building a topology with a custom configuration
 
 use super::{RawTopology, Topology};
-#[cfg(doc)]
-use crate::topology::{editor::TopologyEditor, support::MiscSupport};
+#[cfg(all(doc, feature = "hwloc-2_5_0"))]
+use crate::topology::editor::TopologyEditor;
+#[cfg(all(doc, feature = "hwloc-2_3_0"))]
+use crate::topology::support::MiscSupport;
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError, UnsupportedError},
     ffi::{self, LibcString},
@@ -224,6 +226,7 @@ impl TopologyBuilder {
     /// # Errors
     ///
     /// - [`Rust(NulError)`](NulError) if `name` contains NUL chars.
+    #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_topology_set_components")]
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, HybridError<NulError>> {
         let name = LibcString::new(name)?;
@@ -442,6 +445,7 @@ bitflags! {
         /// [`DiscoverySupport::disallowed_numa()`], which can be checked after
         /// building the topology.
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED")]
+        #[doc(alias = "HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM")]
         const INCLUDE_DISALLOWED = (1<<0);
 
         /// Assume that the selected backend provides the topology for the
@@ -504,6 +508,7 @@ bitflags! {
         /// Note that setting this flag however does not enable binding for the
         /// locally imported hwloc topology, it only reports what the remote
         /// hwloc and machine support.
+        #[cfg(feature = "hwloc-2_3_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT")]
         const IMPORT_SUPPORT = (1<<3);
 
@@ -529,6 +534,7 @@ bitflags! {
         ///
         /// This flag requires `ASSUME_THIS_SYSTEM` as well since binding support
         /// is required.
+        #[cfg(feature = "hwloc-2_5_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING")]
         const RESTRICT_CPU_TO_THIS_PROCESS = (1<<4);
 
@@ -551,6 +557,7 @@ bitflags! {
         ///
         /// This flag requires `ASSUME_THIS_SYSTEM` as well since binding
         /// support is required.
+        #[cfg(feature = "hwloc-2_5_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_MEMBINDING")]
         const RESTRICT_MEMORY_TO_THIS_PROCESS = (1<<5);
 
@@ -566,6 +573,7 @@ bitflags! {
         /// This flag is also a strict way to make sure the process binding will
         /// not change to due thread binding changes on Windows (see
         /// `RESTRICT_CPU_TO_THIS_PROCESS`).
+        #[cfg(feature = "hwloc-2_5_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_DONT_CHANGE_BINDING")]
         const DONT_CHANGE_BINDING = (1<<6);
 
@@ -573,12 +581,14 @@ bitflags! {
         ///
         /// Ignore distance information from the operating systems (and from
         /// XML) and hence do not use distances for grouping.
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_DISTANCES")]
         const IGNORE_DISTANCES = (1<<7);
 
         /// Ignore memory attributes
         ///
         /// Ignore memory attribues from the operating systems (and from XML).
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS")]
         const IGNORE_MEMORY_ATTRIBUTES = (1<<8);
 
@@ -586,6 +596,7 @@ bitflags! {
         ///
         /// Ignore CPU kind information from the operating systems (and from
         /// XML).
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS")]
         const IGNORE_CPU_KINDS = (1<<9);
     }
@@ -593,13 +604,18 @@ bitflags! {
 //
 impl BuildFlags {
     /// Truth that these flags are in a valid state
+    #[allow(unused_mut, clippy::let_and_return)]
     pub(crate) fn is_valid(self) -> bool {
-        self.contains(Self::ASSUME_THIS_SYSTEM)
-            || !self.intersects(
-                Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
-                    | Self::RESTRICT_CPU_TO_THIS_PROCESS
-                    | Self::RESTRICT_MEMORY_TO_THIS_PROCESS,
-            )
+        let mut valid = self.contains(Self::ASSUME_THIS_SYSTEM)
+            || !self.contains(Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM);
+        #[cfg(feature = "hwloc-2_5_0")]
+        {
+            valid &= self.contains(Self::ASSUME_THIS_SYSTEM)
+                || !self.intersects(
+                    Self::RESTRICT_CPU_TO_THIS_PROCESS | Self::RESTRICT_MEMORY_TO_THIS_PROCESS,
+                )
+        }
+        valid
     }
 }
 //

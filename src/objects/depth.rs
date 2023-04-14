@@ -36,6 +36,7 @@ pub enum Depth {
     Misc,
 
     /// Virtual depth for [`ObjectType::MemCache`]
+    #[cfg(feature = "hwloc-2_1_0")]
     MemCache,
     // NOTE: Add new virtual depths to VIRTUAL_DEPTHS below
 }
@@ -53,6 +54,7 @@ impl Depth {
         Self::PCIDevice,
         Self::OSDevice,
         Self::Misc,
+        #[cfg(feature = "hwloc-2_1_0")]
         Self::MemCache,
     ];
 }
@@ -99,6 +101,7 @@ impl TryFrom<RawDepth> for Depth {
             -5 => Ok(Self::PCIDevice),
             -6 => Ok(Self::OSDevice),
             -7 => Ok(Self::Misc),
+            #[cfg(feature = "hwloc-2_1_0")]
             -8 => Ok(Self::MemCache),
             other => Err(DepthError::Unknown(other)),
         }
@@ -114,6 +117,7 @@ impl From<Depth> for RawDepth {
             Depth::PCIDevice => -5,
             Depth::OSDevice => -6,
             Depth::Misc => -7,
+            #[cfg(feature = "hwloc-2_1_0")]
             Depth::MemCache => -8,
         }
     }

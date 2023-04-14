@@ -1,17 +1,14 @@
+#[cfg(feature = "hwloc-2_4_0")]
+use crate::info::TextualInfo;
+#[cfg(feature = "hwloc-2_3_0")]
+use crate::memory::attributes::{MemoryAttributeID, RawLocation};
+#[cfg(feature = "hwloc-2_5_0")]
+use crate::objects::distances::{DistancesAddHandle, RawDistancesTransform};
 use crate::{
     bitmaps::RawBitmap,
     errors::NulError,
-    info::TextualInfo,
-    memory::{
-        attributes::{MemoryAttributeID, RawLocation},
-        binding::RawMemoryBindingPolicy,
-    },
-    objects::{
-        depth::RawDepth,
-        distances::{DistancesAddHandle, RawDistances, RawDistancesTransform},
-        types::RawObjectType,
-        TopologyObject,
-    },
+    memory::binding::RawMemoryBindingPolicy,
+    objects::{depth::RawDepth, distances::RawDistances, types::RawObjectType, TopologyObject},
     topology::{builder::RawTypeFilter, support::FeatureSupport, RawTopology},
     ProcessId, ThreadId,
 };
@@ -41,6 +38,7 @@ pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> &mut version)
+#[allow(unused)]
 pub(crate) unsafe fn deref_mut_ptr<T>(p: &mut *mut T) -> Option<&mut T> {
     if p.is_null() {
         return None;
@@ -398,6 +396,7 @@ macro_rules! extern_c_block {
                 buffer: *const c_char,
                 size: c_int,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_1_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_set_components(
                 topology: *mut RawTopology,
@@ -458,12 +457,14 @@ macro_rules! extern_c_block {
 
             // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_restrict(
                 topology: *mut RawTopology,
                 set: *const RawBitmap,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_allow(
                 topology: *mut RawTopology,
@@ -471,26 +472,31 @@ macro_rules! extern_c_block {
                 nodeset: *const RawBitmap,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_insert_misc_object(
                 topology: *mut RawTopology,
                 parent: *mut TopologyObject,
                 name: *const c_char,
             ) -> *mut TopologyObject;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_alloc_group_object(
                 topology: *mut RawTopology,
             ) -> *mut TopologyObject;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_insert_group_object(
                 topology: *mut RawTopology,
                 group: *mut TopologyObject,
             ) -> *mut TopologyObject;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_obj_add_other_obj_sets(
                 dst: *mut TopologyObject,
                 src: *const TopologyObject,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_topology_refresh(topology: *mut RawTopology) -> c_int;
 
@@ -511,12 +517,14 @@ macro_rules! extern_c_block {
 
             // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
 
+            #[cfg(feature = "hwloc-2_2_0")]
             #[must_use]
             pub(crate) fn hwloc_bitmap_singlify_per_core(
                 topology: *const RawTopology,
                 cpuset: *mut RawBitmap,
                 which: c_uint,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub(crate) fn hwloc_get_obj_with_same_locality(
                 topology: *const RawTopology,
@@ -581,6 +589,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub(crate) fn hwloc_bitmap_allbut(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
             // NOTE: Not exposing ulong-based APIs for now, so no from_ulong, from_ith_ulong, from_ulongs
+            //       If I decide to add them, gate from_ulongs with #[cfg(feature = "hwloc-2_1_0")]
             #[must_use]
             pub(crate) fn hwloc_bitmap_set(bitmap: *mut RawBitmap, id: c_uint) -> c_int;
             #[must_use]
@@ -600,6 +609,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             pub(crate) fn hwloc_bitmap_singlify(bitmap: *mut RawBitmap) -> c_int;
             // NOTE: Not exposing ulong-based APIs for now, so no to_ulong, to_ith_ulong, to_ulongs and nr_ulongs
+            //       If I decide to add them, gate nr_ulongs and to_ulongs with #[cfg(feature = "hwloc-2_1_0")]
 
             #[must_use]
             pub(crate) fn hwloc_bitmap_isset(bitmap: *const RawBitmap, id: c_uint) -> c_int;
@@ -738,6 +748,7 @@ macro_rules! extern_c_block {
                 kind: c_ulong,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_1_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_get_by_name(
                 topology: *const RawTopology,
@@ -746,6 +757,7 @@ macro_rules! extern_c_block {
                 distances: *mut *mut RawDistances,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_1_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_get_name(
                 topology: *const RawTopology,
@@ -755,6 +767,7 @@ macro_rules! extern_c_block {
                 topology: *const RawTopology,
                 distances: *const RawDistances,
             );
+            #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_transform(
                 topology: *const RawTopology,
@@ -766,6 +779,7 @@ macro_rules! extern_c_block {
 
             // === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
 
+            #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_add_create(
                 topology: *mut RawTopology,
@@ -773,6 +787,7 @@ macro_rules! extern_c_block {
                 kind: c_ulong,
                 flags: c_ulong,
             ) -> DistancesAddHandle;
+            #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_add_values(
                 topology: *mut RawTopology,
@@ -782,6 +797,7 @@ macro_rules! extern_c_block {
                 values: *const u64,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_add_commit(
                 topology: *mut RawTopology,
@@ -791,13 +807,16 @@ macro_rules! extern_c_block {
 
             // === Remove distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
 
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_remove(topology: *mut RawTopology) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_remove_by_depth(
                 topology: *mut RawTopology,
                 depth: c_int,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_distances_release_remove(
                 topology: *mut RawTopology,
@@ -806,12 +825,14 @@ macro_rules! extern_c_block {
 
             // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_by_name(
                 topology: *const RawTopology,
                 name: *const c_char,
                 id: *mut MemoryAttributeID,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_get_local_numanode_objs(
                 topology: *const RawTopology,
@@ -820,6 +841,7 @@ macro_rules! extern_c_block {
                 nodes: *mut *const TopologyObject,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_value(
                 topology: *const RawTopology,
@@ -829,6 +851,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
                 value: *mut u64,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_best_target(
                 topology: *const RawTopology,
@@ -838,6 +861,7 @@ macro_rules! extern_c_block {
                 best_target: *mut *const TopologyObject,
                 value: *mut u64,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_best_initiator(
                 topology: *const RawTopology,
@@ -850,18 +874,21 @@ macro_rules! extern_c_block {
 
             // === Managing memory attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_name(
                 topology: *const RawTopology,
                 attribute: MemoryAttributeID,
                 name: *mut *const c_char,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_flags(
                 topology: *const RawTopology,
                 attribute: MemoryAttributeID,
                 flags: *mut c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_register(
                 topology: *const RawTopology,
@@ -869,6 +896,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
                 id: *mut MemoryAttributeID,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_set_value(
                 topology: *const RawTopology,
@@ -878,6 +906,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
                 value: u64,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_targets(
                 topology: *const RawTopology,
@@ -888,6 +917,7 @@ macro_rules! extern_c_block {
                 targets: *mut *const TopologyObject,
                 values: *mut u64,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub(crate) fn hwloc_memattr_get_initiators(
                 topology: *const RawTopology,
@@ -901,17 +931,20 @@ macro_rules! extern_c_block {
 
             // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 
+            #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
             pub(crate) fn hwloc_cpukinds_get_nr(
                 topology: *const RawTopology,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
             pub(crate) fn hwloc_cpukinds_get_by_cpuset(
                 topology: *const RawTopology,
                 cpuset: *const RawBitmap,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
             pub(crate) fn hwloc_cpukinds_get_info(
                 topology: *const RawTopology,
@@ -922,6 +955,7 @@ macro_rules! extern_c_block {
                 infos: *mut *mut TextualInfo,
                 flags: c_ulong,
             ) -> c_int;
+            #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
             pub(crate) fn hwloc_cpukinds_register(
                 topology: *mut RawTopology,
@@ -966,13 +1000,13 @@ macro_rules! extern_c_block {
 
             // === Windows-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
 
-            #[cfg(target_os = "windows")]
+            #[cfg(all(feature = "hwloc-2_5_0", target_os = "windows"))]
             #[must_use]
             pub(crate) fn hwloc_windows_get_nr_processor_groups(
                 topology: *const RawTopology,
                 flags: c_ulong,
             ) -> c_int;
-            #[cfg(target_os = "windows")]
+            #[cfg(all(feature = "hwloc-2_5_0", target_os = "windows"))]
             #[must_use]
             pub(crate) fn hwloc_windows_get_processor_group_cpuset(
                 topology: *const RawTopology,

@@ -3,7 +3,7 @@
 #[cfg(doc)]
 use crate::{bitmaps::Bitmap, topology::support::DiscoverySupport};
 use crate::{
-    ffi, impl_bitmap_newtype,
+    impl_bitmap_newtype,
     memory::nodesets::NodeSet,
     objects::{depth::Depth, types::ObjectType, TopologyObject},
     topology::Topology,
@@ -293,10 +293,11 @@ impl CpuSet {
     ///
     /// PUs that are not below a Core object (for instance if the topology does
     /// not contain any Core object) are kept in the cpuset.
+    #[cfg(feature = "hwloc-2_2_0")]
     #[doc(alias = "hwloc_bitmap_singlify_per_core")]
     pub fn singlify_per_core(&mut self, topology: &Topology, which: u32) {
         let result = unsafe {
-            ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
+            crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
         };
         assert!(
             result >= 0,

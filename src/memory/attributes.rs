@@ -310,24 +310,34 @@ impl MemoryAttributeID {
     const CAPACITY: Self = Self(0);
     const LOCALITY: Self = Self(1);
     const BANDWIDTH: Self = Self(2);
+    #[cfg(feature = "hwloc-2_8_0")]
     const READ_BANDWIDTH: Self = Self(4);
+    #[cfg(feature = "hwloc-2_8_0")]
     const WRITE_BANDWIDTH: Self = Self(5);
     const LATENCY: Self = Self(3);
+    #[cfg(feature = "hwloc-2_8_0")]
     const READ_LATENCY: Self = Self(6);
+    #[cfg(feature = "hwloc-2_8_0")]
     const WRITE_LATENCY: Self = Self(7);
     // NOTE: Add new attributes to methods below and MemoryAttribute constructors
 
     /// For predefined attributes, flags are known at compile time
     fn static_flags(self) -> Option<MemoryAttributeFlags> {
+        let bandwidth_flags =
+            Some(MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
+        let latency_flags =
+            Some(MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
         match self {
             Self::CAPACITY => Some(MemoryAttributeFlags::HIGHER_IS_BEST),
             Self::LOCALITY => Some(MemoryAttributeFlags::LOWER_IS_BEST),
-            Self::BANDWIDTH | Self::READ_BANDWIDTH | Self::WRITE_BANDWIDTH => {
-                Some(MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR)
-            }
-            Self::LATENCY | Self::READ_LATENCY | Self::WRITE_LATENCY => {
-                Some(MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR)
-            }
+            #[cfg(feature = "hwloc-2_8_0")]
+            Self::BANDWIDTH | Self::READ_BANDWIDTH | Self::WRITE_BANDWIDTH => bandwidth_flags,
+            #[cfg(not(feature = "hwloc-2_8_0"))]
+            Self::BANDWIDTH => bandwidth_flags,
+            #[cfg(feature = "hwloc-2_8_0")]
+            Self::LATENCY | Self::READ_LATENCY | Self::WRITE_LATENCY => latency_flags,
+            #[cfg(not(feature = "hwloc-2_8_0"))]
+            Self::LATENCY => latency_flags,
             _ => None,
         }
     }
@@ -387,10 +397,12 @@ impl<'topology> MemoryAttribute<'topology> {
         BANDWIDTH -> bandwidth,
 
         /// Read bandwidth in MiB/s, as seen from the given initiator location
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_READ_BANDWIDTH")]
         READ_BANDWIDTH -> read_bandwidth,
 
         /// Write bandwidth in MiB/s, as seen from the given initiator location
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_BANDWIDTH")]
         WRITE_BANDWIDTH -> write_bandwidth,
 
@@ -403,10 +415,12 @@ impl<'topology> MemoryAttribute<'topology> {
         LATENCY -> latency,
 
         /// Read latency in nanoseconds, as seen from the given initiator location
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_READ_LATENCY")]
         READ_LATENCY -> read_latency,
 
         /// Write latency in nanoseconds, as seen from the given initiator location
+        #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_LATENCY")]
         WRITE_LATENCY -> write_latency
     );

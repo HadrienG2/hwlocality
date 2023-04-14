@@ -222,6 +222,7 @@ pub struct GroupAttributes {
     depth: c_uint,
     kind: c_uint,
     subkind: c_uint,
+    #[cfg(feature = "hwloc-2_0_4")]
     dont_merge: c_uchar,
 }
 //
@@ -241,6 +242,7 @@ impl GroupAttributes {
 
     /// Tell hwloc that this group object should always be discarded in favor of
     /// any existing `Group` with the same locality.
+    #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn favor_merging(&mut self) {
         self.kind = c_uint::MAX
     }
@@ -254,7 +256,8 @@ impl GroupAttributes {
 
     /// Flag preventing groups from being automatically merged with identical
     /// parent or children
-    pub fn do_not_merge(&self) -> bool {
+    #[cfg(feature = "hwloc-2_0_4")]
+    pub fn merging_prevented(&self) -> bool {
         assert!(
             self.dont_merge == 0 || self.dont_merge == 1,
             "Unexpected bool value"
@@ -264,16 +267,24 @@ impl GroupAttributes {
 
     /// Tell hwloc that it should not merge this group object with other
     /// hierarchically-identical objects.
+    #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn prevent_merging(&mut self) {
         self.dont_merge = 1
     }
 }
 
+#[cfg(feature = "hwloc-3_0_0")]
+/// PCI domain width
+pub type PCIDomain = u32;
+#[cfg(not(feature = "hwloc-3_0_0"))]
+/// PCI domain width
+pub type PCIDomain = u16;
+
 /// PCIDevice-specific attributes
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct PCIDeviceAttributes {
-    domain: c_uint,
+    domain: PCIDomain,
     bus: c_uchar,
     dev: c_uchar,
     func: c_uchar,
@@ -289,7 +300,7 @@ pub struct PCIDeviceAttributes {
 //
 impl PCIDeviceAttributes {
     /// PCI domain
-    pub fn domain(&self) -> u32 {
+    pub fn domain(&self) -> PCIDomain {
         self.domain
     }
 
@@ -436,13 +447,13 @@ impl<'attr> UpstreamAttributes<'attr> {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct DownstreamPCIAttributes {
-    domain: c_uint,
+    domain: PCIDomain,
     secondary_bus: c_uchar,
     subordinate_bus: c_uchar,
 }
 //
 impl DownstreamPCIAttributes {
-    pub fn domain(&self) -> u32 {
+    pub fn domain(&self) -> PCIDomain {
         self.domain
     }
 

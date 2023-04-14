@@ -9,7 +9,7 @@ pub mod distances;
 pub mod types;
 
 use self::{
-    attributes::{DownstreamAttributes, ObjectAttributes, RawObjectAttributes},
+    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain, RawObjectAttributes},
     depth::{Depth, DepthError, DepthResult, RawDepth},
     types::{CacheType, ObjectType, RawObjectType},
 };
@@ -764,6 +764,7 @@ impl Topology {
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` or `name_prefix` contains NUL chars.
+    #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_get_obj_with_same_locality")]
     pub fn object_with_same_locality(
         &self,
@@ -813,7 +814,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_pcidev_by_busid")]
     pub fn pci_device_by_bus_id(
         &self,
-        domain: u32,
+        domain: PCIDomain,
         bus_id: u8,
         bus_device: u8,
         function: u8,
@@ -833,7 +834,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_pcidev_by_busidstring")]
     pub fn pci_device_by_bus_id_string(&self, bus_id: &str) -> Option<&TopologyObject> {
         // Assume well-formatted string
-        let parse_u32 = |s| u32::from_str_radix(s, 16).expect("Bad hex u32 format");
+        let parse_domain = |s| PCIDomain::from_str_radix(s, 16).expect("Bad hex domain format");
         let parse_u8 = |s| u8::from_str_radix(s, 16).expect("Bad hex u8 format");
 
         // Extract initial hex (whose semantics are ambiguous at this stage)
@@ -843,7 +844,7 @@ impl Topology {
         // a bus id in the default 0 domain.
         let (domain, bus) = if let Some((bus, next_rest)) = rest.split_once(':') {
             rest = next_rest;
-            (parse_u32(int1), parse_u8(bus))
+            (parse_domain(int1), parse_u8(bus))
         } else {
             (0, parse_u8(int1))
         };
@@ -982,6 +983,7 @@ impl TopologyObject {
     }
 
     /// Unsafe access to object type-specific attributes
+    #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
         unsafe { ffi::deref_mut_ptr(&mut self.attr) }
     }
@@ -1282,7 +1284,7 @@ impl TopologyObject {
 
     /// Truth that this is a bridge covering the specified PCI bus
     #[doc(alias = "hwloc_bridge_covers_pcibus")]
-    pub fn is_bridge_covering_pci_bus(&self, domain: u32, bus_id: u8) -> bool {
+    pub fn is_bridge_covering_pci_bus(&self, domain: PCIDomain, bus_id: u8) -> bool {
         let Some(ObjectAttributes::Bridge(bridge)) = self.attributes() else { return false };
         let Some(DownstreamAttributes::PCI(pci)) = bridge.downstream_attributes() else { return false };
         pci.domain() == domain && pci.secondary_bus() <= bus_id && pci.subordinate_bus() >= bus_id
@@ -1386,11 +1388,14 @@ impl TopologyObject {
     /// This is the set of NUMA nodes for which there are NODE objects in the
     /// topology under or above this object, i.e. which are known to be
     /// physically contained in this object or containing it and known how (the
-    /// children path between this object and the NODE objects).
+    /// children path between this object and the NODE objects). In the end,
+    /// these nodes are those that are close to the current object.
     ///
-    /// In the end, these nodes are those that are close to the current object.
-    /// [`Topology::local_numa_nodes()`] may be used to list those NUMA nodes
-    /// more precisely.
+    #[cfg_attr(
+        feature = "hwloc-2_3_0",
+        doc = "[`Topology::local_numa_nodes()`] may be used to list those NUMA nodes"
+    )]
+    #[cfg_attr(feature = "hwloc-2_3_0", doc = "more precisely.")]
     ///
     /// If the [`BuildFlags::INCLUDE_DISALLOWED`] topology building
     /// configuration flag is set, some of these nodes may not be allowed for

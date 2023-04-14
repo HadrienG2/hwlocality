@@ -4,22 +4,29 @@
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
 // - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
 
+#[cfg(feature = "hwloc-2_5_0")]
+use crate::errors::HybridError;
+#[cfg(feature = "hwloc-2_1_0")]
+use crate::{errors::NulError, ffi::LibcString};
+#[cfg(feature = "hwloc-2_3_0")]
 use crate::{
-    errors::{self, HybridError, NulError, RawHwlocError},
-    ffi::{self, LibcString},
+    errors::{self, RawHwlocError},
+    topology::editor::TopologyEditor,
+};
+use crate::{
+    ffi,
     objects::{depth::Depth, types::ObjectType, TopologyObject},
-    topology::{editor::TopologyEditor, RawTopology, Topology},
+    topology::{RawTopology, Topology},
 };
 use bitflags::bitflags;
-use derive_more::Display;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
-    ffi::{c_int, c_uint, c_ulong, c_void, CStr},
+    ffi::{c_int, c_uint, c_ulong},
     fmt::{self, Debug},
     iter::FusedIterator,
     ops::{Index, IndexMut},
     ptr::{self, NonNull},
 };
+#[cfg(feature = "hwloc-2_5_0")]
 use thiserror::Error;
 
 /// # Retrieve distances between objects
@@ -94,6 +101,7 @@ impl Topology {
     /// # Errors
     ///
     /// - [`NulError`] if `name` contains NUL chars.
+    #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_distances_get_by_name")]
     pub fn distances_with_name(&self, name: &str) -> Result<Vec<Distances>, NulError> {
         let name = LibcString::new(name)?;
@@ -160,13 +168,11 @@ impl Topology {
 /// # Add distances between objects
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+#[cfg(feature = "hwloc-2_5_0")]
 impl TopologyEditor<'_> {
     /// Create a new object distances matrix
     ///
-    /// `kind` specifies the kind of distance. Kind
-    /// [`DistancesKind::HETEROGENEOUS_TYPES`] will be automatically set
-    /// according to objects having different types, so you do not need to set
-    /// it and should not do so.
+    /// `kind` specifies the kind of distance.
     ///
     /// `flags` can be used to request the grouping of existing objects based on
     /// distance.
@@ -265,6 +271,7 @@ impl TopologyEditor<'_> {
     }
 }
 
+#[cfg(feature = "hwloc-2_5_0")]
 bitflags! {
     /// Flags to be given to [`TopologyEditor::add_distances()`]
     #[repr(C)]
@@ -285,6 +292,7 @@ bitflags! {
     }
 }
 
+#[cfg(feature = "hwloc-2_5_0")]
 impl Default for AddDistancesFlags {
     fn default() -> Self {
         Self::empty()
@@ -292,6 +300,7 @@ impl Default for AddDistancesFlags {
 }
 
 /// Failed to add a new distance matrix to the topology
+#[cfg(feature = "hwloc-2_5_0")]
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum AddDistancesError {
     /// Provided `name` contains NUL chars
@@ -302,6 +311,7 @@ pub enum AddDistancesError {
     ///
     /// You should not set this kind yourself, it will be automatically set by
     /// hwloc through scanning of the provided object list.
+    #[cfg(feature = "hwloc-2_1_0")]
     #[error("provided kind contains HETEROGENEOUS_TYPES")]
     BadKind,
 
@@ -322,6 +332,7 @@ pub enum AddDistancesError {
     },
 }
 //
+#[cfg(feature = "hwloc-2_5_0")]
 impl From<NulError> for AddDistancesError {
     fn from(_: NulError) -> Self {
         Self::NameContainsNul
@@ -329,11 +340,13 @@ impl From<NulError> for AddDistancesError {
 }
 
 /// Handle to a new distances structure during its addition to the topology
-pub(crate) type DistancesAddHandle = *mut c_void;
+#[cfg(feature = "hwloc-2_5_0")]
+pub(crate) type DistancesAddHandle = *mut std::ffi::c_void;
 
 /// # Remove distances between objects
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+#[cfg(feature = "hwloc-2_3_0")]
 impl TopologyEditor<'_> {
     /// Remove a single distances matrix from the topology
     ///
@@ -448,11 +461,27 @@ impl RawDistances {
 /// to [`Topology::distances()`].
 ///
 /// Resizing a distance matrix is not allowed, however users may freely change
-/// their kind and contents. For instance, if there is a single NUMA node per
-/// Package, [`Topology::object_with_same_locality()`] may be used to convert
-/// between them and replace NUMA nodes in the objs array with the corresponding
-/// Packages. See also [`Distances::transform()`] for applying some
-/// transformations to the structure.
+/// their kind and contents.
+///
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "For instance, if there is a single NUMA node per Package,"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "[`Topology::object_with_same_locality()`] may be used to convert"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "between them and replace NUMA nodes in the objs array with the corresponding"
+)]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "Packages.")]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "See also [`Distances::transform()`] for applying some"
+)]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
     inner: NonNull<RawDistances>,
@@ -486,6 +515,7 @@ impl<'topology> Distances<'topology> {
     /// This will result in a resource leak unless the pointer is subsequently
     /// liberated through `hwloc_distances_release` or
     /// `hwloc_distances_release_remove`.
+    #[allow(unused)]
     pub(crate) fn into_inner(self) -> *mut RawDistances {
         let inner = self.inner.as_ptr();
         std::mem::forget(self);
@@ -496,11 +526,12 @@ impl<'topology> Distances<'topology> {
     ///
     /// For instance "NUMALatency" for hardware-provided NUMA distances (ACPI
     /// SLIT), or None if unknown.
+    #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_distances_get_name")]
-    pub fn name(&self) -> Option<&CStr> {
+    pub fn name(&self) -> Option<&std::ffi::CStr> {
         unsafe {
             let name = ffi::hwloc_distances_get_name(self.topology.as_ptr(), self.inner());
-            (!name.is_null()).then(|| CStr::from_ptr(name))
+            (!name.is_null()).then(|| std::ffi::CStr::from_ptr(name))
         }
     }
 
@@ -713,15 +744,18 @@ impl<'topology> Distances<'topology> {
     ///
     /// This modifies the local copy of the distances structures but does not
     /// modify the distances information stored inside the topology (retrieved
-    /// by another call to [`Topology::distances()`] or exported to XML). To do
-    /// so, one should add a new distances structure with same name, kind,
+    /// by another call to [`Topology::distances()`] or exported to XML).
+    ///
+    /// To do so, one should add a new distances structure with same name, kind,
     /// objects and values (see [`TopologyEditor::add_distances()`]) and then
-    /// remove this old one with [`TopologyEditor::remove_distances()`].
+    /// remove this old one using one of the `TopologyEditor` APIs for removing
+    /// distances.
     ///
     /// Objects may also be directly replaced in place using
     /// [`Distances::replace_objects()`]. One may use e.g.
     /// [`Topology::object_with_same_locality()`] to easily convert between
     /// similar objects of different types.
+    #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_distances_transform")]
     pub fn transform(&mut self, transform: DistancesTransform) -> Result<(), RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
@@ -739,10 +773,10 @@ impl<'topology> Distances<'topology> {
 //
 impl Debug for Distances<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Distances")
-            .field("name", &self.name())
-            .field("kind", &self.kind())
-            .finish_non_exhaustive()
+        let mut debug = f.debug_struct("Distances");
+        #[cfg(feature = "hwloc-2_1_0")]
+        debug.field("name", &self.name());
+        debug.field("kind", &self.kind()).finish_non_exhaustive()
     }
 }
 //
@@ -808,6 +842,7 @@ bitflags! {
         ///
         /// This may apply to the "NVLinkBandwidth" structure in presence of a
         /// NVSwitch or POWER processor NVLink port.
+        #[cfg(feature = "hwloc-2_1_0")]
         #[doc(alias = "HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES")]
         const HETEROGENEOUS_TYPES = (1<<4);
     }
@@ -818,12 +853,24 @@ bitflags! {
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 ///
+#[cfg(feature = "hwloc-2_5_0")]
 pub(crate) type RawDistancesTransform = c_uint;
 
 /// Transformations of distances structures
-#[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[cfg(feature = "hwloc-2_5_0")]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    derive_more::Display,
+    Eq,
+    Hash,
+    num_enum::IntoPrimitive,
+    num_enum::TryFromPrimitive,
+    PartialEq,
+)]
 #[doc(alias = "hwloc_distances_transform_e")]
+#[repr(u32)]
 pub enum DistancesTransform {
     /// Remove `None` objects from the distances structure.
     ///
@@ -833,9 +880,15 @@ pub enum DistancesTransform {
     /// At least 2 objects must remain, otherwise [`Distances::transform()`]
     /// will fail.
     ///
-    /// [`Distances::kind()`] will be updated with or without
-    /// [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES) according to
-    /// the remaining objects.
+    #[cfg_attr(
+        feature = "hwloc-2_1_0",
+        doc = "On hwloc v2.1.0+, [`Distances::kind()`] will be updated with or without"
+    )]
+    #[cfg_attr(
+        feature = "hwloc-2_1_0",
+        doc = "[`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES) according to"
+    )]
+    #[cfg_attr(feature = "hwloc-2_1_0", doc = "the remaining objects.")]
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL")]
     RemoveNone = 0,
 

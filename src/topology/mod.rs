@@ -1,6 +1,7 @@
 //! Hardware topology (aka the main hwloc entry point)
 
 pub mod builder;
+#[cfg(feature = "hwloc-2_3_0")]
 pub mod editor;
 pub mod export;
 pub mod support;
@@ -9,6 +10,8 @@ use self::{
     builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
     support::FeatureSupport,
 };
+#[cfg(all(feature = "hwloc-2_3_0", doc))]
+use crate::topology::support::MiscSupport;
 use crate::{
     bitmaps::{Bitmap, RawBitmap, SpecializedBitmap},
     cpu::sets::CpuSet,
@@ -16,11 +19,6 @@ use crate::{
     ffi::{self, IncompleteType},
     memory::nodesets::NodeSet,
     objects::{types::ObjectType, TopologyObject},
-};
-#[cfg(doc)]
-use crate::{
-    memory::{attributes::LocalNUMANodeFlags, binding::MemoryBindingError},
-    topology::support::{CpuBindingSupport, DiscoverySupport, MemoryBindingSupport, MiscSupport},
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -66,8 +64,14 @@ pub(crate) struct RawTopology(IncompleteType);
 /// - [Exporting Topologies to XML](#exporting-topologies-to-xml)
 /// - [Exporting Topologies to Synthetic](#exporting-topologies-to-synthetic)
 /// - [Retrieve distances between objects](#retrieve-distances-between-objects)
-/// - [Comparing memory node attributes for finding where to allocate on](#comparing-memory-node-attributes-for-finding-where-to-allocate-on)
-/// - [Kinds of CPU cores](#kinds-of-cpu-cores)
+#[cfg_attr(
+    feature = "hwloc-2_3_0",
+    doc = "- [Comparing memory node attributes for finding where to allocate on](#comparing-memory-node-attributes-for-finding-where-to-allocate-on)"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_4_0",
+    doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores)"
+)]
 #[cfg_attr(
     target_os = "linux",
     doc = "- [Linux-specific helpers](#linux-specific-helpers)"
@@ -133,9 +137,7 @@ impl Topology {
     ///
     /// ```
     /// # use hwlocality::topology::{Topology, builder::BuildFlags};
-    /// let flags = BuildFlags::IGNORE_DISTANCES
-    ///             | BuildFlags::IGNORE_MEMORY_ATTRIBUTES
-    ///             | BuildFlags::IGNORE_CPU_KINDS;
+    /// let flags = BuildFlags::INCLUDE_DISALLOWED;
     /// let topology = Topology::builder().with_flags(flags)?.build()?;
     /// assert_eq!(topology.build_flags(), flags);
     /// # Ok::<(), anyhow::Error>(())
@@ -230,9 +232,18 @@ impl Topology {
     /// will be reported as unsupported in this case (see
     /// [`BuildFlags::ASSUME_THIS_SYSTEM`]).
     ///
-    /// [`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to
-    /// report the supported features of the original remote machine instead. If
-    /// it was successfully imported, [`MiscSupport::imported()`] will be set.
+    #[cfg_attr(
+        feature = "hwloc-2_3_0",
+        doc = "[`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to"
+    )]
+    #[cfg_attr(
+        feature = "hwloc-2_3_0",
+        doc = "report the supported features of the original remote machine instead. If"
+    )]
+    #[cfg_attr(
+        feature = "hwloc-2_3_0",
+        doc = "it was successfully imported, [`MiscSupport::imported()`] will be set."
+    )]
     ///
     /// # Examples
     ///
@@ -258,11 +269,12 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::topology::{Topology, support::{FeatureSupport, MiscSupport}};
+    /// # use hwlocality::topology::{Topology, support::{FeatureSupport, DiscoverySupport}};
     /// let topology = Topology::new()?;
-    /// assert!(
-    ///     !topology.supports(FeatureSupport::misc, MiscSupport::imported)
-    /// );
+    /// assert!(topology.supports(
+    ///     FeatureSupport::discovery,
+    ///     DiscoverySupport::pu_count
+    /// ));
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn supports<Group>(

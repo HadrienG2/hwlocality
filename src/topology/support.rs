@@ -12,6 +12,7 @@ pub struct FeatureSupport {
     discovery: *const DiscoverySupport,
     cpubind: *const CpuBindingSupport,
     membind: *const MemoryBindingSupport,
+    #[cfg(feature = "hwloc-2_3_0")]
     misc: *const MiscSupport,
 }
 //
@@ -32,6 +33,7 @@ impl FeatureSupport {
     }
 
     /// Miscellaneous support information
+    #[cfg(feature = "hwloc-2_3_0")]
     pub fn misc(&self) -> Option<&MiscSupport> {
         unsafe { ffi::deref_ptr(&self.misc) }
     }
@@ -43,6 +45,7 @@ impl Default for FeatureSupport {
             discovery: ptr::null(),
             cpubind: ptr::null(),
             membind: ptr::null(),
+            #[cfg(feature = "hwloc-2_3_0")]
             misc: ptr::null(),
         }
     }
@@ -50,12 +53,14 @@ impl Default for FeatureSupport {
 //
 impl fmt::Debug for FeatureSupport {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("FeatureSupport")
+        let mut debug = f.debug_struct("FeatureSupport");
+        debug
             .field("discovery", &self.discovery())
             .field("cpubind", &self.cpu_binding())
-            .field("membind", &self.memory_binding())
-            .field("misc", &self.misc())
-            .finish()
+            .field("membind", &self.memory_binding());
+        #[cfg(feature = "hwloc-2_3_0")]
+        debug.field("misc", &self.misc());
+        debug.finish()
     }
 }
 //
@@ -64,16 +69,22 @@ impl Hash for FeatureSupport {
         self.discovery().hash(state);
         self.cpu_binding().hash(state);
         self.memory_binding().hash(state);
+        #[cfg(feature = "hwloc-2_3_0")]
         self.misc().hash(state);
     }
 }
 //
 impl PartialEq for FeatureSupport {
+    #[allow(unused_mut)]
     fn eq(&self, other: &Self) -> bool {
-        self.discovery() == other.discovery()
+        let mut eq = self.discovery() == other.discovery()
             && self.cpu_binding() == other.cpu_binding()
-            && self.memory_binding() == other.memory_binding()
-            && self.misc() == other.misc()
+            && self.memory_binding() == other.memory_binding();
+        #[cfg(feature = "hwloc-2_3_0")]
+        {
+            eq &= self.misc() == other.misc();
+        }
+        eq
     }
 }
 //
@@ -86,8 +97,11 @@ pub struct DiscoverySupport {
     pu: c_uchar,
     numa: c_uchar,
     numa_memory: c_uchar,
+    #[cfg(feature = "hwloc-2_1_0")]
     disallowed_pu: c_uchar,
+    #[cfg(feature = "hwloc-2_1_0")]
     disallowed_numa: c_uchar,
+    #[cfg(feature = "hwloc-2_4_0")]
     cpukind_efficiency: c_uchar,
 }
 
@@ -109,17 +123,20 @@ impl DiscoverySupport {
 
     /// Detecting and identifying PU objects that are not available to the
     /// current process is supported
+    #[cfg(feature = "hwloc-2_1_0")]
     pub fn disallowed_pu(&self) -> bool {
         support_flag(self.disallowed_pu)
     }
 
     /// Detecting and identifying NUMA nodes that are not available to the
     /// current process is supported
+    #[cfg(feature = "hwloc-2_1_0")]
     pub fn disallowed_numa(&self) -> bool {
         support_flag(self.disallowed_numa)
     }
 
     /// Detecting the efficiency of CPU kinds is supported
+    #[cfg(feature = "hwloc-2_4_0")]
     pub fn cpukind_efficiency(&self) -> bool {
         support_flag(self.cpukind_efficiency)
     }
@@ -310,12 +327,14 @@ impl MemoryBindingSupport {
 }
 
 /// Miscellaneous support information
+#[cfg(feature = "hwloc-2_3_0")]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MiscSupport {
     imported_support: c_uchar,
 }
 
+#[cfg(feature = "hwloc-2_3_0")]
 impl MiscSupport {
     /// Support was imported when importing another topology
     pub fn imported(&self) -> bool {

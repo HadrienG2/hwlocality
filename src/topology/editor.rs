@@ -92,7 +92,10 @@ impl Topology {
 /// - [Add distances between objects](#add-distances-between-objects)
 /// - [Remove distances between objects](#remove-distances-between-objects)
 /// - [Managing memory attributes](#managing-memory-attributes)
-/// - [Kinds of CPU cores](#kinds-of-cpu-cores)
+#[cfg_attr(
+    feature = "hwloc-2_4_0",
+    doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores)"
+)]
 //
 // NOTE: Not all of the TopologyEditor API is implemented in the core editor.rs
 //       module. Instead, functionality which is very strongly related to
@@ -373,6 +376,8 @@ bitflags! {
         //
         // NOTE: This is a virtual flag that is cleared and mapped into
         //       `REMOVE_CPULESS` or `REMOVE_MEMLESS` as appropriate.
+        #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_CPULESS")]
+        #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS")]
         const REMOVE_EMPTIED = c_ulong::MAX;
 
         /// Remove all objects that became CPU-less
@@ -398,6 +403,7 @@ bitflags! {
         ///
         /// If this flag is not set, Misc objects are removed when their parents
         /// are removed.
+        #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_MISC")]
         const ADAPT_MISC = (1<<1);
 
         /// Move I/O objects to ancestors if their parents are removed
@@ -405,6 +411,7 @@ bitflags! {
         ///
         /// If this flag is not set, I/O devices and bridges are removed when
         /// their parents are removed.
+        #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_IO")]
         const ADAPT_IO = (1<<2);
     }
 }

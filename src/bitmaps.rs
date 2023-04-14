@@ -169,6 +169,7 @@ macro_rules! impl_bitmap_newtype {
             /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
             ///
             /// See [`Bitmap::as_ptr`](crate::bitmaps::Bitmap::as_ptr).
+            #[allow(unused)]
             pub(crate) fn as_ptr(&self) -> *const $crate::bitmaps::RawBitmap {
                 self.0.as_ptr()
             }

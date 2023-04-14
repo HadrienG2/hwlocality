@@ -12,6 +12,95 @@ links = "hwloc"
 readme = "README.md"
 edition = "2021"
 
+[features]
+# Require the latest release of hwloc supported by this library
+#
+# It is not recommended to use this feature in production, since an update to
+# hwlocality can silently bump your hwloc build requirement. But this feature is
+# convenient for scenarios like CI where you want to test with all features on.
+hwloc-latest = ["hwloc-2_8_0"]
+
+# Require at least hwloc v2.0.4, which enables...
+#
+# - Checking if the merging of group objects with identical parents or children
+#   has been prevented.
+hwloc-2_0_4 = []
+
+# Require at least hwloc v2.1.0, which enables...
+#
+# - Support for ObjectType::Die, used to model CPUs with multiple dies per package.
+# - Support for ObjectType::MemCache, used to model memory-side caches.
+# - Blacklisting some components from being enabled in a topology via
+#   TopologyBuilder::blacklist_component(), for faster topology loading.
+#
+# ...in addition to all features listed above
+hwloc-2_1_0 = ["hwloc-2_0_4"]
+
+# Require at least hwloc v2.2.0, which enables...
+#
+# - Removing SMT from a given CpuSet using CpuSet::singlify_per_core.
+# - PCI devices with 32-bit domain indices. Since we currently can't tell which
+#   configuration was used in the hwloc build, we assume the default
+#   configuration, which is to disable it until v3.0 where it becomes the default.
+#
+# ...in addition to all features listed above
+hwloc-2_2_0 = ["hwloc-2_1_0"]
+
+# Require at least hwloc v2.3.0, which enables...
+#
+# - Memory attributes, allowing latency/bandwidth queries between initiators
+#   (e.g. CPU cores) and NUMA nodes.
+# - Topology::local_numa_nodes() for listing NUMA nodes that are local to some
+#   locality.
+# - Export of support information in XML, which can be read back by setting the
+#   new BuildFlags::IMPORT_SUPPORT flag.
+# - Modifying topologies using TopologyEditor. This was actually supported by
+#   previous hwloc versions, but in a manner that violates the Rust aliasing
+#   model so we could not expose it in the Rust bindings.
+#
+# ...in addition to all features listed above
+hwloc-2_3_0 = ["hwloc-2_2_0"]
+
+# Require at least hwloc v2.4.0, which enables...
+#
+# - Discriminating different CPU kinds, for hybrid CPU support.
+#
+# ...in addition to all features listed above
+hwloc-2_4_0 = ["hwloc-2_3_0"]
+
+# Require at least hwloc v2.5.0, which enables...
+#
+# - Querying Windows processor groups.
+# - Converting between objects with same locality, e.g. NUMA nodes and Packages,
+#   using Topology::object_with_same_locality.
+# - Modifying distance structures using Distances::transform()
+# - Adding distances between objects using TopologyEditor::add_distances(). This
+#   was actually possible in previous versions of hwloc, but the old API was
+#   quite different, and is not currently supported by the Rust bindings.
+# - New BuildFlags to prevent modifications of CPU and memory bindings during
+#   topology discovery, especially on Windows.
+#
+# ...in addition to all features listed above
+hwloc-2_5_0 = ["hwloc-2_4_0"]
+
+# Require at least hwloc v2.8.0, which enables...
+#
+# - BuildFlags to disable the enumeration of some topology metadata in order
+#   to speed up topology building when they are not needed.
+# - Dedicated memory attributes for read and write bandwidth and latency, rather
+#   than an overall figure of merit.
+#
+# ...in addition to all features listed above
+hwloc-2_8_0 = ["hwloc-2_5_0"]
+
+# To support a new hwloc release that introduces API or ABI changes...
+# - Add a new feature matching that release version
+# - Make it enable features associated with all previous versions
+# - Change hwloc-latest to point to that feature
+# - Change build.rs to up the build requirements
+# - Make the binding honor the API/ABI changes with the right cfg()s
+# - Bump the crate's minor release number unless previous version was unreleased
+
 [dependencies]
 arrayvec = "0.7"
 bitflags = "1.0"
