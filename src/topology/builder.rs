@@ -3,6 +3,8 @@
 use super::{RawTopology, Topology};
 #[cfg(all(doc, feature = "hwloc-2_5_0"))]
 use crate::topology::editor::TopologyEditor;
+#[cfg(doc)]
+use crate::topology::support::DiscoverySupport;
 #[cfg(all(doc, feature = "hwloc-2_3_0"))]
 use crate::topology::support::MiscSupport;
 use crate::{
@@ -577,25 +579,21 @@ bitflags! {
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_DONT_CHANGE_BINDING")]
         const DONT_CHANGE_BINDING = (1<<6);
 
-        /// Ignore distances
+        /// Ignore distance information from the operating system (and from
+        /// XML)
         ///
-        /// Ignore distance information from the operating systems (and from
-        /// XML) and hence do not use distances for grouping.
+        /// Distances will not be used for grouping [`TopologyObject`]s.
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_DISTANCES")]
         const IGNORE_DISTANCES = (1<<7);
 
-        /// Ignore memory attributes
-        ///
-        /// Ignore memory attribues from the operating systems (and from XML).
+        /// Ignore memory attribues from the operating system (and from XML)
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS")]
         const IGNORE_MEMORY_ATTRIBUTES = (1<<8);
 
-        /// Ignore CPU Kinds
-        ///
-        /// Ignore CPU kind information from the operating systems (and from
-        /// XML).
+        /// Ignore CPU kind information from the operating system (and from
+        /// XML)
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS")]
         const IGNORE_CPU_KINDS = (1<<9);

@@ -1,31 +1,40 @@
 #![doc = include_str!("../README.md")]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
+#![cfg_attr(docsrs, doc(cfg_hide(doc)))]
 
 pub mod bitmaps;
 pub mod cpu;
 pub mod errors;
 pub(crate) mod ffi;
 pub mod info;
-#[cfg(target_os = "linux")]
-pub mod linux;
+#[cfg(any(doc, target_os = "linux"))]
+mod linux;
 pub mod memory;
 pub mod objects;
 pub mod path;
 pub mod topology;
-#[cfg(all(feature = "hwloc-2_5_0", target_os = "windows"))]
-pub mod windows;
+#[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
+mod windows;
 
+/// Thread identifier (OS-specific)
 #[cfg(target_os = "windows")]
-/// Thread identifier
+#[cfg_attr(docsrs, doc(cfg(doc)))]
 pub type ThreadId = windows_sys::Win32::Foundation::HANDLE;
+
+/// Process identifier (OS-specific)
 #[cfg(target_os = "windows")]
-/// Process identifier
+#[cfg_attr(docsrs, doc(cfg(doc)))]
 pub type ProcessId = u32;
+
+/// Thread identifier (OS-specific)
 #[cfg(not(target_os = "windows"))]
-/// Thread identifier
+#[cfg_attr(docsrs, doc(cfg(doc)))]
 pub type ThreadId = libc::pthread_t;
+
+/// Process identifier (OS-specific)
 #[cfg(not(target_os = "windows"))]
-/// Process identifier
+#[cfg_attr(docsrs, doc(cfg(doc)))]
 pub type ProcessId = libc::pid_t;
 
 /// Indicate at runtime which hwloc API version was used at build time.
@@ -39,6 +48,7 @@ pub fn get_api_version() -> u32 {
 }
 
 // Disable the alias in test builds to make sure the implementation does not
-// rely on it, it's better for use statements to point to the right place.
+// rely on it. It's better for use statements to point to the right place.
 #[cfg(not(test))]
+#[cfg_attr(docsrs, doc(cfg(doc)))]
 pub use topology::Topology;

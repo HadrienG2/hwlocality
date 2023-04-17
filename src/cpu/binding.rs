@@ -33,7 +33,6 @@ use thiserror::Error;
 ///
 /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
 /// [`PROCESS`]: CpuBindingFlags::PROCESS
-/// [`singlify()`]: Bitmap::singlify()
 /// [`THREAD`]: CpuBindingFlags::THREAD
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
@@ -44,10 +43,9 @@ impl Topology {
     /// single PU. Others allow binding to larger sets such as entire Cores or
     /// Packages or even random sets of individual PUs. In such operating
     /// systems, the scheduler is free to run the task on one of these PU, then
-    /// migrate it to another PU, etc. It is often useful to call `singlify()`
+    /// migrate it to another PU, etc. It is often useful to call [`singlify()`]
     /// on the target CPU set before passing it to the binding function to avoid
-    /// these expensive migrations. See the documentation of
-    /// [`Bitmap::singlify()`] for details.
+    /// these expensive migrations.
     ///
     /// By default, when the requested binding operation is not available, hwloc
     /// will go for a similar binding operation (with side-effects, smaller
@@ -79,6 +77,7 @@ impl Topology {
     /// [`BadObject(ThisProgram)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
+    /// [`singlify()`]: Bitmap::singlify()
     /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_set_cpubind")]

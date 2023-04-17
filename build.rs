@@ -1,5 +1,4 @@
 fn main() {
-    // TODO: Keep this up to date as support for new versions is added
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
     } else if cfg!(feature = "hwloc-2_5_0") {

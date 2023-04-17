@@ -33,16 +33,22 @@ valid when nobody tells you they will always be.
 
 ## Prerequisites
 
-A system installed with hwloc >=2.0.0 and associated development packages installed.
+You will need a system with hwloc >=2.0.0 and associated development packages
+installed.
 
 By default, compatibility with all hwloc 2.x versions is aimed for, which means
 features from newer versions in the 2.x series (or, in the near future,
-compatibility with breaking changes from the 3.x series) are not provided by
-default. To tune this compatibility compromise, you can use Cargo features
-(TODO explain how once implemented).
+compatibility with breaking changes from the 3.x series) are not supported by
+default.
 
-Beware that some Linux distributions provide older hwloc versions. You may have
-to install it from [source code](https://www.open-mpi.org/projects/hwloc/).
+You can enable them, at the cost of losing compatibility with older
+hwloc 2.x releases, by enabling the cargo feature that matches the lowest hwloc
+release you need to be compatible with. See [the `[features]` section of this
+crate's Cargo.toml](https://github.com/hadrieng2/hwlocality/tree/master/Cargo.toml#L15)
+for more information.
+
+Beware that some Linux distributions provide very old hwloc versions. You may
+have to install it from [source code](https://www.open-mpi.org/projects/hwloc/).
 
 ## Usage
 

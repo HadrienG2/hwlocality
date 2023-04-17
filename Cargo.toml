@@ -122,3 +122,7 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -89,12 +89,15 @@ impl Topology {
 ///
 /// - [General-purpose utilities](#general-purpose-utilities)
 /// - [Basic modifications](#basic-modifications)
-/// - [Add distances between objects](#add-distances-between-objects)
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "- [Add distances between objects](#add-distances-between-objects) (hwloc 2.5+)"
+)]
 /// - [Remove distances between objects](#remove-distances-between-objects)
 /// - [Managing memory attributes](#managing-memory-attributes)
 #[cfg_attr(
     feature = "hwloc-2_4_0",
-    doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores)"
+    doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores) (hwloc 2.4+)"
 )]
 //
 // NOTE: Not all of the TopologyEditor API is implemented in the core editor.rs

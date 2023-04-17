@@ -3,7 +3,7 @@
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
 
 use crate::{
-    bitmaps::CpuSet,
+    cpu::sets::CpuSet,
     errors::{self, RawHwlocError},
     ffi,
     topology::Topology,

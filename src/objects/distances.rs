@@ -465,7 +465,7 @@ impl RawDistances {
 ///
 #[cfg_attr(
     feature = "hwloc-2_5_0",
-    doc = "For instance, if there is a single NUMA node per Package,"
+    doc = "For instance, on hwloc 2.5+, if there is a single NUMA node per Package,"
 )]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
@@ -882,7 +882,7 @@ pub enum DistancesTransform {
     ///
     #[cfg_attr(
         feature = "hwloc-2_1_0",
-        doc = "On hwloc v2.1.0+, [`Distances::kind()`] will be updated with or without"
+        doc = "On hwloc 2.1+, [`Distances::kind()`] will be updated with or without"
     )]
     #[cfg_attr(
         feature = "hwloc-2_1_0",

@@ -26,7 +26,9 @@ impl Topology {
     ///
     /// In the common case where `set` is a subset of the root cpuset, this
     /// operation can be more efficiently performed by using
-    /// `coarsest_cpuset_partition()`.
+    /// [`coarsest_cpuset_partition()`].
+    ///
+    /// [`coarsest_cpuset_partition()`]: Topology::coarsest_cpuset_partition()
     #[doc(alias = "hwloc_get_first_largest_obj_inside_cpuset")]
     pub fn largest_objects_inside_cpuset(
         &self,

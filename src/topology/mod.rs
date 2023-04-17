@@ -66,18 +66,18 @@ pub(crate) struct RawTopology(IncompleteType);
 /// - [Retrieve distances between objects](#retrieve-distances-between-objects)
 #[cfg_attr(
     feature = "hwloc-2_3_0",
-    doc = "- [Comparing memory node attributes for finding where to allocate on](#comparing-memory-node-attributes-for-finding-where-to-allocate-on)"
+    doc = "- [Comparing memory node attributes for finding where to allocate on](#comparing-memory-node-attributes-for-finding-where-to-allocate-on) (hwloc 2.3+)"
 )]
 #[cfg_attr(
     feature = "hwloc-2_4_0",
-    doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores)"
+    doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores) (hwloc 2.4+)"
 )]
 #[cfg_attr(
-    target_os = "linux",
+    any(doc, target_os = "linux"),
     doc = "- [Linux-specific helpers](#linux-specific-helpers)"
 )]
 #[cfg_attr(
-    target_os = "windows",
+    any(doc, target_os = "windows"),
     doc = "- [Windows-specific helpers](#windows-specific-helpers)"
 )]
 //
@@ -234,7 +234,7 @@ impl Topology {
     ///
     #[cfg_attr(
         feature = "hwloc-2_3_0",
-        doc = "[`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to"
+        doc = "On hwloc 2.3+, [`BuildFlags::IMPORT_SUPPORT`] may be used during topology building to"
     )]
     #[cfg_attr(
         feature = "hwloc-2_3_0",

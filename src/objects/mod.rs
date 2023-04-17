@@ -1393,7 +1393,7 @@ impl TopologyObject {
     ///
     #[cfg_attr(
         feature = "hwloc-2_3_0",
-        doc = "[`Topology::local_numa_nodes()`] may be used to list those NUMA nodes"
+        doc = "With hwloc 2.3+, [`Topology::local_numa_nodes()`] may be used to list those NUMA nodes"
     )]
     #[cfg_attr(feature = "hwloc-2_3_0", doc = "more precisely.")]
     ///
