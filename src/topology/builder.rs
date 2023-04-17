@@ -1,6 +1,8 @@
 //! Building a topology with a custom configuration
 
 use super::{RawTopology, Topology};
+#[cfg(all(doc, feature = "hwloc-2_8_0"))]
+use crate::objects::TopologyObject;
 #[cfg(all(doc, feature = "hwloc-2_5_0"))]
 use crate::topology::editor::TopologyEditor;
 #[cfg(doc)]

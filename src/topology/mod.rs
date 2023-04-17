@@ -77,8 +77,8 @@ pub(crate) struct RawTopology(IncompleteType);
     doc = "- [Linux-specific helpers](#linux-specific-helpers)"
 )]
 #[cfg_attr(
-    any(doc, target_os = "windows"),
-    doc = "- [Windows-specific helpers](#windows-specific-helpers)"
+    any(doc, all(target_os = "windows", feature = "hwloc-2_5_0")),
+    doc = "- [Windows-specific helpers](#windows-specific-helpers) (hwloc 2.5+)"
 )]
 //
 // NOTE: Since the Topology API is _huge_, not all of it is implemented in the
