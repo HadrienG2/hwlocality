@@ -104,13 +104,13 @@ impl LibcString {
 
         // Allocate C string and wrap it in Self
         let len = s.len() + 1;
-        let data = unsafe { libc::malloc(len) } as *mut c_char;
+        let data = unsafe { libc::malloc(len) }.cast::<c_char>();
         let data = NonNull::new(data).expect("Failed to allocate string buffer");
         let buf = NonNull::from(unsafe { std::slice::from_raw_parts_mut(data.as_ptr(), len) });
         let result = Self(buf);
 
         // Fill the string and return it
-        let bytes = unsafe { std::slice::from_raw_parts_mut(buf.as_ptr() as *mut u8, len) };
+        let bytes = unsafe { std::slice::from_raw_parts_mut(buf.as_ptr().cast::<u8>(), len) };
         let (last, elements) = bytes
             .split_last_mut()
             .expect("Cannot happen, len >= 1 by construction");
@@ -129,7 +129,7 @@ impl LibcString {
     /// Make sure the C API does not retain any pointer to the string after
     /// this LibcString is deallocated!
     pub fn borrow(&self) -> *const c_char {
-        self.0.as_ptr() as *const c_char
+        self.0.as_ptr().cast::<c_char>()
     }
 
     /// Transfer ownership of the string to a C API
@@ -137,7 +137,7 @@ impl LibcString {
     /// Unlike with regular CString, it is safe to pass this string to a C API
     /// that may later free it using `libc::free()`.
     pub fn into_raw(self) -> *mut c_char {
-        let ptr = self.0.as_ptr() as *mut c_char;
+        let ptr = self.0.as_ptr().cast::<c_char>();
         std::mem::forget(self);
         ptr
     }
@@ -145,7 +145,7 @@ impl LibcString {
 //
 impl Drop for LibcString {
     fn drop(&mut self) {
-        unsafe { libc::free(self.0.as_ptr() as *mut c_void) }
+        unsafe { libc::free(self.0.as_ptr().cast::<c_void>()) }
     }
 }
 

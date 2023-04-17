@@ -258,11 +258,11 @@ impl MemoryAttributeBuilder<'_, '_> {
         let initiator_ptrs = initiators
             .iter()
             .flatten()
-            .map(|initiator_ref| initiator_ref as *const RawLocation)
+            .map(|initiator_ref: *const RawLocation| initiator_ref)
             .chain(std::iter::repeat_with(ptr::null));
         let target_ptrs_and_values = targets_and_values
             .into_iter()
-            .map(|(target_ref, value)| (target_ref as *const TopologyObject, value))
+            .map(|(target_ref: *const TopologyObject, value)| (target_ref, value))
             .collect::<Vec<_>>();
 
         // Set memory attribute values
@@ -881,7 +881,7 @@ impl<'target> MemoryAttributeLocation<'target> {
     ) -> Result<Self, UnknownLocationType> {
         match raw.ty {
             RawLocationType::CPUSET => unsafe {
-                let ptr = NonNull::new(raw.location.cpuset as *mut _)
+                let ptr = NonNull::new(raw.location.cpuset.cast_mut())
                     .expect("Unexpected null CpuSet from hwloc");
                 let topology_ref =
                     std::mem::transmute::<&NonNull<RawBitmap>, &'target NonNull<RawBitmap>>(&ptr);
@@ -889,7 +889,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                 Ok(MemoryAttributeLocation::CpuSet(cpuset))
             },
             RawLocationType::OBJECT => unsafe {
-                let ptr = NonNull::new(raw.location.object as *mut _)
+                let ptr = NonNull::new(raw.location.object.cast_mut())
                     .expect("Unexpected null TopologyObject from hwloc");
                 Ok(MemoryAttributeLocation::Object(ptr.as_ref()))
             },

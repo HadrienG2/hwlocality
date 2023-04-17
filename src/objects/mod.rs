@@ -1323,7 +1323,7 @@ impl TopologyObject {
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
             let result = unsafe { &*current };
-            current = result.next_sibling as *mut TopologyObject;
+            current = result.next_sibling;
             result
         })
     }
@@ -1508,7 +1508,8 @@ impl TopologyObject {
             b"\n  \0".as_ptr()
         } else {
             b"  \0".as_ptr()
-        } as *const c_char;
+        }
+        .cast::<c_char>();
         let attr_chars = ffi::call_snprintf(|buf, len| unsafe {
             ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
         });

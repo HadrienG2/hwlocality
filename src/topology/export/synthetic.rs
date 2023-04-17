@@ -38,7 +38,7 @@ impl Topology {
                 errors::call_hwloc_int_normal("hwloc_topology_export_synthetic", || unsafe {
                     ffi::hwloc_topology_export_synthetic(
                         self.as_ptr(),
-                        buf.as_mut_ptr() as *mut c_char,
+                        buf.as_mut_ptr().cast::<c_char>(),
                         buf.len(),
                         flags.bits(),
                     )

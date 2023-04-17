@@ -511,6 +511,8 @@ impl Topology {
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<Set>> {
+        let target_size = std::mem::size_of_val(target);
+        let target_ptr: *const Target = target;
         self.bind_memory_impl(
             "hwloc_set_area_membind",
             set,
@@ -520,8 +522,8 @@ impl Topology {
             |topology, set, policy, flags| unsafe {
                 ffi::hwloc_set_area_membind(
                     topology,
-                    target as *const Target as *const c_void,
-                    std::mem::size_of_val(target),
+                    target_ptr.cast::<c_void>(),
+                    target_size,
                     set,
                     policy,
                     flags,
@@ -559,6 +561,8 @@ impl Topology {
         target: &Target,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
+        let target_size = std::mem::size_of_val(target);
+        let target_ptr: *const Target = target;
         self.unbind_memory_impl(
             "hwloc_set_area_membind",
             flags,
@@ -566,8 +570,8 @@ impl Topology {
             |topology, set, policy, flags| unsafe {
                 ffi::hwloc_set_area_membind(
                     topology,
-                    target as *const Target as *const c_void,
-                    std::mem::size_of_val(target),
+                    target_ptr.cast::<c_void>(),
+                    target_size,
                     set,
                     policy,
                     flags,
@@ -626,6 +630,8 @@ impl Topology {
             std::mem::size_of_val(target) > 0,
             "Zero-sized target covers no memory!"
         );
+        let target_size = std::mem::size_of_val(target);
+        let target_ptr: *const Target = target;
         self.memory_binding_impl(
             "hwloc_get_area_membind",
             flags,
@@ -634,8 +640,8 @@ impl Topology {
             |topology, set, policy, flags| unsafe {
                 ffi::hwloc_get_area_membind(
                     topology,
-                    target as *const Target as *const c_void,
-                    std::mem::size_of_val(target),
+                    target_ptr.cast::<c_void>(),
+                    target_size,
                     set,
                     policy,
                     flags,
@@ -685,6 +691,8 @@ impl Topology {
         target: &Target,
         flags: MemoryBindingFlags,
     ) -> Result<Set, MemoryBindingError<Set>> {
+        let target_size = std::mem::size_of_val(target);
+        let target_ptr: *const Target = target;
         self.memory_binding_impl(
             "hwloc_get_area_memlocation",
             flags,
@@ -694,8 +702,8 @@ impl Topology {
                 *policy = -1;
                 ffi::hwloc_get_area_memlocation(
                     topology,
-                    target as *const Target as *const c_void,
-                    std::mem::size_of_val(target),
+                    target_ptr.cast::<c_void>(),
+                    target_size,
                     set,
                     flags,
                 )
@@ -1192,7 +1200,7 @@ impl<'topology> Bytes<'topology> {
         base: NonNull<c_void>,
         len: usize,
     ) -> Self {
-        let base = base.as_ptr() as *mut MaybeUninit<u8>;
+        let base = base.as_ptr().cast::<MaybeUninit<u8>>();
         let data = std::ptr::slice_from_raw_parts_mut(base, len);
         Self {
             topology,
@@ -1247,7 +1255,7 @@ impl DerefMut for Bytes<'_> {
 
 impl Drop for Bytes<'_> {
     fn drop(&mut self) {
-        let addr = self.data.as_ptr() as *mut MaybeUninit<u8> as *mut c_void;
+        let addr = self.data.as_ptr().cast::<c_void>();
         let len = self.data.len();
         let result = unsafe { ffi::hwloc_free(self.topology.as_ptr(), addr, len) };
         assert_eq!(

@@ -355,7 +355,8 @@ impl TopologyEditor<'_> {
         // allowed to assume that nothing changed behind that shared reference.
         // So letting the client keep hold of it would be highly problematic.
         //
-        let parent = find_parent(self.topology()) as *const TopologyObject as *mut TopologyObject;
+        let parent: *const TopologyObject = find_parent(self.topology());
+        let parent = parent.cast_mut();
         let name = LibcString::new(name)?;
         let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
             ffi::hwloc_topology_insert_misc_object(self.topology_mut_ptr(), parent, name.borrow())

@@ -114,7 +114,7 @@ impl Topology {
         let kind_index = kind_index as c_uint;
         let mut cpuset = CpuSet::new();
         let mut efficiency = c_int::MAX;
-        let mut nr_infos = 0 as c_uint;
+        let mut nr_infos: c_uint = 0;
         let mut infos = ptr::null_mut();
         errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
             ffi::hwloc_cpukinds_get_info(

@@ -416,7 +416,8 @@ impl Topology {
                 let weight_to_items = |given_weight| {
                     // This is exact because f64 has 54 mantissa bits and we're
                     // dealing with 32-bit integers here
-                    (given_weight as f64 * num_items as f64 / tot_weight as f64).ceil() as u32
+                    (f64::from(given_weight) * f64::from(num_items) / f64::from(tot_weight)).ceil()
+                        as u32
                 };
                 let next_given_weight = given_weight + weight;
                 let next_given_items = weight_to_items(next_given_weight);

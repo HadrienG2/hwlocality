@@ -79,7 +79,7 @@ pub(crate) fn call_hwloc_ptr<T>(
     api: &'static str,
     call: impl FnOnce() -> *const T,
 ) -> Result<NonNull<T>, RawHwlocError> {
-    call_hwloc_ptr_mut(api, || call() as *mut T)
+    call_hwloc_ptr_mut(api, || call().cast_mut())
 }
 //
 /// Call an hwloc entry point that returns an `int` where -1 signals failure

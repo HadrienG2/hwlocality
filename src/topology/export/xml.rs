@@ -163,7 +163,8 @@ impl<'topology> XML<'topology> {
             s.to_bytes_with_nul().len(),
             usize::try_from(len).expect("Unexpected len from hwloc")
         );
-        let data = s.to_bytes_with_nul() as *const [u8] as *const [c_char] as *mut [c_char];
+        let data: *const [u8] = s.to_bytes_with_nul();
+        let data = (data as *const [c_char]).cast_mut();
         NonNull::new(data).map(|data| Self { topology, data })
     }
 
@@ -275,7 +276,7 @@ impl PartialOrd for XML<'_> {
 
 impl Drop for XML<'_> {
     fn drop(&mut self) {
-        let addr = self.data.as_ptr() as *mut c_char;
+        let addr = self.data.as_ptr().cast::<c_char>();
         unsafe { ffi::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
     }
 }

@@ -371,7 +371,11 @@ impl Topology {
             return Err(CpuBindingError::BadFlags(flags.into()));
         }
         call_hwloc(api, target, Some(set), || {
-            ffi(self.as_ptr(), set.as_ptr(), flags.bits() as i32)
+            ffi(
+                self.as_ptr(),
+                set.as_ptr(),
+                i32::try_from(flags.bits()).expect("Unexpected high order bit in flags"),
+            )
         })
     }
 
@@ -417,7 +421,11 @@ impl Topology {
         }
         let mut cpuset = CpuSet::new();
         call_hwloc(api, target, None, || {
-            ffi(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits() as i32)
+            ffi(
+                self.as_ptr(),
+                cpuset.as_mut_ptr(),
+                i32::try_from(flags.bits()).expect("Unexpected high order bit in flags"),
+            )
         })
         .map(|()| cpuset)
     }

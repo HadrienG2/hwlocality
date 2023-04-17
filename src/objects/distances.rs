@@ -240,8 +240,8 @@ impl TopologyEditor<'_> {
             }
             .into());
         }
-        let objs = objects.as_ptr() as *const *const TopologyObject;
-        let values = distances.as_ptr() as *const u64;
+        let objs = objects.as_ptr().cast::<*const TopologyObject>();
+        let values = distances.as_ptr();
 
         // Create new empty distances structure
         let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
