@@ -19,22 +19,22 @@ mod windows;
 
 /// Thread identifier (OS-specific)
 #[cfg(target_os = "windows")]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub type ThreadId = windows_sys::Win32::Foundation::HANDLE;
 
 /// Process identifier (OS-specific)
 #[cfg(target_os = "windows")]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub type ProcessId = u32;
 
 /// Thread identifier (OS-specific)
 #[cfg(not(target_os = "windows"))]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub type ThreadId = libc::pthread_t;
 
 /// Process identifier (OS-specific)
 #[cfg(not(target_os = "windows"))]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub type ProcessId = libc::pid_t;
 
 /// Indicate at runtime which hwloc API version was used at build time.
@@ -50,5 +50,5 @@ pub fn get_api_version() -> u32 {
 // Disable the alias in test builds to make sure the implementation does not
 // rely on it. It's better for use statements to point to the right place.
 #[cfg(not(test))]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub use topology::Topology;

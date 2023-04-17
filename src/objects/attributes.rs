@@ -275,12 +275,12 @@ impl GroupAttributes {
 
 /// PCI domain width (depends on hwloc version)
 #[cfg(feature = "hwloc-3_0_0")]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub type PCIDomain = u32;
 
 /// PCI domain width (depends on hwloc version)
 #[cfg(not(feature = "hwloc-3_0_0"))]
-#[cfg_attr(docsrs, doc(cfg(doc)))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub type PCIDomain = u16;
 
 /// PCIDevice-specific attributes

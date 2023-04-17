@@ -19,5 +19,5 @@ fn main() {
     pkg_config::Config::new()
         .atleast_version(required_version)
         .probe("hwloc")
-        .unwrap();
+        .expect("Could not find a suitable version of hwloc");
 }
