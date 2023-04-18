@@ -68,7 +68,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
         features:
-          - ""
+          - ''
           - hwloc-2_0_4
           - hwloc-2_1_0
           - hwloc-2_2_0
@@ -100,7 +100,9 @@ jobs:
         run: |
             curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
             cd hwloc-*
-            ./configure && make && sudo make install
+            ./configure --enable-static --enable-shared=false
+            make
+            sudo make install
 
       - name: Install hwloc binaries
         if: matrix.os == 'windows-latest'
@@ -147,7 +149,7 @@ jobs:
           - stable
           - 1.67.1  # Minimum supported Rust version
         features:
-          - ""
+          - ''
           - hwloc-2_0_4
           - hwloc-2_1_0
           - hwloc-2_2_0
@@ -171,7 +173,9 @@ jobs:
         run: |
             curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
             cd hwloc-*
-            ./configure && make && sudo make install
+            ./configure --enable-static --enable-shared=false
+            make
+            sudo make install
 
       - name: Install hwloc binaries
         if: matrix.os == 'windows-latest'
@@ -213,7 +217,7 @@ jobs:
           - nightly
           - 1.67.1  # Minimum supported Rust version (can be broken by deps)
         features:
-          - ""
+          - ''
           - hwloc-2_0_4
           - hwloc-2_1_0
           - hwloc-2_2_0
@@ -237,7 +241,9 @@ jobs:
         run: |
             curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
             cd hwloc-*
-            ./configure && make && sudo make install
+            ./configure --enable-static --enable-shared=false
+            make
+            sudo make install
 
       - name: Install hwloc binaries
         if: matrix.os == 'windows-latest'
