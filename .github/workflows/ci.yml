@@ -107,7 +107,7 @@ jobs:
         run: |
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
-            HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
+            set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
             printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
             printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
 
@@ -178,7 +178,7 @@ jobs:
         run: |
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
-            HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
+            set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
             printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
             printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
 
@@ -244,7 +244,7 @@ jobs:
         run: |
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
-            HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
+            set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
             printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
             printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
 
