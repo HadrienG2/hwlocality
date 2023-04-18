@@ -98,7 +98,7 @@ jobs:
       - name: Install hwloc from source
         if: matrix.os != 'windows-latest'
         run: |
-            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xzf
+            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
             cd hwloc-*
             ./configure && make && sudo make install
 
@@ -169,7 +169,7 @@ jobs:
       - name: Install hwloc from source
         if: matrix.os != 'windows-latest'
         run: |
-            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xzf
+            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
             cd hwloc-*
             ./configure && make && sudo make install
 
@@ -235,7 +235,7 @@ jobs:
       - name: Install hwloc from source
         if: matrix.os != 'windows-latest'
         run: |
-            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xzf
+            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
             cd hwloc-*
             ./configure && make && sudo make install
 
