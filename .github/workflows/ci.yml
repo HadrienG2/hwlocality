@@ -99,6 +99,22 @@ jobs:
           toolchain: nightly
           components: clippy
 
+      - name: Install hwloc from source
+        if: matrix.os != 'windows-latest'
+        run: |
+            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xzf
+            cd hwloc-*
+            ./configure && make && sudo make install
+
+      - name: Install hwloc binaries
+        if: matrix.os == 'windows-latest'
+        run: |
+            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
+            Expand-Archive -Force hwloc.zip .
+            HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
+            printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
+            printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
+
       - name: Type-check the program
         run: cargo check --all-targets --features "${{ matrix.features }}"
 
