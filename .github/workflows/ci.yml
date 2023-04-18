@@ -4,10 +4,6 @@
 #   minimal supported Rust version and the current stable Rust version.
 # - Two times a month, a scheduled job makes sure that the code remains
 #   compatible and lint-free on upcoming Rust toolchains (beta and nightly).
-#
-# No caching of Rust toolchains or target directories is performed on unstable
-# runs, since those runs are rare and the caches would be invalidated inbetween
-# two of them (especially for nightly toolchains).
 
 on:
   push:
