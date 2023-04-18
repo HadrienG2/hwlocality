@@ -104,9 +104,10 @@ jobs:
             make
             sudo make install
 
-      - name: Install hwloc binaries
+      - name: Install pkgconfig and hwloc binaries
         if: matrix.os == 'windows-latest'
         run: |
+            choco install pkgconfiglite
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
             set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
@@ -177,9 +178,10 @@ jobs:
             make
             sudo make install
 
-      - name: Install hwloc binaries
+      - name: Install pkgconfig and hwloc binaries
         if: matrix.os == 'windows-latest'
         run: |
+            choco install pkgconfiglite
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
             set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
@@ -245,9 +247,10 @@ jobs:
             make
             sudo make install
 
-      - name: Install hwloc binaries
+      - name: Install pkgconfig and hwloc binaries
         if: matrix.os == 'windows-latest'
         run: |
+            choco install pkgconfiglite
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
             set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
