@@ -107,7 +107,11 @@ jobs:
       - name: Install pkgconfig and hwloc binaries
         if: matrix.os == 'windows-latest'
         run: |
-            choco install pkgconfiglite
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
+            Expand-Archive -Force pkg-config.zip .
+            set PKGCONFIG_PATH=$(pwd)/pkg-config-lite-0.28-1/bin
+            printf "%s\n" "$PKGCONFIG_PATH" >> "$GITHUB_PATH"
+
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
             set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
@@ -181,7 +185,11 @@ jobs:
       - name: Install pkgconfig and hwloc binaries
         if: matrix.os == 'windows-latest'
         run: |
-            choco install pkgconfiglite
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
+            Expand-Archive -Force pkg-config.zip .
+            set PKGCONFIG_PATH=$(pwd)/pkg-config-lite-0.28-1/bin
+            printf "%s\n" "$PKGCONFIG_PATH" >> "$GITHUB_PATH"
+
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
             set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
@@ -250,7 +258,11 @@ jobs:
       - name: Install pkgconfig and hwloc binaries
         if: matrix.os == 'windows-latest'
         run: |
-            choco install pkgconfiglite
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
+            Expand-Archive -Force pkg-config.zip .
+            set PKGCONFIG_PATH=$(pwd)/pkg-config-lite-0.28-1/bin
+            printf "%s\n" "$PKGCONFIG_PATH" >> "$GITHUB_PATH"
+
             Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
             Expand-Archive -Force hwloc.zip .
             set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
