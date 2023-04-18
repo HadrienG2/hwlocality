@@ -258,11 +258,17 @@ impl MemoryAttributeBuilder<'_, '_> {
         let initiator_ptrs = initiators
             .iter()
             .flatten()
-            .map(|initiator_ref: *const RawLocation| initiator_ref)
+            .map(|initiator_ref| {
+                let initiator_ptr: *const RawLocation = initiator_ref;
+                initiator_ptr
+            })
             .chain(std::iter::repeat_with(ptr::null));
         let target_ptrs_and_values = targets_and_values
             .into_iter()
-            .map(|(target_ref, value): (*const TopologyObject, u64)| (target_ref, value))
+            .map(|(target_ref, value)| {
+                let target_ptr: *const TopologyObject = target_ref;
+                (target_ptr, value)
+            })
             .collect::<Vec<_>>();
 
         // Set memory attribute values

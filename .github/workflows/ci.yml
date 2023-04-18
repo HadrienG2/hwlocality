@@ -69,14 +69,14 @@ jobs:
           - windows-latest
         features:
           - ''
-          - hwloc-2_0_4
-          - hwloc-2_1_0
-          - hwloc-2_2_0
-          - hwloc-2_3_0
-          - hwloc-2_4_0
-          - hwloc-2_5_0
-          - hwloc-2_8_0
-          - hwloc-latest
+          - '--features=hwloc-2_0_4'
+          - '--features=hwloc-2_1_0'
+          - '--features=hwloc-2_2_0'
+          - '--features=hwloc-2_3_0'
+          - '--features=hwloc-2_4_0'
+          - '--features=hwloc-2_5_0'
+          - '--features=hwloc-2_8_0'
+          - '--features=hwloc-latest'
 
     steps:
       - name: Checkout sources
@@ -114,10 +114,10 @@ jobs:
             printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
 
       - name: Type-check the program
-        run: cargo check --all-targets --features "${{ matrix.features }}"
+        run: cargo check --all-targets "${{ matrix.features }}"
 
       - name: Check clippy lints
-        run: cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
+        run: cargo clippy --all-targets "${{ matrix.features }}" -- -D warnings
 
 
   # Run the tests and examples on all supported OSes and Rust versions (main CI)
@@ -150,14 +150,14 @@ jobs:
           - 1.67.1  # Minimum supported Rust version
         features:
           - ''
-          - hwloc-2_0_4
-          - hwloc-2_1_0
-          - hwloc-2_2_0
-          - hwloc-2_3_0
-          - hwloc-2_4_0
-          - hwloc-2_5_0
-          - hwloc-2_8_0
-          - hwloc-latest
+          - '--features=hwloc-2_0_4'
+          - '--features=hwloc-2_1_0'
+          - '--features=hwloc-2_2_0'
+          - '--features=hwloc-2_3_0'
+          - '--features=hwloc-2_4_0'
+          - '--features=hwloc-2_5_0'
+          - '--features=hwloc-2_8_0'
+          - '--features=hwloc-latest'
 
     steps:
       - name: Checkout sources
@@ -187,13 +187,13 @@ jobs:
             printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
 
       - name: Run basic tests
-        run: cargo test --all-targets --features "${{ matrix.features }}"
+        run: cargo test --all-targets "${{ matrix.features }}"
 
       - name: Install cargo-examples
         run: cargo install cargo-examples
 
       - name: Run all examples
-        run: cargo examples --features "${{ matrix.features }}"
+        run: cargo examples "${{ matrix.features }}"
 
 
   # Check compatibility with newer Rust/deps versions (scheduled CI)
@@ -218,14 +218,14 @@ jobs:
           - 1.67.1  # Minimum supported Rust version (can be broken by deps)
         features:
           - ''
-          - hwloc-2_0_4
-          - hwloc-2_1_0
-          - hwloc-2_2_0
-          - hwloc-2_3_0
-          - hwloc-2_4_0
-          - hwloc-2_5_0
-          - hwloc-2_8_0
-          - hwloc-latest
+          - '--features=hwloc-2_0_4'
+          - '--features=hwloc-2_1_0'
+          - '--features=hwloc-2_2_0'
+          - '--features=hwloc-2_3_0'
+          - '--features=hwloc-2_4_0'
+          - '--features=hwloc-2_5_0'
+          - '--features=hwloc-2_8_0'
+          - '--features=hwloc-latest'
 
     steps:
       - name: Checkout sources
@@ -255,10 +255,10 @@ jobs:
             printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
 
       - name: Run basic tests
-        run: cargo test --all-targets --features "${{ matrix.features }}"
+        run: cargo test --all-targets "${{ matrix.features }}"
 
       - name: Install cargo-examples
         run: cargo install cargo-examples
 
       - name: Run all examples
-        run: cargo examples --features "${{ matrix.features }}"
+        run: cargo examples "${{ matrix.features }}"
