@@ -10,6 +10,7 @@ documentation = "http://docs.rs/hwlocality/"
 build = "build.rs"
 links = "hwloc"
 readme = "README.md"
+rust-version = "1.67.1"
 edition = "2021"
 
 [features]
@@ -102,7 +103,8 @@ hwloc-2_8_0 = ["hwloc-2_5_0"]
 # - Change build.rs to up the build requirements.
 # - Make the binding honor the API/ABI changes with the right cfg()s.
 # - Bump the crate's minor release number unless previous version was unreleased.
-# - Add a test of this feature to CI.
+# - Add this feature to the CI's linter matrix and both test matrices.
+# - Bump the hwloc version that's installed by CI.
 
 [dependencies]
 arrayvec = "0.7"
