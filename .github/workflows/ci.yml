@@ -19,7 +19,6 @@ name: Continuous Integration
 
 env:
   RUSTFLAGS: -D warnings
-  PATH: 
 
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
