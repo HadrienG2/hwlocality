@@ -18,6 +18,7 @@ fn main() {
     };
     pkg_config::Config::new()
         .atleast_version(required_version)
+        .statik(true)
         .probe("hwloc")
         .expect("Could not find a suitable version of hwloc");
 }
