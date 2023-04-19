@@ -103,7 +103,7 @@ jobs:
         id: cache-deps-unix
         uses: actions/cache@v3
         with:
-          path: ${HOME}/hwloc
+          path: ~/hwloc
           key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Cache dependencies
@@ -235,7 +235,7 @@ jobs:
         id: cache-deps-unix
         uses: actions/cache@v3
         with:
-          path: ${HOME}/hwloc
+          path: ~/hwloc
           key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Cache dependencies
@@ -362,7 +362,7 @@ jobs:
         id: cache-deps-unix
         uses: actions/cache@v3
         with:
-          path: ${HOME}/hwloc
+          path: ~/hwloc
           key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Cache dependencies
