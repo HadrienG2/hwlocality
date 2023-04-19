@@ -14,7 +14,7 @@ on:
 name: Continuous Integration
 
 env:
-  RUSTFLAGS: '-D warnings'
+  RUSTFLAGS: '-D warnings -C rpath'
   HWLOC_VERSION: '2.8.0'
   HWLOC_VERSION_SHORT: '2.8' # Used in URL to official tarball/binaries
   WIN_PKGCONFIG_VERSION: '0.28-1'
@@ -149,7 +149,6 @@ jobs:
             HWLOC_PREFIX="$(realpath ~/hwloc)"
             echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
-            echo "RUSTFLAGS=${RUSTFLAGS} -C link-arg=-Wl,-rpath-link,${HWLOC_PREFIX}/lib ${RUSTFLAGS}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
         if: matrix.os == 'windows-latest'
@@ -265,7 +264,6 @@ jobs:
             HWLOC_PREFIX="$(realpath ~/hwloc)"
             echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
-            echo "RUSTFLAGS=${RUSTFLAGS} -C link-arg=-Wl,-rpath-link,${HWLOC_PREFIX}/lib ${RUSTFLAGS}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
         if: matrix.os == 'windows-latest'
@@ -376,7 +374,6 @@ jobs:
             HWLOC_PREFIX="$(realpath ~/hwloc)"
             echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
-            echo "RUSTFLAGS=${RUSTFLAGS} -C link-arg=-Wl,-rpath-link,${HWLOC_PREFIX}/lib ${RUSTFLAGS}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
         if: matrix.os == 'windows-latest'
