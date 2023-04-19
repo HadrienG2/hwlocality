@@ -130,11 +130,12 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            echo "Start of script"
+            echo "Will now download https://sourceforge.net/projects/pkgconfiglite/files/$WIN_PKGCONFIG_VERSION/pkg-config-lite-$WIN_PKGCONFIG_VERSION_bin-win32.zip"
 
             Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/$WIN_PKGCONFIG_VERSION/pkg-config-lite-$WIN_PKGCONFIG_VERSION_bin-win32.zip
 
             echo "After Invoke-WebRequest"
+            ls
 
             Expand-Archive -Force pkg-config.zip .
 
