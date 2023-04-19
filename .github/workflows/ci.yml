@@ -292,7 +292,7 @@ jobs:
             printf "%s\n" "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig;${env:PKG_CONFIG_PATH}" >> ${env:GITHUB_ENV}
 
       - name: Run basic tests
-        run: cargo test --all-targets ${{ matrix.features }}
+        run: cargo test ${{ matrix.features }}
 
       - name: Install cargo-examples
         run: cargo install cargo-examples
@@ -411,7 +411,7 @@ jobs:
             printf "%s\n" "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig;${env:PKG_CONFIG_PATH}" >> ${env:GITHUB_ENV}
 
       - name: Run basic tests
-        run: cargo test --all-targets ${{ matrix.features }}
+        run: cargo test ${{ matrix.features }}
 
       - name: Install cargo-examples
         run: cargo install cargo-examples
