@@ -149,12 +149,15 @@ jobs:
             PREFIX="$(realpath ~/hwloc)"
             echo "${PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+            echo "RUSTFLAGS=${RUSTFLAGS} -C linker-flag=-Wl,-rpath-link,${PREFIX}/lib ${RUSTFLAGS}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
         if: matrix.os == 'windows-latest'
         run: |
-            printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
-            printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
+            set HWLOC_PREFIX="%USERPROFILE%/pkgconfig"
+            printf "%s\n" "%USERPROFILE%/pkgconfig/bin" >> "$GITHUB_PATH"
+            printf "%s\n%s\n" "${HWLOC_PREFIX}/bin" "${HWLOC_PREFIX}/lib" >> "$GITHUB_PATH"
+            printf "%s\n" "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
 
       - name: Type-check the program
         run: cargo check --all-targets ${{ matrix.features }}
@@ -262,12 +265,15 @@ jobs:
             PREFIX="$(realpath ~/hwloc)"
             echo "${PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+            echo "RUSTFLAGS=${RUSTFLAGS} -C linker-flag=-Wl,-rpath-link,${PREFIX}/lib ${RUSTFLAGS}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
         if: matrix.os == 'windows-latest'
         run: |
-            printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
-            printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
+            set HWLOC_PREFIX="%USERPROFILE%/pkgconfig"
+            printf "%s\n" "%USERPROFILE%/pkgconfig/bin" >> "$GITHUB_PATH"
+            printf "%s\n%s\n" "${HWLOC_PREFIX}/bin" "${HWLOC_PREFIX}/lib" >> "$GITHUB_PATH"
+            printf "%s\n" "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
 
       - name: Run basic tests
         run: cargo test --all-targets ${{ matrix.features }}
@@ -370,12 +376,15 @@ jobs:
             PREFIX="$(realpath ~/hwloc)"
             echo "${PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+            echo "RUSTFLAGS=${RUSTFLAGS} -C linker-flag=-Wl,-rpath-link,${PREFIX}/lib ${RUSTFLAGS}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
         if: matrix.os == 'windows-latest'
         run: |
-            printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
-            printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
+            set HWLOC_PREFIX="%USERPROFILE%/pkgconfig"
+            printf "%s\n" "%USERPROFILE%/pkgconfig/bin" >> "$GITHUB_PATH"
+            printf "%s\n%s\n" "${HWLOC_PREFIX}/bin" "${HWLOC_PREFIX}/lib" >> "$GITHUB_PATH"
+            printf "%s\n" "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
 
       - name: Run basic tests
         run: cargo test --all-targets ${{ matrix.features }}
