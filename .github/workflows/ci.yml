@@ -14,7 +14,7 @@ on:
 name: Continuous Integration
 
 env:
-  RUSTFLAGS: '-D warnings -C rpath'
+  RUSTFLAGS: '-D warnings'
   HWLOC_VERSION: '2.8.0'
   HWLOC_VERSION_SHORT: '2.8' # Used in URL to official tarball/binaries
   WIN_PKGCONFIG_VERSION: '0.28-1'
@@ -103,7 +103,7 @@ jobs:
         id: cache-deps-unix
         uses: actions/cache@v3
         with:
-          path: ~/hwloc
+          path: ${HOME}/hwloc
           key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Cache dependencies
@@ -121,7 +121,7 @@ jobs:
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
             cd hwloc-${HWLOC_VERSION}
-            ./configure --prefix="$(realpath ~/hwloc)"
+            ./configure --prefix="${HOME}/hwloc"
             make -j$(nproc)
             make install
             cd ..
@@ -146,7 +146,7 @@ jobs:
       - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
         run: |
-            HWLOC_PREFIX="$(realpath ~/hwloc)"
+            HWLOC_PREFIX="${HOME}/hwloc"
             echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
@@ -218,7 +218,7 @@ jobs:
         id: cache-deps-unix
         uses: actions/cache@v3
         with:
-          path: ~/hwloc
+          path: ${HOME}/hwloc
           key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Cache dependencies
@@ -236,7 +236,7 @@ jobs:
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
             cd hwloc-${HWLOC_VERSION}
-            ./configure --prefix="$(realpath ~/hwloc)"
+            ./configure --prefix="${HOME}/hwloc"
             make -j$(nproc)
             make install
             cd ..
@@ -261,7 +261,7 @@ jobs:
       - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
         run: |
-            HWLOC_PREFIX="$(realpath ~/hwloc)"
+            HWLOC_PREFIX="${HOME}/hwloc"
             echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
@@ -328,7 +328,7 @@ jobs:
         id: cache-deps-unix
         uses: actions/cache@v3
         with:
-          path: ~/hwloc
+          path: ${HOME}/hwloc
           key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Cache dependencies
@@ -346,7 +346,7 @@ jobs:
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
             cd hwloc-${HWLOC_VERSION}
-            ./configure --prefix="$(realpath ~/hwloc)"
+            ./configure --prefix="${HOME}/hwloc"
             make -j$(nproc)
             make install
             cd ..
@@ -371,7 +371,7 @@ jobs:
       - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
         run: |
-            HWLOC_PREFIX="$(realpath ~/hwloc)"
+            HWLOC_PREFIX="${HOME}/hwloc"
             echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 

@@ -16,9 +16,19 @@ fn main() {
     } else {
         "2.0.0"
     };
-    pkg_config::Config::new()
+    let lib = pkg_config::Config::new()
         .atleast_version(required_version)
         .statik(true)
         .probe("hwloc")
         .expect("Could not find a suitable version of hwloc");
+    if cfg!(target_family = "unix") {
+        for link_path in lib.link_paths {
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}",
+                link_path
+                    .to_str()
+                    .expect("Link path is not an UTF-8 string")
+            );
+        }
+    }
 }
