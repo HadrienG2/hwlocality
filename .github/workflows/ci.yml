@@ -131,7 +131,10 @@ jobs:
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
             curl -L "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip" >pkg-config.zip
-            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
+
+            echo "Expanding archive with maximum verbosity"
+
+            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Debug -Verbose
 
             echo "After Expand-Archive"
 
