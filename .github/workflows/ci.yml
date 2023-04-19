@@ -130,9 +130,9 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            echo "Will now download https://sourceforge.net/projects/pkgconfiglite/files/%WIN_PKGCONFIG_VERSION%/pkg-config-lite-%WIN_PKGCONFIG_VERSION%_bin-win32.zip"
+            echo "Will now download https://sourceforge.net/projects/pkgconfiglite/files/$env:WIN_PKGCONFIG_VERSION/pkg-config-lite-$env:WIN_PKGCONFIG_VERSION_bin-win32.zip"
 
-            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/%WIN_PKGCONFIG_VERSION%/pkg-config-lite-%WIN_PKGCONFIG_VERSION%_bin-win32.zip
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/$env:WIN_PKGCONFIG_VERSION/pkg-config-lite-$env:WIN_PKGCONFIG_VERSION_bin-win32.zip
 
             echo "After Invoke-WebRequest"
             ls
@@ -141,12 +141,12 @@ jobs:
 
             echo "After Expand-Archive"
 
-            mv pkg-config-lite-%WIN_PKGCONFIG_VERSION% %USERPROFILE%/pkgconfig
+            mv pkg-config-lite-$env:WIN_PKGCONFIG_VERSION %USERPROFILE%/pkgconfig
 
             echo "After mv"
 
 
-            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v%HWLOC_VERSION_SHORT%/hwloc-win64-build-%HWLOC_VERSION%.zip
+            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v$env:HWLOC_VERSION_SHORT/hwloc-win64-build-$env:HWLOC_VERSION.zip
 
             echo "After Invoke-WebRequest"
 
@@ -158,7 +158,7 @@ jobs:
 
             echo "After set"
 
-            mv hwloc-win64-build-%HWLOC_VERSION% $HWLOC_PREFIX
+            mv hwloc-win64-build-$env:HWLOC_VERSION $HWLOC_PREFIX
 
             echo "After mv"
 
