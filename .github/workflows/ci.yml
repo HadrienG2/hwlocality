@@ -151,7 +151,7 @@ jobs:
             echo "PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
-        if: matrix.os != 'windows-latest'
+        if: matrix.os == 'windows-latest'
         run: |
             printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
             printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
@@ -264,7 +264,7 @@ jobs:
             echo "PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
-        if: matrix.os != 'windows-latest'
+        if: matrix.os == 'windows-latest'
         run: |
             printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
             printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
@@ -372,7 +372,7 @@ jobs:
             echo "PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
       - name: Bring dependencies into PATHs
-        if: matrix.os != 'windows-latest'
+        if: matrix.os == 'windows-latest'
         run: |
             printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
             printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
