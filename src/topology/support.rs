@@ -356,6 +356,7 @@ mod tests {
     use super::*;
     use crate::topology::Topology;
 
+    #[allow(unused)]
     fn cpu_binding_supported(kind: fn(&CpuBindingSupport) -> bool) -> bool {
         Topology::test_instance().supports(FeatureSupport::cpu_binding, kind)
     }
