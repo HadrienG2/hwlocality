@@ -130,11 +130,15 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            curl -L "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip" >pkg-config-archive.zip
+            $client = new-object System.Net.WebClient
+            $client.DownloadFile(
+              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+              "pkg-config.zip"
+            )
 
             echo "Expanding archive with maximum verbosity"
 
-            Expand-Archive -Path pkg-config-archive.zip -DestinationPath . -Force -Verbose
+            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Verbose
             # -Debug
 
             echo "After Expand-Archive"
@@ -144,11 +148,14 @@ jobs:
             echo "After mv"
 
 
-            Invoke-WebRequest -OutFile hwloc-archive.zip "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip"
+            $client.DownloadFile(
+              "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+              "hwloc.zip"
+            )
 
             echo "After Invoke-WebRequest"
 
-            Expand-Archive -Path hwloc-archive.zip -DestinationPath . -Force
+            Expand-Archive -Path hwloc.zip -DestinationPath . -Force
 
             echo "After Expand-Archive"
 
