@@ -130,6 +130,7 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
+            Set-PSDebug -Trace 2
             $client = new-object System.Net.WebClient
 
             $client.DownloadFile(
@@ -156,7 +157,7 @@ jobs:
               ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
               Set-Content "$HWLOC_PKGCONFIG"
 
-            echo "=== Final pkg config ==="
+            echo "=== Patched pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
 
@@ -262,6 +263,7 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
+            Set-PSDebug -Trace 2
             $client = new-object System.Net.WebClient
 
             $client.DownloadFile(
@@ -279,9 +281,18 @@ jobs:
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
             $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
+
+            echo "=== Initial pkg config ==="
+            cat "$HWLOC_PKGCONFIG"
+            echo "=========================="
+
             (Get-Content "$HWLOC_PKGCONFIG") |
               ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
               Set-Content "$HWLOC_PKGCONFIG"
+
+            echo "=== Patched pkg config ==="
+            cat "$HWLOC_PKGCONFIG"
+            echo "=========================="
 
       - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
@@ -380,6 +391,7 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
+            Set-PSDebug -Trace 2
             $client = new-object System.Net.WebClient
 
             $client.DownloadFile(
@@ -397,9 +409,18 @@ jobs:
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
             $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
+
+            echo "=== Initial pkg config ==="
+            cat "$HWLOC_PKGCONFIG"
+            echo "=========================="
+
             (Get-Content "$HWLOC_PKGCONFIG") |
               ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
               Set-Content "$HWLOC_PKGCONFIG"
+
+            echo "=== Patched pkg config ==="
+            cat "$HWLOC_PKGCONFIG"
+            echo "=========================="
 
       - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
