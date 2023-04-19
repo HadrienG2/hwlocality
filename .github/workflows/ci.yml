@@ -134,8 +134,8 @@ jobs:
 
             echo "Expanding archive with maximum verbosity"
 
-            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Debug
-            # -Verbose
+            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Verbose
+            # -Debug
 
             echo "After Expand-Archive"
 
