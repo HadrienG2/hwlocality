@@ -130,12 +130,20 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            Invoke-WebRequest -UserAgent ([Microsoft.PowerShell.Commands.PSUserAgent]::FireFox) -OutFile "pkg-config.zip" -Uri "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip" -Verbose
-            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Verbose
+            $client = new-object System.Net.WebClient
+
+            $client.DownloadFile(
+              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+              "pkg-config.zip"
+            )
+            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
-            Invoke-WebRequest -UserAgent ([Microsoft.PowerShell.Commands.PSUserAgent]::FireFox) -OutFile "hwloc.zip" -Uri "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip" -Verbose
-            Expand-Archive -Path hwloc.zip -DestinationPath . -Force -Verbose
+            $client.DownloadFile(
+                          "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+                          "hwloc.zip"
+                        )
+            Expand-Archive -Path hwloc.zip -DestinationPath . -Force
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
             $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
@@ -254,12 +262,20 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            Invoke-WebRequest -UserAgent ([Microsoft.PowerShell.Commands.PSUserAgent]::FireFox) -OutFile "pkg-config.zip" -Uri "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip" -Verbose
-            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Verbose
+            $client = new-object System.Net.WebClient
+
+            $client.DownloadFile(
+              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+              "pkg-config.zip"
+            )
+            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
-            Invoke-WebRequest -UserAgent ([Microsoft.PowerShell.Commands.PSUserAgent]::FireFox) -OutFile "hwloc.zip" -Uri "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip" -Verbose
-            Expand-Archive -Path hwloc.zip -DestinationPath . -Force -Verbose
+            $client.DownloadFile(
+                          "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+                          "hwloc.zip"
+                        )
+            Expand-Archive -Path hwloc.zip -DestinationPath . -Force
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
             $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
@@ -373,12 +389,20 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            Invoke-WebRequest -UserAgent ([Microsoft.PowerShell.Commands.PSUserAgent]::FireFox) -OutFile "pkg-config.zip" -Uri "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip" -Verbose
-            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Verbose
+            $client = new-object System.Net.WebClient
+
+            $client.DownloadFile(
+              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+              "pkg-config.zip"
+            )
+            Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
-            Invoke-WebRequest -UserAgent ([Microsoft.PowerShell.Commands.PSUserAgent]::FireFox) -OutFile "hwloc.zip" -Uri "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip" -Verbose
-            Expand-Archive -Path hwloc.zip -DestinationPath . -Force -Verbose
+            $client.DownloadFile(
+                          "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+                          "hwloc.zip"
+                        )
+            Expand-Archive -Path hwloc.zip -DestinationPath . -Force
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
             $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
