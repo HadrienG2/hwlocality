@@ -112,8 +112,8 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            %USERPROFILE%/pkgconfig
-            %USERPROFILE%/hwloc
+            ~/pkgconfig
+            ~/hwloc
           key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Install dependencies
@@ -130,7 +130,6 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            Set-PSDebug -Trace 2
             $client = new-object System.Net.WebClient
 
             $client.DownloadFile(
@@ -245,8 +244,8 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            %USERPROFILE%/pkgconfig
-            %USERPROFILE%/hwloc
+            ~/pkgconfig
+            ~/hwloc
           key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Install dependencies
@@ -263,7 +262,6 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            Set-PSDebug -Trace 2
             $client = new-object System.Net.WebClient
 
             $client.DownloadFile(
@@ -373,8 +371,8 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            %USERPROFILE%/pkgconfig
-            %USERPROFILE%/hwloc
+            ~/pkgconfig
+            ~/hwloc
           key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Install dependencies
@@ -391,7 +389,6 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
-            Set-PSDebug -Trace 2
             $client = new-object System.Net.WebClient
 
             $client.DownloadFile(
