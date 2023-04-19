@@ -120,7 +120,7 @@ jobs:
         if: matrix.os != 'windows-latest' && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
-            cd ${HWLOC_VERSION}
+            cd hwloc-${HWLOC_VERSION}
             ./configure --prefix=~/hwloc
             make -j$(nproc)
             make install
@@ -233,7 +233,7 @@ jobs:
         if: matrix.os != 'windows-latest' && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
-            cd ${HWLOC_VERSION}
+            cd hwloc-${HWLOC_VERSION}
             ./configure --prefix=~/hwloc
             make -j$(nproc)
             make install
@@ -341,7 +341,7 @@ jobs:
         if: matrix.os != 'windows-latest' && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
-            cd ${HWLOC_VERSION}
+            cd hwloc-${HWLOC_VERSION}
             ./configure --prefix=~/hwloc
             make -j$(nproc)
             make install
