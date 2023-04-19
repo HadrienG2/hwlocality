@@ -131,17 +131,16 @@ jobs:
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
             $client = new-object System.Net.WebClient
+
             $client.DownloadFile(
               "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
               "pkg-config.zip"
             )
-
-            echo "Expanding archive with maximum verbosity"
-
             Expand-Archive -Path pkg-config.zip -DestinationPath . -Force -Verbose
-            # -Debug
 
-            echo "After Expand-Archive"
+            ls
+            ls %USERPROFILE%
+            echo "Moving pkg-config-lite-${env:WIN_PKGCONFIG_VERSION} to %USERPROFILE%/pkgconfig"
 
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "%USERPROFILE%/pkgconfig"
 
