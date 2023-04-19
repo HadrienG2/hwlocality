@@ -117,7 +117,7 @@ jobs:
           key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Install dependencies
-        if: ${{ matrix.os != 'windows-latest' }} && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
+        if: matrix.os != 'windows-latest' && steps.cache-deps-unix.outputs.cache-hit != 'true'
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
             cd hwloc-${HWLOC_VERSION}
@@ -128,7 +128,7 @@ jobs:
             rm -rf ${HWLOC_VERSION}
 
       - name: Install dependencies
-        if: ${{ matrix.os == 'windows-latest' }} && ${{ steps.cache-deps-win.outputs.cache-hit != 'true' }}
+        if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
             Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/${WIN_PKGCONFIG_VERSION}/pkg-config-lite-${WIN_PKGCONFIG_VERSION}_bin-win32.zip
             Expand-Archive -Force pkg-config.zip .
@@ -230,7 +230,7 @@ jobs:
           key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Install dependencies
-        if: ${{ matrix.os != 'windows-latest' }} && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
+        if: matrix.os != 'windows-latest' && steps.cache-deps-unix.outputs.cache-hit != 'true'
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
             cd hwloc-${HWLOC_VERSION}
@@ -241,7 +241,7 @@ jobs:
             rm -rf ${HWLOC_VERSION}
 
       - name: Install dependencies
-        if: ${{ matrix.os == 'windows-latest' }} && ${{ steps.cache-deps-win.outputs.cache-hit != 'true' }}
+        if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
             Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/${WIN_PKGCONFIG_VERSION}/pkg-config-lite-${WIN_PKGCONFIG_VERSION}_bin-win32.zip
             Expand-Archive -Force pkg-config.zip .
@@ -338,7 +338,7 @@ jobs:
           key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
       - name: Install dependencies
-        if: ${{ matrix.os != 'windows-latest' }} && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
+        if: matrix.os != 'windows-latest' && steps.cache-deps-unix.outputs.cache-hit != 'true'
         run: |
             curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
             cd hwloc-${HWLOC_VERSION}
@@ -349,7 +349,7 @@ jobs:
             rm -rf ${HWLOC_VERSION}
 
       - name: Install dependencies
-        if: ${{ matrix.os == 'windows-latest' }} && ${{ steps.cache-deps-win.outputs.cache-hit != 'true' }}
+        if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
             Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/${WIN_PKGCONFIG_VERSION}/pkg-config-lite-${WIN_PKGCONFIG_VERSION}_bin-win32.zip
             Expand-Archive -Force pkg-config.zip .
