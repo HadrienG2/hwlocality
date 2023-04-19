@@ -14,7 +14,10 @@ on:
 name: Continuous Integration
 
 env:
-  RUSTFLAGS: -D warnings
+  RUSTFLAGS: '-D warnings'
+  HWLOC_VERSION: '2.8.0'
+  HWLOC_VERSION_SHORT: '2.8' # Used in URL to official tarball/binaries
+  WIN_PKGCONFIG_VERSION: '0.28-1'
 
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
@@ -95,28 +98,63 @@ jobs:
           toolchain: nightly
           components: clippy
 
-      - name: Install hwloc from source
+      - name: Cache dependencies
+        if: matrix.os != 'windows-latest'
+        id: cache-deps-unix
+        uses: actions/cache@v3
+        with:
+          path: ~/hwloc
+          key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
+
+      - name: Cache dependencies
+        if: matrix.os == 'windows-latest'
+        id: cache-deps-win
+        uses: actions/cache@v3
+        with:
+          path: |
+            %USERPROFILE%/pkgconfig
+            %USERPROFILE%/hwloc
+          key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
+
+      - name: Install dependencies
+        if: matrix.os != 'windows-latest' && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
+        run: |
+            curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
+            cd ${HWLOC_VERSION}
+            ./configure --prefix=~/hwloc
+            make -j$(nproc)
+            make install
+            cd ..
+            rm -rf ${HWLOC_VERSION}
+
+      - name: Install dependencies
+        if: matrix.os == 'windows-latest' && ${{ steps.cache-deps-win.outputs.cache-hit != 'true' }}
+        run: |
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/${WIN_PKGCONFIG_VERSION}/pkg-config-lite-${WIN_PKGCONFIG_VERSION}_bin-win32.zip
+            Expand-Archive -Force pkg-config.zip .
+            mv pkg-config-lite-${WIN_PKGCONFIG_VERSION} %USERPROFILE%/pkgconfig
+
+            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-win64-build-${HWLOC_VERSION}.zip
+            Expand-Archive -Force hwloc.zip .
+            set HWLOC_PREFIX=%USERPROFILE%/hwloc
+            mv hwloc-win64-build-${HWLOC_VERSION} ${HWLOC_PREFIX}
+            set HWLOC_PKGCONFIG=${HWLOC_PREFIX}/lib/pkgconfig/hwloc.pc
+            (Get-Content ${HWLOC_PKGCONFIG}) |
+              ForEach-Object { $_ -replace "^prefix=.*$", "prefix=${HWLOC_PREFIX}" } |
+                Set-Content ${HWLOC_PKGCONFIG}
+            
+
+      - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
         run: |
-            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
-            cd hwloc-*
-            ./configure --enable-static --enable-shared=false
-            make
-            sudo make install
+            echo "~/hwloc/bin" >> "$GITHUB_PATH"
+            echo "PKG_CONFIG_PATH=~/hwloc/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
-      - name: Install pkgconfig and hwloc binaries
-        if: matrix.os == 'windows-latest'
+      - name: Bring dependencies into PATHs
+        if: matrix.os != 'windows-latest'
         run: |
-            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
-            Expand-Archive -Force pkg-config.zip .
-            set PKGCONFIG_PATH=$(pwd)/pkg-config-lite-0.28-1/bin
-            printf "%s\n" "$PKGCONFIG_PATH" >> "$GITHUB_PATH"
-
-            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
-            Expand-Archive -Force hwloc.zip .
-            set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
-            printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
-            printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
+            printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
+            printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
 
       - name: Type-check the program
         run: cargo check --all-targets ${{ matrix.features }}
@@ -173,28 +211,63 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
-      - name: Install hwloc from source
+      - name: Cache dependencies
+        if: matrix.os != 'windows-latest'
+        id: cache-deps-unix
+        uses: actions/cache@v3
+        with:
+          path: ~/hwloc
+          key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
+
+      - name: Cache dependencies
+        if: matrix.os == 'windows-latest'
+        id: cache-deps-win
+        uses: actions/cache@v3
+        with:
+          path: |
+            %USERPROFILE%/pkgconfig
+            %USERPROFILE%/hwloc
+          key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
+
+      - name: Install dependencies
+        if: matrix.os != 'windows-latest' && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
+        run: |
+            curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
+            cd ${HWLOC_VERSION}
+            ./configure --prefix=~/hwloc
+            make -j$(nproc)
+            make install
+            cd ..
+            rm -rf ${HWLOC_VERSION}
+
+      - name: Install dependencies
+        if: matrix.os == 'windows-latest' && ${{ steps.cache-deps-win.outputs.cache-hit != 'true' }}
+        run: |
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/${WIN_PKGCONFIG_VERSION}/pkg-config-lite-${WIN_PKGCONFIG_VERSION}_bin-win32.zip
+            Expand-Archive -Force pkg-config.zip .
+            mv pkg-config-lite-${WIN_PKGCONFIG_VERSION} %USERPROFILE%/pkgconfig
+
+            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-win64-build-${HWLOC_VERSION}.zip
+            Expand-Archive -Force hwloc.zip .
+            set HWLOC_PREFIX=%USERPROFILE%/hwloc
+            mv hwloc-win64-build-${HWLOC_VERSION} ${HWLOC_PREFIX}
+            set HWLOC_PKGCONFIG=${HWLOC_PREFIX}/lib/pkgconfig/hwloc.pc
+            (Get-Content ${HWLOC_PKGCONFIG}) |
+              ForEach-Object { $_ -replace "^prefix=.*$", "prefix=${HWLOC_PREFIX}" } |
+                Set-Content ${HWLOC_PKGCONFIG}
+            
+
+      - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
         run: |
-            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
-            cd hwloc-*
-            ./configure --enable-static --enable-shared=false
-            make
-            sudo make install
+            echo "~/hwloc/bin" >> "$GITHUB_PATH"
+            echo "PKG_CONFIG_PATH=~/hwloc/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
-      - name: Install pkgconfig and hwloc binaries
-        if: matrix.os == 'windows-latest'
+      - name: Bring dependencies into PATHs
+        if: matrix.os != 'windows-latest'
         run: |
-            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
-            Expand-Archive -Force pkg-config.zip .
-            set PKGCONFIG_PATH=$(pwd)/pkg-config-lite-0.28-1/bin
-            printf "%s\n" "$PKGCONFIG_PATH" >> "$GITHUB_PATH"
-
-            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
-            Expand-Archive -Force hwloc.zip .
-            set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
-            printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
-            printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
+            printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
+            printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
 
       - name: Run basic tests
         run: cargo test --all-targets ${{ matrix.features }}
@@ -246,28 +319,63 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
-      - name: Install hwloc from source
+      - name: Cache dependencies
+        if: matrix.os != 'windows-latest'
+        id: cache-deps-unix
+        uses: actions/cache@v3
+        with:
+          path: ~/hwloc
+          key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
+
+      - name: Cache dependencies
+        if: matrix.os == 'windows-latest'
+        id: cache-deps-win
+        uses: actions/cache@v3
+        with:
+          path: |
+            %USERPROFILE%/pkgconfig
+            %USERPROFILE%/hwloc
+          key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
+
+      - name: Install dependencies
+        if: matrix.os != 'windows-latest' && ${{ steps.cache-deps-unix.outputs.cache-hit != 'true' }}
+        run: |
+            curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
+            cd ${HWLOC_VERSION}
+            ./configure --prefix=~/hwloc
+            make -j$(nproc)
+            make install
+            cd ..
+            rm -rf ${HWLOC_VERSION}
+
+      - name: Install dependencies
+        if: matrix.os == 'windows-latest' && ${{ steps.cache-deps-win.outputs.cache-hit != 'true' }}
+        run: |
+            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/${WIN_PKGCONFIG_VERSION}/pkg-config-lite-${WIN_PKGCONFIG_VERSION}_bin-win32.zip
+            Expand-Archive -Force pkg-config.zip .
+            mv pkg-config-lite-${WIN_PKGCONFIG_VERSION} %USERPROFILE%/pkgconfig
+
+            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-win64-build-${HWLOC_VERSION}.zip
+            Expand-Archive -Force hwloc.zip .
+            set HWLOC_PREFIX=%USERPROFILE%/hwloc
+            mv hwloc-win64-build-${HWLOC_VERSION} ${HWLOC_PREFIX}
+            set HWLOC_PKGCONFIG=${HWLOC_PREFIX}/lib/pkgconfig/hwloc.pc
+            (Get-Content ${HWLOC_PKGCONFIG}) |
+              ForEach-Object { $_ -replace "^prefix=.*$", "prefix=${HWLOC_PREFIX}" } |
+                Set-Content ${HWLOC_PKGCONFIG}
+            
+
+      - name: Bring dependencies into PATHs
         if: matrix.os != 'windows-latest'
         run: |
-            curl -L https://download.open-mpi.org/release/hwloc/v2.8/hwloc-2.8.0.tar.gz | tar -xz
-            cd hwloc-*
-            ./configure --enable-static --enable-shared=false
-            make
-            sudo make install
+            echo "~/hwloc/bin" >> "$GITHUB_PATH"
+            echo "PKG_CONFIG_PATH=~/hwloc/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
-      - name: Install pkgconfig and hwloc binaries
-        if: matrix.os == 'windows-latest'
+      - name: Bring dependencies into PATHs
+        if: matrix.os != 'windows-latest'
         run: |
-            Invoke-WebRequest -OutFile pkg-config.zip https://sourceforge.net/projects/pkgconfiglite/files/0.28-1/pkg-config-lite-0.28-1_bin-win32.zip
-            Expand-Archive -Force pkg-config.zip .
-            set PKGCONFIG_PATH=$(pwd)/pkg-config-lite-0.28-1/bin
-            printf "%s\n" "$PKGCONFIG_PATH" >> "$GITHUB_PATH"
-
-            Invoke-WebRequest -OutFile hwloc.zip https://download.open-mpi.org/release/hwloc/v2.8/hwloc-win64-build-2.8.0.zip
-            Expand-Archive -Force hwloc.zip .
-            set HWLOC_PREFIX=$(pwd)/hwloc-win64-build-2.8.0
-            printf "%s\n" "$HWLOC_PREFIX/bin" >> "$GITHUB_PATH"
-            printf "%s\n" "LIB=%LIB%;$HWLOC_PREFIX/lib" >> "$GITHUB_ENV"
+            printf "%s\n%s\n" "%USERPROFILE%/pkgconfig" "%USERPROFILE%/hwloc" >> "$GITHUB_PATH"
+            printf "%s\n" "PKG_CONFIG_PATH=%USERPROFILE%/hwloc/lib/pkgconfig;%PKG_CONFIG_PATH%" >> "$GITHUB_ENV"
 
       - name: Run basic tests
         run: cargo test --all-targets ${{ matrix.features }}
