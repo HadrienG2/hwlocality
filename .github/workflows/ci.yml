@@ -131,8 +131,10 @@ jobs:
         if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
         run: |
             echo "Will now download https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip"
+            curl --version
 
-            Invoke-WebRequest -OutFile pkg-config.zip "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip"
+            curl -L "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip" >pkg-config.zip
+            # Invoke-WebRequest -OutFile pkg-config.zip "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip"
 
             echo "After Invoke-WebRequest"
             ls
