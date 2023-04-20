@@ -20,10 +20,12 @@ This is the latest maintained Rust binding to
 [hwloc](http://www.open-mpi.org/projects/hwloc), a C library from Open MPI
 for detecting the hierarchical topology of modern architectures: NUMA memory
 nodes, sockets, shared data & instruction caches, cores, simultaneous multi
-threading, and more.
+threading, and more. Additionally, hwloc lets you pin threads to specific CPU
+cores and memory to specific NUMA nodes, which is a prerequisite to perform
+topology-aware program optimizations.
 
-`hwlocality` is based on and still shares some code and design with previous,
-now-unmaintained attempts to write Rust hwloc bindings at
+`hwlocality` is based on and still shares some code and design with the
+previous, now-unmaintained attempts to write Rust hwloc bindings at
 [Ichbinjoe/hwloc2-rs](https://github.com/Ichbinjoe/hwloc2-rs) and
 [daschl/hwloc-rs](https://github.com/daschl/hwloc-rs). However, it does not aim
 for API compatibility with them. Indeed, many changes have been made with
@@ -114,8 +116,9 @@ repository](https://github.com/hadrieng2/hwlocality/tree/master/examples).
 ## hwloc API coverage
 
 Most of the features from the hwloc 2.x series are now exposed by hwlocality.
-But some specialized features could not make it for various reasons. [Issues
-with the "api coverage" label](https://github.com/HadrienG2/hwlocality/issues?q=is%3Aopen+is%3Aissue+label%3A%22api+coverage%22)
+But some specialized features, mostly related to interoperability with other
+APIs, could not make it for various reasons. [Issues with the "api coverage"
+label](https://github.com/HadrienG2/hwlocality/issues?q=is%3Aopen+is%3Aissue+label%3A%22api+coverage%22)
 track unimplemented features, and are a great place to look for potential
 contributions to this library if you have time!
 
@@ -125,7 +128,7 @@ are extensively used so that you can search the documentation for hwloc API
 entities like "hwloc_bitmap_t" or "hwloc_set_cpubind" and be redirected to the
 suggested replacement in the Rust API.
 
-The rare exceptions to this rule are notions that are not needed due to
+The rare exceptions to this rule are notions that are not needed in Rust due to
 ergonomics improvements permitted by the Rust type system, such as manual
 destructors (just let Drop take care of it) or argument-clarification flags like
 `HWLOC_MEMBIND_BYNODESET` (just pass `NodeSet` or a `CpuSet` to the memory
