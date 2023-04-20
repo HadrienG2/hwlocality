@@ -1,4 +1,4 @@
-//! Hardware topology (aka the main hwloc entry point)
+//! Hardware topology (main hwloc entry point)
 
 pub mod builder;
 #[cfg(feature = "hwloc-2_3_0")]

@@ -59,7 +59,12 @@ First, add the following to your `Cargo.toml`:
 hwlocality = "1.0.0"
 ```
 
-Here is a quick example which walks the `Topology` and prints it out:
+Then, inside of your code, set up a
+[`Topology`](https://docs.rs/hwlocality/latest/hwlocality/topology/struct.Topology.html).
+This is the main entry point to the hwloc library, through which you can access
+almost every operation that hwloc allows. Here is a quick usage example which
+walks though the detected hardware topology and prints out a description of
+every hardware object known to hwloc:
 
 ```rust
 use hwlocality::Topology;
@@ -79,89 +84,39 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-You can also [look at](https://github.com/hadrieng2/hwlocality/tree/master/examples)
-more examples, if you want to run them check out the next section below.
+One possible output is:
 
-## Running Examples
-
-The library ships with examples, and to run them you need to clone the repository
-and then run them through `cargo run --example=`.
-
-```text
-$ git clone https://github.com/hadrieng2/hwlocality.git
-$ cd hwloc-rs
+```
+*** Objects at depth 0
+0: Machine
+*** Objects at depth 1
+0: Package
+*** Objects at depth 2
+0: L3 (48MB)
+*** Objects at depth 3
+0: L2 (1280KB)
+1: L2 (1280KB)
+*** Objects at depth 4
+0: L1d (48KB)
+1: L1d (48KB)
+*** Objects at depth 5
+0: Core
+1: Core
+*** Objects at depth 6
+0: PU
+1: PU
 ```
 
-To run an example (which will download the dependencies and build it) you can
-use `cargo run -example=`:
-
-```text
-$ cargo run --example=walk_tree
-   Compiling hwlocality v1.0.0 (/home/hadrien/Bureau/Programmation/hwlocality)
-    Finished dev [unoptimized + debuginfo] target(s) in 0.45s
-     Running `target/debug/examples/walk_tree`
-*** Printing overall tree
-Machine: #0
- Package: #0
-  L3 (20MB): #0
-   L2 (256KB): #0
-    L1d (32KB): #0
-     Core: #0
-      PU: #0
-      PU: #10
-   L2 (256KB): #1
-    L1d (32KB): #1
-     Core: #1
-      PU: #1
-      PU: #11
-   L2 (256KB): #2
-    L1d (32KB): #2
-     Core: #2
-      PU: #2
-      PU: #12
-   L2 (256KB): #3
-    L1d (32KB): #3
-     Core: #3
-      PU: #3
-      PU: #13
-   L2 (256KB): #4
-    L1d (32KB): #4
-     Core: #4
-      PU: #4
-      PU: #14
-   L2 (256KB): #5
-    L1d (32KB): #5
-     Core: #5
-      PU: #5
-      PU: #15
-   L2 (256KB): #6
-    L1d (32KB): #6
-     Core: #6
-      PU: #6
-      PU: #16
-   L2 (256KB): #7
-    L1d (32KB): #7
-     Core: #7
-      PU: #7
-      PU: #17
-   L2 (256KB): #8
-    L1d (32KB): #8
-     Core: #8
-      PU: #8
-      PU: #18
-   L2 (256KB): #9
-    L1d (32KB): #9
-     Core: #9
-      PU: #9
-      PU: #19
-```
+More examples are available [in the source
+repository](https://github.com/hadrieng2/hwlocality/tree/master/examples).
 
 ## hwloc API coverage
 
-Most of the features from the hwloc 2.x series are now supported. But some
-specialized features could not make it for various reasons. [Issues with the
-"api coverage" label](https://github.com/HadrienG2/hwlocality/issues?q=is%3Aopen+is%3Aissue+label%3A%22api+coverage%22) keep track of unimplemented features, and are a great place to
-look for potential contributions to this library if you have time!
+Most of the features from the hwloc 2.x series are now exposed by hwlocality.
+But some specialized features could not make it for various reasons. [Issues
+with the "api coverage" label](https://github.com/HadrienG2/hwlocality/issues?q=is%3Aopen+is%3Aissue+label%3A%22api+coverage%22)
+track unimplemented features, and are a great place to look for potential
+contributions to this library if you have time!
 
 If you are already familiar with the hwloc C API, you will also be happy to
 know that [`#[doc(alias)]` attributes](https://doc.rust-lang.org/rustdoc/advanced-features.html#add-aliases-for-an-item-in-documentation-search)
