@@ -107,6 +107,9 @@ jobs:
       - name: Check clippy lints
         run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
 
+      - name: Build docs
+        run: cargo doc ${{ matrix.features }}
+
 
   # Run the tests and examples on all supported OSes and Rust versions (main CI)
   #
