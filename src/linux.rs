@@ -11,8 +11,15 @@ use crate::{
     path::{self, PathError},
     topology::Topology,
 };
-use libc::pid_t;
 use std::path::Path;
+
+// This file is rustdoc-visible so we must provide a substitute for
+// linux-specific libc entities when people run rustdoc on Windows.
+#[cfg(target_os = "linux")]
+use libc::pid_t;
+#[cfg(all(doc, not(target_os = "linux")))]
+#[allow(non_camel_case_types)]
+struct pid_t;
 
 /// # Linux-specific helpers
 ///
