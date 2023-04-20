@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context};
+use anyhow::Context;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     objects::types::ObjectType,
@@ -18,18 +18,18 @@ use hwlocality::{
 fn main() -> anyhow::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
-    ensure!(
-        topology.supports(FeatureSupport::discovery, DiscoverySupport::pu_count),
-        "This example needs accurate reporting of PU objects"
-    );
-    let cpu_support = topology
-        .feature_support()
-        .cpu_binding()
-        .context("This example requires CPU binding support")?;
-    ensure!(
-        cpu_support.get_thread() && cpu_support.set_thread(),
-        "This example needs support for querying and setting process CPU bindings"
-    );
+    if !topology.supports(FeatureSupport::discovery, DiscoverySupport::pu_count) {
+        println!("This example needs accurate reporting of PU objects");
+        return Ok(());
+    }
+    let Some(cpu_support) = topology.feature_support().cpu_binding() else {
+        println!("This example requires CPU binding support");
+        return Ok(());
+    };
+    if !(cpu_support.get_thread() && cpu_support.set_thread()) {
+        println!("This example needs support for querying and setting thread CPU bindings");
+        return Ok(());
+    }
 
     // Grab the number of cores in a block so that the lock is removed once
     // the end of the block is reached.

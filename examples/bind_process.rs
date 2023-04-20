@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context};
+use anyhow::Context;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
@@ -10,14 +10,14 @@ use hwlocality::{
 fn main() -> anyhow::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
-    let support = topology
-        .feature_support()
-        .cpu_binding()
-        .context("This example requires CPU binding support")?;
-    ensure!(
-        support.get_process() && support.set_process(),
-        "This example needs support for querying and setting process CPU bindings"
-    );
+    let Some(support) = topology.feature_support().cpu_binding() else {
+        println!("This example requires CPU binding support");
+        return Ok(())
+    };
+    if !(support.get_process() && support.set_process()) {
+        println!("This example needs support for querying and setting process CPU bindings");
+        return Ok(());
+    }
 
     // load the current pid through libc
     let pid = get_pid();

@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context};
+use anyhow::Context;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     objects::{types::ObjectType, TopologyObject},
@@ -22,15 +22,18 @@ use hwlocality::{
 fn main() -> anyhow::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
-    let support = topology
-        .feature_support()
-        .cpu_binding()
-        .context("This example requires CPU binding support")?;
-    ensure!(
-        (support.get_current_process() | support.get_current_thread())
-            && (support.set_current_process() || support.set_current_thread()),
-        "This example needs support for querying and setting current process CPU bindings"
-    );
+    let Some(support) = topology.feature_support().cpu_binding() else {
+        println!("This example requires CPU binding support");
+        return Ok(())
+    };
+    if !((support.get_current_process() || support.get_current_thread())
+        && (support.set_current_process() || support.set_current_thread()))
+    {
+        println!(
+            "This example needs support for querying and setting current process CPU bindings"
+        );
+        return Ok(());
+    }
 
     // Grab last core and exctract its CpuSet
     let cpuset = last_core(&topology)?
