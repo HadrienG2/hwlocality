@@ -13,23 +13,23 @@ that on many common platforms,
 is a lie. "CPUs" detected by the operating system often have inequal access
 to shared resources like caches, DRAM and I/O peripherals, sometimes even
 inequal specifications (as in Arm big.LITTLE, Apple Mx and Intel Adler Lake),
-and significant performance gains can be achieved by taking this into account in
-your code.
+and significant performance gains can be achieved by taking these facts into
+account in your code.
 
 This is the latest maintained Rust binding to
 [hwloc](http://www.open-mpi.org/projects/hwloc), a C library from Open MPI
-for detecting the hierarchical topology of modern architectures. This includes
-objects such as NUMA memory nodes, sockets, shared data & instruction caches,
-cores, and simultaneous multi threading.
+for detecting the hierarchical topology of modern architectures: NUMA memory
+nodes, sockets, shared data & instruction caches, cores, simultaneous multi
+threading, and more.
 
-It is based on and still shares some code and design with previous,
+`hwlocality` is based on and still shares some code and design with previous,
 now-unmaintained attempts to write Rust hwloc bindings at
 [Ichbinjoe/hwloc2-rs](https://github.com/Ichbinjoe/hwloc2-rs) and
-[daschl/hwloc-rs](https://github.com/daschl/hwloc-rs), but it does not aim for
-API compatibility with them. Indeed, many changes have been made with respect to
-hwloc2-rs in the aim of improving ergonomics, performance, and removing avenues
-for Undefined Behaviour like assuming pointers are non-null or union fields are
-valid when nobody tells you they will always be.
+[daschl/hwloc-rs](https://github.com/daschl/hwloc-rs). However, it does not aim
+for API compatibility with them. Indeed, many changes have been made with
+respect to hwloc2-rs in the aim of improving ergonomics, performance, and
+removing avenues for Undefined Behaviour like assuming pointers are non-null or
+union fields are valid when nobody tells you they will always be.
 
 ## Prerequisites
 
@@ -62,9 +62,10 @@ hwlocality = "1.0.0"
 Then, inside of your code, set up a
 [`Topology`](https://docs.rs/hwlocality/latest/hwlocality/topology/struct.Topology.html).
 This is the main entry point to the hwloc library, through which you can access
-almost every operation that hwloc allows. Here is a quick usage example which
-walks though the detected hardware topology and prints out a description of
-every hardware object known to hwloc:
+almost every operation that hwloc allows.
+
+Here is a quick usage example which walks though the detected hardware topology
+and prints out a description of every hardware object known to hwloc:
 
 ```rust
 use hwlocality::Topology;
@@ -86,7 +87,7 @@ fn main() -> anyhow::Result<()> {
 
 One possible output is:
 
-```
+```text
 *** Objects at depth 0
 0: Machine
 *** Objects at depth 1
