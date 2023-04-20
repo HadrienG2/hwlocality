@@ -164,7 +164,9 @@ jobs:
         run: cargo test ${{ matrix.features }}
 
       - name: Install cargo-examples
-        run: cargo install cargo-examples
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-examples
 
       - name: Run all examples
         run: cargo examples ${{ matrix.features }}
@@ -217,7 +219,9 @@ jobs:
         run: cargo test ${{ matrix.features }}
 
       - name: Install cargo-examples
-        run: cargo install cargo-examples
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-examples
 
       - name: Run all examples
         run: cargo examples ${{ matrix.features }}
