@@ -1,0 +1,98 @@
+name: 'Set up hwloc dependencies'
+description: 'Make sure pkgconfig and hwloc are available'
+runs:
+  using: "composite"
+  steps:
+    - name: Cache dependencies
+      if: matrix.os != 'windows-latest'
+      id: cache-deps-unix
+      uses: actions/cache@v3
+      with:
+        path: ~/hwloc
+        key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
+
+    - name: Cache dependencies
+      if: matrix.os == 'windows-latest'
+      id: cache-deps-win
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/pkgconfig
+          ~/hwloc
+        key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
+
+    - name: Install dependencies
+      if: matrix.os != 'windows-latest' && steps.cache-deps-unix.outputs.cache-hit != 'true'
+      run: |
+          curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
+          cd hwloc-${HWLOC_VERSION}
+          ./configure --prefix="${HOME}/hwloc"
+          make -j$(nproc)
+          make install
+          cd ..
+          rm -rf ${HWLOC_VERSION}
+
+    - name: Install dependencies
+      if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
+      run: |
+          $client = new-object System.Net.WebClient
+
+          # SourceForge is a very unstable service, it can take many attempts
+          # for downloads to succeed...
+          while ($true) {
+            try {
+              $client.DownloadFile(
+                "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+                "pkg-config.zip"
+              )
+            } catch {
+              echo "Sourceforge download failed, retrying in 10s..."
+              sleep 10
+              continue
+            }
+            break
+          }
+          Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
+          mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
+
+          $client.DownloadFile(
+            "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+            "hwloc.zip"
+          )
+          Expand-Archive -Path hwloc.zip -DestinationPath . -Force
+          $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
+          mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
+
+          # hwloc's pkgconfig follows unix convention of not adding a lib
+          # prefix to library names, but unfortunately MSVC does not add one
+          # either, so we must either patch the pkgconfig (as done for prefix
+          # below) or add a non-lib-prefixed version of the library.
+          cp "$HWLOC_PREFIX/lib/libhwloc.lib" "$HWLOC_PREFIX/lib/hwloc.lib"
+
+          # hwloc's pkgconfig is also not relocatable, so we must relocate it
+          # ourselves using the powershell equivalent of a sed
+          $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
+          echo "=== Initial pkg config ==="
+          cat "$HWLOC_PKGCONFIG"
+          echo "=========================="
+          (Get-Content "$HWLOC_PKGCONFIG") |
+            ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
+            Set-Content "$HWLOC_PKGCONFIG"
+          echo "=== Patched pkg config ==="
+          cat "$HWLOC_PKGCONFIG"
+          echo "=========================="
+
+    - name: Bring dependencies into PATHs
+      if: matrix.os != 'windows-latest'
+      run: |
+          HWLOC_PREFIX="${HOME}/hwloc"
+          echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
+          echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+
+    - name: Bring dependencies into PATHs
+      if: matrix.os == 'windows-latest'
+      run: |
+          $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
+          printf "%s\n" "${env:USERPROFILE}/pkgconfig/bin" >> ${env:GITHUB_PATH}
+          printf "%s\n%s\n" "$HWLOC_PREFIX/bin" "$HWLOC_PREFIX/lib" >> ${env:GITHUB_PATH}
+          printf "%s\n" "PKG_CONFIG_PATH=$HWLOC_PREFIX/lib/pkgconfig;${env:PKG_CONFIG_PATH}" >> ${env:GITHUB_ENV}
