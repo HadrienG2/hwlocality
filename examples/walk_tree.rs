@@ -14,7 +14,11 @@ fn print_children(obj: &TopologyObject, depth: usize) -> anyhow::Result<()> {
     for _ in 0..depth {
         print!(" ");
     }
-    println!("{obj}: #{:?}", obj.os_index());
+    print!("{obj}");
+    if let Some(os_idx) = obj.os_index() {
+        print!(" #{os_idx}");
+    }
+    println!();
 
     for child in obj.normal_children() {
         print_children(child, depth + 1)?;
