@@ -132,30 +132,47 @@ jobs:
         run: |
             $client = new-object System.Net.WebClient
 
-            $client.DownloadFile(
-              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
-              "pkg-config.zip"
-            )
+            # SourceForge is a very unstable service, it can take many attempts
+            # for downloads to succeed...
+            while ($true) {
+              try {
+                $client.DownloadFile(
+                  "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+                  "pkg-config.zip"
+                )
+              } catch {
+                echo "Sourceforge download failed, retrying in 10s..."
+                sleep 10
+                continue
+              }
+              break
+            }
             Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
             $client.DownloadFile(
-                          "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
-                          "hwloc.zip"
-                        )
+              "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+              "hwloc.zip"
+            )
             Expand-Archive -Path hwloc.zip -DestinationPath . -Force
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
-            $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
 
+            # hwloc's pkgconfig follows unix convention of not adding a lib
+            # prefix to library names, but unfortunately MSVC does not add one
+            # either, so we must either patch the pkgconfig (as done for prefix
+            # below) or add a non-lib-prefixed version of the library.
+            cp "$HWLOC_PREFIX/lib/libhwloc.lib" "$HWLOC_PREFIX/lib/hwloc.lib"
+
+            # hwloc's pkgconfig is also not relocatable, so we must relocate it
+            # ourselves using the powershell equivalent of a sed
+            $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
             echo "=== Initial pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
-
             (Get-Content "$HWLOC_PKGCONFIG") |
               ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
               Set-Content "$HWLOC_PKGCONFIG"
-
             echo "=== Patched pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
@@ -264,30 +281,47 @@ jobs:
         run: |
             $client = new-object System.Net.WebClient
 
-            $client.DownloadFile(
-              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
-              "pkg-config.zip"
-            )
+            # SourceForge is a very unstable service, it can take many attempts
+            # for downloads to succeed...
+            while ($true) {
+              try {
+                $client.DownloadFile(
+                  "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+                  "pkg-config.zip"
+                )
+              } catch {
+                echo "Sourceforge download failed, retrying in 10s..."
+                sleep 10
+                continue
+              }
+              break
+            }
             Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
             $client.DownloadFile(
-                          "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
-                          "hwloc.zip"
-                        )
+              "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+              "hwloc.zip"
+            )
             Expand-Archive -Path hwloc.zip -DestinationPath . -Force
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
-            $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
 
+            # hwloc's pkgconfig follows unix convention of not adding a lib
+            # prefix to library names, but unfortunately MSVC does not add one
+            # either, so we must either patch the pkgconfig (as done for prefix
+            # below) or add a non-lib-prefixed version of the library.
+            cp "$HWLOC_PREFIX/lib/libhwloc.lib" "$HWLOC_PREFIX/lib/hwloc.lib"
+
+            # hwloc's pkgconfig is also not relocatable, so we must relocate it
+            # ourselves using the powershell equivalent of a sed
+            $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
             echo "=== Initial pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
-
             (Get-Content "$HWLOC_PKGCONFIG") |
               ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
               Set-Content "$HWLOC_PKGCONFIG"
-
             echo "=== Patched pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
@@ -391,30 +425,47 @@ jobs:
         run: |
             $client = new-object System.Net.WebClient
 
-            $client.DownloadFile(
-              "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
-              "pkg-config.zip"
-            )
+            # SourceForge is a very unstable service, it can take many attempts
+            # for downloads to succeed...
+            while ($true) {
+              try {
+                $client.DownloadFile(
+                  "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+                  "pkg-config.zip"
+                )
+              } catch {
+                echo "Sourceforge download failed, retrying in 10s..."
+                sleep 10
+                continue
+              }
+              break
+            }
             Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
             mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
             $client.DownloadFile(
-                          "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
-                          "hwloc.zip"
-                        )
+              "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+              "hwloc.zip"
+            )
             Expand-Archive -Path hwloc.zip -DestinationPath . -Force
             $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
             mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
-            $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
 
+            # hwloc's pkgconfig follows unix convention of not adding a lib
+            # prefix to library names, but unfortunately MSVC does not add one
+            # either, so we must either patch the pkgconfig (as done for prefix
+            # below) or add a non-lib-prefixed version of the library.
+            cp "$HWLOC_PREFIX/lib/libhwloc.lib" "$HWLOC_PREFIX/lib/hwloc.lib"
+
+            # hwloc's pkgconfig is also not relocatable, so we must relocate it
+            # ourselves using the powershell equivalent of a sed
+            $HWLOC_PKGCONFIG = "$HWLOC_PREFIX/lib/pkgconfig/hwloc.pc"
             echo "=== Initial pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
-
             (Get-Content "$HWLOC_PKGCONFIG") |
               ForEach-Object { $_ -replace "^prefix=.*$", "prefix=$HWLOC_PREFIX" } |
               Set-Content "$HWLOC_PKGCONFIG"
-
             echo "=== Patched pkg config ==="
             cat "$HWLOC_PKGCONFIG"
             echo "=========================="
