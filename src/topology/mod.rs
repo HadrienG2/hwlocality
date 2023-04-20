@@ -307,7 +307,10 @@ impl Topology {
     /// }
     ///
     /// // Groups are only kept if they bring extra structure
-    /// assert_ne!(topology.type_filter(ObjectType::Group)?, TypeFilter::KeepAll);
+    /// assert_eq!(
+    ///     topology.type_filter(ObjectType::Group)?,
+    ///     TypeFilter::KeepStructure
+    /// );
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_type_filter")]
