@@ -7,7 +7,7 @@ use crate::{bitmaps::Bitmap, topology::support::CpuBindingSupport};
 use crate::{
     bitmaps::RawBitmap,
     cpu::sets::CpuSet,
-    errors::{self, FlagsError, RawHwlocError},
+    errors::{self, FlagsError, HybridError, RawHwlocError},
     ffi,
     topology::{RawTopology, Topology},
     ProcessId, ThreadId,
@@ -81,7 +81,11 @@ impl Topology {
     /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_set_cpubind")]
-    pub fn bind_cpu(&self, set: &CpuSet, flags: CpuBindingFlags) -> Result<(), CpuBindingError> {
+    pub fn bind_cpu(
+        &self,
+        set: &CpuSet,
+        flags: CpuBindingFlags,
+    ) -> Result<(), HybridError<CpuBindingError>> {
         self.bind_cpu_impl(
             set,
             flags,
@@ -111,7 +115,10 @@ impl Topology {
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_get_cpubind")]
-    pub fn cpu_binding(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
+    pub fn cpu_binding(
+        &self,
+        flags: CpuBindingFlags,
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.cpu_binding_impl(
             flags,
             CpuBoundObject::ThisProgram,
@@ -152,7 +159,7 @@ impl Topology {
         pid: ProcessId,
         set: &CpuSet,
         flags: CpuBindingFlags,
-    ) -> Result<(), CpuBindingError> {
+    ) -> Result<(), HybridError<CpuBindingError>> {
         self.bind_cpu_impl(
             set,
             flags,
@@ -194,7 +201,7 @@ impl Topology {
         &self,
         pid: ProcessId,
         flags: CpuBindingFlags,
-    ) -> Result<CpuSet, CpuBindingError> {
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.cpu_binding_impl(
             flags,
             CpuBoundObject::ProcessOrThread,
@@ -230,7 +237,7 @@ impl Topology {
         tid: ThreadId,
         set: &CpuSet,
         flags: CpuBindingFlags,
-    ) -> Result<(), CpuBindingError> {
+    ) -> Result<(), HybridError<CpuBindingError>> {
         self.bind_cpu_impl(
             set,
             flags,
@@ -266,7 +273,7 @@ impl Topology {
         &self,
         tid: ThreadId,
         flags: CpuBindingFlags,
-    ) -> Result<CpuSet, CpuBindingError> {
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.cpu_binding_impl(
             flags,
             CpuBoundObject::Thread,
@@ -303,7 +310,10 @@ impl Topology {
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_get_last_cpu_location")]
-    pub fn last_cpu_location(&self, flags: CpuBindingFlags) -> Result<CpuSet, CpuBindingError> {
+    pub fn last_cpu_location(
+        &self,
+        flags: CpuBindingFlags,
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.last_cpu_location_impl(
             flags,
             CpuBoundObject::ThisProgram,
@@ -347,7 +357,7 @@ impl Topology {
         &self,
         pid: ProcessId,
         flags: CpuBindingFlags,
-    ) -> Result<CpuSet, CpuBindingError> {
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.last_cpu_location_impl(
             flags,
             CpuBoundObject::ProcessOrThread,
@@ -366,9 +376,9 @@ impl Topology {
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(*const RawTopology, *const RawBitmap, c_int) -> c_int,
-    ) -> Result<(), CpuBindingError> {
+    ) -> Result<(), HybridError<CpuBindingError>> {
         if !flags.is_valid(target, CpuBindingOperation::SetBinding) {
-            return Err(CpuBindingError::BadFlags(flags.into()));
+            return Err(CpuBindingError::BadFlags(flags.into()).into());
         }
         call_hwloc(api, target, Some(set), || {
             ffi(
@@ -386,7 +396,7 @@ impl Topology {
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
-    ) -> Result<CpuSet, CpuBindingError> {
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.get_cpuset(flags, target, CpuBindingOperation::GetBinding, api, ffi)
     }
 
@@ -397,7 +407,7 @@ impl Topology {
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
-    ) -> Result<CpuSet, CpuBindingError> {
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.get_cpuset(
             flags,
             target,
@@ -415,9 +425,9 @@ impl Topology {
         operation: CpuBindingOperation,
         api: &'static str,
         ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
-    ) -> Result<CpuSet, CpuBindingError> {
+    ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         if !flags.is_valid(target, operation) {
-            return Err(CpuBindingError::BadFlags(flags.into()));
+            return Err(CpuBindingError::BadFlags(flags.into()).into());
         }
         let mut cpuset = CpuSet::new();
         call_hwloc(api, target, None, || {
@@ -615,7 +625,7 @@ pub(crate) fn call_hwloc(
     object: CpuBoundObject,
     cpuset: Option<&CpuSet>,
     ffi: impl FnOnce() -> c_int,
-) -> Result<(), CpuBindingError> {
+) -> Result<(), HybridError<CpuBindingError>> {
     match errors::call_hwloc_int_normal(api, ffi) {
         Ok(_positive) => Ok(()),
         Err(
@@ -623,15 +633,16 @@ pub(crate) fn call_hwloc(
                 errno: Some(errno), ..
             },
         ) => match errno.0 {
-            ENOSYS => Err(CpuBindingError::BadObject(object)),
+            ENOSYS => Err(CpuBindingError::BadObject(object).into()),
             EXDEV => Err(CpuBindingError::BadCpuSet(
                 object,
                 cpuset
                     .expect("This error should only be observed on commands that bind to CPUs")
                     .clone(),
-            )),
-            _ => unreachable!("{raw_err}"),
+            )
+            .into()),
+            _ => Err(HybridError::Hwloc(raw_err)),
         },
-        Err(raw_err) => unreachable!("{raw_err}"),
+        Err(raw_err) => Err(HybridError::Hwloc(raw_err)),
     }
 }
