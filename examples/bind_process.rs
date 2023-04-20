@@ -18,6 +18,15 @@ fn main() -> anyhow::Result<()> {
         println!("This example needs support for querying and setting process CPU bindings");
         return Ok(());
     }
+    // FIXME: get_proc_cpu_binding fails on Windows CI for unknown reasons
+    //        May want to try again once this upsteam issue is resolved:
+    //        https://github.com/open-mpi/hwloc/issues/78
+    if cfg!(target_os = "windows") {
+        println!(
+            "This example currently fails on Windows for unknown reasons, and has been disabled"
+        );
+        return Ok(());
+    }
 
     // load the current pid through libc
     let pid = get_pid();
