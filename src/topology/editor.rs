@@ -75,6 +75,9 @@ impl Topology {
             eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
             std::process::abort()
         }
+        if cfg!(debug_assertions) {
+            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+        }
     }
 }
 

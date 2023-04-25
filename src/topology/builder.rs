@@ -47,6 +47,9 @@ impl TopologyBuilder {
     }
 
     /// Load the topology with the previously specified parameters
+    ///
+    /// The binding of the current thread or process may temporarily change
+    /// during this call but it will be restored before it returns.
     #[doc(alias = "hwloc_topology_load")]
     pub fn build(mut self) -> Result<Topology, RawHwlocError> {
         // Finalize the topology building
@@ -55,6 +58,9 @@ impl TopologyBuilder {
         })?;
 
         // If that was successful, transfer RawTopology ownership to a Topology
+        if cfg!(debug_assertions) {
+            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+        }
         let result = Topology(self.0);
         std::mem::forget(self);
         Ok(result)
@@ -413,6 +419,9 @@ impl Default for TopologyBuilder {
 
 impl Drop for TopologyBuilder {
     fn drop(&mut self) {
+        if cfg!(debug_assertions) {
+            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+        }
         unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }

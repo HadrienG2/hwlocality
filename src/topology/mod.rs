@@ -34,8 +34,6 @@ use std::{
 ///
 /// Represents the private `hwloc_topology` type that `hwloc_topology_t` API
 /// pointers map to.
-#[doc(alias = "hwloc_topology")]
-#[doc(alias = "hwloc_topology_s")]
 #[repr(C)]
 pub(crate) struct RawTopology(IncompleteType);
 
@@ -86,6 +84,7 @@ pub(crate) struct RawTopology(IncompleteType);
 //       to one other code module is implemented inside that module, leaving
 //       this module focused on basic lifecycle and cross-cutting issues.
 #[derive(Debug)]
+#[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<RawTopology>);
 
@@ -156,6 +155,9 @@ impl Topology {
     ///
     /// If all libraries/programs use the same hwloc installation, this function
     /// always returns `true`.
+    //
+    // TODO: Propagate note about interprocess sharing from upstream docs
+    //       once interprocess sharing is implemented.
     ///
     /// # Examples
     ///
@@ -651,6 +653,7 @@ impl Clone for Topology {
 }
 
 impl Drop for Topology {
+    #[doc(alias = "hwloc_topology_destroy")]
     fn drop(&mut self) {
         unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
