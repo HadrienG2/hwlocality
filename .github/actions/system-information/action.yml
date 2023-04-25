@@ -20,7 +20,7 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-          coreinfo64 -cgnlsm
+          coreinfo64 -accepteula -cgnlsm
           hwloc-gather-cpuid
 
     - name: Upload file-based system information
