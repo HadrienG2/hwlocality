@@ -33,7 +33,7 @@ runs:
           debug_flag=""
           if [[ ${{ runner.os }} != 'macOS' ]]; then
               debug_flag=--enable-debug
-          }
+          fi
           ./configure --prefix="${HOME}/hwloc" ${debug_flag}
 
           make -j$(nproc)
