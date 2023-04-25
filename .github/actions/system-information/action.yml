@@ -5,10 +5,12 @@ runs:
   steps:
     - name: Query system information
       if: runner.os == 'Linux'
+      shell: bash
       run: hwloc-gather-topology myhost
 
     - name: Query system information
       if: runner.os == 'macOS'
+      shell: bash
       run: |
           sysctl hw
           sysctl machdep
@@ -16,6 +18,7 @@ runs:
 
     - name: Query system information
       if: runner.os == 'Windows'
+      shell: pwsh
       run: |
           coreinfo -cgnlsm
           hwloc-gather-cpuid
