@@ -31,9 +31,15 @@ use thiserror::Error;
 /// of the functions that target a process, but some functions may only support
 /// a subset of these flags.
 ///
+/// By default, when the requested binding operation is not available, hwloc
+/// will go for a similar binding operation (with side-effects, smaller
+/// binding set, etc). You can inhibit this with flag [`STRICT`], at the
+/// expense of reducing portability across operating systems.
+///
 /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
 /// [`PROCESS`]: CpuBindingFlags::PROCESS
 /// [`THREAD`]: CpuBindingFlags::THREAD
+/// [`STRICT`]: CpuBindingFlags::STRICT
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 impl Topology {
@@ -47,11 +53,6 @@ impl Topology {
     /// on the target CPU set before passing it to the binding function to avoid
     /// these expensive migrations.
     ///
-    /// By default, when the requested binding operation is not available, hwloc
-    /// will go for a similar binding operation (with side-effects, smaller
-    /// binding set, etc). You can inhibit this with flag [`STRICT`], at the
-    /// expense of reducing portability across operating systems.
-    ///
     /// To unbind, just call the binding function with either a full cpuset or a
     /// cpuset equal to the system cpuset.
     ///
@@ -63,6 +64,9 @@ impl Topology {
     ///
     /// Requires [`CpuBindingSupport::set_current_process()`] or
     /// [`CpuBindingSupport::set_current_thread()`] depending on flags.
+    ///
+    /// See also [the top-level CPU binding CPU
+    /// documentation](../../topology/struct.Topology.html#cpu-binding).
     ///
     /// # Errors
     ///
@@ -78,7 +82,6 @@ impl Topology {
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`singlify()`]: Bitmap::singlify()
-    /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_set_cpubind")]
     pub fn bind_cpu(
@@ -101,6 +104,9 @@ impl Topology {
     ///
     /// Requires [`CpuBindingSupport::get_current_process()`] or
     /// [`CpuBindingSupport::get_current_thread()`] depending on flags.
+    ///
+    /// See also [the top-level CPU binding CPU
+    /// documentation](../../topology/struct.Topology.html#cpu-binding).
     ///
     /// # Errors
     ///
@@ -180,7 +186,8 @@ impl Topology {
     ///
     /// Flag [`NO_MEMORY_BINDING`] should not be used with this function.
     ///
-    /// Requires [`CpuBindingSupport::get_process()`] or
+    /// See [`Topology::cpu_binding()`] for more informations, except this
+    /// requires [`CpuBindingSupport::get_process()`] or
     /// [`CpuBindingSupport::get_thread()`] depending on flags.
     ///
     /// # Errors
@@ -254,7 +261,8 @@ impl Topology {
     /// Flags [`PROCESS`], [`STRICT`] and [`NO_MEMORY_BINDING`] should not be
     /// used with this function.
     ///
-    /// Requires [`CpuBindingSupport::get_thread()`].
+    /// See [`Topology::cpu_binding()`] for more informations, except this
+    /// requires [`CpuBindingSupport::get_thread()`].
     ///
     /// # Errors
     ///
@@ -291,11 +299,15 @@ impl Topology {
     /// so this function may return something that is already
     /// outdated.
     ///
-    /// Flag [`NO_MEMORY_BINDING`] should not be used with this function.
+    /// Flags [`NO_MEMORY_BINDING`] and [`STRICT`] should not be used with this
+    /// function.
     ///
     /// Requires [`CpuBindingSupport::get_current_process_last_cpu_location()`]
     /// or [`CpuBindingSupport::get_current_thread_last_cpu_location()`]
     /// depending on flags.
+    ///
+    /// See also [the top-level CPU binding CPU
+    /// documentation](../../topology/struct.Topology.html#cpu-binding).
     ///
     /// # Errors
     ///
@@ -308,6 +320,7 @@ impl Topology {
     /// [`BadObject(ThisProgram)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
+    /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_get_last_cpu_location")]
     pub fn last_cpu_location(
@@ -326,18 +339,13 @@ impl Topology {
 
     /// Get the last physical CPU where a process ran.
     ///
-    /// The operating system may move some tasks from one processor to another
-    /// at any time according to their binding, so this function may return
-    /// something that is already outdated.
-    ///
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
     /// a pid (process ID) and flag [`THREAD`] is specified, the last cpu
     /// location of the specified thread is returned. Otherwise, flag [`THREAD`]
     /// should not be used with this function.
     ///
-    /// Flag [`NO_MEMORY_BINDING`] should not be used with this function.
-    ///
-    /// Requires [`CpuBindingSupport::get_process_last_cpu_location()`].
+    /// See [`Topology::last_cpu_location()`] for more informations, except this
+    /// requires [`CpuBindingSupport::get_process_last_cpu_location()`].
     ///
     /// # Errors
     ///
@@ -351,6 +359,7 @@ impl Topology {
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
+    /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_get_proc_last_cpu_location")]
     pub fn last_process_cpu_location(
@@ -470,11 +479,13 @@ bitflags! {
         /// is inapplicable.
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
+        #[doc(alias = "HWLOC_CPUBIND_THREAD")]
         const THREAD  = (1<<1);
 
         /// Bind all threads of the target process
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `THREAD`.
+        #[doc(alias = "HWLOC_CPUBIND_PROCESS")]
         const PROCESS = (1<<0);
 
         /// Request for strict binding from the OS
@@ -496,6 +507,7 @@ bitflags! {
         /// given, the binding of each thread will be accumulated.
         ///
         /// This flag is meaningless when retrieving the binding of a thread.
+        #[doc(alias = "HWLOC_CPUBIND_STRICT")]
         const STRICT = (1<<2);
 
         /// Avoid any effect on memory binding
@@ -511,6 +523,7 @@ bitflags! {
         /// This flag is only meaningful when used with functions that set the
         /// CPU binding. It is ignored when used with functions that get CPU
         /// binding information.
+        #[doc(alias = "HWLOC_CPUBIND_NOMEMBIND")]
         const NO_MEMORY_BINDING = (1<<3);
     }
 }
