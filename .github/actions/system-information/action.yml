@@ -1,0 +1,35 @@
+name: 'Query system information'
+description: 'Collect useful system info for hwloc bug reports'
+runs:
+  using: "composite"
+  steps:
+    - name: Query system information
+      if: runner.os == 'Linux'
+      run: hwloc-gather-topology myhost
+
+    - name: Query system information
+      if: runner.os == 'macOS'
+      run: |
+          sysctl hw
+          sysctl machdep
+          hwloc-gather-cpuid
+
+    - name: Query system information
+      if: runner.os == 'Windows'
+      run: |
+          coreinfo -cgnlsm
+          hwloc-gather-cpuid
+
+    - name: Upload file-based system information
+      uses: actions/upload-artifact@v3
+      if: runner.os == 'Linux'
+      with:
+        name: Linux-infos
+        path: myhost.*
+
+    - name: Upload system information
+      uses: actions/upload-artifact@v3
+      if: runner.os != 'Linux'
+      with:
+        name: ${{ runner.os }}-infos
+        path: cpuid
