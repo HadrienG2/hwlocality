@@ -44,6 +44,11 @@ use thiserror::Error;
 /// binding functions will clarify which support flags they require. The most
 /// portable operation, where usable, is [`binding_allocate_memory()`].
 ///
+/// By default, when the requested binding operation is not available, hwloc
+/// will go for a similar binding operation (with side-effects, smaller
+/// binding set, etc). You can inhibit this with flag [`STRICT`], at the
+/// expense of reducing portability across operating systems.
+///
 /// Memory can be bound by [`CpuSet`] or [`NodeSet`], but memory binding by
 /// CPU set cannot work for CPU-less NUMA memory nodes. Binding by node set
 /// should therefore be preferred whenever possible.
@@ -64,6 +69,7 @@ use thiserror::Error;
 /// [`binding_allocate_memory()`]: Topology::binding_allocate_memory()
 /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
 /// [`PROCESS`]: MemoryBindingFlags::PROCESS
+/// [`STRICT`]: MemoryBindingFlags::STRICT
 /// [`THREAD`]: MemoryBindingFlags::THREAD
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
@@ -80,6 +86,7 @@ impl Topology {
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_alloc")]
     pub fn allocate_memory(&self, len: usize) -> Result<Bytes, MemoryAllocationError<NodeSet>> {
         self.allocate_memory_impl(len)
     }
@@ -127,6 +134,7 @@ impl Topology {
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_alloc_membind")]
     pub fn allocate_bound_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -184,6 +192,7 @@ impl Topology {
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_alloc_membind_policy")]
     pub fn binding_allocate_memory<Set: SpecializedBitmap>(
         &self,
         len: usize,
@@ -241,6 +250,7 @@ impl Topology {
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_set_membind")]
     pub fn bind_memory<Set: SpecializedBitmap>(
         &self,
         set: &Set,
@@ -348,6 +358,7 @@ impl Topology {
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_get_membind")]
     pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
@@ -381,6 +392,7 @@ impl Topology {
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_set_proc_membind")]
     pub fn bind_process_memory<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -458,6 +470,7 @@ impl Topology {
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_get_proc_membind")]
     pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
@@ -495,13 +508,16 @@ impl Topology {
     ///   with the requested policy
     /// - [`BadFlags`] if one of flags [`PROCESS`] and [`THREAD`] was specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
+    /// - [`BadTarget`] if `target` is a zero-sized object
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_set_area_membind")]
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
@@ -510,6 +526,9 @@ impl Topology {
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<Set>> {
         let target_size = std::mem::size_of_val(target);
+        if target_size == 0 {
+            return Err(MemoryBindingError::BadTarget);
+        }
         let target_ptr: *const Target = target;
         self.bind_memory_impl(
             "hwloc_set_area_membind",
@@ -546,9 +565,11 @@ impl Topology {
     /// - [`Unsupported`] if the system cannot unbind the specified memory area
     /// - [`BadFlags`] if one of flags [`PROCESS`], [`THREAD`], [`STRICT`]
     ///   and [`MIGRATE`] was specified
+    /// - [`BadTarget`] if `target` is a zero-sized object
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
@@ -560,6 +581,9 @@ impl Topology {
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
         let target_size = std::mem::size_of_val(target);
+        if target_size == 0 {
+            return Err(MemoryBindingError::BadTarget);
+        }
         let target_ptr: *const Target = target;
         self.unbind_memory_impl(
             "hwloc_set_area_membind",
@@ -595,6 +619,7 @@ impl Topology {
     /// have the same policy, it is returned, otherwise no policy is returned.
     ///
     /// See also [`Topology::memory_binding()`] for general semantics, except...
+    ///
     /// - The [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and [`THREAD`] flags should
     ///   not be used with this function
     /// - As mentioned above, [`STRICT`] has a specific meaning in the context
@@ -607,11 +632,13 @@ impl Topology {
     ///   memory area's binding
     /// - [`BadFlags`] if one of flags [`PROCESS`], [`THREAD`], [`MIGRATE`]
     ///   and [`NO_CPU_BINDING`] was specified
+    /// - [`BadTarget`] if `target` is a zero-sized object
     /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
     ///   and memory binding is inhomogeneous across target memory pages
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
@@ -619,16 +646,16 @@ impl Topology {
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_get_area_membind")]
     pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
-        assert!(
-            std::mem::size_of_val(target) > 0,
-            "Zero-sized target covers no memory!"
-        );
         let target_size = std::mem::size_of_val(target);
+        if target_size == 0 {
+            return Err(MemoryBindingError::BadTarget);
+        }
         let target_ptr: *const Target = target;
         self.memory_binding_impl(
             "hwloc_get_area_membind",
@@ -672,11 +699,13 @@ impl Topology {
     ///   memory area's location
     /// - [`BadFlags`] if one of flags [`PROCESS`], [`THREAD`], [`MIGRATE`]
     ///   and [`NO_CPU_BINDING`] was specified
+    /// - [`BadTarget`] if `target` is a zero-sized object
     /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
     ///   and memory binding is inhomogeneous across target memory pages
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
+    /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
@@ -684,12 +713,16 @@ impl Topology {
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
+    #[doc(alias = "hwloc_get_area_memlocation")]
     pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
     ) -> Result<Set, MemoryBindingError<Set>> {
         let target_size = std::mem::size_of_val(target);
+        if target_size == 0 {
+            return Err(MemoryBindingError::BadTarget);
+        }
         let target_ptr: *const Target = target;
         self.memory_binding_impl(
             "hwloc_get_area_memlocation",
@@ -862,6 +895,8 @@ bitflags! {
         /// If the memory cannot be migrated and the `STRICT` flag is set, an
         /// error will be returned.
         ///
+        /// This flag is only meaningful on operations that bind memory.
+        ///
         /// Requires [`MemoryBindingSupport::migrate()`].
         #[doc(alias = "HWLOC_MEMBIND_MIGRATE")]
         const MIGRATE = (1<<3);
@@ -976,7 +1011,6 @@ pub(crate) enum MemoryBindingOperation {
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
-///
 pub(crate) type RawMemoryBindingPolicy = c_int;
 
 /// Memory binding policy.
@@ -1074,6 +1108,10 @@ pub enum MemoryBindingError<Set: SpecializedBitmap> {
     /// or larger set to make the operation succeed.
     #[error("cannot bind {0} to {1}")]
     BadSet(MemoryBoundObject, Set),
+
+    /// Cannot query the memory location of zero-sized target
+    #[error("cannot query the memory location of zero-sized target")]
+    BadTarget,
 
     /// Memory allocation failed even before trying to bind
     ///
@@ -1252,6 +1290,7 @@ impl DerefMut for Bytes<'_> {
 }
 
 impl Drop for Bytes<'_> {
+    #[doc(alias = "hwloc_free")]
     fn drop(&mut self) {
         let addr = self.data.as_ptr().cast::<c_void>();
         let len = self.data.len();
