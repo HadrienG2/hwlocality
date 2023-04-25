@@ -52,8 +52,11 @@ runs:
             "https://download.sysinternals.com/files/Coreinfo.zip",
             "coreinfo.zip"
           )
-          mkdir coreinfo
-          Expand-Archive -Path coreinfo.zip -DestinationPath coreinfo
+          mkdir "${env:USERPROFILE}/coreinfo"
+          Expand-Archive -Path coreinfo.zip -DestinationPath "${env:USERPROFILE}/coreinfo"
+
+          # DEBUG: Figure out why I can't see coreinfo
+          ls "${env:USERPROFILE}/coreinfo"
 
           # SourceForge is a very unstable service, it can take many attempts
           # for downloads to succeed...
