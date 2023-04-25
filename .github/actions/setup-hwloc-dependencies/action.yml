@@ -1,5 +1,15 @@
 name: 'Set up hwloc dependencies'
 description: 'Make sure pkgconfig and hwloc are available'
+inputs:
+  hwloc-version:
+    description: 'hwloc version to be installed'
+    required: true
+  hwloc-version-short:
+    description: 'Shortened name of the hwloc version, used in download URLs'
+    required: true
+  win-pkgconfig-version:
+    description: 'pkgconfiglite version to be installed on Windows'
+    required: true
 runs:
   using: "composite"
   steps:
@@ -9,7 +19,7 @@ runs:
       uses: actions/cache@v3
       with:
         path: ~/hwloc
-        key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
+        key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
 
     - name: Cache dependencies
       if: runner.os == 'Windows'
@@ -20,19 +30,19 @@ runs:
           ~/coreinfo
           ~/hwloc
           ~/pkgconfig
-        key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
+        key: ${{ runner.os }}-deps-pkgconfig${{ inputs.win-pkgconfig-version }}-hwloc${{ inputs.hwloc-version }}
 
     - name: Install dependencies
       if: runner.os != 'Windows' && steps.cache-deps-unix.outputs.cache-hit != 'true'
       shell: bash
       run: |
-          curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
-          cd hwloc-${HWLOC_VERSION}
+          curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
+          cd hwloc-${{ inputs.hwloc-version }}
           ./configure --prefix="${HOME}/hwloc" --enable-debug
           make -j$(nproc)
           make install
           cd ..
-          rm -rf ${HWLOC_VERSION}
+          rm -rf ${{ inputs.hwloc-version }}
 
     - name: Install dependencies
       if: runner.os == 'Windows' && steps.cache-deps-win.outputs.cache-hit != 'true'
@@ -40,6 +50,7 @@ runs:
       run: |
           $client = new-object System.Net.WebClient
 
+          # Download sysinternals coreinfo, for system config probing
           $client.DownloadFile(
             "https://download.sysinternals.com/files/Coreinfo.zip",
             "coreinfo.zip"
@@ -47,12 +58,14 @@ runs:
           mkdir "${env:USERPROFILE}/coreinfo"
           Expand-Archive -Path coreinfo.zip -DestinationPath "${env:USERPROFILE}/coreinfo"
 
-          # SourceForge is a very unstable service, it can take many attempts
+          # Download pkgconfiglite as a windows pkgconfig impl
+          #
+          # SourceForge is a very unstable service, so it can take many attempts
           # for downloads to succeed...
           while ($true) {
             try {
               $client.DownloadFile(
-                "https://sourceforge.net/projects/pkgconfiglite/files/${env:WIN_PKGCONFIG_VERSION}/pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}_bin-win32.zip",
+                "https://sourceforge.net/projects/pkgconfiglite/files/${{ inputs.win_pkgconfig-version }}/pkg-config-lite-${{ inputs.win_pkgconfig-version }}_bin-win32.zip",
                 "pkg-config.zip"
               )
             } catch {
@@ -63,15 +76,16 @@ runs:
             break
           }
           Expand-Archive -Path pkg-config.zip -DestinationPath .
-          mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
+          mv "pkg-config-lite-${{ inputs.win-pkgconfig-version }}" "${env:USERPROFILE}/pkgconfig"
 
+          # Download hwloc binary release
           $client.DownloadFile(
-            "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
+            "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-win64-build-${{ inputs.hwloc-version }}.zip",
             "hwloc.zip"
           )
           Expand-Archive -Path hwloc.zip -DestinationPath .
           $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
-          mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
+          mv "hwloc-win64-build-${{ inputs.hwloc-version }}" "$HWLOC_PREFIX"
 
           # hwloc's pkgconfig follows unix convention of not adding a lib
           # prefix to library names, but unfortunately MSVC does not add one

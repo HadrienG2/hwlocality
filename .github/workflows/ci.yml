@@ -100,6 +100,10 @@ jobs:
 
       - name: Set up hwloc dependencies
         uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+          win-pkgconfig-version: ${{ env.WIN_PKGCONFIG_VERSION }}
 
       - name: Type-check the program
         run: cargo check --all-targets ${{ matrix.features }}
@@ -162,6 +166,10 @@ jobs:
 
       - name: Set up hwloc dependencies
         uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+          win-pkgconfig-version: ${{ env.WIN_PKGCONFIG_VERSION }}
 
       - name: Collect system information
         uses: ./.github/actions/system-information
@@ -220,6 +228,10 @@ jobs:
 
       - name: Set up hwloc dependencies
         uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+          win-pkgconfig-version: ${{ env.WIN_PKGCONFIG_VERSION }}
 
       - name: Collect system information
         uses: ./.github/actions/system-information
