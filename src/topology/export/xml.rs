@@ -1,7 +1,5 @@
 //! Exporting topologies to XML
 
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
-
 #[cfg(doc)]
 use crate::{errors::NulError, topology::builder::TopologyBuilder};
 use crate::{

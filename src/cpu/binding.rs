@@ -1,7 +1,5 @@
 //! CPU binding
 
-// Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
-
 #[cfg(doc)]
 use crate::{bitmaps::Bitmap, topology::support::CpuBindingSupport};
 use crate::{

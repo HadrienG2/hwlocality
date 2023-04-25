@@ -1,8 +1,5 @@
 //! Topology objects
 
-// - Top-level doc: https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
-// - Attributes: https://hwloc.readthedocs.io/en/v2.9/attributes.html
-
 pub mod attributes;
 pub mod depth;
 pub mod distances;
@@ -912,6 +909,10 @@ impl Topology {
 /// - [CPU set](#cpu-set)
 /// - [NUMA node set](#numa-node-set)
 /// - [Key-value information](#key-value-information)
+//
+// Upstream docs:
+// - https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
+// - https://hwloc.readthedocs.io/en/v2.9/attributes.html
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
 #[repr(C)]

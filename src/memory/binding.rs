@@ -1,7 +1,5 @@
 //! Memory binding
 
-// Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
-
 use crate::{
     bitmaps::{Bitmap, BitmapKind, RawBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},

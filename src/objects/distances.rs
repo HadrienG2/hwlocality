@@ -1,9 +1,5 @@
 //! Object distances
 
-// Upstream docs:
-// - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
-// - https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
-
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::errors::HybridError;
 #[cfg(feature = "hwloc-2_1_0")]
@@ -482,6 +478,8 @@ impl RawDistances {
     doc = "See also [`Distances::transform()`] for applying some"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
+//
+// Upstream inspiration: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
     inner: NonNull<RawDistances>,
