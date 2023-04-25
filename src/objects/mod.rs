@@ -1606,12 +1606,18 @@ impl TopologyObject {
 }
 
 impl fmt::Display for TopologyObject {
+    /// The Display output is a less verbose version of the Debug output:
+    ///
+    /// - Shorter type names are used, e.g. "L1Cache" becomes "L1".
+    /// - Only the major object attributes are printed.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display(f, false)
     }
 }
 
 impl fmt::Debug for TopologyObject {
+    #[doc(alias = "hwloc_obj_attr_snprintf")]
+    #[doc(alias = "hwloc_obj_type_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display(f, true)
     }
