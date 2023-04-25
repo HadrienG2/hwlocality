@@ -69,8 +69,8 @@ runs:
                 "pkg-config.zip"
               )
             } catch {
-              echo "Sourceforge download failed, retrying in 10s..."
-              sleep 10
+              echo "Sourceforge download failed, retrying in 30s..."
+              sleep 30
               continue
             }
             break
