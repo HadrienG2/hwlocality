@@ -231,7 +231,7 @@ impl<'topology> TopologyEditor<'topology> {
                 0,
             )
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 }
 

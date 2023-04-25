@@ -239,7 +239,7 @@ impl TopologyEditor<'_> {
         errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
             ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 
     /// Add more structure to the topology by adding an intermediate Group

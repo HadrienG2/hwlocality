@@ -42,7 +42,7 @@ impl Topology {
         errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
             ffi::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.as_ptr())
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 
     /// Current binding of thread `tid`.

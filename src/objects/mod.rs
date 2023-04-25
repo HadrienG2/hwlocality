@@ -18,7 +18,7 @@ use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmaps::RawBitmap,
     cpu::sets::CpuSet,
-    errors::NulError,
+    errors::{self, HybridError, NulError},
     ffi::{self, LibcString},
     info::TextualInfo,
     memory::nodesets::NodeSet,
@@ -1513,6 +1513,9 @@ impl TopologyObject {
     ///
     /// hwloc defines [a number of standard object info attribute names with
     /// associated semantics](https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info).
+    ///
+    /// Beware that hwloc allows multiple informations with the same key to
+    /// exist, although no sane programs should leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
         if self.children.is_null() {
@@ -1534,11 +1537,14 @@ impl TopologyObject {
 
     /// Search the given key name in object infos and return the corresponding value
     ///
+    /// Beware that hwloc allows multiple informations with the same key to
+    /// exist, although no sane programs should leverage this possibility.
     /// If multiple keys match the given name, only the first one is returned.
     ///
     /// Calling this operation multiple times will result in duplicate work. If
-    /// you need to do this sort of search many times, you should collect
+    /// you need to do this sort of search many times, consider collecting
     /// `infos()` into a `HashMap` or `BTreeMap` for increased lookup efficiency.
+    #[doc(alias = "hwloc_obj_get_info_by_name")]
     pub fn info(&self, key: &str) -> Option<&CStr> {
         self.infos().iter().find_map(|info| {
             let Ok(info_name) = info.name().to_str() else { return None };
@@ -1551,8 +1557,6 @@ impl TopologyObject {
     /// The info is appended to the existing info array even if another key with
     /// the same name already exists.
     ///
-    /// The input strings are copied before being added in the object infos.
-    ///
     /// This function may be used to enforce object colors in the lstopo
     /// graphical output by using "lstopoStyle" as a name and "Background=#rrggbb"
     /// as a value. See `CUSTOM COLORS` in the `lstopo(1)` manpage for details.
@@ -1563,13 +1567,15 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `name` or `value` contains NUL chars.
-    pub fn add_info(&mut self, name: &str, value: &str) -> Result<(), NulError> {
+    #[doc(alias = "hwloc_obj_add_info")]
+    pub fn add_info(&mut self, name: &str, value: &str) -> Result<(), HybridError<NulError>> {
         let name = LibcString::new(name)?;
         let value = LibcString::new(value)?;
-        let result = unsafe { ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow()) };
-        assert_ne!(result, -1, "Failed to add info to object");
-        assert_eq!(result, 0, "Unexpected result from hwloc_obj_add_info");
-        Ok(())
+        errors::call_hwloc_int_normal("hwloc_obj_add_info", || unsafe {
+            ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow())
+        })
+        .map(std::mem::drop)
+        .map_err(HybridError::Hwloc)
     }
 }
 

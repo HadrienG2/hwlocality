@@ -361,7 +361,7 @@ impl TopologyEditor<'_> {
         errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
             ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 
     /// Remove all distance matrices from a topology
@@ -373,7 +373,7 @@ impl TopologyEditor<'_> {
         errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
             ffi::hwloc_distances_remove(self.topology_mut_ptr())
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 
     /// Remove distance matrices for objects at a specific depth in the topology
@@ -387,7 +387,7 @@ impl TopologyEditor<'_> {
         errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
             ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 
     /// Remove distance matrices for objects of a specific type in the topology
@@ -767,7 +767,7 @@ impl<'topology> Distances<'topology> {
                 0,
             )
         })
-        .map(|_| ())
+        .map(std::mem::drop)
     }
 }
 //
