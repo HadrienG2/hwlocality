@@ -363,15 +363,49 @@ impl TopologyBuilder {
     }
 
     /// Set the filtering for the given object type
+    ///
+    /// # Errors
+    ///
+    /// - [`CantKeepGroup`] if one attempts to set [`TypeFilter::KeepAll`] for
+    ///   [`Group`] objects, which is not allowed by hwloc.
+    /// - [`CantIgnore`] if one attempt's to ignore the top- and bottom-level
+    ///   [`Machine`], [`PU`] and [`NUMANode`] types.
+    /// - [`StructureIrrelevant`] if one attempts to set
+    ///   [`TypeFilter::KeepStructure`] for I/O and [`Misc`] objects, for which
+    ///   topology structure does not matter.
+    ///
+    /// [`CantIgnore`]: TypeFilterError::CantIgnore
+    /// [`CantKeepGroup`]: TypeFilterError::CantKeepGroup
+    /// [`Group`]: ObjectType::Group
+    /// [`Machine`]: ObjectType::Machine
+    /// [`Misc`]: ObjectType::Misc
+    /// [`NUMANode`]: ObjectType::NUMANode
+    /// [`PU`]: ObjectType::PU
+    /// [`StructureIrrelevant`]: TypeFilterError::StructureIrrelevant
     #[doc(alias = "hwloc_topology_set_type_filter")]
     pub fn with_type_filter(
         mut self,
         ty: ObjectType,
         filter: TypeFilter,
-    ) -> Result<Self, RawHwlocError> {
+    ) -> Result<Self, HybridError<TypeFilterError>> {
+        match (ty, filter) {
+            (ObjectType::Group, TypeFilter::KeepAll) => {
+                return Err(TypeFilterError::CantKeepGroup.into())
+            }
+            (_, TypeFilter::KeepNone) => {
+                if let ObjectType::Machine | ObjectType::PU | ObjectType::NUMANode = ty {
+                    return Err(TypeFilterError::CantIgnore(ty).into());
+                }
+            }
+            (_, TypeFilter::KeepStructure) if ty.is_io() || ty == ObjectType::Misc => {
+                return Err(TypeFilterError::StructureIrrelevant.into())
+            }
+            _ => {}
+        }
         errors::call_hwloc_int_normal("hwloc_topology_set_type_filter", || unsafe {
             ffi::hwloc_topology_set_type_filter(self.as_mut_ptr(), ty.into(), filter.into())
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(self)
     }
 
@@ -412,11 +446,26 @@ impl TopologyBuilder {
     }
 
     /// Set the filtering for all I/O object types
+    ///
+    /// # Errors
+    ///
+    /// - [`StructureIrrelevant`] if one attempts to set
+    ///   [`TypeFilter::KeepStructure`], as topology structure does not matter
+    ///   for I/O objects.
+    ///
+    /// [`StructureIrrelevant`]: TypeFilterError::StructureIrrelevant
     #[doc(alias = "hwloc_topology_set_io_types_filter")]
-    pub fn with_io_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+    pub fn with_io_type_filter(
+        mut self,
+        filter: TypeFilter,
+    ) -> Result<Self, HybridError<TypeFilterError>> {
+        if filter == TypeFilter::KeepStructure {
+            return Err(TypeFilterError::StructureIrrelevant.into());
+        }
         errors::call_hwloc_int_normal("hwloc_topology_set_io_types_filter", || unsafe {
             ffi::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into())
-        })?;
+        })
+        .map_err(HybridError::Hwloc)?;
         Ok(self)
     }
 
@@ -432,6 +481,7 @@ impl TopologyBuilder {
 
 bitflags! {
     /// Topology building configuration flags
+    #[doc(alias = "hwloc_topology_flags_e")]
     #[repr(C)]
     pub struct BuildFlags: c_ulong {
         /// Detect the whole system, ignore reservations, include disallowed objects
@@ -656,18 +706,21 @@ pub(crate) type RawTypeFilter = c_int;
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
 #[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
+#[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]
 pub enum TypeFilter {
     /// Keep all objects of this type
     ///
     /// Cannot be set for [`ObjectType::Group`] (groups are designed only to add
     /// more structure to the topology).
+    #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_ALL")]
     KeepAll = 0,
 
     /// Ignore all objects of this type
     ///
     /// The bottom-level type [`ObjectType::PU`], the [`ObjectType::NUMANode`]
     /// type, and the top-level type [`ObjectType::Machine`] may not be ignored.
+    #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_NONE")]
     KeepNone = 1,
 
     /// Only ignore objects if their entire level does not bring any structure
@@ -681,6 +734,7 @@ pub enum TypeFilter {
     ///
     /// Cannot be set for I/O and Misc objects since the topology structure does
     /// not matter there.
+    #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_STRUCTURE")]
     KeepStructure = 2,
 
     /// Only keep likely-important objects of the given type.
@@ -697,7 +751,26 @@ pub enum TypeFilter {
     ///
     /// This flag is equivalent to `KeepAll` for Normal, Memory and Misc types
     /// since they are likely important.
+    #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_IMPORTANT")]
     KeepImportant = 3,
+}
+
+/// Errors that can occur when filtering types
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum TypeFilterError {
+    /// Cannot force keeping Group objects with [`TypeFilter::KeepAll`]
+    ///
+    /// Groups are designed only to add more structure to the topology.
+    #[error("can't force keeping groups")]
+    CantKeepGroup,
+
+    /// Top-level and bottom-level types cannot be ignored
+    #[error("can't ignore top- or bottom-level type {0}")]
+    CantIgnore(ObjectType),
+
+    /// Topology structure doesn't matter for I/O and Misc objects
+    #[error("topology structure doesn't matter for I/O and Misc objects")]
+    StructureIrrelevant,
 }
 
 /// # General-purpose internal utilities
