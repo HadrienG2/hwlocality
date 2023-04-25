@@ -1,7 +1,5 @@
 //! CPU cache statistics
 
-// This is unique to the Rust hwloc bindings
-
 use crate::{
     objects::{attributes::ObjectAttributes, types::ObjectType},
     topology::Topology,
