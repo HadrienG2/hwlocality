@@ -51,9 +51,14 @@ impl Topology {
     /// # Examples
     ///
     /// ```
+    /// # use hwlocality::{objects::types::ObjectType, Topology};
     /// # let topology = hwlocality::Topology::test_instance();
-    /// // The Machine and PU depths are always present
-    /// assert!(topology.depth() >= 2);
+    /// let depth = topology.depth();
+    /// assert!(depth >= 2, "Machine and PU are always present");
+    /// assert_eq!(
+    ///     depth,
+    ///     topology.depth_for_type(ObjectType::PU)?.assume_normal() + 1
+    /// );
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
@@ -63,12 +68,12 @@ impl Topology {
             .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
 
-    /// Depth of parents where memory objects are attached
+    /// Depth of normal parents where memory objects are attached
     ///
     /// # Errors
     ///
     /// - [`DepthError::Multiple`] if memory objects are attached at multiple
-    ///   depths
+    ///   depths, e.g. some to [`Package`]s and some to [`Group`]s
     ///
     /// # Examples
     ///
@@ -84,9 +89,13 @@ impl Topology {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    ///
+    /// [`Package`]: ObjectType::Package
+    /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
-    pub fn memory_parents_depth(&self) -> DepthResult {
+    pub fn memory_parents_depth(&self) -> Result<u32, DepthError> {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
+            .map(Depth::assume_normal)
     }
 
     /// Depth for the given [`ObjectType`]
@@ -98,7 +107,7 @@ impl Topology {
     ///   is acceptable, consider using [depth_or_below_for_type()] or
     ///   [depth_or_above_for_type()] instead.
     /// - [`DepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths.
+    ///   depths (can happen when `object_type` is [`Group`]).
     ///
     /// # Examples
     ///
@@ -118,6 +127,7 @@ impl Topology {
     ///
     /// [depth_or_below_for_type()]: Topology::depth_or_below_for_type()
     /// [depth_or_above_for_type()]: Topology::depth_or_above_for_type()
+    /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
         Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
@@ -129,12 +139,14 @@ impl Topology {
     /// function returns the depth of the first present object typically found
     /// inside `object_type`.
     ///
-    /// This function is only meaningful for normal object types.
+    /// This function is only meaningful for normal object types. If a memory,
+    /// I/O or Misc object type is given, the corresponding virtual depth is
+    /// always returned.
     ///
     /// # Errors
     ///
     /// - [`DepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths
+    ///   depths (can happen when `object_type` is [`Group`]).
     ///
     /// # Examples
     ///
@@ -184,12 +196,14 @@ impl Topology {
     /// function returns the depth of the first present object typically
     /// containing `object_type`.
     ///
-    /// This function is only meaningful for normal object types.
+    /// This function is only meaningful for normal object types. If a memory,
+    /// I/O or Misc object type is given, the corresponding virtual depth is
+    /// always returned.
     ///
     /// # Errors
     ///
     /// - [`DepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths
+    ///   depths (can happen when `object_type` is [`Group`]).
     ///
     /// # Examples
     ///
@@ -313,7 +327,7 @@ impl Topology {
         result
     }
 
-    /// [`ObjectType`] at the given `depth`
+    /// Type of objects at the given `depth`, if any
     ///
     /// # Examples
     ///
@@ -413,6 +427,8 @@ impl Topology {
 
     /// [`TopologyObject`] at the root of the topology
     ///
+    /// Its type is [`ObjectType::Machine`].
+    ///
     /// # Examples
     ///
     /// ```
@@ -465,6 +481,7 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_get_obj_by_type")]
+    #[doc(alias = "hwloc_get_nbobjs_by_type")]
     #[doc(alias = "hwloc_get_next_obj_by_type")]
     pub fn objects_with_type(
         &self,

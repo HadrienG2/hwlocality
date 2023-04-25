@@ -131,14 +131,12 @@ impl From<Depth> for RawDepth {
 /// Error from an hwloc depth query
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum DepthError {
-    /// No object of given type exists in the topology
+    /// No object of the requested type exists in the topology
     #[doc(alias = "HWLOC_TYPE_DEPTH_UNKNOWN")]
     #[error("no object of given type exists in the topology")]
     None,
 
-    /// Objects of given type exist at different depths in the topology
-    ///
-    /// You can only get this error while querying the depth of Group objects.
+    /// Objects of the requested type exist at different depths in the topology
     #[doc(alias = "HWLOC_TYPE_DEPTH_MULTIPLE")]
     #[error("objects of given type exist at different depths in the topology")]
     Multiple,
