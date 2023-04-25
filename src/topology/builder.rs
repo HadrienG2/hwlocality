@@ -93,12 +93,12 @@ impl TopologyBuilder {
 /// objects of the machine that the caller is allowed to access.
 ///
 /// This default behavior may also be modified through environment variables if
-/// the application did not modify it already. Setting HWLOC_XMLFILE in the
+/// the application did not modify it already. Setting `HWLOC_XMLFILE` in the
 /// environment enforces the discovery from a XML file as if [`from_xml_file()`]
-/// had been called. Setting HWLOC_SYNTHETIC enforces a synthetic topology as if
-/// [`from_synthetic()`] had been called.
+/// had been called. Setting `HWLOC_SYNTHETIC` enforces a synthetic topology as
+/// if [`from_synthetic()`] had been called.
 ///
-/// Finally, HWLOC_THISSYSTEM forces [`Topology::is_this_system()`] to return
+/// Finally, `HWLOC_THISSYSTEM` forces [`Topology::is_this_system()`] to return
 /// true.
 ///
 /// [`from_xml_file()`]: TopologyBuilder::from_xml_file()
@@ -211,7 +211,9 @@ impl TopologyBuilder {
     ///
     /// This works a lot like [`TopologyBuilder::from_xml()`], but takes a file
     /// name as a parameter instead of an XML string. The same effect can be
-    /// achieved by setting the `HWLOC_XMLFILE` environment variable.
+    /// achieved by setting the `HWLOC_XMLFILE` environment variable. The file
+    /// may have been generated earlier with [`Topology::export_xml()`] or
+    /// `lstopo file.xml`.
     ///
     /// # Errors
     ///
@@ -247,7 +249,8 @@ impl TopologyBuilder {
     /// For components with multiple phases, it may also be suffixed with the
     /// name of a phase, for instance "linux:io". A list of components
     /// distributed with hwloc can be found
-    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/plugins.html#plugins_list).
+    /// [in the hwloc
+    /// documentation](https://hwloc.readthedocs.io/en/v2.9/plugins.html#plugins_list).
     ///
     /// This may be used to avoid expensive parts of the discovery process. For
     /// instance, CUDA-specific discovery may be expensive and unneeded while
@@ -255,7 +258,7 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`Rust(NulError)`](NulError) if `name` contains NUL chars.
+    /// - [`NulError`] if `name` contains NUL chars.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_topology_set_components")]
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, HybridError<NulError>> {
@@ -300,6 +303,15 @@ pub enum XMLFileInputError {
     /// Hwloc rejected the XML file path or its contents as invalid
     #[error("hwloc rejected the input file as invalid")]
     Invalid,
+}
+
+bitflags! {
+    /// Flags to be passed to `hwloc_topology_set_components()`
+    #[repr(C)]
+    pub(crate) struct ComponentsFlags: c_ulong {
+        /// Blacklist the target component from being used
+        const BLACKLIST = (1<<0);
+    }
 }
 
 /// # Detection configuration and query
@@ -415,34 +427,6 @@ impl TopologyBuilder {
             ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
         Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
-    }
-}
-
-/// # General-purpose internal utilities
-impl TopologyBuilder {
-    /// Returns the contained hwloc topology pointer for interaction with hwloc.
-    fn as_ptr(&self) -> *const RawTopology {
-        self.0.as_ptr()
-    }
-
-    /// Returns the contained hwloc topology pointer for interaction with hwloc.
-    fn as_mut_ptr(&mut self) -> *mut RawTopology {
-        self.0.as_ptr()
-    }
-}
-
-impl Default for TopologyBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for TopologyBuilder {
-    fn drop(&mut self) {
-        if cfg!(debug_assertions) {
-            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
-        }
-        unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 
@@ -654,15 +638,6 @@ impl Default for BuildFlags {
     }
 }
 
-bitflags! {
-    /// Flags to be passed to `hwloc_topology_set_components()`
-    #[repr(C)]
-    pub(crate) struct ComponentsFlags: c_ulong {
-        /// Blacklist the target component from being used
-        const BLACKLIST = (1<<0);
-    }
-}
-
 /// Rust mapping of the hwloc_type_filter_e enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
@@ -723,4 +698,32 @@ pub enum TypeFilter {
     /// This flag is equivalent to `KeepAll` for Normal, Memory and Misc types
     /// since they are likely important.
     KeepImportant = 3,
+}
+
+/// # General-purpose internal utilities
+impl TopologyBuilder {
+    /// Returns the contained hwloc topology pointer for interaction with hwloc.
+    fn as_ptr(&self) -> *const RawTopology {
+        self.0.as_ptr()
+    }
+
+    /// Returns the contained hwloc topology pointer for interaction with hwloc.
+    fn as_mut_ptr(&mut self) -> *mut RawTopology {
+        self.0.as_ptr()
+    }
+}
+
+impl Default for TopologyBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for TopologyBuilder {
+    fn drop(&mut self) {
+        if cfg!(debug_assertions) {
+            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+        }
+        unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
+    }
 }
