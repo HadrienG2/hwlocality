@@ -91,8 +91,8 @@ impl PartialEq for FeatureSupport {
 impl Eq for FeatureSupport {}
 
 /// Support for discovering information about the topology
-#[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
 pub struct DiscoverySupport {
     pu: c_uchar,
     numa: c_uchar,
@@ -146,8 +146,8 @@ impl DiscoverySupport {
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
-#[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
 pub struct CpuBindingSupport {
     set_thisproc_cpubind: c_uchar,
     get_thisproc_cpubind: c_uchar,
@@ -223,8 +223,8 @@ impl CpuBindingSupport {
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
-#[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
 pub struct MemoryBindingSupport {
     set_thisproc_membind: c_uchar,
     get_thisproc_membind: c_uchar,
@@ -328,8 +328,8 @@ impl MemoryBindingSupport {
 
 /// Miscellaneous support information
 #[cfg(feature = "hwloc-2_3_0")]
-#[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
 pub struct MiscSupport {
     imported_support: c_uchar,
 }

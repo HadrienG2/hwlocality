@@ -824,8 +824,8 @@ bitflags! {
     /// Not all systems support all kinds of binding,
     /// [`Topology::feature_support()`] may be used to query the
     /// actual memory binding support in the currently used operating system.
-    #[repr(C)]
     #[doc(alias = "hwloc_membind_flags_t")]
+    #[repr(C)]
     pub struct MemoryBindingFlags: c_int {
         /// Assume that the target process is single threaded
         ///
@@ -986,11 +986,11 @@ pub(crate) type RawMemoryBindingPolicy = c_int;
 /// Not all systems support all kinds of binding.
 /// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
-#[repr(i32)]
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]
 #[doc(alias = "hwloc_membind_policy_t")]
+#[repr(i32)]
 pub enum MemoryBindingPolicy {
     /// Allocate each memory page individually on the local NUMA
     /// node of the thread that touches it

@@ -34,9 +34,9 @@ use std::{
 ///
 /// Represents the private `hwloc_topology` type that `hwloc_topology_t` API
 /// pointers map to.
-#[repr(C)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_s")]
+#[repr(C)]
 pub(crate) struct RawTopology(IncompleteType);
 
 /// Main entry point to the hwloc API

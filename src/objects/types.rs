@@ -40,11 +40,11 @@ pub(crate) type RawObjectType = c_uint;
 /// It can also help to think of it as comparing the relative depths of each type, so
 /// a `ObjectType::Machine` will be smaller than a `ObjectType::PU` since the machine
 /// contains processing units.
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_type_e")]
 #[doc(alias = "hwloc_obj_type_t")]
-#[repr(u32)]
 #[non_exhaustive]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[repr(u32)]
 pub enum ObjectType {
     /// The root object, a set of processors and memory with cache coherency
     ///
@@ -353,10 +353,10 @@ impl PartialOrd for ObjectType {
 pub(crate) type RawBridgeType = c_uint;
 
 /// Type of one side (upstream or downstream) of an I/O bridge.
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_bridge_type_e")]
 #[doc(alias = "hwloc_obj_bridge_type_t")]
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum BridgeType {
     /// Host-side of a bridge, only possible upstream
     #[doc(alias = "HWLOC_OBJ_BRIDGE_HOST")]
@@ -375,10 +375,10 @@ pub enum BridgeType {
 pub(crate) type RawCacheType = c_uint;
 
 /// Cache type
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_cache_type_e")]
 #[doc(alias = "hwloc_obj_cache_type_t")]
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum CacheType {
     /// Unified cache
     #[doc(alias = "HWLOC_OBJ_CACHE_UNIFIED")]
@@ -401,10 +401,10 @@ pub enum CacheType {
 pub(crate) type RawOSDeviceType = c_uint;
 
 /// Type of a OS device
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_osdev_type_e")]
 #[doc(alias = "hwloc_obj_osdev_type_t")]
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 pub enum OSDeviceType {
     /// Operating system storage device (e.g. block)
     ///

@@ -11,7 +11,6 @@ use thiserror::Error;
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
-///
 pub(crate) type RawDepth = c_int;
 
 /// Valid object/type depth values
@@ -21,22 +20,28 @@ pub enum Depth {
     Normal(u32),
 
     /// Virtual depth for [`ObjectType::NUMANode`]
+    #[doc(alias = "HWLOC_TYPE_DEPTH_NUMANODE")]
     NUMANode,
 
     /// Virtual depth for [`ObjectType::Bridge`]
+    #[doc(alias = "HWLOC_TYPE_DEPTH_BRIDGE")]
     Bridge,
 
     /// Virtual depth for [`ObjectType::PCIDevice`]
+    #[doc(alias = "HWLOC_TYPE_DEPTH_PCI_DEVICE")]
     PCIDevice,
 
     /// Virtual depth for [`ObjectType::OSDevice`]
+    #[doc(alias = "HWLOC_TYPE_DEPTH_OS_DEVICE")]
     OSDevice,
 
     /// Virtual depth for [`ObjectType::Misc`]
+    #[doc(alias = "HWLOC_TYPE_DEPTH_MISC")]
     Misc,
 
     /// Virtual depth for [`ObjectType::MemCache`]
     #[cfg(feature = "hwloc-2_1_0")]
+    #[doc(alias = "HWLOC_TYPE_DEPTH_MEMCACHE")]
     MemCache,
     // NOTE: Add new virtual depths to VIRTUAL_DEPTHS below
 }
@@ -127,10 +132,14 @@ impl From<Depth> for RawDepth {
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum DepthError {
     /// No object of given type exists in the topology
+    #[doc(alias = "HWLOC_TYPE_DEPTH_UNKNOWN")]
     #[error("no object of given type exists in the topology")]
     None,
 
     /// Objects of given type exist at different depths in the topology
+    ///
+    /// You can only get this error while querying the depth of Group objects.
+    #[doc(alias = "HWLOC_TYPE_DEPTH_MULTIPLE")]
     #[error("objects of given type exist at different depths in the topology")]
     Multiple,
 

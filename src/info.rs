@@ -8,21 +8,25 @@ use std::{
 };
 
 /// Key-value string attributes
-#[repr(C)]
+///
+/// Used in multiple places of the hwloc API for extensible metadata.
 #[derive(Eq)]
 #[doc(alias = "hwloc_info_s")]
+#[repr(C)]
 pub struct TextualInfo {
     name: *mut c_char,
     value: *mut c_char,
 }
 //
 impl TextualInfo {
-    /// The name of the ObjectInfo
+    /// Info name
+    #[doc(alias = "hwloc_info_s::name")]
     pub fn name(&self) -> &CStr {
         unsafe { ffi::deref_str(&self.name) }.expect("Infos should have names")
     }
 
-    /// The value of the ObjectInfo
+    /// Info value
+    #[doc(alias = "hwloc_info_s::value")]
     pub fn value(&self) -> &CStr {
         unsafe { ffi::deref_str(&self.value) }.expect("Infos should have values")
     }

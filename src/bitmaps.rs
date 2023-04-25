@@ -493,8 +493,8 @@ macro_rules! impl_bitmap_newtype {
 ///
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
-#[repr(C)]
 #[doc(alias = "hwloc_bitmap_s")]
+#[repr(C)]
 pub(crate) struct RawBitmap(IncompleteType);
 
 /// A generic bitmap, understood by hwloc.
@@ -517,9 +517,9 @@ pub(crate) struct RawBitmap(IncompleteType);
 ///
 /// [`CpuSet`]: crate::cpu::sets::CpuSet
 /// [`NodeSet`]: crate::memory::nodesets::NodeSet
-#[repr(transparent)]
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
+#[repr(transparent)]
 pub struct Bitmap(*mut RawBitmap);
 
 // NOTE: Remember to keep the method signatures and first doc lines in

@@ -308,8 +308,8 @@ pub struct InitiatorsError;
 ///
 /// May be a predefined identifier (see associated consts) or come from
 /// [`TopologyEditor::register_memory_attribute()`].
-#[repr(transparent)]
 #[derive(Copy, Clone, Debug, Default, Display, Eq, Hash, PartialEq)]
+#[repr(transparent)]
 pub(crate) struct MemoryAttributeID(u32);
 //
 impl MemoryAttributeID {
@@ -910,8 +910,8 @@ impl<'target> MemoryAttributeLocation<'target> {
 struct UnknownLocationType(c_int);
 
 /// C version of Location
-#[repr(C)]
 #[derive(Copy, Clone)]
+#[repr(C)]
 pub(crate) struct RawLocation {
     ty: RawLocationType,
     location: RawLocationUnion,
@@ -932,8 +932,8 @@ impl RawLocation {
 /// Type of location
 ///
 /// C enums can't be modeled as Rust enums because new variants would be UB
-#[repr(transparent)]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+#[repr(transparent)]
 pub(crate) struct RawLocationType(c_int);
 //
 impl RawLocationType {
@@ -945,8 +945,8 @@ impl RawLocationType {
 }
 
 /// Actual location
-#[repr(C)]
 #[derive(Copy, Clone)]
+#[repr(C)]
 pub(crate) union RawLocationUnion {
     cpuset: *const RawBitmap,
     object: *const TopologyObject,
@@ -957,8 +957,8 @@ bitflags! {
     ///
     /// By default only NUMA nodes whose locality is exactly the given location
     /// are selected.
-    #[repr(C)]
     #[doc(alias = "hwloc_local_numanode_flag_e")]
+    #[repr(C)]
     pub struct LocalNUMANodeFlags: c_ulong {
         /// Select NUMA nodes whose locality is larger than the given cpuset
         ///
@@ -1022,8 +1022,8 @@ bitflags! {
     /// and returned by [`MemoryAttribute::flags()`].
     ///
     /// At least one of `HIGHER_IS_BEST` and `LOWER_IS_BEST` must be set.
-    #[repr(C)]
     #[doc(alias = "hwloc_memattr_flag_e")]
+    #[repr(C)]
     pub struct MemoryAttributeFlags: c_ulong {
         /// The best nodes for this memory attribute are those with the higher
         /// values

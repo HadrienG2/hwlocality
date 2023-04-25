@@ -809,8 +809,8 @@ bitflags! {
     ///
     /// A kind with a name starting with "MEANS_" specifies whether values are
     /// latencies or bandwidths, if applicable.
-    #[repr(C)]
     #[doc(alias = "hwloc_distances_kind_e")]
+    #[repr(C)]
     pub struct DistancesKind: c_ulong {
         /// These distances were obtained from the operating system or hardware
         #[doc(alias = "HWLOC_DISTANCES_KIND_FROM_OS")]

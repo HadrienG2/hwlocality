@@ -651,8 +651,8 @@ pub(crate) type RawTypeFilter = c_int;
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
-#[repr(i32)]
 #[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
+#[repr(i32)]
 pub enum TypeFilter {
     /// Keep all objects of this type
     ///

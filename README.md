@@ -122,17 +122,18 @@ label](https://github.com/HadrienG2/hwlocality/issues?q=is%3Aopen+is%3Aissue+lab
 track unimplemented features, and are a great place to look for potential
 contributions to this library if you have time!
 
-If you are already familiar with the hwloc C API, you will also be happy to
-know that [`#[doc(alias)]` attributes](https://doc.rust-lang.org/rustdoc/advanced-features.html#add-aliases-for-an-item-in-documentation-search)
+If you are already familiar with the hwloc C API, you will also be happy to know
+that [`#[doc(alias)]` attributes](https://doc.rust-lang.org/rustdoc/advanced-features.html#add-aliases-for-an-item-in-documentation-search)
 are extensively used so that you can search the documentation for hwloc API
-entities like "hwloc_bitmap_t" or "hwloc_set_cpubind" and be redirected to the
-suggested replacement in the Rust API.
+entities like `hwloc_bitmap_t`, `hwloc_set_cpubind` or `hwloc_obj::arity` and
+be redirected to the suggested replacement in the Rust API.
 
-The rare exceptions to this rule are notions that are not needed in Rust due to
-ergonomics improvements permitted by the Rust type system, such as manual
-destructors (just let Drop take care of it) or argument-clarification flags like
-`HWLOC_MEMBIND_BYNODESET` (just pass `NodeSet` or a `CpuSet` to the memory
-binding operations and that flag will internally be set/cleared automatically).
+The main exceptions to this rule are notions that are not needed in Rust due to
+ergonomics improvements permitted by the Rust type system. For example...
+
+- C-style manual destructors are replaced by Drop impls
+- Type argument clarification flags like `HWLOC_MEMBIND_BYNODESET` are replaced
+  by generics that do the right thing. 
 
 ## License
 
