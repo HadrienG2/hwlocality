@@ -37,6 +37,16 @@ pub struct TopologyBuilder(NonNull<RawTopology>);
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 impl TopologyBuilder {
     /// Start building a [`Topology`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::topology::builder::{TopologyBuilder, BuildFlags};
+    /// let flags = BuildFlags::INCLUDE_DISALLOWED;
+    /// let topology = TopologyBuilder::new().with_flags(flags)?.build()?;
+    /// assert_eq!(topology.build_flags(), flags);
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     pub fn new() -> Self {
         let mut topology: *mut RawTopology = std::ptr::null_mut();
         errors::call_hwloc_int_normal("hwloc_topology_init", || unsafe {
@@ -50,6 +60,16 @@ impl TopologyBuilder {
     ///
     /// The binding of the current thread or process may temporarily change
     /// during this call but it will be restored before it returns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use hwlocality::topology::{Topology, builder::BuildFlags};
+    /// let flags = BuildFlags::INCLUDE_DISALLOWED;
+    /// let topology = Topology::builder().with_flags(flags)?.build()?;
+    /// assert_eq!(topology.build_flags(), flags);
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_load")]
     pub fn build(mut self) -> Result<Topology, RawHwlocError> {
         // Finalize the topology building
