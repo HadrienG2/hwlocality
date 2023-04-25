@@ -28,15 +28,7 @@ runs:
       run: |
           curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
           cd hwloc-${HWLOC_VERSION}
-
-          # FIXME: Disable --enable-debug on macOS as it triggers periodical
-          #        hwloc_topology_check and these fail on that platform
-          debug_flag=""
-          if [[ ${{ runner.os }} != 'macOS' ]]; then
-              debug_flag=--enable-debug
-          fi
-          ./configure --prefix="${HOME}/hwloc" ${debug_flag}
-
+          ./configure --prefix="${HOME}/hwloc" --enable-debug
           make -j$(nproc)
           make install
           cd ..
