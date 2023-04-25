@@ -58,7 +58,7 @@ impl TopologyBuilder {
         })?;
 
         // If that was successful, transfer RawTopology ownership to a Topology
-        if cfg!(debug_assertions) {
+        if cfg!(all(debug_assertions, not(target_os = "macos"))) {
             unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
         }
         let result = Topology(self.0);
@@ -419,7 +419,7 @@ impl Default for TopologyBuilder {
 
 impl Drop for TopologyBuilder {
     fn drop(&mut self) {
-        if cfg!(debug_assertions) {
+        if cfg!(all(debug_assertions, not(target_os = "macos"))) {
             unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
         }
         unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
