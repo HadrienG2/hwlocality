@@ -4,7 +4,7 @@ runs:
   using: "composite"
   steps:
     - name: Cache dependencies
-      if: matrix.os != 'windows-latest'
+      if: runner.os != 'Windows'
       id: cache-deps-unix
       uses: actions/cache@v3
       with:
@@ -12,7 +12,7 @@ runs:
         key: ${{ runner.os }}-deps-hwloc${{ env.HWLOC_VERSION }}
 
     - name: Cache dependencies
-      if: matrix.os == 'windows-latest'
+      if: runner.os == 'Windows'
       id: cache-deps-win
       uses: actions/cache@v3
       with:
@@ -22,7 +22,7 @@ runs:
         key: ${{ runner.os }}-deps-pkgconfig${{ env.WIN_PKGCONFIG_VERSION }}-hwloc${{ env.HWLOC_VERSION }}
 
     - name: Install dependencies
-      if: matrix.os != 'windows-latest' && steps.cache-deps-unix.outputs.cache-hit != 'true'
+      if: runner.os != 'Windows' && steps.cache-deps-unix.outputs.cache-hit != 'true'
       shell: bash
       run: |
           curl -L "https://download.open-mpi.org/release/hwloc/v${HWLOC_VERSION_SHORT}/hwloc-${HWLOC_VERSION}.tar.gz" | tar -xz
@@ -34,7 +34,7 @@ runs:
           rm -rf ${HWLOC_VERSION}
 
     - name: Install dependencies
-      if: matrix.os == 'windows-latest' && steps.cache-deps-win.outputs.cache-hit != 'true'
+      if: runner.os == 'Windows' && steps.cache-deps-win.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
           $client = new-object System.Net.WebClient
@@ -85,7 +85,7 @@ runs:
           echo "=========================="
 
     - name: Bring dependencies into PATHs
-      if: matrix.os != 'windows-latest'
+      if: runner.os != 'Windows'
       shell: bash
       run: |
           HWLOC_PREFIX="${HOME}/hwloc"
@@ -93,7 +93,7 @@ runs:
           echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
     - name: Bring dependencies into PATHs
-      if: matrix.os == 'windows-latest'
+      if: runner.os == 'Windows'
       shell: pwsh
       run: |
           $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"

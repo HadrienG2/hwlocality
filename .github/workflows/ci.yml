@@ -163,35 +163,35 @@ jobs:
       - name: Set up hwloc dependencies
         uses: ./.github/actions/setup-hwloc-dependencies
 
-      - name: Output system information
-        if: ${{ matrix.os }} == "ubuntu-latest"
+      - name: Query system information
+        if: runner.os == 'Linux'
         run: hwloc-gather-topology myhost
 
-      - name: Output system information
-        if: ${{ matrix.os }} == "macos-latest"
+      - name: Query system information
+        if: runner.os == 'macOS'
         run: |
             sysctl hw
             sysctl machdep
             hwloc-gather-cpuid
 
-      - name: Output system information
-        if: ${{ matrix.os }} == "windows-latest"
+      - name: Query system information
+        if: runner.os == 'Windows'
         run: |
             coreinfo -cgnlsm
             hwloc-gather-cpuid
 
-      - name: Upload system information
+      - name: Upload file-based system information
         uses: actions/upload-artifact@v3
-        if: ${{ matrix.os }} == "ubuntu-latest"
+        if: runner.os == 'Linux'
         with:
-          name: ubuntu-infos
+          name: Linux-infos
           path: myhost.*
 
       - name: Upload system information
         uses: actions/upload-artifact@v3
-        if: ${{ matrix.os }} != "ubuntu-latest"
+        if: runner.os != 'Linux'
         with:
-          name: ${{ matrix.os }}-infos
+          name: ${{ runner.os }}-infos
           path: cpuid
 
       - name: Run basic tests
