@@ -53,7 +53,7 @@ runs:
             "coreinfo.zip"
           )
           mkdir coreinfo
-          Expand-Archive -Path hwloc.zip -DestinationPath coreinfo -Force
+          Expand-Archive -Path coreinfo.zip -DestinationPath coreinfo
 
           # SourceForge is a very unstable service, it can take many attempts
           # for downloads to succeed...
@@ -70,14 +70,14 @@ runs:
             }
             break
           }
-          Expand-Archive -Path pkg-config.zip -DestinationPath . -Force
+          Expand-Archive -Path pkg-config.zip -DestinationPath .
           mv "pkg-config-lite-${env:WIN_PKGCONFIG_VERSION}" "${env:USERPROFILE}/pkgconfig"
 
           $client.DownloadFile(
             "https://download.open-mpi.org/release/hwloc/v${env:HWLOC_VERSION_SHORT}/hwloc-win64-build-${env:HWLOC_VERSION}.zip",
             "hwloc.zip"
           )
-          Expand-Archive -Path hwloc.zip -DestinationPath . -Force
+          Expand-Archive -Path hwloc.zip -DestinationPath .
           $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
           mv "hwloc-win64-build-${env:HWLOC_VERSION}" "$HWLOC_PREFIX"
 
