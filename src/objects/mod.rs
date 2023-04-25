@@ -162,6 +162,8 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    ///
+    /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_or_below_depth")]
     pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
@@ -219,6 +221,8 @@ impl Topology {
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    ///
+    /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_or_above_depth")]
     pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
         assert!(
