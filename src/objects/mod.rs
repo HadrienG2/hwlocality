@@ -1033,6 +1033,8 @@ impl TopologyObject {
 }
 
 /// # Depth and ancestors
+//
+// Includes functionality inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__ancestors.html
 impl TopologyObject {
     /// Vertical index in the hierarchy
     ///
@@ -1067,6 +1069,7 @@ impl TopologyObject {
     ///
     /// Will return `None` if the requested depth is deeper than the depth of
     /// the current object.
+    #[doc(alias = "hwloc_get_ancestor_obj_by_depth")]
     pub fn ancestor_at_depth(&self, depth: impl Into<Depth>) -> Option<&TopologyObject> {
         // Fast failure path when depth is comparable
         let depth = depth.into();
@@ -1084,36 +1087,69 @@ impl TopologyObject {
     /// Search for the first ancestor with a certain type in ascending order
     ///
     /// Will return `None` if the requested type appears deeper than the
-    /// current object (e.g. `PU`) or doesn't appear in the topology.
+    /// current object or doesn't appear in the topology.
+    #[doc(alias = "hwloc_get_ancestor_obj_by_type")]
     pub fn first_ancestor_with_type(&self, ty: ObjectType) -> Option<&TopologyObject> {
         self.ancestors()
             .find(|ancestor| ancestor.object_type() == ty)
     }
 
-    /// Search for an ancestor that is shared with another object
+    /// Search for the first ancestor that is shared with another object
     ///
-    /// # Panics
-    ///
-    /// If one of the objects has a special depth (memory, I/O...).
-    // FIXME: It should actually be possible to handle that without panicking
-    //        by collecting the list of ancestors up to the first ancestor that
-    //        has a normal depth, then looking up common patterns, and if that
-    //        fails resuming the normal algorithm.
+    /// The search will always succeed unless one of `self` and `other` is the
+    /// root [`Machine`](ObjectType::Machine) object, which has no ancestors.
+    #[doc(alias = "hwloc_get_common_ancestor_obj")]
     pub fn common_ancestor(&self, other: &TopologyObject) -> Option<&TopologyObject> {
         // Handle degenerate case
         if ptr::eq(self, other) {
             return self.parent();
         }
 
-        // Otherwise, follow hwloc's example, but restrict it to normal depths
-        // as I don't think their algorithm is correct for special depths.
-        let u32_depth = |obj: &TopologyObject| {
-            u32::try_from(obj.depth()).expect("Need normal depth for this algorithm")
-        };
-        let mut parent1 = self.parent()?;
-        let mut parent2 = other.parent()?;
+        // Collect ancestors with virtual depths on both sides
+        // Returns the list of ancestors with virtual depths together with the
+        // first ancestor with a normal depth, if any
+        fn collect_virtual_ancestors(
+            obj: &TopologyObject,
+        ) -> (Vec<&TopologyObject>, Option<&TopologyObject>) {
+            let mut ancestors = Vec::new();
+            let mut current = obj;
+            loop {
+                if let Some(parent) = current.parent() {
+                    if let Depth::Normal(_) = parent.depth() {
+                        return (ancestors, Some(parent));
+                    } else {
+                        ancestors.push(parent);
+                        current = parent;
+                    }
+                } else {
+                    return (ancestors, None);
+                }
+            }
+        }
+        let (virtual_ancestors_1, parent1) = collect_virtual_ancestors(self);
+        let (virtual_ancestors_2, parent2) = collect_virtual_ancestors(other);
+
+        // Make sure there is no common ancestor at some virtual depth
+        // (can't avoid O(N²) alg here as virtual depths cannot be compared)
+        for ancestor1 in virtual_ancestors_1 {
+            for ancestor2 in &virtual_ancestors_2 {
+                if ptr::eq(ancestor1, *ancestor2) {
+                    return Some(ancestor1);
+                }
+            }
+        }
+
+        // Now that we have virtual depths taken care of, we can enter a fast
+        // path for parents with normal depths (if any)
+        let mut parent1 = parent1?;
+        let mut parent2 = parent2?;
         loop {
-            // Walk up parent1 and parent2 ancestors, try to reach the same depth
+            // Walk up ancestors, try to reach the same depth.
+            // Only normal depths should be observed all the way through the
+            // ancestor chain, since the parent of a normal object is normal.
+            let u32_depth = |obj: &TopologyObject| {
+                u32::try_from(obj.depth()).expect("Should only observe normal depth here")
+            };
             let depth2 = u32_depth(parent2);
             while u32_depth(parent1) > depth2 {
                 parent1 = parent1.parent()?;
@@ -1141,6 +1177,7 @@ impl TopologyObject {
 
     /// Truth that this object is in the subtree beginning with ancestor
     /// object `subtree_root`
+    #[doc(alias = "hwloc_obj_is_in_subtree")]
     pub fn is_in_subtree(&self, subtree_root: &TopologyObject) -> bool {
         // Take a cpuset-based shortcut on normal objects
         if let (Some(self_cpuset), Some(subtree_cpuset)) = (self.cpuset(), subtree_root.cpuset()) {
@@ -1382,6 +1419,7 @@ impl TopologyObject {
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
+    #[doc(alias = "hwloc_get_next_child")]
     pub fn all_children(&self) -> impl Iterator<Item = &TopologyObject> + Clone + FusedIterator {
         self.normal_children()
             .chain(self.memory_children())
