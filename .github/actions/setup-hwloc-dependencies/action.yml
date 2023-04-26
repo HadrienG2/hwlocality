@@ -7,9 +7,6 @@ inputs:
   hwloc-version-short:
     description: 'Shortened name of the hwloc version, used in download URLs'
     required: true
-  win-pkgconfig-version:
-    description: 'pkgconfiglite version to be installed on Windows'
-    required: true
 runs:
   using: "composite"
   steps:
@@ -50,7 +47,7 @@ runs:
       run: |
           $client = new-object System.Net.WebClient
 
-          # Download sysinternals coreinfo, for system config probing
+          # Download/unpack sysinternals coreinfo, for system config probing
           $client.DownloadFile(
             "https://download.sysinternals.com/files/Coreinfo.zip",
             "coreinfo.zip"
@@ -58,27 +55,16 @@ runs:
           mkdir "${env:USERPROFILE}/coreinfo"
           Expand-Archive -Path coreinfo.zip -DestinationPath "${env:USERPROFILE}/coreinfo"
 
-          # Download pkgconfiglite as a windows pkgconfig impl
-          #
-          # SourceForge is a very unstable service, so it can take many attempts
-          # for downloads to succeed...
-          while ($true) {
-            try {
-              $client.DownloadFile(
-                "https://sourceforge.net/projects/pkgconfiglite/files/${{ inputs.win_pkgconfig-version }}/pkg-config-lite-${{ inputs.win_pkgconfig-version }}_bin-win32.zip",
-                "pkg-config.zip"
-              )
-            } catch {
-              echo "Sourceforge download failed, retrying in 30s..."
-              sleep 30
-              continue
-            }
-            break
-          }
+          # Download/unpack pkgconfiglite as a windows pkgconfig impl
+          # FIXME: Working around broken sourceforge downloads with a savage mirror
+          $client.DownloadFile(
+            "https://github.com/HadrienG2/hwlocality/files/11331438/pkg-config-lite-0.28-1_bin-win32.zip",
+            "pkg-config.zip"
+          )
           Expand-Archive -Path pkg-config.zip -DestinationPath .
           mv "pkg-config-lite-${{ inputs.win-pkgconfig-version }}" "${env:USERPROFILE}/pkgconfig"
 
-          # Download hwloc binary release
+          # Download/unpack hwloc binary release
           $client.DownloadFile(
             "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-win64-build-${{ inputs.hwloc-version }}.zip",
             "hwloc.zip"

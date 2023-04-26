@@ -17,7 +17,6 @@ env:
   RUSTFLAGS: '-D warnings'
   HWLOC_VERSION: '2.9.1'
   HWLOC_VERSION_SHORT: '2.9' # Used in URL to official tarball/binaries
-  WIN_PKGCONFIG_VERSION: '0.28-1'
 
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
@@ -103,7 +102,6 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-          win-pkgconfig-version: ${{ env.WIN_PKGCONFIG_VERSION }}
 
       - name: Type-check the program
         run: cargo check --all-targets ${{ matrix.features }}
@@ -169,7 +167,6 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-          win-pkgconfig-version: ${{ env.WIN_PKGCONFIG_VERSION }}
 
       - name: Collect system information
         uses: ./.github/actions/system-information
@@ -231,7 +228,6 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-          win-pkgconfig-version: ${{ env.WIN_PKGCONFIG_VERSION }}
 
       - name: Collect system information
         uses: ./.github/actions/system-information
