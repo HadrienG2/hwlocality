@@ -27,7 +27,7 @@ runs:
           ~/coreinfo
           ~/hwloc
           ~/pkgconfig
-        key: ${{ runner.os }}-deps-pkgconfig${{ inputs.win-pkgconfig-version }}-hwloc${{ inputs.hwloc-version }}
+        key: ${{ runner.os }}-deps-pkgconfig0.28-1-hwloc${{ inputs.hwloc-version }}
 
     - name: Install dependencies
       if: runner.os != 'Windows' && steps.cache-deps-unix.outputs.cache-hit != 'true'
@@ -62,7 +62,7 @@ runs:
             "pkg-config.zip"
           )
           Expand-Archive -Path pkg-config.zip -DestinationPath .
-          mv "pkg-config-lite-${{ inputs.win-pkgconfig-version }}" "${env:USERPROFILE}/pkgconfig"
+          mv "pkg-config-lite-0.28-1" "${env:USERPROFILE}/pkgconfig"
 
           # Download/unpack hwloc binary release
           $client.DownloadFile(
