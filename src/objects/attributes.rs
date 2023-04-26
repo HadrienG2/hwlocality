@@ -289,8 +289,6 @@ impl GroupAttributes {
 
     /// Internally-used kind of group
     #[allow(unused)]
-    #[doc(alias = "hwloc_group_attr_s::kind")]
-    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
     pub(crate) fn kind(&self) -> u32 {
         self.kind
     }
@@ -314,8 +312,6 @@ impl GroupAttributes {
     /// Flag preventing groups from being automatically merged with identical
     /// parent or children
     #[cfg(feature = "hwloc-2_0_4")]
-    #[doc(alias = "hwloc_group_attr_s::dont_merge")]
-    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::dont_merge")]
     pub fn merging_prevented(&self) -> bool {
         assert!(
             self.dont_merge == 0 || self.dont_merge == 1,

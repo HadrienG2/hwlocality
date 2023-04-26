@@ -1,14 +1,6 @@
 //! Modifying a loaded Topology
-//!
-//! hwloc employs lazy evaluation patterns that are thread-unsafe and violate
-//! Rust's aliasing rules. It is possible to force eager evaluation of the lazy
-//! caches to return to a normal state, but as a result of this design, topology
-//! modifications must be carried out through a proxy object that does not
-//! permit shared references to unevaluated caches to escape.
 
 use super::RawTopology;
-#[cfg(doc)]
-use crate::topology::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
     bitmaps::{BitmapKind, SpecializedBitmap},
     cpu::sets::CpuSet,
@@ -17,6 +9,11 @@ use crate::{
     memory::nodesets::NodeSet,
     objects::TopologyObject,
     topology::Topology,
+};
+#[cfg(doc)]
+use crate::{
+    objects::types::ObjectType,
+    topology::builder::{BuildFlags, TopologyBuilder, TypeFilter},
 };
 use bitflags::bitflags;
 use derive_more::Display;
@@ -40,6 +37,13 @@ impl Topology {
     /// modify the active `Topology` through a [`TopologyEditor`] proxy object,
     /// with the guarantee that by the time `Topology::edit()` returns, the
     /// `Topology` will be back in a state where it is safe to use `&self` again.
+    ///
+    /// In general, the hwlocality binding optimizes the ergonomics and
+    /// performance of reading and using topologies at the expense of making
+    /// them harder and slower to edit. If there were a strong need for more
+    /// efficient topology editing, the right thing to do would be to set up an
+    /// alternate hwloc Rust binding optimized for that, with some code sharing
+    /// with respect to hwlocality.
     #[doc(alias = "hwloc_topology_refresh")]
     pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
         // Set up topology editing
@@ -153,7 +157,7 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// Err([`InvalidParameter`]) will be returned if the input set is invalid.
+    /// Err([`ParameterError`]) will be returned if the input set is invalid.
     /// The topology is not modified in this case.
     ///
     /// # Aborts
@@ -166,7 +170,7 @@ impl TopologyEditor<'_> {
         &mut self,
         set: &Set,
         mut flags: RestrictFlags,
-    ) -> Result<(), InvalidParameter> {
+    ) -> Result<(), ParameterError> {
         // Configure restrict flags correctly depending on the node set type
         match Set::BITMAP_KIND {
             BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
@@ -196,7 +200,7 @@ impl TopologyEditor<'_> {
                     errno: Some(errno),
                 },
             ) => match errno.0 {
-                EINVAL => Err(InvalidParameter),
+                EINVAL => Err(ParameterError),
                 ENOMEM => {
                     eprintln!("Topology stuck in an invalid state, must abort");
                     std::process::abort()
@@ -242,7 +246,7 @@ impl TopologyEditor<'_> {
         .map(std::mem::drop)
     }
 
-    /// Add more structure to the topology by adding an intermediate Group
+    /// Add more structure to the topology by adding an intermediate [`Group`]
     ///
     /// Use the `find_children` callback to specify which [`TopologyObject`]s
     /// should be made children of the newly created Group object. The cpuset
@@ -253,6 +257,13 @@ impl TopologyEditor<'_> {
     ///
     /// Use the `merge` option to control hwloc's propension to merge groups
     /// with hierarchically-identical topology objects.
+    ///
+    /// After insertion, [`TopologyObject::set_subtype()`] can be used to
+    /// display something other than "Group" as the type name for this object in
+    /// `lstopo`, and custom name/value info pairs may be added using
+    /// [`TopologyObject::add_info()`].
+    ///
+    /// [`Group`]: ObjectType::Group
     //
     // NOTE: In the future, find_children will be an
     //       impl FnOnce(&Topology) -> impl IntoIterator<Item = &TopologyObject>
@@ -313,18 +324,17 @@ impl TopologyEditor<'_> {
         }
     }
 
-    /// Add a Misc object as a leaf of the topology
+    /// Add a [`Misc`] object as a leaf of the topology
     ///
-    /// A new Misc object will be created and inserted into the topology as
+    /// A new [`Misc`] object will be created and inserted into the topology as
     /// a child of the node selected by `find_parent`. It is appended to the
     /// list of existing Misc children, without ever adding any intermediate
     /// hierarchy level. This is useful for annotating the topology without
     /// actually changing the hierarchy.
     ///
-    /// `name` is supposed to be unique across all Misc objects in the topology.
-    /// It will be duplicated to setup the new object attributes. If it contains
-    /// some non-printable characters, then they will be dropped when exporting
-    /// to XML.
+    /// `name` is supposed to be unique across all [`Misc`] objects in the
+    /// topology. If it contains some non-printable characters, then they will
+    /// be dropped when exporting to XML.
     ///
     /// The new leaf object will not have any cpuset.
     ///
@@ -332,6 +342,8 @@ impl TopologyEditor<'_> {
     ///
     /// None will be returned if an error occurs or if Misc objects are
     /// filtered out of the topology via [`TypeFilter::KeepNone`].
+    ///
+    /// [`Misc`]: ObjectType::Misc
     #[doc(alias = "hwloc_topology_insert_misc_object")]
     pub fn insert_misc_object(
         &mut self,
@@ -371,6 +383,7 @@ impl TopologyEditor<'_> {
 
 bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
+    #[doc(alias = "hwloc_restrict_flags_e")]
     #[repr(C)]
     pub struct RestrictFlags: c_ulong {
         /// Remove all objects that lost all resources of the target type
@@ -431,19 +444,23 @@ impl Default for RestrictFlags {
 
 /// Requested adjustment to the allowed set of PUs and NUMA nodes
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[doc(alias = "hwloc_allow_flags_e")]
 pub enum AllowSet<'set> {
     /// Mark all objects as allowed in the topology
+    #[doc(alias = "HWLOC_ALLOW_FLAG_ALL")]
     All,
 
     /// Only allow objects that are available to the current process
     ///
     /// Requires [`BuildFlags::ASSUME_THIS_SYSTEM`] so that the set of available
     /// resources can actually be retrieved from the operating system.
+    #[doc(alias = "HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS")]
     LocalRestrictions,
 
     /// Allow a custom set of objects
     ///
     /// You should provide at least one of `cpuset` and `memset`.
+    #[doc(alias = "HWLOC_ALLOW_FLAG_CUSTOM")]
     Custom {
         cpuset: Option<&'set CpuSet>,
         nodeset: Option<&'set NodeSet>,
@@ -479,10 +496,14 @@ pub enum GroupMerge {
     ///
     /// This is useful when the Group itself describes an important feature that
     /// cannot be exposed anywhere else in the hierarchy.
+    #[doc(alias = "hwloc_group_attr_s::dont_merge")]
+    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::dont_merge")]
     Never,
 
     /// Always discard this new group in favor of any existing Group with the
     /// same locality
+    #[doc(alias = "hwloc_group_attr_s::kind")]
+    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
     Always,
 }
 
@@ -500,13 +521,18 @@ pub enum GroupInsertResult<'topology> {
     Existing(&'topology mut TopologyObject),
 
     /// One hwloc API call failed
+    ///
+    /// This can happen if there are conflicting sets in the topology tree,
+    /// if [`Group`](ObjectType::Group) objects are filtered out of the
+    /// topology through [`TypeFilter::KeepNone`], or if the effective CPU set
+    /// or NUMA node set ends up being empty.
     Failed(RawHwlocError),
 }
 
 /// A method was passed an invalid parameter
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("invalid parameter specified")]
-pub struct InvalidParameter;
+pub struct ParameterError;
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
 //       as it would expose &Topology with unevaluated lazy hwloc caches.
