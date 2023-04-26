@@ -3,7 +3,7 @@
 // - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
 // - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
-use crate::ffi;
+use crate::{errors, ffi};
 #[cfg(doc)]
 use crate::{
     objects::TopologyObject,
@@ -214,43 +214,27 @@ pub enum ObjectType {
 
 impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
+    #[doc(alias = "hwloc_obj_type_is_normal")]
     pub fn is_normal(&self) -> bool {
-        let result = unsafe { ffi::hwloc_obj_type_is_normal(self.to_raw()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_obj_type_is_normal returned unexpected result {result}"
-        );
-        result == 1
+        unsafe { self.type_predicate("hwloc_obj_type_is_normal", ffi::hwloc_obj_type_is_normal) }
     }
 
     /// Truth that this is a CPU-side cache type (not MemCache)
+    #[doc(alias = "hwloc_obj_type_is_cache")]
     pub fn is_cpu_cache(&self) -> bool {
-        let result = unsafe { ffi::hwloc_obj_type_is_cache(self.to_raw()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_obj_type_is_cache returned unexpected result {result}"
-        );
-        result == 1
+        unsafe { self.type_predicate("hwloc_obj_type_is_cache", ffi::hwloc_obj_type_is_cache) }
     }
 
     /// Truth that this is a CPU-side data or unified cache type (not MemCache)
+    #[doc(alias = "hwloc_obj_type_is_dcache")]
     pub fn is_cpu_data_cache(&self) -> bool {
-        let result = unsafe { ffi::hwloc_obj_type_is_dcache(self.to_raw()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_obj_type_is_dcache returned unexpected result {result}"
-        );
-        result == 1
+        unsafe { self.type_predicate("hwloc_obj_type_is_dcache", ffi::hwloc_obj_type_is_dcache) }
     }
 
     /// Truth that this is a CPU-side instruction cache type (not MemCache)
+    #[doc(alias = "hwloc_obj_type_is_icache")]
     pub fn is_cpu_instruction_cache(&self) -> bool {
-        let result = unsafe { ffi::hwloc_obj_type_is_icache(self.to_raw()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_obj_type_is_icache returned unexpected result {result}"
-        );
-        result == 1
+        unsafe { self.type_predicate("hwloc_obj_type_is_icache", ffi::hwloc_obj_type_is_icache) }
     }
 
     /// Truth that this is a memory object type (not Normal, I/O or Misc)
@@ -258,13 +242,9 @@ impl ObjectType {
     /// Memory objects are not listed in the main children list, but rather in
     /// the dedicated memory children list. They have special depth values
     /// instead of normal depths like other objects in the main tree.
+    #[doc(alias = "hwloc_obj_type_is_memory")]
     pub fn is_memory(&self) -> bool {
-        let result = unsafe { ffi::hwloc_obj_type_is_memory(self.to_raw()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_obj_type_is_memory returned unexpected result {result}"
-        );
-        result == 1
+        unsafe { self.type_predicate("hwloc_obj_type_is_memory", ffi::hwloc_obj_type_is_memory) }
     }
 
     /// Truth that this is an I/O object type (not Normal, Memory or Misc)
@@ -273,16 +253,12 @@ impl ObjectType {
     /// enabled through the custom flags. They have empty CPU and node sets.
     /// They are not part of the main children list, but rather reside in the
     /// dedicated I/O children list.
+    #[doc(alias = "hwloc_obj_type_is_io")]
     pub fn is_io(&self) -> bool {
-        let result = unsafe { ffi::hwloc_obj_type_is_io(self.to_raw()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_obj_type_is_io returned unexpected result {result}"
-        );
-        result == 1
+        unsafe { self.type_predicate("hwloc_obj_type_is_io", ffi::hwloc_obj_type_is_io) }
     }
 
-    /// Truth that this object type is a leaf of the hardware hierarchy and
+    /// Truth that this object type is a leaf of the normal hierarchy and
     /// cannot have non-Misc children
     pub fn is_leaf(&self) -> bool {
         match self {
@@ -327,8 +303,27 @@ impl ObjectType {
     }
 
     /// Convert to the internal representation used by hwloc
+    ///
+    /// Used to avoid Into/From type inference ambiguities.
     fn to_raw(self) -> RawObjectType {
         RawObjectType::from(self)
+    }
+
+    /// Query the type of some hwloc object
+    ///
+    /// These queries should be simple infaillible lookup tables or boolean
+    /// expressions, without syscalls, so we can assume they don't error out.
+    ///
+    /// # Safety
+    ///
+    /// `pred` must be a valid object type predicate
+    unsafe fn type_predicate(
+        &self,
+        api: &'static str,
+        pred: unsafe extern "C" fn(RawObjectType) -> c_int,
+    ) -> bool {
+        errors::call_hwloc_bool(api, || unsafe { pred(self.to_raw()) })
+            .expect("Object type queries should not fail")
     }
 }
 

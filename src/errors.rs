@@ -73,7 +73,7 @@ pub(crate) fn call_hwloc_ptr_mut<T>(
         Err(RawHwlocError { api, errno })
     }
 }
-//
+
 /// Call an hwloc entry point that returns a `*const T` that should not be null
 pub(crate) fn call_hwloc_ptr<T>(
     api: &'static str,
@@ -81,7 +81,7 @@ pub(crate) fn call_hwloc_ptr<T>(
 ) -> Result<NonNull<T>, RawHwlocError> {
     call_hwloc_ptr_mut(api, || call().cast_mut())
 }
-//
+
 /// Call an hwloc entry point that returns an `int` where -1 signals failure
 ///
 /// This behavior is followed by almost every hwloc API, though unfortunately
@@ -98,6 +98,20 @@ pub(crate) fn call_hwloc_int_normal(
             errno,
         }) => Err(RawHwlocError { api, errno }),
         Err(other_err) => unreachable!("{other_err}"),
+    }
+}
+
+/// Call an hwloc entry point that returns an `int` with standard boolean values
+/// (1 if true, 0 if false)
+pub(crate) fn call_hwloc_bool(
+    api: &'static str,
+    call: impl FnOnce() -> c_int,
+) -> Result<bool, RawHwlocError> {
+    match call_hwloc_int_normal(api, call) {
+        Ok(1) => Ok(true),
+        Ok(0) => Ok(false),
+        Ok(other) => unreachable!("Got unexpected boolean value {other} from {api}"),
+        Err(e) => Err(e),
     }
 }
 

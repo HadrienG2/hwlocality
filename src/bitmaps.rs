@@ -901,12 +901,10 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_isset")]
     pub fn is_set(&self, id: u32) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isset(self.as_ptr(), id) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_isset returned unexpected result {result}"
-        );
-        result == 1
+        errors::call_hwloc_bool("hwloc_bitmap_isset", || unsafe {
+            ffi::hwloc_bitmap_isset(self.as_ptr(), id)
+        })
+        .expect("Should not involve faillible syscalls")
     }
 
     /// Check if all indices are unset
@@ -927,12 +925,10 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_iszero")]
     pub fn is_empty(&self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_iszero(self.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_iszero returned unexpected result {result}"
-        );
-        result == 1
+        errors::call_hwloc_bool("hwloc_bitmap_iszero", || unsafe {
+            ffi::hwloc_bitmap_iszero(self.as_ptr())
+        })
+        .expect("Should not involve faillible syscalls")
     }
 
     /// Check if all indices are set
@@ -950,12 +946,10 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_isfull")]
     pub fn is_full(&self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isfull(self.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_isfull returned unexpected result {result}"
-        );
-        result == 1
+        errors::call_hwloc_bool("hwloc_bitmap_isfull", || unsafe {
+            ffi::hwloc_bitmap_isfull(self.as_ptr())
+        })
+        .expect("Should not involve faillible syscalls")
     }
 
     /// Check the first set index, if any
@@ -1188,12 +1182,10 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_intersects")]
     pub fn intersects(&self, rhs: &Self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_intersects returned unexpected result {result}"
-        );
-        result == 1
+        errors::call_hwloc_bool("hwloc_bitmap_intersects", || unsafe {
+            ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr())
+        })
+        .expect("Should not involve faillible syscalls")
     }
 
     /// Truth that the indices set in `inner` are a subset of those set in `self`
@@ -1213,12 +1205,10 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_isincluded")]
     pub fn includes(&self, inner: &Self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_isincluded returned unexpected result {result}"
-        );
-        result == 1
+        errors::call_hwloc_bool("hwloc_bitmap_isincluded", || unsafe {
+            ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr())
+        })
+        .expect("Should not involve faillible syscalls")
     }
 
     // NOTE: When adding new methodes, remember to add them to impl_newtype_ops too
@@ -1591,12 +1581,10 @@ impl Ord for Bitmap {
 impl PartialEq for Bitmap {
     #[doc(alias = "hwloc_bitmap_isequal")]
     fn eq(&self, other: &Self) -> bool {
-        let result = unsafe { ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr()) };
-        assert!(
-            result == 0 || result == 1,
-            "hwloc_bitmap_isequal returned unexpected result {result}"
-        );
-        result == 1
+        errors::call_hwloc_bool("hwloc_bitmap_isequal", || unsafe {
+            ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr())
+        })
+        .expect("Should not involve faillible syscalls")
     }
 }
 

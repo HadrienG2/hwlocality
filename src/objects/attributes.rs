@@ -315,7 +315,7 @@ impl GroupAttributes {
     pub fn merging_prevented(&self) -> bool {
         assert!(
             self.dont_merge == 0 || self.dont_merge == 1,
-            "Unexpected bool value"
+            "Unexpected hwloc_group_attr_s::dont_merge value"
         );
         self.dont_merge != 0
     }

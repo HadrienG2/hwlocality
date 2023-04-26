@@ -212,15 +212,10 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_is_thissystem")]
     pub fn is_this_system(&self) -> bool {
-        let result = errors::call_hwloc_int_normal("hwloc_topology_is_thissystem", || unsafe {
+        errors::call_hwloc_bool("hwloc_topology_is_thissystem", || unsafe {
             ffi::hwloc_topology_is_thissystem(self.as_ptr())
         })
-        .expect("Unexpected hwloc error");
-        assert!(
-            result == 0 || result == 1,
-            "Unexpected result from hwloc_topology_is_thissystem: {result}"
-        );
-        result == 1
+        .expect("Should not involve faillible syscalls")
     }
 
     /// Supported hwloc features with this topology on this machine
