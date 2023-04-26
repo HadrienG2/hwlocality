@@ -3,7 +3,7 @@
 #[cfg(doc)]
 use crate::cpu::binding::CpuBindingFlags;
 use crate::{
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, HybridError, RawHwlocError},
     ffi,
     path::{self, PathError},

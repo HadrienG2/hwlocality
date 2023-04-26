@@ -9,7 +9,7 @@ use crate::{
     ProcessId,
 };
 #[cfg(doc)]
-use crate::{cpu::sets::CpuSet, topology::support::MemoryBindingSupport};
+use crate::{cpu::cpusets::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};

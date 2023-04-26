@@ -4,7 +4,7 @@
 
 #[cfg(doc)]
 use crate::{
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     memory::nodesets::NodeSet,
     topology::{builder::BuildFlags, Topology},
 };
@@ -515,7 +515,7 @@ pub(crate) struct RawBitmap(IncompleteType);
 /// with the operating system, for which the only failure mode should be running
 /// out of memory. And panicking is the normal way to handle this in Rust.
 ///
-/// [`CpuSet`]: crate::cpu::sets::CpuSet
+/// [`CpuSet`]: crate::cpu::cpusets::CpuSet
 /// [`NodeSet`]: crate::memory::nodesets::NodeSet
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]

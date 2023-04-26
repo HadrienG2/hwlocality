@@ -14,7 +14,7 @@ use self::{
 use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmaps::RawBitmap,
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, HybridError, NulError},
     ffi::{self, LibcString},
     info::TextualInfo,

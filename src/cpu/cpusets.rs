@@ -25,7 +25,7 @@ impl Topology {
     /// considered included in any given set).
     ///
     /// In the common case where `set` is a subset of the root cpuset, this
-    /// operation can be more efficiently performed by using
+    /// iteration can be more efficiently performed by using
     /// [`coarsest_cpuset_partition()`].
     ///
     /// [`coarsest_cpuset_partition()`]: Topology::coarsest_cpuset_partition()
@@ -102,6 +102,7 @@ impl Topology {
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
     /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
@@ -119,7 +120,7 @@ impl Topology {
     /// Get objects included in the given cpuset `set` with a certain type
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
-    /// considered included in any given set). Therefore, an empty Vec will
+    /// considered included in any given set). Therefore, an empty iterator will
     /// always be returned for I/O or Misc objects as they don't have cpusets.
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_type")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_type")]
@@ -166,12 +167,13 @@ impl Topology {
         while !set.includes(parent_cpuset) {
             // While the object intersects without being included, look at children
             let old_parent = parent;
-            for child in parent.normal_children() {
+            'iterate_children: for child in parent.normal_children() {
                 if let Some(child_cpuset) = child.cpuset() {
                     // This child intersects, make it the new parent and recurse
                     if set.intersects(child_cpuset) {
                         parent = child;
                         parent_cpuset = child_cpuset;
+                        break 'iterate_children;
                     }
                 }
             }

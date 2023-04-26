@@ -4,7 +4,7 @@
 use crate::{bitmaps::Bitmap, topology::support::CpuBindingSupport};
 use crate::{
     bitmaps::RawBitmap,
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, FlagsError, HybridError, RawHwlocError},
     ffi,
     topology::{RawTopology, Topology},

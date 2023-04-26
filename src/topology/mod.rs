@@ -14,7 +14,7 @@ use self::{
 use crate::topology::support::MiscSupport;
 use crate::{
     bitmaps::{Bitmap, RawBitmap, SpecializedBitmap},
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, RawHwlocError},
     ffi::{self, IncompleteType},
     memory::nodesets::NodeSet,

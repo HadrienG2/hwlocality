@@ -3,7 +3,7 @@
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, RawHwlocError},
     ffi,
     info::TextualInfo,

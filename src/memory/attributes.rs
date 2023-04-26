@@ -4,7 +4,7 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     bitmaps::RawBitmap,
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::TopologyObject,

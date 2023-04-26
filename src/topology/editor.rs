@@ -3,7 +3,7 @@
 use super::RawTopology;
 use crate::{
     bitmaps::{BitmapKind, SpecializedBitmap},
-    cpu::sets::CpuSet,
+    cpu::cpusets::CpuSet,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     memory::nodesets::NodeSet,

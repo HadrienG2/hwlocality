@@ -2,7 +2,7 @@
 
 #[cfg(doc)]
 use crate::{bitmaps::Bitmap, topology::support::DiscoverySupport};
-use crate::{cpu::sets::CpuSet, impl_bitmap_newtype, objects::depth::Depth, topology::Topology};
+use crate::{cpu::cpusets::CpuSet, impl_bitmap_newtype, objects::depth::Depth, topology::Topology};
 
 /// # NodeSet-specific API
 //
