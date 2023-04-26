@@ -28,7 +28,7 @@ use std::{
 
 /// Trait for manipulating specialized bitmaps in a homogeneous way
 pub trait SpecializedBitmap:
-    AsRef<Bitmap> + AsMut<Bitmap> + Clone + Display + From<Bitmap> + Into<Bitmap> + 'static
+    AsRef<Bitmap> + AsMut<Bitmap> + Clone + Debug + Display + From<Bitmap> + Into<Bitmap> + 'static
 {
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;

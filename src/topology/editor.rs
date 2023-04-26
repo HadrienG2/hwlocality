@@ -4,7 +4,7 @@ use super::RawTopology;
 use crate::{
     bitmaps::{BitmapKind, SpecializedBitmap},
     cpu::cpusets::CpuSet,
-    errors::{self, HybridError, NulError, RawHwlocError},
+    errors::{self, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{self, LibcString},
     memory::nodesets::NodeSet,
     objects::TopologyObject,
@@ -24,7 +24,6 @@ use std::{
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr,
 };
-use thiserror::Error;
 
 /// # Modifying a loaded `Topology`
 //
@@ -157,8 +156,8 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// Err([`ParameterError`]) will be returned if the input set is invalid.
-    /// The topology is not modified in this case.
+    /// Err([`ParameterError`]) will be returned if the input set is
+    /// invalid. The topology is not modified in this case.
     ///
     /// # Aborts
     ///
@@ -170,7 +169,7 @@ impl TopologyEditor<'_> {
         &mut self,
         set: &Set,
         mut flags: RestrictFlags,
-    ) -> Result<(), ParameterError> {
+    ) -> Result<(), ParameterError<Set>> {
         // Configure restrict flags correctly depending on the node set type
         match Set::BITMAP_KIND {
             BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
@@ -200,7 +199,7 @@ impl TopologyEditor<'_> {
                     errno: Some(errno),
                 },
             ) => match errno.0 {
-                EINVAL => Err(ParameterError),
+                EINVAL => Err(ParameterError::from(set.clone())),
                 ENOMEM => {
                     eprintln!("Topology stuck in an invalid state, must abort");
                     std::process::abort()
@@ -528,11 +527,6 @@ pub enum GroupInsertResult<'topology> {
     /// or NUMA node set ends up being empty.
     Failed(RawHwlocError),
 }
-
-/// A method was passed an invalid parameter
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("invalid parameter specified")]
-pub struct ParameterError;
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
 //       as it would expose &Topology with unevaluated lazy hwloc caches.

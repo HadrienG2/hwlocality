@@ -168,20 +168,23 @@ pub enum HybridError<RustError: Error> {
 #[error("string cannot be used by hwloc, it contains the NUL char")]
 pub struct NulError;
 
+/// A method was passed an invalid parameter
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("parameter {0:?} is not valid for this operation")]
+pub struct ParameterError<Parameter: Debug>(Parameter);
+//
+impl<Parameter: Debug> From<Parameter> for ParameterError<Parameter> {
+    fn from(value: Parameter) -> Self {
+        Self(value)
+    }
+}
+
 /// An invalid set of flags was passed to a function
 ///
 /// Many hwloc APIs only accept particular combinations of flags. You may want
 /// to cross-check the documentation of the flags type and that of the function
 /// you were trying to call for more information.
-#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
-#[error("flags {0:?} are not valid for this operation")]
-pub struct FlagsError<Flags: Debug>(Flags);
-//
-impl<Flags: Debug> From<Flags> for FlagsError<Flags> {
-    fn from(value: Flags) -> Self {
-        Self(value)
-    }
-}
+pub type FlagsError<Flags> = ParameterError<Flags>;
 
 /// Error returned when the platform does not support the requested operation
 ///
