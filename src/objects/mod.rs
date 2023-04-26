@@ -249,7 +249,7 @@ impl Topology {
     /// Return the depth of the topology level that contains cache objects whose
     /// attributes match `cache_level` and `cache_type`.
     ///
-    /// This function is similar to calling [depth_for_type()] with
+    /// This function is similar to calling [`depth_for_type()`] with
     /// the corresponding type such as [`ObjectType::L1ICache`], except that it
     /// may also return a unified cache when looking for an instruction cache.
     ///
@@ -280,7 +280,7 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     ///
-    /// [depth_for_type()]: Topology::depth_for_type()
+    /// [`depth_for_type()`]: Topology::depth_for_type()
     #[doc(alias = "hwloc_get_cache_type_depth")]
     pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
         let mut result = Err(DepthError::None);
@@ -1194,6 +1194,7 @@ impl TopologyObject {
     ///
     /// Will always return `None` if called on an I/O or Misc object that does
     /// not contain CPUs.
+    #[doc(alias = "hwloc_get_shared_cache_covering_obj")]
     pub fn first_shared_cache(&self) -> Option<&TopologyObject> {
         let cpuset = self.cpuset()?;
         self.ancestors()
