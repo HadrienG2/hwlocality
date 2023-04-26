@@ -1298,7 +1298,9 @@ impl TopologyObject {
     /// Get the child covering at least the given cpuset `set`
     ///
     /// This function will always return `None` if the given set is empty or
-    /// this TopologyObject doesn't have a cpuset (I/O or Misc objects).
+    /// this TopologyObject doesn't have a cpuset (I/O or Misc objects), as no
+    /// object is considered to cover the empty cpuset.
+    #[doc(alias = "hwloc_get_child_covering_cpuset")]
     pub fn normal_child_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
         self.normal_children()
             .find(|child| child.covers_cpuset(set))

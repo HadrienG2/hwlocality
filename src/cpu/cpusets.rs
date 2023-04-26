@@ -219,7 +219,7 @@ impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
 // but the code had to be ported to Rust because it's inline
 impl Topology {
-    /// Get the lowest object covering at least the given cpuset `set`
+    /// Get the lowest object covering at least the given cpuset `set`, if any
     ///
     /// No object is considered to cover the empty cpuset, therefore such a
     /// request will always return None, as if a set going outside of the root
