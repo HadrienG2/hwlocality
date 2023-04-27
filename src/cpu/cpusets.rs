@@ -1,5 +1,7 @@
 //! CPU sets
 
+#[cfg(feature = "hwloc-2_2_0")]
+use crate::errors;
 #[cfg(doc)]
 use crate::{bitmaps::Bitmap, topology::support::DiscoverySupport};
 use crate::{
@@ -287,26 +289,25 @@ impl Topology {
 impl CpuSet {
     /// Remove simultaneous multithreading PUs from a CPU set
     ///
-    /// For each core in `topology`, if this cpuset contains several PUs of that
-    /// core, modify it to only keep a single PU for that core.
+    /// For each [`Core`] in `topology`, if this cpuset contains several PUs of
+    /// that core, modify it to only keep a single PU for that core.
     ///
     /// `which` specifies which PU will be kept, in physical index order. If it
     /// is set to 0, for each core, the function keeps the first PU that was
     /// originally set in `cpuset`. If it is larger than the number of PUs in a
     /// core there were originally set in `cpuset`, no PU is kept for that core.
     ///
-    /// PUs that are not below a Core object (for instance if the topology does
-    /// not contain any Core object) are kept in the cpuset.
+    /// PUs that are not below a [`Core`] object (for instance if the topology
+    /// does not contain any [`Core`] object) are kept in the cpuset.
+    ///
+    /// [`Core`]: ObjectType::Core
     #[cfg(feature = "hwloc-2_2_0")]
     #[doc(alias = "hwloc_bitmap_singlify_per_core")]
     pub fn singlify_per_core(&mut self, topology: &Topology, which: u32) {
-        let result = unsafe {
+        errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
-        };
-        assert!(
-            result >= 0,
-            "Unexpected result from hwloc_bitmap_singlify_per_core"
-        )
+        })
+        .expect("This should not involve faillible system calls");
     }
 
     /// Convert a NUMA node set into a CPU set

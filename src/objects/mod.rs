@@ -653,6 +653,7 @@ impl Topology {
     /// # Panics
     ///
     /// `obj` must have a cpuset, otherwise this function will panic.
+    #[doc(alias = "hwloc_get_closest_objs")]
     pub fn closest_objects<'result>(
         &'result self,
         obj: &'result TopologyObject,

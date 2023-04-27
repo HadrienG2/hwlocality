@@ -30,7 +30,7 @@ impl Topology {
     /// Bind a thread `tid` on cpus given in `set`
     ///
     /// The behavior is exactly the same as the Linux `sched_setaffinity` system
-    /// call, but uses a hwloc cpuset.
+    /// call, but uses a hwloc [`CpuSet`].
     ///
     /// This is equivalent to calling [`bind_process_cpu()`] with the [`THREAD`]
     /// binding flag.
@@ -50,7 +50,7 @@ impl Topology {
     /// Returns the [`CpuSet`] of PUs which the thread was last bound to.
     ///
     /// The behavior is exactly the same as the Linux `sched_getaffinity` system
-    /// call, but uses a hwloc cpuset.
+    /// call, but uses a hwloc [`CpuSet`].
     ///
     /// This is equivalent to calling [`process_cpu_binding()`] with the
     /// [`THREAD`] binding flag.
