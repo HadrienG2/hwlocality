@@ -28,6 +28,7 @@ use std::{
     iter::FusedIterator,
     ptr,
 };
+use thiserror::Error;
 
 /// # Object levels, depths and types
 ///
@@ -575,6 +576,7 @@ impl Topology {
     /// calling this function with every OS index from the CpuSet.
     ///
     /// Requires [`DiscoverySupport::pu_count()`].
+    #[doc(alias = "hwloc_get_pu_obj_by_os_index")]
     pub fn pu_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::PU)
             .find_map(|(pu, pu_os_index)| (pu_os_index == os_index).then_some(pu))
@@ -583,6 +585,8 @@ impl Topology {
     /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
     ///
     /// Requires [`DiscoverySupport::pu_count()`].
+    ///
+    /// This functionality is specific to the Rust bindings.
     pub fn pus_from_cpuset<'result>(
         &'result self,
         cpuset: &'result CpuSet,
@@ -599,6 +603,7 @@ impl Topology {
     /// calling this function with every OS index from the NodeSet.
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
+    #[doc(alias = "hwloc_get_numanode_obj_by_os_index")]
     pub fn node_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::NUMANode)
             .find_map(|(node, node_os_index)| (node_os_index == os_index).then_some(node))
@@ -608,6 +613,8 @@ impl Topology {
     /// specified nodeset
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
+    ///
+    /// This functionality is specific to the Rust bindings.
     pub fn nodes_from_nodeset<'result>(
         &'result self,
         nodeset: &'result NodeSet,
@@ -624,7 +631,8 @@ impl Topology {
     /// # Panics
     ///
     /// Will panic if the object type appears at more than one depth or do not
-    /// have an OS index.
+    /// have an OS index. As this method is an implementation detail of other
+    /// methods above, the caller should be able to ensure it never happens.
     fn objs_and_os_indices(
         &self,
         ty: ObjectType,
@@ -648,19 +656,21 @@ impl Topology {
 
     /// Enumerate objects at the same depth as `obj`, but with increasing
     /// physical distance (i.e. from increasingly higher common ancestors in the
-    /// topology tree)
+    /// topology tree).
     ///
-    /// # Panics
+    /// This search may only be applied to objects that have a cpuset (normal
+    /// and memory objects).
     ///
-    /// `obj` must have a cpuset, otherwise this function will panic.
+    /// # Errors
+    ///
+    /// - [`MissingCpuSetError`] if `obj` does not have a cpuset.
     #[doc(alias = "hwloc_get_closest_objs")]
     pub fn closest_objects<'result>(
         &'result self,
         obj: &'result TopologyObject,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + 'result {
-        // Track which CPUs map into objects we don't want to report
-        // (current object or already reported object)
-        let mut known_cpuset = obj.cpuset().expect("Target object must have a cpuset");
+    ) -> Result<impl Iterator<Item = &TopologyObject> + Clone + 'result, MissingCpuSetError> {
+        // This search may only be applied to objects with cpusets
+        let obj_cpuset = obj.cpuset().ok_or(MissingCpuSetError)?;
 
         // Assert that an object has a cpuset, return both
         fn obj_and_cpuset<'obj>(
@@ -681,48 +691,49 @@ impl Topology {
                 .map(|ancestor| {
                     obj_and_cpuset(
                         ancestor,
-                        "Ancestors of an obj with a cpuset should have a cpuset",
+                        "Ancestors of an object with a cpuset should have a cpuset",
                     )
                 })
                 .find(|&(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
         }
-        let mut ancestor_and_cpuset = find_larger_parent(obj, known_cpuset);
+        let mut ancestor_and_cpuset = find_larger_parent(obj, obj_cpuset);
 
         // Prepare to jointly iterate over cousins and their cpusets
-        let cousins_and_cpusets = self
+        // On each pass, we're going to find which cousins are covered by the
+        // current ancestor, keeping the other cousins around to iterate over
+        // them again during the next pass with a higher-level ancestor.
+        let mut cousins_and_cpusets = self
             .objects_at_depth(obj.depth())
+            .filter(|cousin_or_obj| !std::ptr::eq(*cousin_or_obj, obj))
             .map(|cousin| {
                 obj_and_cpuset(
                     cousin,
-                    "Cousins of an obj with a cpuset should have a cpuset",
+                    "Cousins of an object with a cpuset should have a cpuset",
                 )
             })
             .collect::<Vec<_>>();
-        let mut cousin_idx = 0;
+        let mut next_cousins_and_cpusets = Vec::new();
 
         // Emit the final iterator
-        std::iter::from_fn(move || {
+        Ok(std::iter::from_fn(move || {
             loop {
-                // Look for a cousin that is part of ancestor_cpuset but not known_cpuset
+                // Look for a cousin that is covered by the current ancestor
                 let (ancestor, ancestor_cpuset) = ancestor_and_cpuset?;
-                while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.get(cousin_idx) {
-                    cousin_idx += 1;
-                    if ancestor_cpuset.includes(cousin_cpuset)
-                        && !known_cpuset.includes(cousin_cpuset)
-                    {
-                        return Some(*cousin);
+                while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.pop() {
+                    if ancestor_cpuset.includes(cousin_cpuset) {
+                        return Some(cousin);
+                    } else {
+                        next_cousins_and_cpusets.push((cousin, cousin_cpuset));
                     }
                 }
 
-                // We ran out of cousins, go up one ancestor level or end
+                // We ran out of cousins, go to a higher-level ancestor or end
                 // iteration if we reached the top of the tree.
-                let known_obj = ancestor;
-                known_cpuset = ancestor_cpuset;
-                let (ancestor, ancestor_cpuset) = find_larger_parent(known_obj, known_cpuset)?;
+                let (ancestor, ancestor_cpuset) = find_larger_parent(ancestor, ancestor_cpuset)?;
                 ancestor_and_cpuset = Some((ancestor, ancestor_cpuset));
-                cousin_idx = 0;
+                std::mem::swap(&mut cousins_and_cpusets, &mut next_cousins_and_cpusets);
             }
-        })
+        }))
     }
 
     /// Find an object via a parent->child chain specified by types and indices
@@ -731,29 +742,36 @@ impl Topology {
     /// this will return the third core object below the second package below
     /// the first NUMA node.
     ///
-    /// # Panics
+    /// This search may only be applied to object types that have a cpuset
+    /// (normal and memory objects).
     ///
-    /// All objects must have a cpuset, otherwise this function will panic.
+    /// # Errors
+    ///
+    /// - [`MissingCpuSetError`] if one of the specified object types does not
+    ///   have a cpuset.
+    #[doc(alias = "hwloc_get_obj_below_array_by_type")]
+    #[doc(alias = "hwloc_get_obj_below_by_type")]
     pub fn object_by_type_index_path(
         &self,
         path: &[(ObjectType, usize)],
-    ) -> Option<&TopologyObject> {
+    ) -> Result<Option<&TopologyObject>, MissingCpuSetError> {
         let mut obj = self.root_object();
         for &(ty, idx) in path {
-            let cpuset = obj
-                .cpuset()
-                .expect("All objects in path should have a cpuset");
-
-            obj = self.objects_inside_cpuset_with_type(cpuset, ty).nth(idx)?;
+            let cpuset = obj.cpuset().ok_or(MissingCpuSetError)?;
+            if let Some(next_obj) = self.objects_inside_cpuset_with_type(cpuset, ty).nth(idx) {
+                obj = next_obj;
+            } else {
+                return Ok(None);
+            }
         }
-        Some(obj)
+        Ok(Some(obj))
     }
 
     /// Find an object of a different type with the same locality
     ///
     /// If the source object src is a normal or memory type, this function
-    /// returns an object of type type with same CPU and node sets, either below
-    /// or above in the hierarchy.
+    /// returns an object of type `ty` with the same CPU and node sets, either
+    /// below or above in the hierarchy.
     ///
     /// If the source object src is a PCI or an OS device within a PCI device,
     /// the function may either return that PCI device, or another OS device in
@@ -810,6 +828,19 @@ impl Topology {
         Ok((!ptr.is_null()).then(|| unsafe { &*ptr }))
     }
 }
+
+/// Error returned when a search algorithm that requires a cpuset is applied to
+/// an object that doesn't have one.
+///
+/// The presence of a cpuset greatly simplifies some search algorithms as it
+/// allows asserting that an object is a child of another with simple bitmap
+/// operations, rather than requiring topology tree traversal. Therefore,
+/// relatively complex search operations may only be applied to objects with a
+/// cpuset (i.e. normal and memory objects) and will fail with this error if
+/// applied to other object types.
+#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
+#[error("an operation that requires a cpuset was applied to an object without one")]
+pub struct MissingCpuSetError;
 
 /// # Finding I/O objects
 //
