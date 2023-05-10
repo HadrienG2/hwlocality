@@ -510,10 +510,11 @@ pub(crate) struct RawBitmap(IncompleteType);
 /// # Panics
 ///
 /// Unlike most hwloc entry points in this crate, `Bitmap` functions always
-/// handle errors by panicking. The rationale for this is that the bitmap is
-/// just a simple data structures, without any kind of complicated interactions
-/// with the operating system, for which the only failure mode should be running
-/// out of memory. And panicking is the normal way to handle this in Rust.
+/// handle unexpected hwloc errors by panicking. The rationale for this is that
+/// the bitmap is just a simple data structures, without any kind of
+/// complicated interactions with the operating system, for which the only
+/// failure mode should be running out of memory. And panicking is the normal
+/// way to handle this in Rust.
 ///
 /// [`CpuSet`]: crate::cpu::cpusets::CpuSet
 /// [`NodeSet`]: crate::memory::nodesets::NodeSet
