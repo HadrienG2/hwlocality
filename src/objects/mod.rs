@@ -15,7 +15,7 @@ use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmaps::RawBitmap,
     cpu::cpusets::CpuSet,
-    errors::{self, HybridError, NulError},
+    errors::{self, HybridError, NulError, ParameterError},
     ffi::{self, LibcString},
     info::TextualInfo,
     memory::nodesets::NodeSet,
@@ -878,30 +878,37 @@ impl Topology {
     /// Find the PCI device object matching the PCI bus id given as a string
     /// of format "xxxx:yy:zz.t" (with domain) or "yy:zz.t" (without domain).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If the given string does not match the PCI bus id format given above
+    /// - [`ParameterError`] if the given string does not match the PCI bus id
+    ///   format given above
     #[doc(alias = "hwloc_get_pcidev_by_busidstring")]
-    pub fn pci_device_by_bus_id_string(&self, bus_id: &str) -> Option<&TopologyObject> {
+    pub fn pci_device_by_bus_id_string(
+        &self,
+        bus_id: &str,
+    ) -> Result<Option<&TopologyObject>, ParameterError<String>> {
+        // Package `bus_id` into an error if need be
+        let make_error = || ParameterError(bus_id.to_owned());
+
         // Assume well-formatted string
-        let parse_domain = |s| PCIDomain::from_str_radix(s, 16).expect("Bad hex domain format");
-        let parse_u8 = |s| u8::from_str_radix(s, 16).expect("Bad hex u8 format");
+        let parse_domain = |s| PCIDomain::from_str_radix(s, 16).map_err(|_| make_error());
+        let parse_u8 = |s| u8::from_str_radix(s, 16).map_err(|_| make_error());
 
         // Extract initial hex (whose semantics are ambiguous at this stage)
-        let (int1, mut rest) = bus_id.split_once(':').expect("Bad address structure");
+        let (int1, mut rest) = bus_id.split_once(':').ok_or_else(make_error)?;
 
         // From presence/absence of second ':', deduce if int1 was a domain or
         // a bus id in the default 0 domain.
         let (domain, bus) = if let Some((bus, next_rest)) = rest.split_once(':') {
             rest = next_rest;
-            (parse_domain(int1), parse_u8(bus))
+            (parse_domain(int1)?, parse_u8(bus)?)
         } else {
-            (0, parse_u8(int1))
+            (0, parse_u8(int1)?)
         };
 
         // Parse device and function IDs, and forward to non-textual lookup
-        let (dev, func) = rest.split_once('.').expect("Bad address structure");
-        self.pci_device_by_bus_id(domain, bus, parse_u8(dev), parse_u8(func))
+        let (dev, func) = rest.split_once('.').ok_or_else(make_error)?;
+        Ok(self.pci_device_by_bus_id(domain, bus, parse_u8(dev)?, parse_u8(func)?))
     }
 
     /// Enumerate OS devices in the system

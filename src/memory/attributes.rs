@@ -143,9 +143,16 @@ impl Topology {
 impl<'topology> TopologyEditor<'topology> {
     /// Register a new memory attribute
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// - `name` contains NUL chars
+    /// - [`BadFlags`] if `flags` does not contain exactly one of the
+    ///   [`HIGHER_IS_BEST`] and [`LOWER_IS_BEST`] flags.
+    /// - [`NameContainsNul`] if `name` contains NUL chars.
+    ///
+    /// [`BadFlags`]: MemoryAttributeRegisterError::BadFlags
+    /// [`HIGHER_IS_BEST`]: [`MemoryAttributeFlags::HIGHER_IS_BEST`]
+    /// [`LOWER_IS_BEST`]: [`MemoryAttributeFlags::LOWER_IS_BEST`]
+    /// [`NameContainsNul`]: MemoryAttributeRegisterError::BadFlags
     #[doc(alias = "hwloc_memattr_register")]
     pub fn register_memory_attribute<'name>(
         &mut self,
@@ -183,18 +190,17 @@ impl<'topology> TopologyEditor<'topology> {
 pub enum MemoryAttributeRegisterError {
     /// Specified flags are not correct
     ///
-    /// You must specify exactly one of [`MemoryAttributeFlags::HIGHER_IS_BEST`]
-    /// and [`MemoryAttributeFlags::LOWER_IS_BEST`].
+    /// You must specify exactly one of the [`HIGHER_IS_BEST`] and
+    /// [`LOWER_IS_BEST`] flags.
+    ///
+    /// [`HIGHER_IS_BEST`]: [`MemoryAttributeFlags::HIGHER_IS_BEST`]
+    /// [`LOWER_IS_BEST`]: [`MemoryAttributeFlags::LOWER_IS_BEST`]
     #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
     BadFlags(MemoryAttributeFlags),
 
     /// Provided `name` contains NUL chars
     #[error("provided name contains NUL chars")]
     NameContainsNul,
-
-    /// A memory attribute with this name already exists
-    #[error("a memory attribute with this name already exists")]
-    AlreadyExists,
 }
 
 /// Mechanism to configure a memory attribute

@@ -11,6 +11,7 @@ use crate::{
     topology::Topology,
 };
 use std::{clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
+use thiserror::Error;
 
 /// # Finding objects inside a CPU set
 //
@@ -47,18 +48,25 @@ impl Topology {
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If the requested cpuset is not a subset of the root cpuset, we can't
-    /// find children covering the indices outside of the root cpuset
+    /// - [`CoarsestPartitionError`] if `set` is larger than the topology's root
+    ///   cpuset (in which case it is impossible to find topology objects
+    ///   covering all of if)
     #[doc(alias = "hwloc_get_largest_objs_inside_cpuset")]
-    pub fn coarsest_cpuset_partition(&self, set: &CpuSet) -> Vec<&TopologyObject> {
+    pub fn coarsest_cpuset_partition(
+        &self,
+        set: &CpuSet,
+    ) -> Result<Vec<&TopologyObject>, CoarsestPartitionError> {
         // Make sure each set index actually maps into a hardware PU
         let root = self.root_object();
-        assert!(
-            set.includes(root.cpuset().expect("Root should have a CPU set")),
-            "Requested set has indices outside the root cpuset"
-        );
+        let root_cpuset = root.cpuset().expect("Root should have a CPU set");
+        if !root_cpuset.includes(set) {
+            return Err(CoarsestPartitionError {
+                query: set.clone(),
+                root: root_cpuset.clone(),
+            });
+        }
 
         // Start recursion
         let mut result = Vec::new();
@@ -96,7 +104,7 @@ impl Topology {
             cpusets.push(subset);
         }
         process_object(root, set, &mut result, &mut cpusets);
-        result
+        Ok(result)
     }
 
     /// Enumerate objects included in the given cpuset `set` at a certain depth
@@ -234,6 +242,18 @@ impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
 }
 //
 impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
+
+/// Error returned by `Topology::coarsest_cpuset_partition` when the input
+/// cpuset is not a subset of the root (topology-wide) cpuset
+#[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
+#[error("input cpuset {query} is not a subset of the root cpuset {root}")]
+pub struct CoarsestPartitionError {
+    /// Requested cpuset
+    pub query: CpuSet,
+
+    /// Root cpuset covering all CPUs in the topology
+    pub root: CpuSet,
+}
 
 /// # Finding objects covering at least a CPU set
 //

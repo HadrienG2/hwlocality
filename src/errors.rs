@@ -185,7 +185,7 @@ pub struct NulError;
 /// A method was passed an invalid parameter
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("parameter {0:?} is not valid for this operation")]
-pub struct ParameterError<Parameter: Debug>(Parameter);
+pub struct ParameterError<Parameter: Debug>(pub Parameter);
 //
 impl<Parameter: Debug> From<Parameter> for ParameterError<Parameter> {
     fn from(value: Parameter) -> Self {
