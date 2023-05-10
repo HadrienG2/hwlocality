@@ -104,7 +104,6 @@ impl Topology {
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
     /// always be returned for I/O or Misc depths as those objects have no cpusets.
-    #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
@@ -117,6 +116,27 @@ impl Topology {
         let depth = depth.into();
         self.objects_at_depth(depth)
             .filter(|object| object.is_inside_cpuset(set))
+    }
+
+    /// Return the logical index among the objects included in CPU set `set`
+    ///
+    /// Consult all objects in the same level as obj and inside CPU set `set` in
+    /// the logical order, and return the index of `obj` within them. If `set`
+    /// covers the entire topology, this is the logical index of `obj`.
+    /// Otherwise, this is similar to a logical index within the part of the
+    /// topology defined by CPU set `set`.
+    ///
+    /// Objects with empty CPU sets are ignored (otherwise they would be
+    /// considered included in any given set). Therefore, `None` will always be
+    /// returned for I/O or Misc depths as those objects have no cpusets.
+    #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
+    pub fn object_index_inside_cpuset<'result>(
+        &'result self,
+        set: &'result CpuSet,
+        obj: &TopologyObject,
+    ) -> Option<usize> {
+        self.objects_inside_cpuset_at_depth(set, obj.depth())
+            .position(|candidate| std::ptr::eq(candidate, obj))
     }
 
     /// Get objects included in the given cpuset `set` with a certain type
