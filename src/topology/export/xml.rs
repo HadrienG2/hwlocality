@@ -56,7 +56,7 @@ impl Topology {
         let path = if let Some(path) = path {
             path::make_hwloc_path(path.as_ref())?
         } else {
-            path::make_hwloc_path(Path::new("-"))?
+            path::make_hwloc_path(Path::new("-")).expect("Known to be valid")
         };
         errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
             ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
@@ -274,6 +274,7 @@ impl PartialOrd for XML<'_> {
 }
 
 impl Drop for XML<'_> {
+    #[doc(alias = "hwloc_free_xmlbuffer")]
     fn drop(&mut self) {
         let addr = self.data.as_ptr().cast::<c_char>();
         unsafe { ffi::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
