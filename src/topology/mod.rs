@@ -29,6 +29,7 @@ use std::{
     num::NonZeroU32,
     ptr::{self, NonNull},
 };
+use thiserror::Error;
 
 /// Opaque topology struct
 ///
@@ -347,7 +348,8 @@ impl Topology {
     /// ancestor chains to locate the first ancestor with CPUs in the topology,
     /// which represents the CPUs closest to the object of interest. If none of
     /// the CPUs of that ancestor is available for binding, that root will be
-    /// ignored.
+    /// ignored, unless this is true of all roots in which case the
+    /// [`EmptyRootsError`] error is returned.
     ///
     /// If there is no depth limit, which is achieved by setting `max_depth` to
     /// `u32::MAX`, the distribution will be done down to the granularity of
@@ -361,10 +363,10 @@ impl Topology {
     /// By setting `flags` to [`DistributeFlags::REVERSE`], you can ask for them
     /// to be provided in reverse order instead (from last child to first child).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// - If there are no CPUs to distribute work to (the union of all root
-    ///   cpusets is empty).
+    /// - [`EmptyRootsError`] if there are no CPUs to distribute work to (the
+    ///   union of all root cpusets is empty).
     #[doc(alias = "hwloc_distrib")]
     pub fn distribute_items(
         &self,
@@ -372,8 +374,11 @@ impl Topology {
         num_items: NonZeroU32,
         max_depth: u32,
         flags: DistributeFlags,
-    ) -> Vec<CpuSet> {
+    ) -> Result<Vec<CpuSet>, EmptyRootsError> {
         // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
+        // With this function, we process an object that is presumed normal,
+        // extract this information, and return it as an Option that is None if
+        // the object has access to no CPUs.
         type ObjSetWeightDepth<'a> = (&'a TopologyObject, &'a CpuSet, u32, u32);
         fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth> {
             debug_assert!(obj.object_type().is_normal());
@@ -472,11 +477,9 @@ impl Topology {
                 .skip_while(|root| !root.object_type().is_normal());
             root_then_ancestors.find_map(decode_normal_obj)
         });
-        assert_ne!(
-            decoded_roots.clone().count(),
-            0,
-            "No valid root to distribute items to"
-        );
+        if decoded_roots.clone().count() == 0 {
+            return Err(EmptyRootsError);
+        }
 
         // Run the recursion, collect results
         let num_items = u32::from(num_items);
@@ -484,7 +487,7 @@ impl Topology {
         let mut result = Vec::with_capacity(num_items_usize);
         recurse(decoded_roots, num_items, max_depth, flags, &mut result);
         debug_assert_eq!(result.len(), num_items_usize);
-        result
+        Ok(result)
     }
 }
 //
@@ -503,6 +506,15 @@ impl Default for DistributeFlags {
         Self::empty()
     }
 }
+//
+/// Error returned when the specified roots contain no accessible CPUs
+///
+/// This can happen if either an empty roots list is specified, or if the
+/// topology was built with [`BuildFlags::INCLUDE_DISALLOWED`] and the specified
+/// roots only contain disallowed CPUs.
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("platform does not support this operation")]
+pub struct EmptyRootsError;
 
 /// # CPU and node sets of entire topologies
 //

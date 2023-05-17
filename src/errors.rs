@@ -178,7 +178,7 @@ pub enum HybridError<RustError: Error> {
 /// Requested string contains the NUL char
 ///
 /// hwloc, like most C APIs, cannot handle strings with inner NULs.
-#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("string cannot be used by hwloc, it contains the NUL char")]
 pub struct NulError;
 
@@ -205,6 +205,6 @@ pub type FlagsError<Flags> = ParameterError<Flags>;
 /// This can be a general statement, or it may be contextual to a particular set
 /// of parameters (e.g. you cannot query a specific ProcessID because you don't
 /// have permission to do so).
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("platform does not support this operation")]
 pub struct UnsupportedError;
