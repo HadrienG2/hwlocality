@@ -307,6 +307,7 @@ pub enum XMLFileInputError {
 
 bitflags! {
     /// Flags to be passed to `hwloc_topology_set_components()`
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub(crate) struct ComponentsFlags: c_ulong {
         /// Blacklist the target component from being used
@@ -481,6 +482,7 @@ impl TopologyBuilder {
 
 bitflags! {
     /// Topology building configuration flags
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_flags_e")]
     #[repr(C)]
     pub struct BuildFlags: c_ulong {

@@ -461,6 +461,7 @@ bitflags! {
     /// Not all systems support all kinds of binding,
     /// [`Topology::feature_support()`] may be used to query the
     /// actual CPU binding support in the currently used operating system.
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct CpuBindingFlags: u32 {
         /// Assume that the target process is single threaded

@@ -490,6 +490,7 @@ impl Topology {
 //
 bitflags! {
     /// Flags to be given to [`Topology::distribute_items()`]
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
