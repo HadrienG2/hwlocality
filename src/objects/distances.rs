@@ -886,7 +886,7 @@ bitflags! {
 //
 impl DistancesKind {
     /// Truth that this kind is in a valid state
-    #[allow(unused_mut, unused_variables)]
+    #[allow(unused_mut, clippy::let_and_return, unused_variables)]
     pub(crate) fn is_valid(self, writing: bool) -> bool {
         let mut result = !((self.contains(Self::FROM_OS) && self.contains(Self::FROM_USER))
             || (self.contains(Self::MEANS_LATENCY) && self.contains(Self::MEANS_BANDWIDTH)));
