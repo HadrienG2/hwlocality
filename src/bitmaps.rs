@@ -529,7 +529,9 @@ pub(crate) struct RawBitmap(IncompleteType);
 ///                     .collect::<Vec<_>>();
 /// let set = cores[0].cpuset().context("Cores should have CPUsets")?
 ///           | cores[1].cpuset().context("Cores should have CPUsets")?;
-/// topology.bind_cpu(&set, CpuBindingFlags::THREAD)?;
+///
+/// #[cfg(not(target_os = "macos"))]
+/// { topology.bind_cpu(&set, CpuBindingFlags::THREAD)?; }
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 ///
