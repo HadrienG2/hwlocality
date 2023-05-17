@@ -1,5 +1,7 @@
 //! Exporting topologies to Synthetic
 
+#[cfg(doc)]
+use crate::topology::builder::TopologyBuilder;
 use crate::{
     errors::{self, RawHwlocError},
     ffi,
@@ -13,6 +15,9 @@ use std::ffi::{c_char, c_ulong, CString};
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 impl Topology {
     /// Export the topology as a synthetic string
+    ///
+    /// This string may be loaded later using
+    /// [`TopologyBuilder::from_synthetic()`].
     ///
     /// I/O and Misc children are ignored, the synthetic string only describes
     /// normal children.
@@ -60,20 +65,23 @@ impl Topology {
 bitflags! {
     /// Flags to be given to [`Topology::export_synthetic()`]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[doc(alias = "hwloc_topology_export_synthetic_flags_e")]
     #[repr(C)]
     pub struct SyntheticExportFlags: c_ulong {
         /// Export extended types such as L2dcache as basic types such as Cache
         ///
         /// This is required if loading the synthetic description with hwloc
         /// < 1.9.
+        #[doc(alias = "HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_EXTENDED_TYPES")]
         const NO_EXTENDED_TYPES = (1<<0);
 
         /// Do not export level attributes
         ///
-        /// Ignore level attributes such as memory/cache sizes or PU indexes.
+        /// Ignore level attributes such as memory/cache sizes or PU indices.
         ///
         /// This is required if loading the synthetic description with hwloc
         /// < 1.10.
+        #[doc(alias = "HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_ATTRS")]
         const NO_ATTRIBUTES = (1<<1);
 
         /// Export the memory hierarchy as expected in hwloc 1.x
@@ -84,6 +92,7 @@ bitflags! {
         /// This is required if loading the synthetic description with hwloc
         /// 1.x. However this may fail if some objects have multiple local NUMA
         /// nodes.
+        #[doc(alias = "HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_V1")]
         const V1 = (1<<2);
 
         /// Do not export memory information
@@ -93,6 +102,7 @@ bitflags! {
         ///
         /// This is useful for when the hierarchy of CPUs is what really matters,
         /// but it behaves as if there was a single machine-wide NUMA node.
+        #[doc(alias = "HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_IGNORE_MEMORY")]
         const IGNORE_MEMORY = (1<<3);
     }
 }
