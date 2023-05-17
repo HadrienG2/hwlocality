@@ -6,6 +6,7 @@
 use crate::{
     cpu::cpusets::CpuSet,
     memory::nodesets::NodeSet,
+    objects::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
 use crate::{
@@ -497,15 +498,40 @@ macro_rules! impl_bitmap_newtype {
 #[repr(C)]
 pub(crate) struct RawBitmap(IncompleteType);
 
-/// A generic bitmap, understood by hwloc.
+/// A generic bitmap, understood by hwloc
 ///
-/// The `Bitmap` represents a set of objects, typically OS processors – which
-/// may actually be hardware threads (represented by the [`CpuSet`] specialized
-/// newtype) or memory nodes (represented by the [`NodeSet`] specialized newtype).
+/// The `Bitmap` type represents a set of integers (positive or null). A bitmap
+/// may be of infinite size (all bits are set after some point). A bitmap may
+/// even be full if all bits are set.
+///
+/// Bitmaps are used by hwloc to represent sets of OS processors (which may
+/// actually be hardware threads), via the [`CpuSet`] newtype, or to represent
+/// sets of NUMA memory nodes via the [`NodeSet`] newtype.
 ///
 /// Both [`CpuSet`] and [`NodeSet`] are always indexed by OS physical number.
+/// However, users should usually not build CPU and node sets manually (e.g.
+/// with [`Bitmap::set()`]). One should rather use the cpu/node sets of existing
+/// [`TopologyObject`]s and combine them through boolean operations. For
+/// instance, binding the current thread on a pair of cores may be performed
+/// with:
 ///
-/// A `Bitmap` may be of infinite size.
+/// ```
+/// # use anyhow::Context;
+/// # use hwlocality::{
+/// #     cpu::binding::CpuBindingFlags,
+/// #     objects::{types::ObjectType, TopologyObject},
+/// # };
+/// #
+/// # let topology = hwlocality::Topology::test_instance();
+/// #
+/// let cores = topology.objects_with_type(ObjectType::PU)
+///                     .take(2)
+///                     .collect::<Vec<_>>();
+/// let set = cores[0].cpuset().context("Cores should have CPUsets")?
+///           | cores[1].cpuset().context("Cores should have CPUsets")?;
+/// topology.bind_cpu(&set, CpuBindingFlags::THREAD)?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 ///
 /// # Panics
 ///
@@ -953,7 +979,8 @@ impl Bitmap {
         .expect("Should not involve faillible syscalls")
     }
 
-    /// Check the first set index, if any
+    /// Check the first set index, if any (there may not be one if the bitmap
+    /// is empty)
     ///
     /// You can iterate over set indices with [`Bitmap::iter_set()`].
     ///
@@ -986,12 +1013,15 @@ impl Bitmap {
     /// let indices = bitmap.iter_set().collect::<Vec<_>>();
     /// assert_eq!(indices, &[4, 5, 6, 7, 8, 9, 10]);
     /// ```
+    #[doc(alias = "hwloc_bitmap_foreach_begin")]
+    #[doc(alias = "hwloc_bitmap_foreach_end")]
     #[doc(alias = "hwloc_bitmap_next")]
     pub fn iter_set(&self) -> BitmapIterator<&Bitmap> {
         BitmapIterator::new(self, Bitmap::next_set)
     }
 
-    /// Check the last set index, if any
+    /// Check the last set index, if any (there may not be one if the bitmap
+    /// is empty or infinitely set)
     ///
     /// # Examples
     ///
@@ -1158,7 +1188,6 @@ impl Bitmap {
     /// assert_eq!("3", format!("{}", bitmap));
     /// assert_eq!("0-2,4-", format!("{}", !bitmap));
     /// ```
-    #[doc(alias = "hwloc_bitmap_not")]
     pub fn invert(&mut self) {
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
@@ -1189,7 +1218,9 @@ impl Bitmap {
         .expect("Should not involve faillible syscalls")
     }
 
-    /// Truth that the indices set in `inner` are a subset of those set in `self`
+    /// Truth that the indices set in `inner` are a subset of those set in `self`.
+    ///
+    /// The empty bitmap is considered included in any other bitmap.
     ///
     /// # Examples
     ///
@@ -1203,6 +1234,11 @@ impl Bitmap {
     /// let bitmap3 = Bitmap::from_range(4..8);
     /// assert!(bitmap1.includes(&bitmap3));
     /// assert!(!bitmap2.includes(&bitmap3));
+    ///
+    /// let empty = Bitmap::new();
+    /// assert!(bitmap1.includes(&empty));
+    /// assert!(bitmap2.includes(&empty));
+    /// assert!(bitmap3.includes(&empty));
     /// ```
     #[doc(alias = "hwloc_bitmap_isincluded")]
     pub fn includes(&self, inner: &Self) -> bool {
@@ -1461,6 +1497,7 @@ impl Display for Bitmap {
 }
 
 impl Drop for Bitmap {
+    #[doc(alias = "hwloc_bitmap_free")]
     fn drop(&mut self) {
         unsafe { ffi::hwloc_bitmap_free(self.as_mut_ptr()) }
     }
