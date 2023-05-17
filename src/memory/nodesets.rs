@@ -22,6 +22,7 @@ impl NodeSet {
     /// set of all nodes that have some local CPUs.
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
+    #[doc(alias = "hwloc_cpuset_to_nodeset")]
     pub fn from_cpuset(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
         let mut nodeset = NodeSet::new();
         for obj in topology.objects_covering_cpuset_at_depth(cpuset, Depth::NUMANode) {

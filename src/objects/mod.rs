@@ -845,7 +845,8 @@ pub struct MissingCpuSetError;
 /// # Finding I/O objects
 //
 // Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html
-// but inline functions had to be reimplemented in Rust
+// but inline functions had to be reimplemented in Rust. Further, queries
+// pertaining to ancestors and children were moved to the corresponding sections.
 impl Topology {
     /// Enumerate PCI devices in the system
     #[doc(alias = "hwloc_get_next_pcidev")]
@@ -876,7 +877,7 @@ impl Topology {
     }
 
     /// Find the PCI device object matching the PCI bus id given as a string
-    /// of format "xxxx:yy:zz.t" (with domain) or "yy:zz.t" (without domain).
+    /// of format "xxxx:yy:zz.t" (with domain) or "yy:zz.t" (without domain)
     ///
     /// # Errors
     ///
@@ -1245,10 +1246,12 @@ impl TopologyObject {
     ///
     /// Find the smallest non-I/O ancestor object. This object (normal or
     /// memory) may then be used for binding because it has CPU and node sets
-    /// and because its locality is the same as this object
+    /// and because its locality is the same as this object.
     #[doc(alias = "hwloc_get_non_io_ancestor_obj")]
-    pub fn non_io_ancestor(&self) -> Option<&TopologyObject> {
-        self.ancestors().find(|obj| obj.cpuset().is_some())
+    pub fn non_io_ancestor(&self) -> &TopologyObject {
+        self.ancestors()
+            .find(|obj| obj.cpuset().is_some())
+            .expect("Per hwloc documentation, there has to be one non-I/O ancestor")
     }
 }
 

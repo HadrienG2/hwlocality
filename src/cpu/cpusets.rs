@@ -363,6 +363,7 @@ impl CpuSet {
     /// set of all CPUs that have some local NUMA nodes.
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
+    #[doc(alias = "hwloc_cpuset_from_nodeset")]
     pub fn from_nodeset(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
         let mut cpuset = CpuSet::new();
         for obj in topology.objects_at_depth(Depth::NUMANode) {
