@@ -621,7 +621,10 @@ impl Topology {
     /// `getter` must be one of the functions described in the ["CPU and node
     /// sets of entire
     /// topologies"](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html)
-    /// section of the hwloc documentation.
+    /// section of the hwloc documentation, which means in particular that it...
+    ///
+    /// - Cannot return NULL
+    /// - Must return a pointer attached to the topology
     unsafe fn topology_set<'topology, Set: SpecializedBitmap>(
         &'topology self,
         getter_name: &'static str,
