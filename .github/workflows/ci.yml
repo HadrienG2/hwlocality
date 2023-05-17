@@ -103,9 +103,6 @@ jobs:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
 
-      - name: Type-check the program
-        run: cargo check --all-targets ${{ matrix.features }}
-
       - name: Check clippy lints
         run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
 
