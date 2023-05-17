@@ -16,6 +16,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use std::{
+    debug_assert,
     ffi::{c_int, c_uint, c_ulong},
     fmt::{self, Debug},
     iter::FusedIterator,
@@ -46,7 +47,9 @@ impl Topology {
 
     /// Retrieve distance matrices for object at a specific depth in the topology
     ///
-    /// Identical to `distances()` with the additional `depth` filter.
+    /// Identical to [`distances()`] with the additional `depth` filter.
+    ///
+    /// [`distances()`]: Topology::distances()
     #[doc(alias = "hwloc_distances_get_by_depth")]
     pub fn distances_at_depth(
         &self,
@@ -70,7 +73,9 @@ impl Topology {
 
     /// Retrieve distance matrices for object with a specific type
     ///
-    /// Identical to `distances()` with the additional `ty` filter.
+    /// Identical to [`distances()`] with the additional `ty` filter.
+    ///
+    /// [`distances()`]: Topology::distances()
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(&self, kind: DistancesKind, ty: ObjectType) -> Vec<Distances> {
         unsafe {
@@ -187,7 +192,8 @@ impl TopologyEditor<'_> {
     /// - [`NameContainsNul`](AddDistancesError::NameContainsNul) if the
     ///   provided `name` contains NUL chars
     /// - [`BadKind`](AddDistancesError::BadKind) if the provided `kind`
-    ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES).
+    ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES)
+    ///   or several of the "FROM_" and "MEANS_" kinds.
     /// - [`BadObjectsCount`](AddDistancesError::BadObjectsCount) if less
     ///   than 2 or more than `u32::MAX` objects are returned by the callback
     ///   (hwloc does not support such configurations).
@@ -213,8 +219,8 @@ impl TopologyEditor<'_> {
         };
         let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
         //
-        if kind.contains(DistancesKind::HETEROGENEOUS_TYPES) {
-            return Err(AddDistancesError::BadKind.into());
+        if !kind.is_valid(true) {
+            return Err(AddDistancesError::BadKind(kind).into());
         }
         let kind = kind.bits();
         //
@@ -271,6 +277,7 @@ impl TopologyEditor<'_> {
 bitflags! {
     /// Flags to be given to [`TopologyEditor::add_distances()`]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[doc(alias = "hwloc_distances_add_flag_e")]
     #[repr(C)]
     pub struct AddDistancesFlags: c_ulong {
         /// Try to group objects based on the newly provided distance information
@@ -304,13 +311,15 @@ pub enum AddDistancesError {
     #[error("provided name contains NUL chars")]
     NameContainsNul,
 
-    /// Provided `kind` contains [`DistancesKind::HETEROGENEOUS_TYPES`]
+    /// Provided `kind` is invalid
     ///
-    /// You should not set this kind yourself, it will be automatically set by
-    /// hwloc through scanning of the provided object list.
+    /// Either it contains [`DistancesKind::HETEROGENEOUS_TYPES`], which should
+    /// not be set by you (it will be automatically set by hwloc through
+    /// scanning of the provided object list), or it contains several of the
+    /// "FROM_" and "MEANS_" kinds, which are mutually exclusive.
     #[cfg(feature = "hwloc-2_1_0")]
-    #[error("provided kind contains HETEROGENEOUS_TYPES")]
-    BadKind,
+    #[error("provided kind is not valid: {0:?}")]
+    BadKind(DistancesKind),
 
     /// Provided callback returned too many or too few objects
     ///
@@ -375,7 +384,10 @@ impl TopologyEditor<'_> {
 
     /// Remove distance matrices for objects at a specific depth in the topology
     ///
-    /// See also [`TopologyEditor::remove_all_distances()`].
+    /// Identical to [`remove_all_distances()`], but only applies to one level
+    /// of the topology.
+    ///
+    /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
     #[doc(alias = "hwloc_distances_remove_by_depth")]
     pub fn remove_distances_at_depth(
         &mut self,
@@ -389,7 +401,10 @@ impl TopologyEditor<'_> {
 
     /// Remove distance matrices for objects of a specific type in the topology
     ///
-    /// See also [`TopologyEditor::remove_all_distances()`].
+    /// Identical to [`remove_all_distances()`], but only applies to one level
+    /// of the topology.
+    ///
+    /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
     #[doc(alias = "hwloc_distances_remove_by_type")]
     pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawHwlocError> {
         let topology = self.topology();
@@ -535,11 +550,15 @@ impl<'topology> Distances<'topology> {
     }
 
     /// Kind of distance matrix
+    #[doc(alias = "hwloc_distances_s::kind")]
     pub fn kind(&self) -> DistancesKind {
-        DistancesKind::from_bits_truncate(self.inner().kind)
+        let result = DistancesKind::from_bits_truncate(self.inner().kind);
+        debug_assert!(result.is_valid(false));
+        result
     }
 
     /// Number of objects described by the distance matrix
+    #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
         usize::try_from(self.inner().nbobj).expect("Impossible number of objects")
     }
@@ -548,6 +567,7 @@ impl<'topology> Distances<'topology> {
     ///
     /// These objects are not in any particular order, see methods below for
     /// easy ways to find objects and corresponding distance values.
+    #[doc(alias = "hwloc_distances_s::objs")]
     pub fn objects(
         &self,
     ) -> impl Iterator<Item = Option<&TopologyObject>>
@@ -631,6 +651,7 @@ impl<'topology> Distances<'topology> {
     ///
     /// If you do not know the indices of the objects that you are looking for,
     /// you may want to use [`Distances::object_distances()`] instead.
+    #[doc(alias = "hwloc_distances_s::values")]
     pub fn distances(&self) -> &[u64] {
         unsafe { std::slice::from_raw_parts(self.inner().values, self.num_distances()) }
     }
@@ -756,7 +777,12 @@ impl<'topology> Distances<'topology> {
     /// similar objects of different types.
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_distances_transform")]
-    pub fn transform(&mut self, transform: DistancesTransform) -> Result<(), RawHwlocError> {
+    pub fn transform(
+        &mut self,
+        transform: DistancesTransform,
+    ) -> Result<(), HybridError<TransformError>> {
+        use errno::Errno;
+        use libc::EINVAL;
         errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
             ffi::hwloc_distances_transform(
                 self.topology.as_ptr(),
@@ -767,6 +793,13 @@ impl<'topology> Distances<'topology> {
             )
         })
         .map(std::mem::drop)
+        .map_err(|e| match e {
+            RawHwlocError {
+                errno: Some(Errno(EINVAL)),
+                ..
+            } if transform == DistancesTransform::RemoveNone => HybridError::Rust(TransformError),
+            other => HybridError::Hwloc(other),
+        })
     }
 }
 //
@@ -780,6 +813,7 @@ impl Debug for Distances<'_> {
 }
 //
 impl Drop for Distances<'_> {
+    #[doc(alias = "hwloc_distances_release")]
     fn drop(&mut self) {
         unsafe { ffi::hwloc_distances_release(self.topology.as_ptr(), self.inner.as_ptr()) }
     }
@@ -808,6 +842,8 @@ bitflags! {
     ///
     /// A kind with a name starting with "MEANS_" specifies whether values are
     /// latencies or bandwidths, if applicable.
+    ///
+    /// Only one of the "FROM_" and "MEANS_" kinds should be present.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
     #[repr(C)]
@@ -847,6 +883,22 @@ bitflags! {
         const HETEROGENEOUS_TYPES = (1<<4);
     }
 }
+//
+impl DistancesKind {
+    /// Truth that this kind is in a valid state
+    #[allow(unused_mut, unused_variables)]
+    pub(crate) fn is_valid(self, writing: bool) -> bool {
+        let mut result = !((self.contains(Self::FROM_OS) && self.contains(Self::FROM_USER))
+            || (self.contains(Self::MEANS_LATENCY) && self.contains(Self::MEANS_BANDWIDTH)));
+
+        #[cfg(feature = "hwloc-2_1_0")]
+        {
+            result &= !(writing && self.contains(Self::HETEROGENEOUS_TYPES));
+        }
+
+        result
+    }
+}
 
 /// Rust mapping of the hwloc_distances_transform_e enum
 ///
@@ -875,7 +927,7 @@ pub enum DistancesTransform {
     /// Remove `None` objects from the distances structure.
     ///
     /// Every object that was replaced with `None` in [`Distances::objects()`]
-    /// is removed and the matric is updated accordingly.
+    /// is removed and the matrix is updated accordingly.
     ///
     /// At least 2 objects must remain, otherwise [`Distances::transform()`]
     /// will fail.
@@ -927,3 +979,10 @@ pub enum DistancesTransform {
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = 3,
 }
+
+/// Error returned when attempting to remove all distances using
+/// [`DistancesTransform::RemoveNone`].
+#[cfg(feature = "hwloc-2_5_0")]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("cannot empty a distance matrix using DistancesTransform::RemoveNone")]
+pub struct TransformError;
