@@ -525,7 +525,7 @@ impl Topology {
     /// This is equivalent to calling [`TopologyObject::cpuset()`] on
     /// the topology's root object.
     #[doc(alias = "hwloc_topology_get_topology_cpuset")]
-    pub fn cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+    pub fn cpuset(&self) -> &CpuSet {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_cpuset",
@@ -539,7 +539,7 @@ impl Topology {
     /// This is equivalent to calling [`TopologyObject::complete_cpuset()`] on
     /// the topology's root object.
     #[doc(alias = "hwloc_topology_get_complete_cpuset")]
-    pub fn complete_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+    pub fn complete_cpuset(&self) -> &CpuSet {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_cpuset",
@@ -558,7 +558,7 @@ impl Topology {
     /// you can get the set of allowed PUs with
     /// `cpuset & topology.allowed_cpuset()`.
     #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
-    pub fn allowed_cpuset(&self) -> Result<&CpuSet, RawHwlocError> {
+    pub fn allowed_cpuset(&self) -> &CpuSet {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_cpuset",
@@ -572,7 +572,7 @@ impl Topology {
     /// This is equivalent to calling [`TopologyObject::nodeset()`] on
     /// the topology's root object.
     #[doc(alias = "hwloc_topology_get_topology_nodeset")]
-    pub fn nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+    pub fn nodeset(&self) -> &NodeSet {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_nodeset",
@@ -586,7 +586,7 @@ impl Topology {
     /// This is equivalent to calling [`TopologyObject::complete_nodeset()`] on
     /// the topology's root object.
     #[doc(alias = "hwloc_topology_get_complete_nodeset")]
-    pub fn complete_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+    pub fn complete_nodeset(&self) -> &NodeSet {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_nodeset",
@@ -605,7 +605,7 @@ impl Topology {
     /// and if so you can get the set of allowed NUMA nodes with
     /// `nodeset & topology.allowed_nodeset()`.
     #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
-    pub fn allowed_nodeset(&self) -> Result<&NodeSet, RawHwlocError> {
+    pub fn allowed_nodeset(&self) -> &NodeSet {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_nodeset",
@@ -618,20 +618,24 @@ impl Topology {
     ///
     /// # Safety
     ///
-    /// The `*const RawBitmap` returned by `getter` must originate from `self`.
+    /// `getter` must be one of the functions described in the ["CPU and node
+    /// sets of entire
+    /// topologies"](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html)
+    /// section of the hwloc documentation.
     unsafe fn topology_set<'topology, Set: SpecializedBitmap>(
         &'topology self,
         getter_name: &'static str,
         getter: unsafe extern "C" fn(*const RawTopology) -> *const RawBitmap,
-    ) -> Result<&Set, RawHwlocError> {
-        Ok(Set::from_bitmap_ref(unsafe {
-            let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))?;
+    ) -> &Set {
+        Set::from_bitmap_ref(unsafe {
+            let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))
+                .expect("According to their docs, these functions cannot return NULL");
             let bitmap_ref = std::mem::transmute::<
                 &NonNull<RawBitmap>,
                 &'topology NonNull<RawBitmap>,
             >(&bitmap_ptr);
             Bitmap::borrow_from_non_null(bitmap_ref)
-        }))
+        })
     }
 }
 
