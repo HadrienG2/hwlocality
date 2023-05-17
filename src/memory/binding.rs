@@ -855,6 +855,7 @@ bitflags! {
     /// Not all systems support all kinds of binding,
     /// [`Topology::feature_support()`] may be used to query the
     /// actual memory binding support in the currently used operating system.
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_membind_flags_t")]
     #[repr(C)]
     pub struct MemoryBindingFlags: c_int {

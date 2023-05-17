@@ -270,6 +270,7 @@ impl TopologyEditor<'_> {
 #[cfg(feature = "hwloc-2_5_0")]
 bitflags! {
     /// Flags to be given to [`TopologyEditor::add_distances()`]
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct AddDistancesFlags: c_ulong {
         /// Try to group objects based on the newly provided distance information
@@ -807,6 +808,7 @@ bitflags! {
     ///
     /// A kind with a name starting with "MEANS_" specifies whether values are
     /// latencies or bandwidths, if applicable.
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
     #[repr(C)]
     pub struct DistancesKind: c_ulong {

@@ -59,6 +59,7 @@ impl Topology {
 
 bitflags! {
     /// Flags to be given to [`Topology::export_synthetic()`]
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct SyntheticExportFlags: c_ulong {
         /// Export extended types such as L2dcache as basic types such as Cache

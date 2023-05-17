@@ -959,6 +959,7 @@ bitflags! {
     ///
     /// By default only NUMA nodes whose locality is exactly the given location
     /// are selected.
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_local_numanode_flag_e")]
     #[repr(C)]
     pub struct LocalNUMANodeFlags: c_ulong {
@@ -1024,6 +1025,7 @@ bitflags! {
     /// and returned by [`MemoryAttribute::flags()`].
     ///
     /// At least one of `HIGHER_IS_BEST` and `LOWER_IS_BEST` must be set.
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_memattr_flag_e")]
     #[repr(C)]
     pub struct MemoryAttributeFlags: c_ulong {

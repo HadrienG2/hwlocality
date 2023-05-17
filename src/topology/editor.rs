@@ -382,6 +382,7 @@ impl TopologyEditor<'_> {
 
 bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_restrict_flags_e")]
     #[repr(C)]
     pub struct RestrictFlags: c_ulong {

@@ -103,6 +103,7 @@ impl Topology {
 
 bitflags! {
     /// Flags to be given to [`Topology::export_xml()`]
+    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct XMLExportFlags: c_ulong {
         /// Export XML that is loadable by hwloc v1.x
