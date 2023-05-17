@@ -18,7 +18,7 @@ impl NodeSet {
     /// indices in the output node set, even if a full CPU set is given in input.
     ///
     /// Hence the entire topology CPU set, that one can query via
-    /// [`Topology::cpuset()`], would be converted by this functino into the
+    /// [`Topology::cpuset()`], would be converted by this function into the
     /// set of all nodes that have some local CPUs.
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
