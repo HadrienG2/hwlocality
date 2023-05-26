@@ -518,20 +518,32 @@ pub(crate) struct RawBitmap(IncompleteType);
 /// ```
 /// # use anyhow::Context;
 /// # use hwlocality::{
-/// #     cpu::binding::CpuBindingFlags,
-/// #     objects::{types::ObjectType, TopologyObject},
+/// #     cpu::{binding::CpuBindingFlags, cpusets::CpuSet},
+/// #     objects::{types::ObjectType},
+/// #     topology::support::{CpuBindingSupport, FeatureSupport},
 /// # };
 /// #
 /// # let topology = hwlocality::Topology::test_instance();
 /// #
-/// let cores = topology.objects_with_type(ObjectType::PU)
-///                     .take(2)
-///                     .collect::<Vec<_>>();
-/// let set = cores[0].cpuset().context("Cores should have CPUsets")?
-///           | cores[1].cpuset().context("Cores should have CPUsets")?;
+/// // We want Cores, but we tolerate PUs on platforms that don't expose Cores
+/// // (either there are no hardware threads or hwloc could not detect them)
+/// let core_depth = topology.depth_or_below_for_type(ObjectType::Core)?;
 ///
-/// #[cfg(not(target_os = "macos"))]
-/// { topology.bind_cpu(&set, CpuBindingFlags::THREAD)?; }
+/// // Yields the first two cores of a multicore system, or
+/// // the only core of a single-core system
+/// let cores = topology.objects_at_depth(core_depth).take(2);
+///
+/// // Compute the union of these cores' CPUsets, that's our CPU binding bitmap
+/// let set = cores.fold(
+///     CpuSet::new(),
+///     |acc, core| { acc | core.cpuset().expect("Cores should have CPUsets") }
+/// );
+///
+/// // Only actually bind if the platform supports it (macOS notably doesn't)
+/// if topology.supports(FeatureSupport::cpu_binding, CpuBindingSupport::set_thread) {
+///     topology.bind_cpu(&set, CpuBindingFlags::THREAD)?;
+/// }
+/// #
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 ///
