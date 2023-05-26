@@ -2,8 +2,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(doc)))]
-// FIXME: Workaround for bitflags issue https://github.com/bitflags/bitflags/pull/354
-#![allow(clippy::assign_op_pattern)]
 
 pub mod bitmaps;
 pub mod cpu;
