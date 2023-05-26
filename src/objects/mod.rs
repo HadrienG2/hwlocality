@@ -247,7 +247,7 @@ impl Topology {
 
     /// Depth for the given cache type and level
     ///
-    /// Return the depth of the topology level that contains cache objects whose
+    /// Returns the depth of the topology level that contains cache objects whose
     /// attributes match `cache_level` and `cache_type`.
     ///
     /// This function is similar to calling [`depth_for_type()`] with

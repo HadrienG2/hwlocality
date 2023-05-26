@@ -134,7 +134,7 @@ impl<'topology> TopologyEditor<'topology> {
         self.0
     }
 
-    /// Returns the contained hwloc topology pointer for interaction with hwloc
+    /// Contained hwloc topology pointer (for interaction with hwloc)
     pub(crate) fn topology_mut_ptr(&mut self) -> *mut RawTopology {
         self.topology_mut().as_mut_ptr()
     }

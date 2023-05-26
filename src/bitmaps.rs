@@ -167,7 +167,7 @@ macro_rules! impl_bitmap_newtype {
                 )
             }
 
-            /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+            /// Contained bitmap pointer (for interaction with hwloc)
             ///
             /// See [`Bitmap::as_ptr`](crate::bitmaps::Bitmap::as_ptr).
             #[allow(unused)]
@@ -175,7 +175,7 @@ macro_rules! impl_bitmap_newtype {
                 self.0.as_ptr()
             }
 
-            /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+            /// Contained mutable bitmap pointer (for interaction with hwloc)
             ///
             /// See [`Bitmap::as_mut_ptr`](crate::bitmaps::Bitmap::as_mut_ptr).
             #[allow(unused)]
@@ -621,12 +621,12 @@ impl Bitmap {
     // NOTE: There is no borrow_mut_from_raw because it would not be safe as if
     //       you expose an &mut Bitmap, the user can trigger Drop.
 
-    /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+    /// Contained bitmap pointer (for interaction with hwloc)
     pub(crate) fn as_ptr(&self) -> *const RawBitmap {
         self.0
     }
 
-    /// Returns the containted hwloc bitmap pointer for interaction with hwloc.
+    /// Contained mutable bitmap pointer (for interaction with hwloc)
     pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
         self.0
     }

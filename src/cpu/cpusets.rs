@@ -126,7 +126,7 @@ impl Topology {
             .filter(|object| object.is_inside_cpuset(set))
     }
 
-    /// Return the logical index among the objects included in CPU set `set`
+    /// Logical index among the objects included in CPU set `set`
     ///
     /// Consult all objects in the same level as obj and inside CPU set `set` in
     /// the logical order, and return the index of `obj` within them. If `set`
@@ -165,7 +165,7 @@ impl Topology {
             .filter(|object| object.is_inside_cpuset(set))
     }
 
-    /// Get the first largest object included in the given cpuset `set`
+    /// First largest object included in the given cpuset `set`
     ///
     /// Returns the first object that is included in `set` and whose parent is
     /// not, in descending depth and children iteration order.

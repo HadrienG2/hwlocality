@@ -644,12 +644,17 @@ impl Topology {
 
 // # General-purpose internal utilities
 impl Topology {
-    /// Returns the contained hwloc topology pointer for interaction with hwloc.
+    /// Contained hwloc topology pointer (for interaction with hwloc)
     pub(crate) fn as_ptr(&self) -> *const RawTopology {
         self.0.as_ptr()
     }
 
-    /// Returns the contained hwloc topology pointer for interaction with hwloc.
+    /// Contained mutable hwloc topology pointer (for interaction with hwloc)
+    ///
+    /// Be warned that as a result of hwloc employing lazy caching techniques,
+    /// almost every interaction that requires `*mut RawTopology` is unsafe
+    /// unless followed by `hwloc_topology_refresh()`. This subtlety is handled
+    /// by the [`Topology::edit()`] mechanism.
     pub(crate) fn as_mut_ptr(&mut self) -> *mut RawTopology {
         self.0.as_ptr()
     }

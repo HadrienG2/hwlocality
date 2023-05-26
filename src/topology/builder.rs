@@ -777,12 +777,12 @@ pub enum TypeFilterError {
 
 /// # General-purpose internal utilities
 impl TopologyBuilder {
-    /// Returns the contained hwloc topology pointer for interaction with hwloc.
+    /// Contained hwloc topology pointer (for interaction with hwloc)
     fn as_ptr(&self) -> *const RawTopology {
         self.0.as_ptr()
     }
 
-    /// Returns the contained hwloc topology pointer for interaction with hwloc.
+    /// Contained mutable hwloc topology pointer (for interaction with hwloc)
     fn as_mut_ptr(&mut self) -> *mut RawTopology {
         self.0.as_ptr()
     }
