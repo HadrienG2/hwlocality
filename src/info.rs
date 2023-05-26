@@ -1,6 +1,6 @@
 //! Textual key-value information
 
-use crate::ffi;
+use crate::ffi::{self, LibcString};
 use std::{
     ffi::{c_char, CStr},
     fmt,
@@ -19,6 +19,21 @@ pub struct TextualInfo {
 }
 //
 impl TextualInfo {
+    /// Build a TextualInfo struct
+    ///
+    /// # Safety
+    ///
+    /// The resulting `TextualInfo` struct may not be used after the end of the
+    /// lifetime of underlying strings `name` and `value`, and its `*mut c_char`
+    /// pointer fields should not be treated as read-only by unsafe code.
+    #[allow(unused)]
+    pub(crate) fn new(name: &LibcString, value: &LibcString) -> Self {
+        Self {
+            name: name.borrow().cast_mut(),
+            value: value.borrow().cast_mut(),
+        }
+    }
+
     /// Info name
     #[doc(alias = "hwloc_info_s::name")]
     pub fn name(&self) -> &CStr {

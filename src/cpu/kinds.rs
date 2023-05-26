@@ -4,8 +4,8 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpusets::CpuSet,
-    errors::{self, RawHwlocError},
-    ffi,
+    errors::{self, HybridError, NulError, RawHwlocError},
+    ffi::{self, LibcString},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -44,7 +44,8 @@ use thiserror::Error;
 /// so, the [`DiscoverySupport::cpukind_efficiency()`] feature support flag
 /// will be set. This is currently available on Windows 10, Mac OS X
 /// (Darwin), and on some Linux platforms where core "capacity" is exposed in
-/// sysfs.
+/// sysfs. Efficiency values will range from 0 to the number of CPU kinds minus
+/// one.
 ///
 /// If the operating system does not expose core efficiencies natively, hwloc
 /// tries to compute efficiencies by comparing CPU kinds using frequencies
@@ -58,7 +59,7 @@ use thiserror::Error;
 /// unknown efficiency (None), and they are not ordered in any specific way.
 ///
 /// The kind that describes a given CPU set (if any, and not partially) may also
-/// be obtained with [`cpu_kind_from_set()`].
+/// be queried with [`cpu_kind_from_set()`].
 ///
 /// [`cpu_kind_from_set()`]: Topology::cpu_kind_from_set()
 /// [`cpu_kinds()`]: Topology::cpu_kinds()
@@ -85,7 +86,8 @@ impl Topology {
     ///
     /// For each CPU kind, provide the [`CpuSet`] of PUs belonging to that kind,
     /// how efficient this CPU kind is (if CPU kind efficiencies are known) and
-    /// other things we know about it in textual form.
+    /// [other things we know about
+    /// it](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_cpukinds).
     ///
     /// # Errors
     ///
@@ -107,6 +109,9 @@ impl Topology {
     }
 
     /// Tell what we know about a CPU kind
+    ///
+    /// This internal method should only be called on CPU kind indices which are
+    /// known to be valid by the high-level APIs.
     fn cpu_kind(&self, kind_index: usize) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
         // Let hwloc tell us everything it knows about this CPU kind
         let kind_index = kind_index as c_uint;
@@ -153,7 +158,9 @@ impl Topology {
     ///   (i.e. some CPUs in the set belong to a kind, others to other kind(s))
     /// - [`NotIncluded`] if `set` is not included in any kind, even partially
     ///   (i.e. CPU kind info isn't known or CPU set does not cover real CPUs)
+    /// - [`InvalidSet`] if the CPU set is considered invalid for another reason
     ///
+    /// [`InvalidSet`]: CpuKindFromSetError::InvalidSet
     /// [`NotIncluded`]: CpuKindFromSetError::NotIncluded
     /// [`PartiallyIncluded`]: CpuKindFromSetError::PartiallyIncluded
     #[doc(alias = "hwloc_cpukinds_get_by_cpuset")]
@@ -175,7 +182,7 @@ impl Topology {
                 EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
                 ENOENT => return Err(CpuKindFromSetError::NotIncluded),
                 EINVAL => return Err(CpuKindFromSetError::InvalidSet),
-                _ => unreachable!("{raw_error}"),
+                _ => unreachable!("Unexpected hwloc error: {raw_error}"),
             },
             Err(raw_error) => unreachable!("{raw_error}"),
         };
@@ -207,15 +214,26 @@ impl<'topology> TopologyEditor<'topology> {
     /// 1 and combines information from A and from the newly-registered kind;
     /// new kind C contains only PU 2 and only gets information from the
     /// newly-registered kind.
-    //
-    // NOTE: Not exposing info setting at the moment because I don't know how to
-    //       make it safe with respect to string allocation/liberation.
     #[doc(alias = "hwloc_cpukinds_register")]
-    pub fn register_cpu_kind(
+    pub fn register_cpu_kind<'infos>(
         &mut self,
         cpuset: &CpuSet,
         forced_efficiency: Option<CpuEfficiency>,
-    ) -> Result<(), RawHwlocError> {
+        infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
+    ) -> Result<(), HybridError<NulError>> {
+        let input_infos = infos.into_iter();
+        let mut infos = Vec::new();
+        let mut infos_ptrs = Vec::new();
+        if let Some(infos_len) = input_infos.size_hint().1 {
+            infos.reserve(infos_len);
+            infos_ptrs.reserve(infos_len);
+        }
+        for (name, value) in input_infos {
+            let (name, value) = (LibcString::new(name)?, LibcString::new(value)?);
+            infos_ptrs.push(TextualInfo::new(&name, &value));
+            infos.push((name, value));
+        }
+
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
             let forced_efficiency = forced_efficiency
                 .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
@@ -224,12 +242,13 @@ impl<'topology> TopologyEditor<'topology> {
                 self.topology_mut_ptr(),
                 cpuset.as_ptr(),
                 forced_efficiency,
-                0,
-                ptr::null(),
+                c_uint::try_from(infos_ptrs.len()).expect("Too many informations"),
+                infos_ptrs.as_ptr(),
                 0,
             )
         })
         .map(std::mem::drop)
+        .map_err(HybridError::Hwloc)
     }
 }
 
