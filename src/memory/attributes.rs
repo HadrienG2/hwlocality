@@ -13,7 +13,7 @@ use crate::{
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::Errno;
-use libc::ENOENT;
+use libc::{EBUSY, EINVAL, ENOENT};
 use std::{
     ffi::{c_int, c_uint, c_ulong, CStr},
     mem::MaybeUninit,
@@ -38,7 +38,7 @@ use thiserror::Error;
 ///
 /// There are also some attributes that are system-wide. Their value does not
 /// depend on a specific initiator performing an access. The memory node
-/// Capacity is an example of such attribute without initiator.
+/// capacity is an example of such attribute without initiator.
 ///
 /// One way to use this API is to start with a cpuset describing the Cores where
 /// a program is bound. The best target NUMA node for allocating memory in this
@@ -59,30 +59,35 @@ use thiserror::Error;
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 impl Topology {
-    /// Return the identifier of the memory attribute with the given name
+    /// Identifier of the memory attribute with the given name
     ///
-    /// Note that a number of predefined memory attributes have predefined
+    /// Note that a number of predefined memory attributes have hard-coded
     /// identifiers and need not be queried by name at runtime, see the
-    /// different constructors of [`MemoryAttribute`] for more information.
+    /// constructors of [`MemoryAttribute`] for more information.
     ///
     /// # Errors
     ///
     /// - [`NulError`] if `name` contains NUL chars.
     #[doc(alias = "hwloc_memattr_get_by_name")]
-    pub fn memory_attribute_named(
-        &self,
-        name: &str,
-    ) -> Result<MemoryAttribute, HybridError<NulError>> {
+    pub fn memory_attribute_named(&self, name: &str) -> Result<Option<MemoryAttribute>, NulError> {
         let name = LibcString::new(name)?;
         let mut id = MaybeUninit::uninit();
-        errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
+        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
             ffi::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(MemoryAttribute::wrap(self, unsafe { id.assume_init() }))
+        });
+        match res {
+            Ok(_positive) => Ok(Some(MemoryAttribute::wrap(self, unsafe {
+                id.assume_init()
+            }))),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Ok(None),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+        }
     }
 
-    /// Return an array of local NUMA nodes
+    /// Find local NUMA nodes
     ///
     /// If `target` is given as a `TopologyObject`, its CPU set is used to
     /// find NUMA nodes with the corresponding locality. If the object does not
@@ -97,12 +102,12 @@ impl Topology {
     /// [`LocalNUMANodeFlags::SMALLER_LOCALITY`], the returned array corresponds
     /// to the nodeset of that object.
     #[doc(alias = "hwloc_get_local_numanode_objs")]
-    pub fn local_numa_nodes(
-        &self,
-        target: TargetNumaNodes,
+    pub fn local_numa_nodes<'topology>(
+        &'topology self,
+        target: impl Into<TargetNumaNodes<'topology>>,
     ) -> Result<Vec<&TopologyObject>, RawHwlocError> {
         // Prepare to call hwloc
-        let (location, flags) = target.into_raw_params();
+        let (location, flags) = target.into().into_raw_params();
         let mut nr = 0;
         let call_ffi = |nr_mut, out_ptr| {
             errors::call_hwloc_int_normal("hwloc_get_local_numanode_objs", || unsafe {
@@ -148,46 +153,58 @@ impl<'topology> TopologyEditor<'topology> {
     /// - [`BadFlags`] if `flags` does not contain exactly one of the
     ///   [`HIGHER_IS_BEST`] and [`LOWER_IS_BEST`] flags.
     /// - [`NameContainsNul`] if `name` contains NUL chars.
+    /// - [`NameTaken`] if another attribute called `name` already exists.
     ///
     /// [`BadFlags`]: MemoryAttributeRegisterError::BadFlags
     /// [`HIGHER_IS_BEST`]: [`MemoryAttributeFlags::HIGHER_IS_BEST`]
     /// [`LOWER_IS_BEST`]: [`MemoryAttributeFlags::LOWER_IS_BEST`]
-    /// [`NameContainsNul`]: MemoryAttributeRegisterError::BadFlags
+    /// [`NameContainsNul`]: MemoryAttributeRegisterError::NameContainsNul
+    /// [`NameTaken`]: MemoryAttributeRegisterError::NameTaken
     #[doc(alias = "hwloc_memattr_register")]
     pub fn register_memory_attribute<'name>(
         &mut self,
         name: &'name str,
         flags: MemoryAttributeFlags,
-    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, HybridError<MemoryAttributeRegisterError>>
-    {
+    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError> {
         if !flags.is_valid() {
-            return Err(MemoryAttributeRegisterError::BadFlags(flags).into());
+            return Err(MemoryAttributeRegisterError::BadFlags(flags));
         }
-        let name = match LibcString::new(name) {
-            Ok(name) => name,
-            Err(NulError) => return Err(MemoryAttributeRegisterError::NameContainsNul.into()),
-        };
+        let name = LibcString::new(name)?;
         let mut id = MemoryAttributeID::default();
-        errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
+        let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
             ffi::hwloc_memattr_register(
                 self.topology_mut_ptr(),
                 name.borrow(),
                 flags.bits(),
                 &mut id,
             )
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(MemoryAttributeBuilder {
-            editor: self,
-            flags,
-            id,
-        })
+        });
+        match res {
+            Ok(_positive) => Ok(MemoryAttributeBuilder {
+                editor: self,
+                flags,
+                id,
+            }),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EBUSY)),
+            }) => Err(MemoryAttributeRegisterError::NameTaken),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+        }
     }
 }
 
 /// Error returned when trying to create an memory attribute
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum MemoryAttributeRegisterError {
+    /// Provided `name` contains NUL chars
+    #[error("provided name contains NUL chars")]
+    NameContainsNul,
+
+    /// Another attribute already uses this name
+    #[error("provided name is already used by another attribute")]
+    NameTaken,
+
     /// Specified flags are not correct
     ///
     /// You must specify exactly one of the [`HIGHER_IS_BEST`] and
@@ -197,10 +214,12 @@ pub enum MemoryAttributeRegisterError {
     /// [`LOWER_IS_BEST`]: [`MemoryAttributeFlags::LOWER_IS_BEST`]
     #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
     BadFlags(MemoryAttributeFlags),
-
-    /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars")]
-    NameContainsNul,
+}
+//
+impl From<NulError> for MemoryAttributeRegisterError {
+    fn from(_: NulError) -> Self {
+        Self::NameContainsNul
+    }
 }
 
 /// Mechanism to configure a memory attribute
@@ -215,14 +234,21 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///
     /// Initiators should be provided if and only if this memory attribute has
     /// an initiator (flag [`MemoryAttributeFlags::NEED_INITIATOR`] was set at
-    /// registration time. In that case, there should be as many initiators as
+    /// registration time). In that case, there should be as many initiators as
     /// there are targets and attribute values.
     ///
     /// # Errors
     ///
-    /// - [`InitiatorsError`] if initiators are specified for attributes that
-    ///   don't have them, are not specified for attributes that have them, or
-    ///   if there are more or less initiators than (target, value) pairs.
+    /// - [`BadInitiatorsCount`] if the number of provided initiators and
+    ///   attribute values does not match.
+    /// - [`NeedInitiators`] if initiators were not specified for an attribute
+    ///   that requires them.
+    /// - [`UnwantedInitiators`] if initiators were specified for an attribute
+    ///   that does not requires them.
+    ///
+    /// [`BadInitiatorsCount`]: InitiatorsError::BadInitiatorsCount
+    /// [`NeedInitiators`]: InitiatorsError::NeedInitiators
+    /// [`UnwantedInitiators`]: InitiatorsError::UnwantedInitiators
     #[doc(alias = "hwloc_memattr_set_value")]
     pub fn set_values(
         &mut self,
@@ -235,20 +261,16 @@ impl MemoryAttributeBuilder<'_, '_> {
     ) -> Result<(), HybridError<InitiatorsError>> {
         // Run user callback, validate results for correctness
         let (initiators, targets_and_values) = find_values(self.editor.topology());
-        if !(self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) ^ initiators.is_some()) {
-            return Err(InitiatorsError.into());
+        if self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_none() {
+            return Err(InitiatorsError::NeedInitiators.into());
         }
-        let size_ok = match (&initiators, &targets_and_values) {
-            (Some(initiators), targets_and_values)
-                if initiators.len() == targets_and_values.len() =>
-            {
-                true
+        if !self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_some() {
+            return Err(InitiatorsError::UnwantedInitiators.into());
+        }
+        if let Some(initiators) = &initiators {
+            if initiators.len() != targets_and_values.len() {
+                return Err(InitiatorsError::BadInitiatorsCount.into());
             }
-            (None, _) => true,
-            _ => false,
-        };
-        if !size_ok {
-            return Err(InitiatorsError.into());
         }
 
         // Post-process results to fit hwloc and borrow checker expectations
@@ -294,17 +316,21 @@ impl MemoryAttributeBuilder<'_, '_> {
 }
 
 /// Error returned by [`MemoryAttributeBuilder::set_values`] when the
-/// `find_values` callback returns an incorrect set of initiators.
-///
-/// Either an initiator had to be specified and was not specified, or the
-/// requested attribute has no notion of initiator (e.g. Capacity) but an
-/// initiator was specified nonetheless.
-///
-/// This error is also emitted if the array of initiators is not sized like
-/// the main (target, value) array.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("find_values returned an invalid initiator set")]
-pub struct InitiatorsError;
+/// `find_values` callback returns an incorrect set of initiators
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum InitiatorsError {
+    /// An initiator was needed, but none was provided
+    #[error("this attribute has an initiator, but none was provided")]
+    NeedInitiators,
+
+    /// Initiators were not needed, but some were provided
+    #[error("initiators were provided, but this attribute does not have them")]
+    UnwantedInitiators,
+
+    /// The number of provided initiators does not match the number of attribute values
+    #[error("the number of provided initiators does not match the number of attribute values")]
+    BadInitiatorsCount,
+}
 
 //// Memory attribute identifier
 ///
@@ -315,6 +341,7 @@ pub struct InitiatorsError;
 pub(crate) struct MemoryAttributeID(u32);
 //
 impl MemoryAttributeID {
+    // See MemoryAttribute constructors below for detailed semantics
     const CAPACITY: Self = Self(0);
     const LOCALITY: Self = Self(1);
     const BANDWIDTH: Self = Self(2);
@@ -386,11 +413,15 @@ impl<'topology> MemoryAttribute<'topology> {
     wrap_ids!(
         /// Node capacity in bytes (see [`TopologyObject::total_memory()`])
         ///
+        /// This attribute involves no initiator.
+        ///
         /// Requires [`DiscoverySupport::numa_memory()`].
         #[doc(alias = "HWLOC_MEMATTR_ID_CAPACITY")]
         CAPACITY -> capacity,
 
         /// Number of PUs in that locality (i.e. cpuset weight)
+        ///
+        /// Smaller locality is better. This attribute involves no initiator.
         ///
         /// Requires [`DiscoverySupport::pu_count()`].
         #[doc(alias = "HWLOC_MEMATTR_ID_LOCALITY")]
@@ -442,12 +473,26 @@ impl<'topology> MemoryAttribute<'topology> {
     }
 
     /// Name of this memory attribute
+    ///
+    /// # Errors
+    ///
+    /// - [`UnknownAttribute`] if no such attribute exists.
+    ///
+    /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_name")]
-    pub fn name(&self) -> Result<&CStr, RawHwlocError> {
+    pub fn name(&self) -> Result<&CStr, MemoryAttributeQueryError> {
         let mut name = ptr::null();
-        errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
+        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
             ffi::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
-        })?;
+        });
+        match res {
+            Ok(_positive) => {}
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => return Err(MemoryAttributeQueryError::UnknownAttribute),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+        }
         assert!(
             !name.is_null(),
             "Memory attributes should have non-NULL names"
@@ -456,8 +501,14 @@ impl<'topology> MemoryAttribute<'topology> {
     }
 
     /// Memory attribute flags
+    ///
+    /// # Errors
+    ///
+    /// - [`UnknownAttribute`] if no such attribute exists.
+    ///
+    /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_flags")]
-    pub fn flags(&self) -> Result<MemoryAttributeFlags, RawHwlocError> {
+    pub fn flags(&self) -> Result<MemoryAttributeFlags, MemoryAttributeQueryError> {
         let flags = if let Some(flags) = self.id.static_flags() {
             flags
         } else {
@@ -468,12 +519,25 @@ impl<'topology> MemoryAttribute<'topology> {
     }
 
     /// Dynamically query this memory attribute's flags
-    fn dynamic_flags(&self) -> Result<MemoryAttributeFlags, RawHwlocError> {
+    ///
+    /// # Errors
+    ///
+    /// - [`UnknownAttribute`] if no such attribute exists.
+    ///
+    /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
+    fn dynamic_flags(&self) -> Result<MemoryAttributeFlags, MemoryAttributeQueryError> {
         let mut flags = 0;
-        errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
+        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
             ffi::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
-        })?;
-        Ok(MemoryAttributeFlags::from_bits_truncate(flags))
+        });
+        match res {
+            Ok(_positive) => Ok(MemoryAttributeFlags::from_bits_truncate(flags)),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Err(MemoryAttributeQueryError::UnknownAttribute),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+        }
     }
 
     /// Value of this attribute for a specific initiator and target NUMA node
@@ -489,18 +553,20 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [BadInitiator] if the `initiator` parameter was not set correctly
+    /// - [`BadInitiator`] if the `initiator` parameter was not set correctly
+    /// - [`UnknownAttribute`] if no such attribute exists.
     ///
-    /// [BadInitiator]: MemoryAttributeQueryError::BadInitiator
+    /// [`BadInitiator`]: MemoryAttributeQueryError::BadInitiator
+    /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_value")]
     pub fn value(
         &self,
-        initiator: Option<MemoryAttributeLocation>,
+        initiator: Option<impl Into<MemoryAttributeLocation<'topology>>>,
         target_node: &TopologyObject,
-    ) -> Result<u64, HybridError<MemoryAttributeQueryError>> {
-        let initiator = self.checked_initiator(initiator, false)?;
+    ) -> Result<u64, MemoryAttributeQueryError> {
+        let initiator = self.checked_initiator(initiator.map(Into::into), false)?;
         let mut value = u64::MAX;
-        errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
+        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
             ffi::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
@@ -509,9 +575,15 @@ impl<'topology> MemoryAttribute<'topology> {
                 0,
                 &mut value,
             )
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(value)
+        });
+        match res {
+            Ok(_positive) => Ok(value),
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Err(MemoryAttributeQueryError::UnknownAttribute),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+        }
     }
 
     /// Best target node and associated attribute value, if any, for a given initiator
@@ -528,16 +600,17 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [BadInitiator] if the `initiator` parameter was not set correctly
+    /// - [`BadInitiator`] if the `initiator` parameter was not set correctly
+    /// - [`UnknownAttribute`] if no such attribute exists.
     ///
-    /// [BadInitiator]: MemoryAttributeQueryError::BadInitiator
+    /// [`BadInitiator`]: MemoryAttributeQueryError::BadInitiator
+    /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_best_target")]
     pub fn best_target(
         &self,
-        initiator: Option<MemoryAttributeLocation>,
-    ) -> Result<Option<(&'topology TopologyObject, u64)>, HybridError<MemoryAttributeQueryError>>
-    {
-        let initiator = self.checked_initiator(initiator, false)?;
+        initiator: Option<impl Into<MemoryAttributeLocation<'topology>>>,
+    ) -> Result<Option<(&'topology TopologyObject, u64)>, MemoryAttributeQueryError> {
+        let initiator = self.checked_initiator(initiator.map(Into::into), false)?;
         let mut best_target = ptr::null();
         let opt = self.get_best(
             "hwloc_memattr_get_best_target",
@@ -566,24 +639,19 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [NoInitiator] if this attribute cannot have an initiator
+    /// - [`NoInitiator`] if this attribute does not relate to a specific initiator
+    /// - [`UnknownAttribute`] if no such attribute exists.
     ///
-    /// [NoInitiator]: MemoryAttributeQueryError::NoInitiator
+    /// [`NoInitiator`]: MemoryAttributeQueryError::NoInitiator
+    /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_best_initiator")]
     pub fn best_initiator(
         &self,
         target: &TopologyObject,
-    ) -> Result<
-        Option<(MemoryAttributeLocation<'topology>, u64)>,
-        HybridError<MemoryAttributeQueryError>,
-    > {
+    ) -> Result<Option<(MemoryAttributeLocation<'topology>, u64)>, MemoryAttributeQueryError> {
         // Validate the query
-        if !self
-            .flags()
-            .map_err(HybridError::Hwloc)?
-            .contains(MemoryAttributeFlags::NEED_INITIATOR)
-        {
-            return Err(MemoryAttributeQueryError::NoInitiator.into());
+        if !self.flags()?.contains(MemoryAttributeFlags::NEED_INITIATOR) {
+            return Err(MemoryAttributeQueryError::NoInitiator);
         }
 
         // Run it
@@ -604,8 +672,8 @@ impl<'topology> MemoryAttribute<'topology> {
         Ok(opt.map(|value| (unsafe { self.encapsulate_initiator(best_initiator) }, value)))
     }
 
-    /// Return the target NUMA nodes that have some values for a given
-    /// attribute, along with the associated values.
+    /// Target NUMA nodes that have some values for a given attribute, along
+    /// with the associated values.
     ///
     /// An `initiator` may only be specified if this attribute has the flag
     /// [`MemoryAttributeFlags::NEED_INITIATOR`]. In that case, it acts as a
@@ -624,17 +692,17 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [BadInitiator] if the `initiator` parameter was not set correctly
+    /// - [`BadInitiator`] if the `initiator` parameter was not set correctly
     ///
-    /// [BadInitiator]: MemoryAttributeQueryError::BadInitiator
+    /// [`BadInitiator`]: MemoryAttributeQueryError::BadInitiator
     #[doc(alias = "hwloc_memattr_get_targets")]
     pub fn targets(
         &self,
-        initiator: Option<MemoryAttributeLocation>,
+        initiator: Option<impl Into<MemoryAttributeLocation<'topology>>>,
     ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
     {
         // Check parameters and query target list + associated values
-        let initiator = self.checked_initiator(initiator, true)?;
+        let initiator = self.checked_initiator(initiator.map(Into::into), true)?;
         let (targets, values) = self.array_query(
             "hwloc_memattr_get_targets",
             ptr::null(),
@@ -653,8 +721,8 @@ impl<'topology> MemoryAttribute<'topology> {
         Ok((targets, values))
     }
 
-    /// Return the initiators that have values for a given attribute for a
-    /// specific target NUMA node, along with the associated values
+    /// Initiators that have values for a given attribute for a specific target
+    /// NUMA node, along with the associated values
     ///
     /// This function is meant for tools and debugging (listing internal
     /// information) rather than for application queries. Applications should
@@ -663,9 +731,9 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [NoInitiator] if this attribute cannot have an initiator
+    /// - [`NoInitiator`] if this attribute does not relate to a specific initiator
     ///
-    /// [NoInitiator]: MemoryAttributeQueryError::NoInitiator
+    /// [`NoInitiator`]: MemoryAttributeQueryError::NoInitiator
     #[doc(alias = "hwloc_memattr_get_initiators")]
     pub fn initiators(
         &self,
@@ -673,11 +741,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ) -> Result<(Vec<MemoryAttributeLocation>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
     {
         // Validate the query
-        if !self
-            .flags()
-            .map_err(HybridError::Hwloc)?
-            .contains(MemoryAttributeFlags::NEED_INITIATOR)
-        {
+        if !self.flags()?.contains(MemoryAttributeFlags::NEED_INITIATOR) {
             return Err(MemoryAttributeQueryError::NoInitiator.into());
         }
 
@@ -764,7 +828,12 @@ impl<'topology> MemoryAttribute<'topology> {
                 api: _,
                 errno: Some(Errno(ENOENT)),
             }) => Ok(None),
-            Err(raw_err) => unreachable!("{raw_err}"),
+            // All cases other than "no such attribute" should be handled by the caller
+            Err(RawHwlocError {
+                api: _,
+                errno: Some(Errno(EINVAL)),
+            }) => Err(MemoryAttributeQueryError::UnknownAttribute),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
 
@@ -802,8 +871,8 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         initiator: Option<MemoryAttributeLocation>,
         is_optional: bool,
-    ) -> Result<RawLocation, HybridError<MemoryAttributeQueryError>> {
-        let flags = self.flags().map_err(HybridError::Hwloc)?;
+    ) -> Result<RawLocation, MemoryAttributeQueryError> {
+        let flags = self.flags()?;
         let is_good = if is_optional {
             flags.contains(MemoryAttributeFlags::NEED_INITIATOR) || initiator.is_none()
         } else {
@@ -815,25 +884,29 @@ impl<'topology> MemoryAttribute<'topology> {
                     .map(MemoryAttributeLocation::into_raw)
                     .unwrap_or_else(RawLocation::null)
             })
-            .ok_or(MemoryAttributeQueryError::BadInitiator.into())
+            .ok_or(MemoryAttributeQueryError::BadInitiator)
     }
 }
 
 /// Error while querying a memory attribute
 #[derive(Copy, Clone, Debug, Error)]
 pub enum MemoryAttributeQueryError {
+    /// No such memory attribute exists
+    #[error("no such memory attribute exists")]
+    UnknownAttribute,
+
     /// Incorrect `initiator` parameter
     ///
     /// Either an initiator had to be specified and was not specified, or the
-    /// requested attribute has no notion of initiator (e.g. Capacity) but an
-    /// initiator was specified nonetheless.
+    /// requested attribute has no notion of initiator but an initiator
+    /// was specified nonetheless.
     #[error("specified initiator is incorrect for this memory attribute")]
     BadInitiator,
 
-    /// Memory attribute has no initiator
+    /// Asked for an initiator, but this memory attribute doesn't have one
     ///
-    /// This error occurs when querying for initiators on attributes that do not
-    /// have initiators (e.g. Capacity).
+    /// This error occurs when querying initiators on attributes that do not
+    /// have initiators (like NUMA node capacity).
     #[error("requested a memory attribute's initiator, but it has none")]
     NoInitiator,
 }
@@ -905,6 +978,18 @@ impl<'target> MemoryAttributeLocation<'target> {
             },
             unknown => Err(UnknownLocationType(unknown.0)),
         }
+    }
+}
+//
+impl<'target> From<&'target CpuSet> for MemoryAttributeLocation<'target> {
+    fn from(cpuset: &'target CpuSet) -> Self {
+        Self::CpuSet(cpuset)
+    }
+}
+//
+impl<'target> From<&'target TopologyObject> for MemoryAttributeLocation<'target> {
+    fn from(object: &'target TopologyObject) -> Self {
+        Self::Object(object)
     }
 }
 
@@ -1019,6 +1104,17 @@ impl TargetNumaNodes<'_> {
         }
     }
 }
+//
+impl<'topology, T: Into<MemoryAttributeLocation<'topology>>> From<T>
+    for TargetNumaNodes<'topology>
+{
+    fn from(location: T) -> Self {
+        Self::Local {
+            location: location.into(),
+            flags: LocalNUMANodeFlags::empty(),
+        }
+    }
+}
 
 bitflags! {
     /// Memory attribute flags.
@@ -1034,29 +1130,26 @@ bitflags! {
         /// The best nodes for this memory attribute are those with the higher
         /// values
         ///
-        /// For instance [Bandwidth].
-        ///
-        /// [Bandwidth]: MemoryAttributeID::BANDWIDTH
+        /// For instance [`MemoryAttribute::bandwidth()`].
         #[doc(alias = "HWLOC_MEMATTR_FLAG_HIGHER_FIRST")]
         const HIGHER_IS_BEST = (1<<0);
 
         /// The best nodes for this memory attribute are those with the lower
         /// values
         ///
-        /// For instance [Latency].
-        ///
-        /// [Latency]: MemoryAttributeID::LATENCY
+        /// For instance [`MemoryAttribute::latency()`].
         #[doc(alias = "HWLOC_MEMATTR_FLAG_LOWER_FIRST")]
         const LOWER_IS_BEST = (1<<1);
 
         /// The value returned for this memory attribute depends on the given
         /// initiator
         ///
-        /// For instance [Bandwidth] and [Latency], but not [Capacity].
+        /// For instance [`bandwidth()`] and [`latency()`], but not
+        /// [`capacity()`].
         ///
-        /// [Bandwidth]: MemoryAttributeID::BANDWIDTH
-        /// [Latency]: MemoryAttributeID::LATENCY
-        /// [Capacity]: MemoryAttributeID::CAPACITY
+        /// [`bandwidth()`]: MemoryAttribute::bandwidth()
+        /// [`latency()`]: MemoryAttribute::latency()
+        /// [`capacity()`]: MemoryAttribute::capacity()
         #[doc(alias = "HWLOC_MEMATTR_FLAG_NEED_INITIATOR")]
         const NEED_INITIATOR = (1<<2);
     }
