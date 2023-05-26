@@ -20,8 +20,6 @@ impl NodeSet {
     /// Hence the entire topology CPU set, that one can query via
     /// [`Topology::cpuset()`], would be converted by this function into the
     /// set of all nodes that have some local CPUs.
-    ///
-    /// Requires [`DiscoverySupport::numa_count()`].
     #[doc(alias = "hwloc_cpuset_to_nodeset")]
     pub fn from_cpuset(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
         let mut nodeset = NodeSet::new();

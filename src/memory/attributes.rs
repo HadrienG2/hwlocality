@@ -840,6 +840,8 @@ pub enum MemoryAttributeQueryError {
 
 /// Where to measure attributes from
 #[doc(alias = "hwloc_location")]
+#[doc(alias = "hwloc_location::location")]
+#[doc(alias = "hwloc_location::type")]
 #[doc(alias = "hwloc_location_u")]
 #[doc(alias = "hwloc_location_type_e")]
 #[derive(Copy, Clone, Debug, Display)]

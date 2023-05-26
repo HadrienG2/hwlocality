@@ -347,7 +347,7 @@ impl CpuSet {
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
         })
-        .expect("This should not involve faillible system calls");
+        .expect("Per hwloc documentation, this function should not fail");
     }
 
     /// Convert a NUMA node set into a CPU set
@@ -361,8 +361,6 @@ impl CpuSet {
     /// Hence the entire topology node set, that one can query via
     /// [`Topology::nodeset()`], would be converted by this function into the
     /// set of all CPUs that have some local NUMA nodes.
-    ///
-    /// Requires [`DiscoverySupport::numa_count()`].
     #[doc(alias = "hwloc_cpuset_from_nodeset")]
     pub fn from_nodeset(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
         let mut cpuset = CpuSet::new();
