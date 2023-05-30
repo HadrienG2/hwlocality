@@ -43,7 +43,7 @@ pub enum Depth {
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_TYPE_DEPTH_MEMCACHE")]
     MemCache,
-    // NOTE: Add new virtual depths to VIRTUAL_DEPTHS below
+    // NOTE: Also add new virtual depths to the VIRTUAL_DEPTHS array below
 }
 
 impl Depth {

@@ -401,20 +401,20 @@ bitflags! {
         const REMOVE_EMPTIED = c_ulong::MAX;
 
         /// Remove all objects that became CPU-less
-        ///
-        /// This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
+        //
+        // NOTE: This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
         #[doc(hidden)]
         const REMOVE_CPULESS = (1<<0);
 
         /// Restrict by NodeSet insted of by `CpuSet`
-        ///
-        /// This flag is automatically set when restricting by `NodeSet`.
+        //
+        // NOTE: This flag is automatically set when restricting by `NodeSet`.
         #[doc(hidden)]
         const BY_NODE_SET = (1<<3);
 
         /// Remove all objects that became memory-less
-        ///
-        /// This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
+        //
+        // NOTE: This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
         #[doc(hidden)]
         const REMOVE_MEMLESS = (1<<4);
 

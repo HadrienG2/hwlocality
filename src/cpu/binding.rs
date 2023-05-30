@@ -527,7 +527,7 @@ bitflags! {
     }
 }
 //
-// NOTE: No Default because user must consciously think about need for PROCESS
+// NOTE: No Default because user must consciously think about the need for PROCESS
 //
 impl CpuBindingFlags {
     /// Truth that these flags are in a valid state

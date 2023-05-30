@@ -354,7 +354,7 @@ impl MemoryAttributeID {
     const READ_LATENCY: Self = Self(6);
     #[cfg(feature = "hwloc-2_8_0")]
     const WRITE_LATENCY: Self = Self(7);
-    // NOTE: Add new attributes to methods below and MemoryAttribute constructors
+    // NOTE: If you add new attributes, add support to static_flags and MemoryAttribute constructors
 
     /// For predefined attributes, flags are known at compile time
     fn static_flags(self) -> Option<MemoryAttributeFlags> {

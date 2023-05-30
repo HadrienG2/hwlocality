@@ -1360,8 +1360,11 @@ impl TopologyObject {
         })
     }
 
-    // NOTE: Not exposing first_/last_child accessors as in the presence of
-    //       the normal_children iterator, they feel redundant.
+    // NOTE: Not exposing first_/last_child accessors for now as in the presence
+    //       of the normal_children iterator, they feel very redundant, and I
+    //       can't think of a usage situation where avoiding one pointer
+    //       indirection by exposing them would be worth the API inconsistency.
+    //       If you do, please submit an issue to the repository!
 
     /// Truth that this object is symmetric, which means all normal children and
     /// their children have identical subtrees.

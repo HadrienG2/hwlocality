@@ -1021,8 +1021,6 @@ macro_rules! extern_c_block {
             //       crate a `cpu_set_t`, but functions that manipulate them
             //       expect `&mut cpu_set_t`...
 
-            // === TODO: Other APIs
-
             // TODO: Cover more later: interop, differences, sharing, etc...
             //       Beware that primitives that modify the topology should be
             //       exposed in the TopologyEditor, not Topology, because per
