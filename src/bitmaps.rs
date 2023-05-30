@@ -183,6 +183,7 @@ impl Bitmap {
     /// use quickcheck::TestResult;
     ///
     /// let empty = Bitmap::new();
+    ///
     /// assert_eq!(empty.first_set(), None);
     /// assert_eq!(empty.first_unset().map(BitmapIndex::to_int), Some(0));
     /// assert!(empty.includes(&empty));
@@ -206,7 +207,7 @@ impl Bitmap {
     /// }
     /// quickcheck::quickcheck(no_index_set as fn(BitmapIndex));
     ///
-    /// fn empty_op_other(other: Bitmap) -> TestResult {
+    /// fn op_non_empty(other: Bitmap) -> TestResult {
     ///     if other.is_empty() {
     ///         return TestResult::discard();
     ///     }
@@ -217,7 +218,7 @@ impl Bitmap {
     ///     assert_ne!(empty, other);
     ///     TestResult::passed()
     /// }
-    /// quickcheck::quickcheck(empty_op_other as fn(Bitmap) -> TestResult);
+    /// quickcheck::quickcheck(op_non_empty as fn(Bitmap) -> TestResult);
     /// ```
     #[doc(alias = "hwloc_bitmap_alloc")]
     pub fn new() -> Self {
