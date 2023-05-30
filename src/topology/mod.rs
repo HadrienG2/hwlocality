@@ -119,7 +119,8 @@ impl Topology {
     /// doctests that need read-only access to a default-initialized topology
     ///
     /// Do not use this in doctests where the fact that the topology is default
-    /// initialized is important for the code sample to make sense.
+    /// initialized is important for the code sample to make sense. And do not,
+    /// under any circumstances, use this in non-test code.
     ///
     /// NOTE: In an ideal world, this would be cfg(any(test, doctest)) and
     ///       once_cell would be a dev-dependency, but that doesn't work for
@@ -386,6 +387,7 @@ impl Topology {
             let weight = cpuset
                 .weight()
                 .expect("Topology objects should not have infinite cpusets");
+            let weight = u32::try_from(weight).expect("More than 2^32 CPUs, seriously?");
             let depth =
                 u32::try_from(obj.depth()).expect("Normal objects should have a normal depth");
             (weight > 0).then_some((obj, cpuset, weight, depth))
