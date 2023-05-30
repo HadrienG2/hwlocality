@@ -190,13 +190,13 @@ impl Bitmap {
     /// assert!(empty.is_empty());
     /// assert!(!empty.is_full());
     /// assert_eq!(empty.iter_set().count(), 0);
-    /// assert_eq!(empty.iter_unset().next().map(BitmapIndex::to_int), Some(0));
+    /// assert_eq!(empty.iter_unset().next(), empty.first_unset());
     /// assert_eq!(empty.last_set(), None);
     /// assert_eq!(empty.last_unset(), None);
     /// assert_eq!(empty.weight(), Some(0));
     ///
-    /// assert_eq!("", format!("{:?}", empty));
-    /// assert_eq!("", format!("{}", empty));
+    /// assert!(format!("{empty:?}").is_empty());
+    /// assert!(format!("{empty}").is_empty());
     /// assert_eq!(empty, empty);
     /// assert_eq!(!empty, Bitmap::full());
     ///
@@ -946,7 +946,7 @@ impl Bitmap {
                 .map(c_int::from),
         }
         .expect("Range end is too high for hwloc");
-        (start.into(), end.into())
+        (start.into(), end)
     }
 
     /// Iterator building block
