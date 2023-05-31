@@ -1889,8 +1889,15 @@ macro_rules! impl_bitmap_newtype {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck::QuickCheck;
     use quickcheck_macros::quickcheck;
     use std::{collections::HashSet, ops::RangeInclusive};
+
+    // FIXME: Due to some unfortunate quickcheck quirks (see e.g.
+    //        https://github.com/BurntSushi/quickcheck/issues/303 ), proptests
+    //        involving arbitrary Bitmaps are very expensive and cannot be made
+    //        much cheaper, so we can only afford to run a few of those...
+    const NUM_ARBITRARY_BITMAPS: u64 = 5;
 
     #[test]
     fn empty() {
@@ -1920,15 +1927,19 @@ mod tests {
         assert!(!empty.is_set(index));
     }
 
-    // FIXME: Optimize
-    // #[quickcheck]
-    // fn empty_op_other(other: Bitmap) {
-    //     let empty = Bitmap::new();
-    //     assert_eq!(empty.includes(&other), other.is_empty());
-    //     assert!(other.includes(&empty));
-    //     assert!(!empty.intersects(&other));
-    //     assert_eq!(empty == other, other.is_empty());
-    // }
+    #[test]
+    fn empty_op_other() {
+        fn inner(other: Bitmap) {
+            let empty = Bitmap::new();
+            assert_eq!(empty.includes(&other), other.is_empty());
+            assert!(other.includes(&empty));
+            assert!(!empty.intersects(&other));
+            assert_eq!(empty == other, other.is_empty());
+        }
+        QuickCheck::new()
+            .tests(NUM_ARBITRARY_BITMAPS)
+            .quickcheck(inner as fn(_))
+    }
 
     #[test]
     fn full() {
@@ -1958,16 +1969,21 @@ mod tests {
         assert!(full.is_set(index));
     }
 
+    #[test]
+    fn full_op_other() {
+        fn inner(other: Bitmap) {
+            let full = Bitmap::full();
+            assert!(full.includes(&other));
+            assert_eq!(other.includes(&full), other.is_full());
+            assert_eq!(full.intersects(&other), !other.is_empty());
+            assert_eq!(full == other, other.is_full());
+        }
+        QuickCheck::new()
+            .tests(NUM_ARBITRARY_BITMAPS)
+            .quickcheck(inner as fn(_))
+    }
+
     // FIXME: Optimize
-    // #[quickcheck]
-    // fn full_op_other(other: Bitmap) {
-    //     let full = Bitmap::full();
-    //     assert!(full.includes(&other));
-    //     assert_eq!(other.includes(&full), other.is_full());
-    //     assert_eq!(full.intersects(&other), !other.is_empty());
-    //     assert_eq!(full == other, other.is_full());
-    // }
-    //
     // #[quickcheck]
     // fn from_range(range: RangeInclusive<BitmapIndex>) {
     //     let bitmap = Bitmap::from_range(range.clone());
