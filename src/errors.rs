@@ -143,10 +143,7 @@ pub(crate) fn call_hwloc_int_raw(
         let result = call();
         (result, result < 0)
     });
-    match result {
-        success if success >= 0 => Ok(c_uint::try_from(success).expect("Can't fail if >= 0")),
-        result => Err(RawNegIntError { api, result, errno }),
-    }
+    c_uint::try_from(result).map_err(|_| RawNegIntError { api, result, errno })
 }
 
 /// A function errored out either on the Rust or hwloc side

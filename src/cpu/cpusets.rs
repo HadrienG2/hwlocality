@@ -10,6 +10,8 @@ use crate::{
     objects::{depth::Depth, types::ObjectType, TopologyObject},
     topology::Topology,
 };
+#[cfg(feature = "hwloc-2_2_0")]
+use std::ffi::c_uint;
 use std::{clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
 use thiserror::Error;
 
@@ -343,11 +345,17 @@ impl CpuSet {
     /// [`Core`]: ObjectType::Core
     #[cfg(feature = "hwloc-2_2_0")]
     #[doc(alias = "hwloc_bitmap_singlify_per_core")]
-    pub fn singlify_per_core(&mut self, topology: &Topology, which: u32) {
+    pub fn singlify_per_core(
+        &mut self,
+        topology: &Topology,
+        which: usize,
+    ) -> Result<(), BadPUIndex> {
+        let which = c_uint::try_from(which).map_err(|_| BadPUIndex(which))?;
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
         })
         .expect("Per hwloc documentation, this function should not fail");
+        Ok(())
     }
 
     /// Convert a NUMA node set into a CPU set
@@ -372,6 +380,11 @@ impl CpuSet {
         cpuset
     }
 }
+
+#[cfg(feature = "hwloc-2_2_0")]
+#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
+#[error("{0} is not a valid hwloc PU index")]
+pub struct BadPUIndex(usize);
 
 impl_bitmap_newtype!(
     /// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical

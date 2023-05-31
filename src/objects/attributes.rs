@@ -3,16 +3,20 @@
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
-use crate::objects::types::{
-    BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType, RawOSDeviceType,
-};
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
+use crate::{
+    ffi,
+    objects::types::{
+        BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
+        RawOSDeviceType,
+    },
+};
 use std::{
     ffi::{c_float, c_int, c_uchar, c_uint, c_ushort},
     fmt,
     hash::Hash,
-    num::NonZeroU32,
+    num::NonZeroUsize,
 };
 
 /// hwloc FFI for the hwloc_obj_attr_u union
@@ -214,15 +218,15 @@ impl CacheAttributes {
     /// Depth ofthe cache (e.g. L1, L2, ...)
     #[doc(alias = "hwloc_cache_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::depth")]
-    pub fn depth(&self) -> u32 {
-        self.depth
+    pub fn depth(&self) -> usize {
+        ffi::expect_usize(self.depth)
     }
 
     /// Cache line size in bytes
     #[doc(alias = "hwloc_cache_attr_s::linesize")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::linesize")]
-    pub fn line_size(&self) -> Option<NonZeroU32> {
-        NonZeroU32::new(self.linesize)
+    pub fn line_size(&self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(ffi::expect_usize(self.linesize))
     }
 
     /// Ways of associativity
@@ -232,10 +236,12 @@ impl CacheAttributes {
         match self.associativity {
             -1 => CacheAssociativity::Full,
             0 => CacheAssociativity::Unknown,
-            ways if ways > 0 => CacheAssociativity::Ways(
-                NonZeroU32::new(u32::try_from(ways).expect("i32 > 0 -> u32 cannot fail"))
-                    .expect("u32 > 0 -> NonZeroU32 cannot fail"),
-            ),
+            ways if ways > 0 => {
+                let ways = c_uint::try_from(ways).expect("int > 0 -> uint should not fail");
+                let ways = ffi::expect_usize(ways);
+                let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize cannot fail");
+                CacheAssociativity::Ways(ways)
+            }
             unexpected => unreachable!("Got unexpected cache associativity {unexpected}"),
         }
     }
@@ -259,7 +265,7 @@ pub enum CacheAssociativity {
     Full,
 
     /// N-ways associative
-    Ways(NonZeroU32),
+    Ways(NonZeroUsize),
 }
 
 /// [`Group`]-specific attributes
@@ -283,14 +289,14 @@ impl GroupAttributes {
     /// It may change if intermediate Group objects are added.
     #[doc(alias = "hwloc_group_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::depth")]
-    pub fn depth(&self) -> u32 {
-        self.depth
+    pub fn depth(&self) -> usize {
+        ffi::expect_usize(self.depth)
     }
 
     /// Internally-used kind of group
     #[allow(unused)]
-    pub(crate) fn kind(&self) -> u32 {
-        self.kind
+    pub(crate) fn kind(&self) -> usize {
+        ffi::expect_usize(self.kind)
     }
 
     /// Tell hwloc that this group object should always be discarded in favor of
@@ -305,8 +311,8 @@ impl GroupAttributes {
     #[allow(unused)]
     #[doc(alias = "hwloc_group_attr_s::subkind")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::subkind")]
-    pub(crate) fn subkind(&self) -> u32 {
-        self.subkind
+    pub(crate) fn subkind(&self) -> usize {
+        ffi::expect_usize(self.subkind)
     }
 
     /// Flag preventing groups from being automatically merged with identical
@@ -483,8 +489,8 @@ impl BridgeAttributes {
     /// Object depth
     #[doc(alias = "hwloc_bridge_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::depth")]
-    pub fn depth(&self) -> u32 {
-        self.depth
+    pub fn depth(&self) -> usize {
+        ffi::expect_usize(self.depth)
     }
 }
 //

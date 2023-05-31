@@ -123,7 +123,7 @@ impl Topology {
 
         // Query node count
         call_ffi(&mut nr, ptr::null_mut())?;
-        let len = usize::try_from(nr).expect("Impossible node count from hwloc");
+        let len = ffi::expect_usize(nr);
 
         // Allocate storage and fill node list
         let mut out = vec![ptr::null(); len];
@@ -801,7 +801,7 @@ impl<'topology> MemoryAttribute<'topology> {
 
         // Query node count
         call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut()).map_err(HybridError::Hwloc)?;
-        let len = usize::try_from(nr).expect("Impossible array size from hwloc");
+        let len = ffi::expect_usize(nr);
 
         // Allocate storage and fill arrays
         let mut endpoints = vec![placeholder; len];

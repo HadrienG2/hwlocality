@@ -21,6 +21,15 @@ use std::{
     ptr::{self, NonNull},
 };
 
+/// Assert that a c_uint can be converted to a usize
+///
+/// As far as I can tell, this is only false on very weird platforms that aren't
+/// supported by hwloc. However, counter-examples are welcome!
+pub(crate) fn expect_usize(x: c_uint) -> usize {
+    x.try_into()
+        .expect("Expected on any platform supported by hwloc")
+}
+
 /// Dereference a C pointer with correct lifetime (*const -> & version)
 pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     if p.is_null() {

@@ -46,7 +46,7 @@ impl Topology {
                         flags.bits(),
                     )
                 })?;
-            if usize::try_from(len).expect("Should fit if I can build the vec") == buf.len() - 1 {
+            if ffi::expect_usize(len) == buf.len() - 1 {
                 // hwloc exactly filled the buffer, which suggests the
                 // output was truncated. Try a larget buffer.
                 buf.resize(2 * buf.len(), 0);

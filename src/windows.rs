@@ -33,10 +33,8 @@ impl Topology {
             errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
                 ffi::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
             })?;
-        let count = NonZeroUsize::new(
-            usize::try_from(count).expect("Unexpectedly high processor group count"),
-        )
-        .expect("Unexpected 0 processor group count");
+        let count = NonZeroUsize::new(ffi::expect_usize(count))
+            .expect("Unexpected 0 processor group count");
         Ok(count)
     }
 
@@ -61,12 +59,14 @@ impl Topology {
         Ok(
             (0..usize::from(self.num_processor_groups()?)).map(|pg_index| {
                 let mut set = CpuSet::new();
+                let pg_index = c_uint::try_from(pg_index)
+                    .expect("Can't fail, pg_index upper bound comes from hwloc");
                 errors::call_hwloc_int_normal(
                     "hwloc_windows_get_processor_group_cpuset",
                     || unsafe {
                         ffi::hwloc_windows_get_processor_group_cpuset(
                             self.as_ptr(),
-                            c_uint::try_from(pg_index).expect("Can't fail"),
+                            pg_index,
                             set.as_mut_ptr(),
                             0,
                         )

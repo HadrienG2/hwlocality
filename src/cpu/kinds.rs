@@ -78,8 +78,7 @@ impl Topology {
             ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
-        NonZeroUsize::new(usize::try_from(count).expect("Unexpectedly high number of CPU kinds"))
-            .ok_or(CpuKindsUnknown)
+        NonZeroUsize::new(ffi::expect_usize(count)).ok_or(CpuKindsUnknown)
     }
 
     /// Enumerate CPU kinds, from least efficient efficient to most efficient
@@ -114,7 +113,8 @@ impl Topology {
     /// known to be valid by the high-level APIs.
     fn cpu_kind(&self, kind_index: usize) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
         // Let hwloc tell us everything it knows about this CPU kind
-        let kind_index = kind_index as c_uint;
+        let kind_index =
+            c_uint::try_from(kind_index).expect("Should not happen if API contract is honored");
         let mut cpuset = CpuSet::new();
         let mut efficiency = c_int::MAX;
         let mut nr_infos: c_uint = 0;
@@ -135,18 +135,16 @@ impl Topology {
         // Post-process hwloc results, then emit them
         let efficiency = match efficiency {
             -1 => None,
-            positive => Some(usize::try_from(positive).expect("Unexpected CpuEfficiency value")),
+            other => {
+                let positive = c_uint::try_from(other).expect("Unexpected CpuEfficiency value");
+                Some(ffi::expect_usize(positive))
+            }
         };
         assert!(
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
-        let infos = unsafe {
-            std::slice::from_raw_parts(
-                infos,
-                usize::try_from(nr_infos).expect("Unexpected info attribute count"),
-            )
-        };
+        let infos = unsafe { std::slice::from_raw_parts(infos, ffi::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
     }
 
@@ -172,7 +170,7 @@ impl Topology {
             ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.as_ptr(), 0)
         });
         let kind_index = match result {
-            Ok(idx) => usize::try_from(idx).expect("Unexpectedly high CPU kind index"),
+            Ok(idx) => ffi::expect_usize(idx),
             Err(
                 raw_error @ RawHwlocError {
                     api: _,
@@ -214,13 +212,26 @@ impl<'topology> TopologyEditor<'topology> {
     /// 1 and combines information from A and from the newly-registered kind;
     /// new kind C contains only PU 2 and only gets information from the
     /// newly-registered kind.
+    ///
+    /// # Errors
+    ///
+    /// - [`InfoContainsNul`] if a provided info's key or value contains NUL chars
+    /// - [`TooManyInfos`] if the number of specified (key, value) info tuples
+    ///   exceeds hwloc's `c_uint::MAX` limit.
+    ///
+    /// [`InfoContainsNul`]: CpuKindRegisterError::InfoContainsNul
+    /// [`TooManyInfos`]: CpuKindRegisterError::TooManyInfos
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
         &mut self,
         cpuset: &CpuSet,
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
-    ) -> Result<(), HybridError<NulError>> {
+    ) -> Result<(), HybridError<CpuKindRegisterError>> {
+        let forced_efficiency = forced_efficiency
+            .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
+            .unwrap_or(-1);
+
         let input_infos = infos.into_iter();
         let mut infos = Vec::new();
         let mut infos_ptrs = Vec::new();
@@ -229,20 +240,21 @@ impl<'topology> TopologyEditor<'topology> {
             infos_ptrs.reserve(infos_len);
         }
         for (name, value) in input_infos {
-            let (name, value) = (LibcString::new(name)?, LibcString::new(value)?);
+            let new_string =
+                |s: &str| LibcString::new(s).map_err(CpuKindRegisterError::InfoContainsNul);
+            let (name, value) = (new_string(name)?, new_string(value)?);
             infos_ptrs.push(TextualInfo::new(&name, &value));
             infos.push((name, value));
         }
+        let num_infos =
+            c_uint::try_from(infos_ptrs.len()).map_err(CpuKindRegisterError::TooManyInfos)?;
 
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
-            let forced_efficiency = forced_efficiency
-                .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
-                .unwrap_or(-1);
             ffi::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),
                 cpuset.as_ptr(),
                 forced_efficiency,
-                c_uint::try_from(infos_ptrs.len()).expect("Too many informations"),
+                num_infos,
                 infos_ptrs.as_ptr(),
                 0,
             )
@@ -284,4 +296,14 @@ pub enum CpuKindFromSetError {
     /// non-existent CPUs)
     #[error("CPU set is invalid")]
     InvalidSet,
+}
+
+/// Error while registering a new CPU kind
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum CpuKindRegisterError {
+    /// One of the CPU kind's textual info strings contains the NUL char
+    InfoContainsNul,
+
+    /// There are too many CPU kind textual info (key, value) pairs for hwloc
+    TooManyInfos,
 }

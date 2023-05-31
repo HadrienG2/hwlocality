@@ -25,8 +25,9 @@ use errno::Errno;
 use libc::EINVAL;
 use std::{
     convert::TryInto,
+    debug_assert,
     ffi::c_ulong,
-    num::NonZeroU32,
+    num::NonZeroUsize,
     ptr::{self, NonNull},
 };
 use thiserror::Error;
@@ -352,13 +353,13 @@ impl Topology {
     /// ignored, unless this is true of all roots in which case the
     /// [`EmptyRootsError`] error is returned.
     ///
-    /// If there is no depth limit, which is achieved by setting `max_depth` to
-    /// `u32::MAX`, the distribution will be done down to the granularity of
-    /// individual CPUs, i.e. if there are more work items that CPUs, each work
-    /// item will be assigned one CPU. By setting the `max_depth` parameter to a
-    /// lower limit, you can distribute work at a coarser granularity, e.g.
-    /// across L3 caches, giving the OS some leeway to move tasks across CPUs
-    /// sharing that cache.
+    /// If there is no depth limit, which can be achieved by setting `max_depth`
+    /// to `usize::MAX`, the distribution will be done down to the granularity
+    /// of individual CPUs, i.e. if there are more work items that CPUs, each
+    /// work item will be assigned one CPU. By setting the `max_depth`
+    /// parameter to a lower limit, you can distribute work at a coarser
+    /// granularity, e.g. across L3 caches, giving the OS some leeway to move
+    /// tasks across CPUs sharing that cache.
     ///
     /// By default, output cpusets follow the logical topology children order.
     /// By setting `flags` to [`DistributeFlags::REVERSE`], you can ask for them
@@ -372,32 +373,31 @@ impl Topology {
     pub fn distribute_items(
         &self,
         roots: &[&TopologyObject],
-        num_items: NonZeroU32,
-        max_depth: u32,
+        num_items: NonZeroUsize,
+        max_depth: usize,
         flags: DistributeFlags,
     ) -> Result<Vec<CpuSet>, EmptyRootsError> {
         // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
         // With this function, we process an object that is presumed normal,
         // extract this information, and return it as an Option that is None if
         // the object has access to no CPUs.
-        type ObjSetWeightDepth<'a> = (&'a TopologyObject, &'a CpuSet, u32, u32);
+        type ObjSetWeightDepth<'a> = (&'a TopologyObject, &'a CpuSet, usize, usize);
         fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth> {
             debug_assert!(obj.object_type().is_normal());
             let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
             let weight = cpuset
                 .weight()
                 .expect("Topology objects should not have infinite cpusets");
-            let weight = u32::try_from(weight).expect("More than 2^32 CPUs, seriously?");
             let depth =
-                u32::try_from(obj.depth()).expect("Normal objects should have a normal depth");
+                usize::try_from(obj.depth()).expect("Normal objects should have a normal depth");
             (weight > 0).then_some((obj, cpuset, weight, depth))
         }
 
         // Inner recursive algorithm
         fn recurse<'a>(
             roots_and_cpusets: impl Iterator<Item = ObjSetWeightDepth<'a>> + Clone + DoubleEndedIterator,
-            num_items: u32,
-            max_depth: u32,
+            num_items: usize,
+            max_depth: usize,
             flags: DistributeFlags,
             result: &mut Vec<CpuSet>,
         ) {
@@ -407,7 +407,7 @@ impl Topology {
             let initial_len = result.len();
 
             // Total number of cpus covered by the active root
-            let tot_weight: u32 = roots_and_cpusets
+            let tot_weight: usize = roots_and_cpusets
                 .clone()
                 .map(|(_, _, weight, _)| weight)
                 .sum();
@@ -420,11 +420,28 @@ impl Topology {
             let process_root = |(root, cpuset, weight, depth): ObjSetWeightDepth| {
                 // Give this root a chunk of the work-items proportional to its
                 // weight, with a bias towards giving more CPUs to first roots
-                let weight_to_items = |given_weight| {
-                    // This is exact because f64 has 54 mantissa bits and we're
-                    // dealing with 32-bit integers here
-                    (f64::from(given_weight) * f64::from(num_items) / f64::from(tot_weight)).ceil()
-                        as u32
+                let weight_to_items = |given_weight: usize| -> usize {
+                    // Weights represent CPU counts and num_items represents
+                    // something that users reasonably want to count. Neither
+                    // should overflow u128 even on highly speculative future
+                    // hardware where usize would be larger than 128 bits
+                    const TOO_LARGE: &str = "Such large inputs are not supported yet";
+                    let cast = |x: usize| u128::try_from(x).expect(TOO_LARGE);
+
+                    // Numerator product can only fail if both given_weight and
+                    // num_items are >=2^64, which is equally improbable.
+                    let numerator = cast(given_weight)
+                        .checked_mul(cast(num_items))
+                        .expect(TOO_LARGE);
+                    let denominator = cast(tot_weight);
+                    let my_items = numerator / denominator + (numerator % denominator != 0) as u128;
+
+                    // Cast can only fail if given_weight > tot_weight,
+                    // otherwise we expect my_items <= num_items
+                    debug_assert!(given_weight <= tot_weight);
+                    my_items
+                        .try_into()
+                        .expect("Cannot happen if computation is correct")
                 };
                 let next_given_weight = given_weight + weight;
                 let next_given_items = weight_to_items(next_given_weight);
@@ -464,12 +481,7 @@ impl Topology {
             }
 
             // Debug mode checks
-            debug_assert_eq!(
-                result.len() - initial_len,
-                num_items
-                    .try_into()
-                    .expect("Already checked that num_items fits in usize")
-            );
+            debug_assert_eq!(result.len() - initial_len, num_items);
         }
 
         // Check roots, walk up to their first normal ancestor as necessary
@@ -484,11 +496,10 @@ impl Topology {
         }
 
         // Run the recursion, collect results
-        let num_items = u32::from(num_items);
-        let num_items_usize = usize::try_from(num_items).expect("Cannot return that many items");
-        let mut result = Vec::with_capacity(num_items_usize);
+        let num_items = usize::from(num_items);
+        let mut result = Vec::with_capacity(num_items);
         recurse(decoded_roots, num_items, max_depth, flags, &mut result);
-        debug_assert_eq!(result.len(), num_items_usize);
+        debug_assert_eq!(result.len(), num_items);
         Ok(result)
     }
 }

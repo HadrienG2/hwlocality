@@ -60,7 +60,7 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
-    pub fn depth(&self) -> u32 {
+    pub fn depth(&self) -> usize {
         unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
             .try_into()
             .expect("Got unexpected depth from hwloc_topology_get_depth")
@@ -91,7 +91,7 @@ impl Topology {
     /// [`Package`]: ObjectType::Package
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
-    pub fn memory_parents_depth(&self) -> Result<u32, DepthError> {
+    pub fn memory_parents_depth(&self) -> Result<usize, DepthError> {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
@@ -283,7 +283,11 @@ impl Topology {
     ///
     /// [`depth_for_type()`]: Topology::depth_for_type()
     #[doc(alias = "hwloc_get_cache_type_depth")]
-    pub fn depth_for_cache(&self, cache_level: u32, cache_type: Option<CacheType>) -> DepthResult {
+    pub fn depth_for_cache(
+        &self,
+        cache_level: usize,
+        cache_type: Option<CacheType>,
+    ) -> DepthResult {
         let mut result = Err(DepthError::None);
         for depth in 0..self.depth() {
             // Cache level and type are homogeneous across a depth level so we
@@ -375,8 +379,10 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
-    pub fn size_at_depth(&self, depth: impl Into<Depth>) -> u32 {
-        unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into()) }
+    pub fn size_at_depth(&self, depth: impl Into<Depth>) -> usize {
+        ffi::expect_usize(unsafe {
+            ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
+        })
     }
 
     /// [`TopologyObject`]s at the given `depth`
@@ -418,6 +424,7 @@ impl Topology {
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
+            let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
             let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
             assert!(
                 !ptr.is_null(),
@@ -506,9 +513,7 @@ impl Topology {
             });
         let size = depth_iter
             .clone()
-            .map(move |depth| {
-                usize::try_from(self.size_at_depth(depth)).expect("Impossible object count")
-            })
+            .map(move |depth| self.size_at_depth(depth))
             .sum();
         ObjectsWithType {
             size,
@@ -577,7 +582,7 @@ impl Topology {
     ///
     /// Requires [`DiscoverySupport::pu_count()`].
     #[doc(alias = "hwloc_get_pu_obj_by_os_index")]
-    pub fn pu_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
+    pub fn pu_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::PU)
             .find_map(|(pu, pu_os_index)| (pu_os_index == os_index).then_some(pu))
     }
@@ -604,7 +609,7 @@ impl Topology {
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
     #[doc(alias = "hwloc_get_numanode_obj_by_os_index")]
-    pub fn node_with_os_index(&self, os_index: u32) -> Option<&TopologyObject> {
+    pub fn node_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::NUMANode)
             .find_map(|(node, node_os_index)| (node_os_index == os_index).then_some(node))
     }
@@ -636,7 +641,7 @@ impl Topology {
     fn objs_and_os_indices(
         &self,
         ty: ObjectType,
-    ) -> impl Iterator<Item = (&TopologyObject, u32)>
+    ) -> impl Iterator<Item = (&TopologyObject, usize)>
            + Clone
            + DoubleEndedIterator
            + ExactSizeIterator
@@ -1053,9 +1058,9 @@ impl TopologyObject {
     ///
     /// Not specified if unknown or irrelevant for this object.
     #[doc(alias = "hwloc_obj::os_index")]
-    pub fn os_index(&self) -> Option<u32> {
+    pub fn os_index(&self) -> Option<usize> {
         const HWLOC_UNKNOWN_INDEX: c_uint = c_uint::MAX;
-        (self.os_index != HWLOC_UNKNOWN_INDEX).then_some(self.os_index)
+        (self.os_index != HWLOC_UNKNOWN_INDEX).then(|| ffi::expect_usize(self.os_index))
     }
 
     /// Global persistent index
@@ -1114,7 +1119,7 @@ impl TopologyObject {
         // Fast failure path when depth is comparable
         let depth = depth.into();
         let self_depth = self.depth();
-        if let (Ok(self_depth), Ok(depth)) = (u32::try_from(self_depth), u32::try_from(depth)) {
+        if let (Ok(self_depth), Ok(depth)) = (usize::try_from(self_depth), usize::try_from(depth)) {
             if self_depth <= depth {
                 return None;
             }
@@ -1187,15 +1192,15 @@ impl TopologyObject {
             // Walk up ancestors, try to reach the same depth.
             // Only normal depths should be observed all the way through the
             // ancestor chain, since the parent of a normal object is normal.
-            let u32_depth = |obj: &TopologyObject| {
-                u32::try_from(obj.depth()).expect("Should only observe normal depth here")
+            let normal_depth = |obj: &TopologyObject| {
+                usize::try_from(obj.depth()).expect("Should only observe normal depth here")
             };
-            let depth2 = u32_depth(parent2);
-            while u32_depth(parent1) > depth2 {
+            let depth2 = normal_depth(parent2);
+            while normal_depth(parent1) > depth2 {
                 parent1 = parent1.parent()?;
             }
-            let depth1 = u32_depth(parent1);
-            while u32_depth(parent2) > depth1 {
+            let depth1 = normal_depth(parent1);
+            while normal_depth(parent2) > depth1 {
                 parent2 = parent2.parent()?;
             }
 
@@ -1268,8 +1273,7 @@ impl<'object> Iterator for Ancestors<'object> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let depth_res = u32::try_from(self.0.depth())
-            .map(|depth| usize::try_from(depth).expect("Depth deeper than 2^32 not unexpected"));
+        let depth_res = usize::try_from(self.0.depth());
         (depth_res.unwrap_or(0), depth_res.ok())
     }
 }
@@ -1288,8 +1292,8 @@ impl TopologyObject {
     /// Note that this index may change when restricting the topology
     /// or when inserting a group.
     #[doc(alias = "hwloc_obj::logical_index")]
-    pub fn logical_index(&self) -> u32 {
-        self.logical_index
+    pub fn logical_index(&self) -> usize {
+        ffi::expect_usize(self.logical_index)
     }
 
     /// Next object of same type and depth
@@ -1306,8 +1310,8 @@ impl TopologyObject {
 
     /// Index in the parent's relevant child list for this object type
     #[doc(alias = "hwloc_obj::sibling_rank")]
-    pub fn sibling_rank(&self) -> u32 {
-        self.sibling_rank
+    pub fn sibling_rank(&self) -> usize {
+        ffi::expect_usize(self.sibling_rank)
     }
 
     /// Next object below the same parent, in the same child list
@@ -1327,8 +1331,8 @@ impl TopologyObject {
 impl TopologyObject {
     /// Number of normal children (excluding Memory, Misc and I/O)
     #[doc(alias = "hwloc_obj::arity")]
-    pub fn normal_arity(&self) -> u32 {
-        self.arity
+    pub fn normal_arity(&self) -> usize {
+        ffi::expect_usize(self.arity)
     }
 
     /// Normal children of this object
@@ -1349,11 +1353,7 @@ impl TopologyObject {
                 "Got null children pointer with nonzero arity"
             );
         }
-        (0..self.normal_arity()).map(move |i| {
-            // If this fails, it means self.arity does not fit in a
-            // size_t, but by definition of size_t that means the array would
-            // overflow memory, so can't happen unless hwloc has a bug
-            let offset = usize::try_from(i).expect("Invalid children list length");
+        (0..self.normal_arity()).map(move |offset| {
             let child = unsafe { *self.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
             unsafe { &*child }
@@ -1391,8 +1391,8 @@ impl TopologyObject {
 
     /// Number of memory children
     #[doc(alias = "hwloc_obj::memory_arity")]
-    pub fn memory_arity(&self) -> u32 {
-        dbg!(self.memory_arity)
+    pub fn memory_arity(&self) -> usize {
+        ffi::expect_usize(self.memory_arity)
     }
 
     /// Memory children of this object
@@ -1423,8 +1423,8 @@ impl TopologyObject {
 
     /// Number of I/O children
     #[doc(alias = "hwloc_obj::io_arity")]
-    pub fn io_arity(&self) -> u32 {
-        self.io_arity
+    pub fn io_arity(&self) -> usize {
+        ffi::expect_usize(self.io_arity)
     }
 
     /// I/O children of this object
@@ -1449,8 +1449,8 @@ impl TopologyObject {
 
     /// Number of Misc children
     #[doc(alias = "hwloc_obj::misc_arity")]
-    pub fn misc_arity(&self) -> u32 {
-        self.misc_arity
+    pub fn misc_arity(&self) -> usize {
+        ffi::expect_usize(self.misc_arity)
     }
 
     /// Misc children of this object
@@ -1477,7 +1477,7 @@ impl TopologyObject {
     fn singly_linked_children(
         &self,
         first: *mut TopologyObject,
-        arity: u32,
+        arity: usize,
     ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
@@ -1616,14 +1616,7 @@ impl TopologyObject {
             );
             return &[];
         }
-        unsafe {
-            std::slice::from_raw_parts(
-                self.infos,
-                // If this fails, it means infos_count does not fit in a
-                // size_t, but by definition of size_t that cannot happen...
-                usize::try_from(self.infos_count).expect("Invalid infos_count"),
-            )
-        }
+        unsafe { std::slice::from_raw_parts(self.infos, ffi::expect_usize(self.infos_count)) }
     }
 
     /// Search the given key name in object infos and return the corresponding value

@@ -43,8 +43,8 @@ pub type ProcessId = libc::pid_t;
 ///
 /// Users may check for available features at build time using this number
 #[doc(alias = "hwloc_get_api_version")]
-pub fn get_api_version() -> u32 {
-    unsafe { ffi::hwloc_get_api_version() }
+pub fn get_api_version() -> usize {
+    ffi::expect_usize(unsafe { ffi::hwloc_get_api_version() })
 }
 
 // Disable the alias in test builds to make sure the implementation does not

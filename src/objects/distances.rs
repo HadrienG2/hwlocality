@@ -2,17 +2,18 @@
 
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::errors::HybridError;
-#[cfg(feature = "hwloc-2_1_0")]
-use crate::{errors::NulError, ffi::LibcString};
 #[cfg(feature = "hwloc-2_3_0")]
+use crate::topology::editor::TopologyEditor;
 use crate::{
     errors::{self, RawHwlocError},
-    topology::editor::TopologyEditor,
-};
-use crate::{
     ffi,
     objects::{depth::Depth, types::ObjectType, TopologyObject},
     topology::{RawTopology, Topology},
+};
+#[cfg(feature = "hwloc-2_1_0")]
+use crate::{
+    errors::{HybridError, NulError},
+    ffi::LibcString,
 };
 use bitflags::bitflags;
 use std::{
@@ -37,9 +38,9 @@ impl Topology {
     /// [`DistancesKind`]`::FROM_xyz` options, only distance matrices matching
     /// one of them is returned. The same applies for `MEANS_xyz` options.
     #[doc(alias = "hwloc_distances_get")]
-    pub fn distances(&self, kind: DistancesKind) -> Vec<Distances> {
+    pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances>, RawHwlocError> {
         unsafe {
-            self.get_distances(|topology, nr, distances, flags| {
+            self.get_distances("hwloc_distances_get", |topology, nr, distances, flags| {
                 ffi::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
             })
         }
@@ -55,19 +56,22 @@ impl Topology {
         &self,
         kind: DistancesKind,
         depth: impl Into<Depth>,
-    ) -> Vec<Distances> {
+    ) -> Result<Vec<Distances>, RawHwlocError> {
         let depth = depth.into();
         unsafe {
-            self.get_distances(|topology, nr, distances, flags| {
-                ffi::hwloc_distances_get_by_depth(
-                    topology,
-                    depth.into(),
-                    nr,
-                    distances,
-                    kind.bits(),
-                    flags,
-                )
-            })
+            self.get_distances(
+                "hwloc_distances_get_by_depth",
+                |topology, nr, distances, flags| {
+                    ffi::hwloc_distances_get_by_depth(
+                        topology,
+                        depth.into(),
+                        nr,
+                        distances,
+                        kind.bits(),
+                        flags,
+                    )
+                },
+            )
         }
     }
 
@@ -77,18 +81,25 @@ impl Topology {
     ///
     /// [`distances()`]: Topology::distances()
     #[doc(alias = "hwloc_distances_get_by_type")]
-    pub fn distances_with_type(&self, kind: DistancesKind, ty: ObjectType) -> Vec<Distances> {
+    pub fn distances_with_type(
+        &self,
+        kind: DistancesKind,
+        ty: ObjectType,
+    ) -> Result<Vec<Distances>, RawHwlocError> {
         unsafe {
-            self.get_distances(|topology, nr, distances, flags| {
-                ffi::hwloc_distances_get_by_type(
-                    topology,
-                    ty.into(),
-                    nr,
-                    distances,
-                    kind.bits(),
-                    flags,
-                )
-            })
+            self.get_distances(
+                "hwloc_distances_get_by_type",
+                |topology, nr, distances, flags| {
+                    ffi::hwloc_distances_get_by_type(
+                        topology,
+                        ty.into(),
+                        nr,
+                        distances,
+                        kind.bits(),
+                        flags,
+                    )
+                },
+            )
         }
     }
 
@@ -104,12 +115,16 @@ impl Topology {
     /// - [`NulError`] if `name` contains NUL chars.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_distances_get_by_name")]
-    pub fn distances_with_name(&self, name: &str) -> Result<Vec<Distances>, NulError> {
+    pub fn distances_with_name(&self, name: &str) -> Result<Vec<Distances>, HybridError<NulError>> {
         let name = LibcString::new(name)?;
         unsafe {
-            Ok(self.get_distances(|topology, nr, distances, flags| {
-                ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
-            }))
+            self.get_distances(
+                "hwloc_distances_get_by_name",
+                |topology, nr, distances, flags| {
+                    ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
+                },
+            )
+            .map_err(HybridError::Hwloc)
         }
     }
 
@@ -123,46 +138,39 @@ impl Topology {
     /// `getter` must perform a correct call to a `hwloc_distances_get` API
     unsafe fn get_distances(
         &self,
+        getter_name: &'static str,
         mut getter: impl FnMut(
             *const RawTopology,
             *mut c_uint,
             *mut *mut RawDistances,
             c_ulong,
         ) -> c_int,
-    ) -> Vec<Distances> {
+    ) -> Result<Vec<Distances>, RawHwlocError> {
         // Common setup to all getter calls
         let mut nr = 0;
         let flags = 0;
-        let check_result = |result: c_int| {
-            assert!(result >= 0, "Unexpected result from hwloc distances getter");
-        };
 
         // Allocate array of distances pointers
-        check_result(getter(self.as_ptr(), &mut nr, ptr::null_mut(), flags));
-        let mut distances_ptrs = vec![
-            ptr::null_mut();
-            usize::try_from(nr)
-                .expect("Impossibly large amount of distance matrices")
-        ];
+        errors::call_hwloc_int_normal(getter_name, || {
+            getter(self.as_ptr(), &mut nr, ptr::null_mut(), flags)
+        })?;
+        let mut distances_ptrs = vec![ptr::null_mut(); ffi::expect_usize(nr)];
 
         // Let hwloc fill the distance pointers
         let old_nr = nr;
-        check_result(getter(
-            self.as_ptr(),
-            &mut nr,
-            distances_ptrs.as_mut_ptr(),
-            flags,
-        ));
+        errors::call_hwloc_int_normal(getter_name, || {
+            getter(self.as_ptr(), &mut nr, distances_ptrs.as_mut_ptr(), flags)
+        })?;
         assert_eq!(
             nr, old_nr,
             "Inconsistent reported number of distance matrices"
         );
 
         // Wrap them into a safe interface
-        distances_ptrs
+        Ok(distances_ptrs
             .into_iter()
             .map(|raw| unsafe { Distances::wrap(self, raw) })
-            .collect()
+            .collect())
     }
 }
 
@@ -195,7 +203,7 @@ impl TopologyEditor<'_> {
     ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES)
     ///   or several of the "FROM_" and "MEANS_" kinds.
     /// - [`BadObjectsCount`](AddDistancesError::BadObjectsCount) if less
-    ///   than 2 or more than `u32::MAX` objects are returned by the callback
+    ///   than 2 or more than `c_uint::MAX` objects are returned by the callback
     ///   (hwloc does not support such configurations).
     /// - [`BadDistancesCount`](AddDistancesError::BadDistancesCount) if
     ///   the number of distances returned by the callback is not compatible
@@ -323,8 +331,8 @@ pub enum AddDistancesError {
 
     /// Provided callback returned too many or too few objects
     ///
-    /// hwloc only supports distances matrices with 2 to `u32::MAX` objects.
-    #[error("callback emitted <2 or >u32::MAX objects: {0}")]
+    /// hwloc only supports distances matrices with 2 to `c_uint::MAX` objects.
+    #[error("callback emitted <2 or >c_uint::MAX objects: {0}")]
     BadObjectsCount(usize),
 
     /// Provided callback returned incompatible objects and distances arrays
@@ -560,7 +568,7 @@ impl<'topology> Distances<'topology> {
     /// Number of objects described by the distance matrix
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
-        usize::try_from(self.inner().nbobj).expect("Impossible number of objects")
+        ffi::expect_usize(self.inner().nbobj)
     }
 
     /// Objects described by the distance matrix

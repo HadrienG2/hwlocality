@@ -2,9 +2,13 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 
+use crate::ffi;
 #[cfg(doc)]
 use crate::objects::types::ObjectType;
-use std::{ffi::c_int, fmt};
+use std::{
+    ffi::{c_int, c_uint},
+    fmt,
+};
 use thiserror::Error;
 
 /// Rust mapping of the hwloc_get_type_depth_e enum
@@ -17,7 +21,7 @@ pub(crate) type RawDepth = c_int;
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Depth {
     /// Depth of a normal object (not Memory, I/O or Misc)
-    Normal(u32),
+    Normal(usize),
 
     /// Virtual depth for [`ObjectType::NUMANode`]
     #[doc(alias = "HWLOC_TYPE_DEPTH_NUMANODE")]
@@ -48,8 +52,8 @@ pub enum Depth {
 
 impl Depth {
     /// Assert that this should be a normal object depth
-    pub fn assume_normal(self) -> u32 {
-        u32::try_from(self).expect("Not a normal object depth")
+    pub fn assume_normal(self) -> usize {
+        usize::try_from(self).expect("Not a normal object depth")
     }
 
     /// List of virtual depths
@@ -73,13 +77,13 @@ impl fmt::Display for Depth {
     }
 }
 
-impl From<u32> for Depth {
-    fn from(value: u32) -> Self {
+impl From<usize> for Depth {
+    fn from(value: usize) -> Self {
         Self::Normal(value)
     }
 }
 
-impl TryFrom<Depth> for u32 {
+impl TryFrom<Depth> for usize {
     type Error = Depth;
 
     fn try_from(value: Depth) -> Result<Self, Depth> {
@@ -96,9 +100,10 @@ impl TryFrom<RawDepth> for Depth {
 
     fn try_from(value: RawDepth) -> Result<Self, DepthError> {
         match value {
-            d if d >= 0 => Ok(Self::Normal(
-                u32::try_from(d).expect("i32 >= 0 -> u32 cannot fail"),
-            )),
+            d if d >= 0 => {
+                let d = c_uint::try_from(d).expect("int >= 0 -> uint can't fail");
+                Ok(Self::Normal(ffi::expect_usize(d)))
+            }
             -1 => Err(DepthError::None),
             -2 => Err(DepthError::Multiple),
             -3 => Ok(Self::NUMANode),
@@ -152,7 +157,7 @@ pub enum DepthError {
     ///   value to indicate that, but this negative value is not documented so
     ///   the Rust bindings couldn't figure out what's not going on.
     #[error("unexpected special depth value or hwloc error: {0}")]
-    Unknown(i32),
+    Unknown(c_int),
 }
 
 /// Result from an hwloc depth query

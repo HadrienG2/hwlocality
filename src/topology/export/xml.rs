@@ -11,7 +11,7 @@ use crate::{
 use bitflags::bitflags;
 use std::{
     borrow::Borrow,
-    ffi::{c_char, c_int, c_ulong, CStr, OsStr},
+    ffi::{c_char, c_uint, c_ulong, CStr, OsStr},
     fmt::{self, Debug, Display},
     hash::Hash,
     ops::{Deref, Index},
@@ -96,6 +96,9 @@ impl Topology {
                 flags.bits(),
             )
         })?;
+        let buflen = ffi::expect_usize(
+            c_uint::try_from(buflen).expect("Got negative buffer length from hwloc"),
+        );
         Ok(unsafe { XML::wrap(self, xmlbuffer, buflen) }
             .expect("Got null pointer from hwloc_topology_export_xmlbuffer"))
     }
@@ -148,10 +151,10 @@ impl<'topology> XML<'topology> {
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
         base: *mut c_char,
-        len: c_int,
+        len: usize,
     ) -> Option<Self> {
         // Handle null pointers and invalid lengths
-        if base.is_null() || len < 1 {
+        if base.is_null() || len == 0 {
             return None;
         }
 
@@ -159,10 +162,7 @@ impl<'topology> XML<'topology> {
         let s = unsafe { CStr::from_ptr(base) };
         s.to_str()
             .expect("Unexpected non-UTF8 XML string from hwloc");
-        debug_assert_eq!(
-            s.to_bytes_with_nul().len(),
-            usize::try_from(len).expect("Unexpected len from hwloc")
-        );
+        debug_assert_eq!(s.to_bytes_with_nul().len(), len);
         let data: *const [u8] = s.to_bytes_with_nul();
         let data = (data as *const [c_char]).cast_mut();
         NonNull::new(data).map(|data| Self { topology, data })
