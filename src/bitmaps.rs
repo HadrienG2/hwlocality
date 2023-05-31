@@ -16,6 +16,8 @@ use crate::{
 use derive_more::Display;
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
+#[cfg(any(test, feature = "quickcheck"))]
+use rand::Rng;
 use std::{
     borrow::Borrow,
     clone::Clone,
@@ -1342,12 +1344,13 @@ impl BitmapIndex {
 #[cfg(any(test, feature = "quickcheck"))]
 impl Arbitrary for BitmapIndex {
     fn arbitrary(g: &mut Gen) -> Self {
-        loop {
-            let seed = c_uint::arbitrary(g);
-            if let Ok(x) = Self::try_from_c_uint(seed) {
-                return x;
-            }
-        }
+        // Many index-based hwloc APIs exhibit O(n) behavior depending on which
+        // index is passed as input, so we enforce that indices used in tests
+        // are "not too big", as per the quickcheck size parameter
+        let mut rng = rand::thread_rng();
+        let max = Self::try_from(g.size()).unwrap_or(Self::MAX);
+        let value = rng.gen_range(0..max.0);
+        Self(value)
     }
 
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
@@ -1889,56 +1892,120 @@ macro_rules! impl_bitmap_newtype {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickcheck::QuickCheck;
     use quickcheck_macros::quickcheck;
     use std::{collections::HashSet, ops::RangeInclusive};
 
-    // FIXME: Due to some unfortunate quickcheck quirks (see e.g.
-    //        https://github.com/BurntSushi/quickcheck/issues/303 ), proptests
-    //        involving arbitrary Bitmaps are very expensive and cannot be made
-    //        much cheaper, so we can only afford to run a few of those...
-    const NUM_ARBITRARY_BITMAPS: u64 = 5;
-
     #[test]
     fn empty() {
-        let empty = Bitmap::new();
+        let mut empty = Bitmap::new();
 
-        assert_eq!(empty.first_set(), None);
-        assert_eq!(empty.first_unset().map(usize::from), Some(0));
-        assert!(empty.includes(&empty));
-        assert!(!empty.intersects(&empty));
-        assert!(empty.is_empty());
-        assert!(!empty.is_full());
-        assert_eq!(empty.iter_set().count(), 0);
-        assert_eq!(empty.iter_unset().next(), empty.first_unset());
-        assert_eq!(empty.last_set(), None);
-        assert_eq!(empty.last_unset(), None);
-        assert_eq!(empty.weight(), Some(0));
+        fn test_empty(empty: &Bitmap) {
+            assert_eq!(empty.first_set(), None);
+            assert_eq!(empty.first_unset().map(usize::from), Some(0));
+            assert!(empty.is_empty());
+            assert!(!empty.is_full());
+            assert_eq!(empty.iter_set().count(), 0);
+            assert_eq!(empty.iter_unset().next(), empty.first_unset());
+            assert_eq!(empty.last_set(), None);
+            assert_eq!(empty.last_unset(), None);
+            assert_eq!(empty.weight(), Some(0));
 
-        assert_eq!(format!("{empty:?}"), "");
-        assert_eq!(format!("{empty}"), "");
-        assert_eq!(empty, empty);
-        assert_eq!(!empty, Bitmap::full());
+            assert_eq!(format!("{empty:?}"), "");
+            assert_eq!(format!("{empty}"), "");
+            assert_eq!(empty, empty);
+            assert!((!empty).is_full());
+        }
+
+        test_empty(&empty);
+        test_empty(&empty.clone());
+        test_empty(&Bitmap::default());
+
+        empty.clear();
+        test_empty(&empty);
+
+        let mut buf = empty.clone();
+        buf.fill();
+        assert!(buf.is_full());
+
+        buf.clear();
+        buf.invert();
+        assert!(buf.is_full());
     }
 
     #[quickcheck]
     fn empty_index(index: BitmapIndex) {
-        let empty = Bitmap::new();
-        assert!(!empty.is_set(index));
+        let mut buf = Bitmap::new();
+        let single = Bitmap::from(index);
+
+        assert!(!buf.is_set(index));
+
+        buf.set(index);
+        assert_eq!(buf, single);
+        let mut buf2 = Bitmap::new();
+        buf2.set_all_but(index);
+        buf.invert();
+        assert_eq!(buf, buf2);
+
+        buf.clear();
+        buf.set_only(index);
+        assert_eq!(buf, single);
+
+        buf.clear();
+        buf.unset(index);
+        assert!(buf.is_empty());
     }
 
-    #[test]
-    fn empty_op_other() {
-        fn inner(other: Bitmap) {
-            let empty = Bitmap::new();
-            assert_eq!(empty.includes(&other), other.is_empty());
-            assert!(other.includes(&empty));
-            assert!(!empty.intersects(&other));
-            assert_eq!(empty == other, other.is_empty());
+    #[quickcheck]
+    fn empty_op_range(range: RangeInclusive<BitmapIndex>) {
+        let mut buf = Bitmap::new();
+        let ranged = Bitmap::from_range(range.clone());
+
+        buf.set_range(range.clone());
+        assert_eq!(buf, ranged);
+
+        buf.clear();
+        buf.unset_range(range);
+        assert!(buf.is_empty());
+    }
+
+    #[quickcheck]
+    fn empty_op_other(other: Bitmap) {
+        let empty = Bitmap::new();
+        assert_eq!(empty.includes(&other), other.is_empty());
+        assert!(other.includes(&empty));
+        assert!(!empty.intersects(&other));
+
+        assert_eq!(empty == other, other.is_empty());
+        if !other.is_empty() {
+            assert!(empty < other);
         }
-        QuickCheck::new()
-            .tests(NUM_ARBITRARY_BITMAPS)
-            .quickcheck(inner as fn(_))
+
+        let mut buf = empty.clone();
+
+        assert!((&empty & &other).is_empty());
+        buf.copy_from(&other);
+        assert_eq!(buf, other);
+        buf &= &empty;
+        assert!(buf.is_empty());
+
+        assert_eq!(&empty | &other, other);
+        buf.copy_from(&other);
+        buf |= &empty;
+        assert_eq!(buf, other);
+
+        assert_eq!(&empty ^ &other, other);
+        buf.copy_from(&other);
+        buf ^= &empty;
+        assert_eq!(buf, other);
+
+        assert!(empty.and_not(&other).is_empty());
+        assert_eq!(other.and_not(&empty), other);
+        buf.copy_from(&empty);
+        buf.and_not_assign(&other);
+        assert!(buf.is_empty());
+        buf.copy_from(&other);
+        buf.and_not_assign(&empty);
+        assert_eq!(buf, other);
     }
 
     #[test]
@@ -1961,73 +2028,74 @@ mod tests {
         assert_eq!(format!("{full}"), "0-");
         assert_eq!(full, full);
         assert_eq!(!full, Bitmap::new());
+
+        // TODO: Test singlify, other things from new empty test
     }
 
     #[quickcheck]
     fn full_index(index: BitmapIndex) {
         let full = Bitmap::full();
         assert!(full.is_set(index));
+
+        // TODO: Test other things from new empty_index test
     }
 
-    #[test]
-    fn full_op_other() {
-        fn inner(other: Bitmap) {
-            let full = Bitmap::full();
-            assert!(full.includes(&other));
-            assert_eq!(other.includes(&full), other.is_full());
-            assert_eq!(full.intersects(&other), !other.is_empty());
-            assert_eq!(full == other, other.is_full());
+    // TODO: Add full_range test
+
+    #[quickcheck]
+    fn full_op_other(other: Bitmap) {
+        let full = Bitmap::full();
+        assert!(full.includes(&other));
+        assert_eq!(other.includes(&full), other.is_full());
+        assert_eq!(full.intersects(&other), !other.is_empty());
+        assert_eq!(full == other, other.is_full());
+        // TODO: Test other things from new empty_op_other test
+    }
+
+    #[quickcheck]
+    fn from_range(range: RangeInclusive<BitmapIndex>) {
+        let bitmap = Bitmap::from_range(range.clone());
+        let elems = (usize::from(*range.start())..=usize::from(*range.end()))
+            .map(|idx| BitmapIndex::try_from(idx).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(bitmap.first_set(), elems.first().copied());
+        assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
+        assert!(bitmap.includes(&bitmap));
+        assert_eq!(bitmap.intersects(&bitmap), !elems.is_empty());
+        assert_eq!(bitmap.is_empty(), elems.is_empty());
+        assert!(!bitmap.is_full());
+        assert_eq!(bitmap.iter_set().collect::<Vec<_>>(), elems);
+        assert_eq!(bitmap.last_set(), elems.last().copied());
+        assert_eq!(bitmap.last_unset(), None);
+        assert_eq!(bitmap.weight(), Some(elems.len()));
+
+        let mut unset = bitmap.iter_unset();
+        if let Some(first_set) = elems.first() {
+            for expected_unset in 0..usize::from(*first_set) {
+                assert_eq!(unset.next().map(usize::from), Some(expected_unset));
+            }
         }
-        QuickCheck::new()
-            .tests(NUM_ARBITRARY_BITMAPS)
-            .quickcheck(inner as fn(_))
-    }
+        let next_unset = if let Some(last_set) = elems.last() {
+            last_set.checked_succ()
+        } else {
+            Some(BitmapIndex::MIN)
+        };
+        assert_eq!(unset.next(), next_unset);
 
-    // FIXME: Optimize
-    // #[quickcheck]
-    // fn from_range(range: RangeInclusive<BitmapIndex>) {
-    //     let bitmap = Bitmap::from_range(range.clone());
-    //     let elems = (usize::from(*range.start())..=usize::from(*range.end()))
-    //         .map(|idx| BitmapIndex::try_from(idx).unwrap())
-    //         .collect::<Vec<_>>();
-    //
-    //     assert_eq!(bitmap.first_set(), elems.first().copied());
-    //     assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
-    //     assert!(bitmap.includes(&bitmap));
-    //     assert_eq!(bitmap.intersects(&bitmap), !elems.is_empty());
-    //     assert_eq!(bitmap.is_empty(), elems.is_empty());
-    //     assert!(!bitmap.is_full());
-    //     assert_eq!(bitmap.iter_set().collect::<Vec<_>>(), elems);
-    //     assert_eq!(bitmap.last_set(), elems.last().copied());
-    //     assert_eq!(bitmap.last_unset(), None);
-    //     assert_eq!(bitmap.weight(), Some(elems.len()));
-    //
-    //     let mut unset = bitmap.iter_unset();
-    //     if let Some(first_set) = elems.first() {
-    //         for expected_unset in 0..usize::from(*first_set) {
-    //             assert_eq!(unset.next().map(usize::from), Some(expected_unset));
-    //         }
-    //     }
-    //     let next_unset = if let Some(last_set) = elems.last() {
-    //         last_set.checked_succ()
-    //     } else {
-    //         Some(BitmapIndex::MIN)
-    //     };
-    //     assert_eq!(unset.next(), next_unset);
-    //
-    //     let display = if let (Some(first), Some(last)) = (elems.first(), elems.last()) {
-    //         if first != last {
-    //             format!("{first}-{last}")
-    //         } else {
-    //             format!("{first}")
-    //         }
-    //     } else {
-    //         String::new()
-    //     };
-    //     assert_eq!(format!("{bitmap:?}"), display);
-    //     assert_eq!(format!("{bitmap}"), display);
-    //     assert_eq!(bitmap, bitmap);
-    // }
+        let display = if let (Some(first), Some(last)) = (elems.first(), elems.last()) {
+            if first != last {
+                format!("{first}-{last}")
+            } else {
+                format!("{first}")
+            }
+        } else {
+            String::new()
+        };
+        assert_eq!(format!("{bitmap:?}"), display);
+        assert_eq!(format!("{bitmap}"), display);
+        assert_eq!(bitmap, bitmap);
+    }
 
     #[quickcheck]
     fn from_range_index(range: RangeInclusive<BitmapIndex>, index: BitmapIndex) {
@@ -2036,19 +2104,21 @@ mod tests {
     }
 
     // FIXME: Optimize
-    // #[quickcheck]
-    // fn from_range_op_other(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
-    //     let bitmap = Bitmap::from_range(range.clone());
-    //     let elems = (usize::from(*range.start())..=usize::from(*range.end()))
-    //         .map(|idx| BitmapIndex::try_from(idx).unwrap())
-    //         .collect::<HashSet<_>>();
-    //     let other_elems = other.iter_set().collect::<HashSet<_>>();
-    //
-    //     assert_eq!(bitmap.includes(&other), elems.is_superset(&other_elems));
-    //     assert_eq!(other.includes(&bitmap), other_elems.is_superset(&elems));
-    //     assert_eq!(bitmap.intersects(&other), !elems.is_disjoint(&other_elems));
-    //     assert_eq!(bitmap == other, elems == other_elems);
-    // }
+    /*#[quickcheck]
+    fn from_range_op_other(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
+        let bitmap = Bitmap::from_range(range.clone());
+        let elems = (usize::from(*range.start())..=usize::from(*range.end()))
+            .map(|idx| BitmapIndex::try_from(idx).unwrap())
+            .collect::<HashSet<_>>();
+        let other_elems = other.iter_set().collect::<HashSet<_>>();
+
+        assert_eq!(bitmap.includes(&other), elems.is_superset(&other_elems));
+        assert_eq!(other.includes(&bitmap), other_elems.is_superset(&elems));
+        assert_eq!(bitmap.intersects(&other), !elems.is_disjoint(&other_elems));
+        assert_eq!(bitmap == other, elems == other_elems);
+    }*/
+
+    // TODO: Test FromIterator with a HashSet basis
 
     // TODO: Add tests that check properties that should be true of any bitmap
     //       (or pairs of bitmaps, test operations too!), remove those below
