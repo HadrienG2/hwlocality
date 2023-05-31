@@ -296,7 +296,7 @@ impl Bitmap {
         unsafe { ffi::hwloc_bitmap_fill(self.as_mut_ptr()) }
     }
 
-    /// Clear all indices except for the `id`, which is set
+    /// Clear all indices except for `idx`, which is set
     ///
     /// # Examples
     ///
@@ -310,22 +310,22 @@ impl Bitmap {
     ///
     /// # Panics
     ///
-    /// If `id` is above the implementation-defined maximum index (at least
+    /// If `idx` is above the implementation-defined maximum index (at least
     /// 2^15-1, usually 2^31-1).
     #[doc(alias = "hwloc_bitmap_only")]
-    pub fn set_only<Idx>(&mut self, id: Idx)
+    pub fn set_only<Idx>(&mut self, idx: Idx)
     where
         Idx: TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
-        let id = id.try_into().expect("Unsupported bitmap index");
+        let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
-            ffi::hwloc_bitmap_only(self.as_mut_ptr(), id.0)
+            ffi::hwloc_bitmap_only(self.as_mut_ptr(), idx.0)
         })
         .unwrap();
     }
 
-    /// Set all indices except for `id`, which is cleared
+    /// Set all indices except for `idx`, which is cleared
     ///
     /// # Examples
     ///
@@ -339,22 +339,22 @@ impl Bitmap {
     ///
     /// # Panics
     ///
-    /// If `id` is above the implementation-defined maximum index (at least
+    /// If `idx` is above the implementation-defined maximum index (at least
     /// 2^15-1, usually 2^31-1).
     #[doc(alias = "hwloc_bitmap_allbut")]
-    pub fn set_all_but<Idx>(&mut self, id: Idx)
+    pub fn set_all_but<Idx>(&mut self, idx: Idx)
     where
         Idx: TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
-        let id = id.try_into().expect("Unsupported bitmap index");
+        let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
-            ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), id.0)
+            ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.0)
         })
         .unwrap();
     }
 
-    /// Set index `id`
+    /// Set index `idx`
     ///
     /// # Examples
     ///
@@ -368,17 +368,17 @@ impl Bitmap {
     ///
     /// # Panics
     ///
-    /// If `id` is above the implementation-defined maximum index (at least
+    /// If `idx` is above the implementation-defined maximum index (at least
     /// 2^15-1, usually 2^31-1).
     #[doc(alias = "hwloc_bitmap_set")]
-    pub fn set<Idx>(&mut self, id: Idx)
+    pub fn set<Idx>(&mut self, idx: Idx)
     where
         Idx: TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
-        let id = id.try_into().expect("Unsupported bitmap index");
+        let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
-            ffi::hwloc_bitmap_set(self.as_mut_ptr(), id.0)
+            ffi::hwloc_bitmap_set(self.as_mut_ptr(), idx.0)
         })
         .unwrap();
     }
@@ -420,7 +420,7 @@ impl Bitmap {
         .unwrap();
     }
 
-    /// Clear index `id`
+    /// Clear index `idx`
     ///
     /// # Examples
     ///
@@ -434,17 +434,17 @@ impl Bitmap {
     ///
     /// # Panics
     ///
-    /// If `id` is above the implementation-defined maximum index (at least
+    /// If `idx` is above the implementation-defined maximum index (at least
     /// 2^15-1, usually 2^31-1).
     #[doc(alias = "hwloc_bitmap_clr")]
-    pub fn unset<Idx>(&mut self, id: Idx)
+    pub fn unset<Idx>(&mut self, idx: Idx)
     where
         Idx: TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
-        let id = id.try_into().expect("Unsupported bitmap index");
+        let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
-            ffi::hwloc_bitmap_clr(self.as_mut_ptr(), id.0)
+            ffi::hwloc_bitmap_clr(self.as_mut_ptr(), idx.0)
         })
         .unwrap();
     }
@@ -517,7 +517,7 @@ impl Bitmap {
         .unwrap();
     }
 
-    /// Check if index `id` is set
+    /// Check if index `idx` is set
     ///
     /// # Examples
     ///
@@ -532,17 +532,17 @@ impl Bitmap {
     ///
     /// # Panics
     ///
-    /// If `id` is above the implementation-defined maximum index (at least
+    /// If `idx` is above the implementation-defined maximum index (at least
     /// 2^15-1, usually 2^31-1).
     #[doc(alias = "hwloc_bitmap_isset")]
-    pub fn is_set<Idx>(&self, id: Idx) -> bool
+    pub fn is_set<Idx>(&self, idx: Idx) -> bool
     where
         Idx: TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
-        let id = id.try_into().expect("Unsupported bitmap index");
+        let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_bool("hwloc_bitmap_isset", || unsafe {
-            ffi::hwloc_bitmap_isset(self.as_ptr(), id.0)
+            ffi::hwloc_bitmap_isset(self.as_ptr(), idx.0)
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -1596,37 +1596,37 @@ macro_rules! impl_bitmap_newtype {
                 self.0.fill()
             }
 
-            /// Clear all indices except for the `id`, which is set
+            /// Clear all indices except for `idx`, which is set
             ///
             /// See [`Bitmap::set_only`](crate::bitmaps::Bitmap::set_only).
-            pub fn set_only<Idx>(&mut self, id: Idx)
+            pub fn set_only<Idx>(&mut self, idx: Idx)
             where
                 Idx: TryInto<$crate::bitmaps::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
             {
-                self.0.set_only(id)
+                self.0.set_only(idx)
             }
 
-            /// Set all indices except for `id`, which is cleared
+            /// Set all indices except for `idx`, which is cleared
             ///
             /// See [`Bitmap::set_all_but`](crate::bitmaps::Bitmap::set_all_but).
-            pub fn set_all_but<Idx>(&mut self, id: Idx)
+            pub fn set_all_but<Idx>(&mut self, idx: Idx)
             where
                 Idx: TryInto<$crate::bitmaps::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
             {
-                self.0.set_all_but(id)
+                self.0.set_all_but(idx)
             }
 
-            /// Set index `id`
+            /// Set index `idx`
             ///
             /// See [`Bitmap::set`](crate::bitmaps::Bitmap::set).
-            pub fn set<Idx>(&mut self, id: Idx)
+            pub fn set<Idx>(&mut self, idx: Idx)
             where
                 Idx: TryInto<$crate::bitmaps::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
             {
-                self.0.set(id)
+                self.0.set(idx)
             }
 
             /// Set indices covered by `range`
@@ -1640,15 +1640,15 @@ macro_rules! impl_bitmap_newtype {
                 self.0.set_range(range)
             }
 
-            /// Clear index `id`
+            /// Clear index `idx`
             ///
             /// See [`Bitmap::unset`](crate::bitmaps::Bitmap::unset).
-            pub fn unset<Idx>(&mut self, id: Idx)
+            pub fn unset<Idx>(&mut self, idx: Idx)
             where
                 Idx: TryInto<$crate::bitmaps::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
             {
-                self.0.unset(id)
+                self.0.unset(idx)
             }
 
             /// Clear indices covered by `range`
@@ -1669,15 +1669,15 @@ macro_rules! impl_bitmap_newtype {
                 self.0.singlify()
             }
 
-            /// Check if index `id` is set
+            /// Check if index `idx` is set
             ///
             /// See [`Bitmap::is_set`](crate::bitmaps::Bitmap::is_set).
-            pub fn is_set<Idx>(&self, id: Idx) -> bool
+            pub fn is_set<Idx>(&self, idx: Idx) -> bool
             where
                 Idx: TryInto<$crate::bitmaps::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
             {
-                self.0.is_set(id)
+                self.0.is_set(idx)
             }
 
             /// Check if all indices are unset
@@ -1897,13 +1897,14 @@ mod tests {
 
     #[test]
     fn empty() {
-        let mut empty = Bitmap::new();
+        let empty = Bitmap::new();
 
         fn test_empty(empty: &Bitmap) {
             assert_eq!(empty.first_set(), None);
             assert_eq!(empty.first_unset().map(usize::from), Some(0));
             assert!(empty.is_empty());
             assert!(!empty.is_full());
+            assert_eq!(empty.into_iter().count(), 0);
             assert_eq!(empty.iter_set().count(), 0);
             assert_eq!(empty.iter_unset().next(), empty.first_unset());
             assert_eq!(empty.last_set(), None);
@@ -1912,7 +1913,6 @@ mod tests {
 
             assert_eq!(format!("{empty:?}"), "");
             assert_eq!(format!("{empty}"), "");
-            assert_eq!(empty, empty);
             assert!((!empty).is_full());
         }
 
@@ -1920,20 +1920,31 @@ mod tests {
         test_empty(&empty.clone());
         test_empty(&Bitmap::default());
 
-        empty.clear();
-        test_empty(&empty);
-
         let mut buf = empty.clone();
+        buf.clear();
+        test_empty(&buf);
+
         buf.fill();
         assert!(buf.is_full());
-
         buf.clear();
+
         buf.invert();
         assert!(buf.is_full());
     }
 
     #[quickcheck]
-    fn empty_index(index: BitmapIndex) {
+    fn empty_extend(indices: HashSet<BitmapIndex>) {
+        let mut extended = Bitmap::new();
+        extended.extend(indices.iter().copied());
+
+        assert_eq!(extended.weight(), Some(indices.len()));
+        for idx in indices {
+            assert!(extended.is_set(idx));
+        }
+    }
+
+    #[quickcheck]
+    fn empty_op_index(index: BitmapIndex) {
         let mut buf = Bitmap::new();
         let single = Bitmap::from(index);
 
@@ -1969,8 +1980,10 @@ mod tests {
     }
 
     #[quickcheck]
-    fn empty_op_other(other: Bitmap) {
+    fn empty_op_bitmap(other: Bitmap) {
         let empty = Bitmap::new();
+        let mut buf = empty.clone();
+
         assert_eq!(empty.includes(&other), other.is_empty());
         assert!(other.includes(&empty));
         assert!(!empty.intersects(&other));
@@ -1980,29 +1993,24 @@ mod tests {
             assert!(empty < other);
         }
 
-        let mut buf = empty.clone();
-
         assert!((&empty & &other).is_empty());
-        buf.copy_from(&other);
-        assert_eq!(buf, other);
-        buf &= &empty;
+        buf &= &other;
         assert!(buf.is_empty());
 
         assert_eq!(&empty | &other, other);
-        buf.copy_from(&other);
-        buf |= &empty;
+        buf |= &other;
         assert_eq!(buf, other);
 
         assert_eq!(&empty ^ &other, other);
-        buf.copy_from(&other);
-        buf ^= &empty;
+        buf.clear();
+        buf ^= &other;
         assert_eq!(buf, other);
 
         assert!(empty.and_not(&other).is_empty());
-        assert_eq!(other.and_not(&empty), other);
-        buf.copy_from(&empty);
+        buf.clear();
         buf.and_not_assign(&other);
         assert!(buf.is_empty());
+        assert_eq!(other.and_not(&empty), other);
         buf.copy_from(&other);
         buf.and_not_assign(&empty);
         assert_eq!(buf, other);
@@ -2012,48 +2020,132 @@ mod tests {
     fn full() {
         let full = Bitmap::full();
 
-        assert_eq!(full.first_set().map(usize::from), Some(0));
-        assert_eq!(full.first_unset(), None);
-        assert!(full.includes(&full));
-        assert!(full.intersects(&full));
-        assert!(!full.is_empty());
-        assert!(full.is_full());
-        assert_eq!(full.iter_set().next(), full.first_set());
-        assert_eq!(full.iter_unset().count(), 0);
-        assert_eq!(full.last_set(), None);
-        assert_eq!(full.last_unset(), None);
-        assert_eq!(full.weight(), None);
+        fn test_full(full: &Bitmap) {
+            assert_eq!(full.first_set().map(usize::from), Some(0));
+            assert_eq!(full.first_unset(), None);
+            assert!(!full.is_empty());
+            assert!(full.is_full());
+            assert_eq!(full.into_iter().next(), full.first_set());
+            assert_eq!(full.iter_set().next(), full.first_set());
+            assert_eq!(full.iter_unset().count(), 0);
+            assert_eq!(full.last_set(), None);
+            assert_eq!(full.last_unset(), None);
+            assert_eq!(full.weight(), None);
 
-        assert_eq!(format!("{full:?}"), "0-");
-        assert_eq!(format!("{full}"), "0-");
-        assert_eq!(full, full);
-        assert_eq!(!full, Bitmap::new());
+            assert_eq!(format!("{full:?}"), "0-");
+            assert_eq!(format!("{full}"), "0-");
+            assert!((!full).is_empty());
+        }
 
-        // TODO: Test singlify, other things from new empty test
+        test_full(&full);
+        test_full(&full.clone());
+        test_full(&Bitmap::full());
+
+        let mut buf = full.clone();
+        buf.fill();
+        test_full(&full);
+
+        buf.clear();
+        assert!(buf.is_empty());
+        buf.fill();
+
+        buf.invert();
+        assert!(buf.is_empty());
+        buf.fill();
+
+        buf.singlify();
+        assert_eq!(buf.weight(), Some(1));
     }
 
     #[quickcheck]
-    fn full_index(index: BitmapIndex) {
-        let full = Bitmap::full();
-        assert!(full.is_set(index));
-
-        // TODO: Test other things from new empty_index test
+    fn full_extend(indices: HashSet<BitmapIndex>) {
+        let mut extended = Bitmap::full();
+        extended.extend(indices.iter().copied());
+        assert!(extended.is_full());
     }
 
-    // TODO: Add full_range test
+    #[quickcheck]
+    fn full_op_index(index: BitmapIndex) {
+        let mut buf = Bitmap::full();
+        let single = Bitmap::from(index);
+        let single_hole = !&single;
+
+        assert!(buf.is_set(index));
+
+        buf.set(index);
+        assert!(buf.is_full());
+
+        buf.set_all_but(index);
+        assert_eq!(buf, single_hole);
+
+        buf.fill();
+        buf.set_only(index);
+        assert_eq!(buf, single);
+
+        buf.fill();
+        buf.unset(index);
+        assert_eq!(buf, single_hole);
+    }
 
     #[quickcheck]
-    fn full_op_other(other: Bitmap) {
+    fn full_op_range(range: RangeInclusive<BitmapIndex>) {
+        let mut buf = Bitmap::full();
+        let mut ranged_hole = Bitmap::from_range(range.clone());
+        ranged_hole.invert();
+
+        buf.set_range(range.clone());
+        assert!(buf.is_full());
+
+        buf.unset_range(range);
+        assert_eq!(buf, ranged_hole);
+    }
+
+    #[quickcheck]
+    fn full_op_bitmap(other: Bitmap) {
         let full = Bitmap::full();
+        let mut buf = full.clone();
+        let not_other = !&other;
+
         assert!(full.includes(&other));
         assert_eq!(other.includes(&full), other.is_full());
         assert_eq!(full.intersects(&other), !other.is_empty());
+
         assert_eq!(full == other, other.is_full());
-        // TODO: Test other things from new empty_op_other test
+        assert_eq!(
+            full.cmp(&other),
+            if other.is_full() {
+                Ordering::Equal
+            } else {
+                Ordering::Greater
+            }
+        );
+
+        assert_eq!(&full & &other, other);
+        buf &= &other;
+        assert_eq!(buf, other);
+
+        assert!((&full | &other).is_full());
+        buf.fill();
+        buf |= &other;
+        assert!(buf.is_full());
+
+        assert_eq!(&full ^ &other, not_other);
+        buf ^= &other;
+        assert_eq!(buf, not_other);
+
+        assert_eq!(full.and_not(&other), not_other);
+        buf.fill();
+        buf.and_not_assign(&other);
+        assert_eq!(buf, not_other);
+        assert!(other.and_not(&full).is_empty());
+        buf.copy_from(&other);
+        buf.and_not_assign(&full);
+        assert!(buf.is_empty());
     }
 
     #[quickcheck]
     fn from_range(range: RangeInclusive<BitmapIndex>) {
+        // TODO: Embrace lessons learned from new empty/full tests
         let bitmap = Bitmap::from_range(range.clone());
         let elems = (usize::from(*range.start())..=usize::from(*range.end()))
             .map(|idx| BitmapIndex::try_from(idx).unwrap())
@@ -2061,8 +2153,6 @@ mod tests {
 
         assert_eq!(bitmap.first_set(), elems.first().copied());
         assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
-        assert!(bitmap.includes(&bitmap));
-        assert_eq!(bitmap.intersects(&bitmap), !elems.is_empty());
         assert_eq!(bitmap.is_empty(), elems.is_empty());
         assert!(!bitmap.is_full());
         assert_eq!(bitmap.iter_set().collect::<Vec<_>>(), elems);
@@ -2094,18 +2184,23 @@ mod tests {
         };
         assert_eq!(format!("{bitmap:?}"), display);
         assert_eq!(format!("{bitmap}"), display);
-        assert_eq!(bitmap, bitmap);
     }
 
+    // TODO: Add from_range_extend
+
     #[quickcheck]
-    fn from_range_index(range: RangeInclusive<BitmapIndex>, index: BitmapIndex) {
+    fn from_range_op_index(range: RangeInclusive<BitmapIndex>, index: BitmapIndex) {
+        // TODO: Embrace lessons learned from new empty/full tests
         let bitmap = Bitmap::from_range(range.clone());
         assert_eq!(bitmap.is_set(index), range.contains(&index));
     }
 
+    // TODO: Add from_range_op_range
+
     // FIXME: Optimize
     /*#[quickcheck]
-    fn from_range_op_other(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
+    fn from_range_op_bitmap(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
+        // TODO: Embrace lessons learned from new empty/full tests
         let bitmap = Bitmap::from_range(range.clone());
         let elems = (usize::from(*range.start())..=usize::from(*range.end()))
             .map(|idx| BitmapIndex::try_from(idx).unwrap())
@@ -2118,53 +2213,15 @@ mod tests {
         assert_eq!(bitmap == other, elems == other_elems);
     }*/
 
-    // TODO: Test FromIterator with a HashSet basis
+    // TODO: Add tests that check properties that should be true of any bitmap,
+    //       based on the above but sticking to generalities
 
-    // TODO: Add tests that check properties that should be true of any bitmap
-    //       (or pairs of bitmaps, test operations too!), remove those below
-    //       once replaced.
-
-    #[test]
-    fn should_check_equality() {
-        let mut bitmap1 = Bitmap::new();
-        bitmap1.set_range(0..=3);
-
-        let mut bitmap2 = Bitmap::new();
-        bitmap2.set_range(0..=3);
-
-        let mut bitmap3 = Bitmap::new();
-        bitmap3.set_range(1..=5);
-
-        assert_eq!(bitmap1, bitmap2);
-        assert!(bitmap2 == bitmap1);
-        assert!(bitmap1 != bitmap3);
-        assert!(bitmap3 != bitmap2);
-    }
-
-    #[test]
-    fn should_clone() {
-        let mut src = Bitmap::new();
-        src.set_range(0..=3);
-
-        let dst = src.clone();
-        assert_eq!(src, dst);
-    }
-
-    #[test]
-    fn should_support_into_iter() {
-        let mut bitmap = Bitmap::from_range(4..=8);
-        bitmap.set(2);
-
-        let collected = bitmap.into_iter().map(usize::from).collect::<Vec<_>>();
-        assert_eq!(6, collected.len());
-        assert_eq!(vec![2, 4, 5, 6, 7, 8], collected);
-    }
-
-    #[test]
-    fn should_support_from_iter() {
-        let bitmap = (1..10)
-            .map(|x| BitmapIndex::try_from(x).unwrap())
-            .collect::<Bitmap>();
-        assert_eq!("1-9", format!("{bitmap}"));
+    #[quickcheck]
+    fn from_iterator(indices: HashSet<BitmapIndex>) {
+        let bitmap = indices.iter().copied().collect::<Bitmap>();
+        assert_eq!(bitmap.weight(), Some(indices.len()));
+        for idx in indices {
+            assert!(bitmap.is_set(idx));
+        }
     }
 }
