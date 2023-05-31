@@ -500,6 +500,8 @@ impl Bitmap {
     /// may be used for generating CPU sets to distribute multiple tasks below a
     /// single multi-PU object.
     ///
+    /// The effect of singlifying an empty bitmap is not specified by hwloc.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1930,6 +1932,9 @@ mod tests {
 
         buf.invert();
         assert!(buf.is_full());
+
+        // NOTE: Shouldn't test singlify here as its effect on empty bitmaps is
+        //       not specified by the hwloc documentation.
     }
 
     #[quickcheck]
