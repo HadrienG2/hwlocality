@@ -1400,9 +1400,39 @@ impl From<BitmapIndex> for usize {
     }
 }
 //
+impl PartialEq<&BitmapIndex> for BitmapIndex {
+    fn eq(&self, other: &&Self) -> bool {
+        self == *other
+    }
+}
+//
 impl PartialEq<usize> for BitmapIndex {
     fn eq(&self, other: &usize) -> bool {
         usize::from(*self) == *other
+    }
+}
+//
+impl PartialEq<&usize> for BitmapIndex {
+    fn eq(&self, other: &&usize) -> bool {
+        usize::from(*self) == **other
+    }
+}
+//
+impl PartialOrd<&BitmapIndex> for BitmapIndex {
+    fn partial_cmp(&self, other: &&BitmapIndex) -> Option<Ordering> {
+        self.partial_cmp(*other)
+    }
+}
+//
+impl PartialOrd<usize> for BitmapIndex {
+    fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
+        usize::from(*self).partial_cmp(&other)
+    }
+}
+//
+impl PartialOrd<&usize> for BitmapIndex {
+    fn partial_cmp(&self, other: &&usize) -> Option<Ordering> {
+        self.partial_cmp(*other)
     }
 }
 //
@@ -1916,8 +1946,33 @@ mod tests {
     use std::{
         collections::HashSet,
         ffi::c_ulonglong,
-        ops::{Range, RangeInclusive},
+        ops::{Range, RangeFrom, RangeInclusive},
     };
+
+    // Unfortunately, ranges of BitmapIndex cannot do everything that ranges of
+    // built-in integer types can do due to some unstable integer traits, so
+    // it's sometimes good to go back to usize.
+    fn range_inclusive_to_usize(range: &RangeInclusive<BitmapIndex>) -> RangeInclusive<usize> {
+        usize::from(*range.start())..=usize::from(*range.end())
+    }
+
+    // Split a possibly infinite bitmap into a finite bitmap and an infinite
+    // range of set indices. To get the original bitmap back, use `set_range`.
+    fn split_infinite_bitmap(mut bitmap: Bitmap) -> (Bitmap, Option<RangeFrom<BitmapIndex>>) {
+        // If this bitmap is infinite...
+        if bitmap.weight().is_none() {
+            // ...and it has a finite part...
+            if let Some(last_unset) = bitmap.last_unset() {
+                let infinite_part = last_unset.checked_succ().unwrap()..;
+                bitmap.unset_range(infinite_part.clone());
+                (bitmap, Some(infinite_part))
+            } else {
+                (Bitmap::new(), Some(BitmapIndex::MIN..))
+            }
+        } else {
+            (bitmap, None)
+        }
+    }
 
     fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) {
         let mut buf = initial.clone();
@@ -1975,6 +2030,26 @@ mod tests {
         }
     }
 
+    fn test_and_not(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) {
+        assert_eq!(b1 & b2, and);
+        let mut buf = b1.clone();
+        buf &= b2;
+        assert_eq!(buf, and);
+
+        let b1_andnot_b2 = b1 & !b2;
+        assert_eq!(b1.and_not(b2), b1_andnot_b2);
+        buf.copy_from(b1);
+        buf.and_not_assign(b2);
+        assert_eq!(buf, b1_andnot_b2);
+
+        let b2_andnot_b1 = b2 & !b1;
+        assert_eq!(b2.and_not(b1), b2_andnot_b1);
+        buf.copy_from(b2);
+        buf.and_not_assign(b1);
+        assert_eq!(buf, b2_andnot_b1);
+    }
+
+    #[allow(clippy::redundant_clone)]
     #[test]
     fn empty() {
         let empty = Bitmap::new();
@@ -2044,13 +2119,10 @@ mod tests {
             assert!(empty < other);
         }
 
-        assert!((&empty & &other).is_empty());
-        let mut buf = Bitmap::new();
-        buf &= &other;
-        assert!(buf.is_empty());
+        test_and_not(&empty, &other, &empty);
 
         assert_eq!(&empty | &other, other);
-        buf.clear();
+        let mut buf = Bitmap::new();
         buf |= &other;
         assert_eq!(buf, other);
 
@@ -2058,18 +2130,9 @@ mod tests {
         buf.clear();
         buf ^= &other;
         assert_eq!(buf, other);
-
-        assert!(empty.and_not(&other).is_empty());
-        buf.clear();
-        buf.and_not_assign(&other);
-        assert!(buf.is_empty());
-
-        assert_eq!(other.and_not(&empty), other);
-        buf.copy_from(&other);
-        buf.and_not_assign(&empty);
-        assert_eq!(buf, other);
     }
 
+    #[allow(clippy::redundant_clone)]
     #[test]
     fn full() {
         let full = Bitmap::full();
@@ -2143,13 +2206,10 @@ mod tests {
             }
         );
 
-        assert_eq!(&full & &other, other);
-        let mut buf = Bitmap::full();
-        buf &= &other;
-        assert_eq!(buf, other);
+        test_and_not(&full, &other, &other);
 
         assert!((&full | &other).is_full());
-        buf.fill();
+        let mut buf = Bitmap::full();
         buf |= &other;
         assert!(buf.is_full());
 
@@ -2157,18 +2217,9 @@ mod tests {
         buf.fill();
         buf ^= &other;
         assert_eq!(buf, not_other);
-
-        assert_eq!(full.and_not(&other), not_other);
-        buf.fill();
-        buf.and_not_assign(&other);
-        assert_eq!(buf, not_other);
-
-        assert!(other.and_not(&full).is_empty());
-        buf.copy_from(&other);
-        buf.and_not_assign(&full);
-        assert!(buf.is_empty());
     }
 
+    #[allow(clippy::redundant_clone)]
     #[quickcheck]
     fn from_range(range: RangeInclusive<BitmapIndex>) {
         let ranged_bitmap = Bitmap::from_range(range.clone());
@@ -2264,19 +2315,17 @@ mod tests {
         range: RangeInclusive<BitmapIndex>,
         other_range: RangeInclusive<BitmapIndex>,
     ) {
-        let to_usize_range = |range: &RangeInclusive<BitmapIndex>| {
-            usize::from(*range.start())..=usize::from(*range.end())
-        };
-        let usized = to_usize_range(&range);
-        let other_usized = to_usize_range(&other_range);
+        let usized = range_inclusive_to_usize(&range);
+        let other_usized = range_inclusive_to_usize(&other_range);
 
-        let num_indices =
-            |range: &RangeInclusive<usize>| (range.end() + 1).saturating_sub(*range.start());
+        let num_indices = |range: &RangeInclusive<usize>| range.clone().count();
         let num_common_indices = if usized.is_empty() || other_usized.is_empty() {
             0
         } else {
-            (usized.end().min(other_usized.end()) + 1)
-                .saturating_sub(*usized.start().max(other_usized.start()))
+            num_indices(
+                &(*usized.start().max(other_usized.start())
+                    ..=*usized.end().min(other_usized.end())),
+            )
         };
 
         let ranged_bitmap = Bitmap::from_range(range);
@@ -2302,21 +2351,88 @@ mod tests {
         }
     }
 
-    // FIXME: Optimize
-    /*#[quickcheck]
+    #[quickcheck]
     fn from_range_op_bitmap(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
-        // TODO: Embrace lessons learned from new empty/full tests
-        let bitmap = Bitmap::from_range(range.clone());
-        let elems = (usize::from(*range.start())..=usize::from(*range.end()))
-            .map(|idx| BitmapIndex::try_from(idx).unwrap())
-            .collect::<HashSet<_>>();
-        let other_elems = other.iter_set().collect::<HashSet<_>>();
+        let ranged_bitmap = Bitmap::from_range(range.clone());
+        let usized = range_inclusive_to_usize(&range);
 
-        assert_eq!(bitmap.includes(&other), elems.is_superset(&other_elems));
-        assert_eq!(other.includes(&bitmap), other_elems.is_superset(&elems));
-        assert_eq!(bitmap.intersects(&other), !elems.is_disjoint(&other_elems));
-        assert_eq!(bitmap == other, elems == other_elems);
-    }*/
+        assert_eq!(
+            ranged_bitmap.includes(&other),
+            other.is_empty()
+                || (other.last_set().is_some() && other.iter_set().all(|idx| range.contains(&idx)))
+        );
+        assert_eq!(
+            other.includes(&ranged_bitmap),
+            usized.clone().all(|idx| other.is_set(idx))
+        );
+        assert_eq!(
+            ranged_bitmap.intersects(&other),
+            usized.clone().any(|idx| other.is_set(idx))
+        );
+
+        assert_eq!(
+            ranged_bitmap == other,
+            other.weight() == Some(usized.clone().count()) && other.includes(&ranged_bitmap)
+        );
+
+        if ranged_bitmap.is_empty() {
+            assert_eq!(
+                ranged_bitmap.cmp(&other),
+                if !other.is_empty() {
+                    Ordering::Less
+                } else {
+                    Ordering::Equal
+                }
+            );
+        } else {
+            match ranged_bitmap.cmp(&other) {
+                Ordering::Less => {
+                    assert!(other.last_set().unwrap_or(BitmapIndex::MAX) > *range.end())
+                }
+                Ordering::Equal => assert_eq!(ranged_bitmap, other),
+                Ordering::Greater => assert!(!other.includes(&ranged_bitmap)),
+            }
+        }
+
+        let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
+
+        let mut ranged_and_other = other_finite
+            .iter_set()
+            .filter(|idx| range.contains(idx))
+            .collect::<Bitmap>();
+        if let Some(infinite) = &other_infinite {
+            if !ranged_bitmap.is_empty() && infinite.start <= range.end() {
+                ranged_and_other.set_range(infinite.start..=*range.end());
+            }
+        }
+        test_and_not(&ranged_bitmap, &other, &ranged_and_other);
+
+        let mut ranged_or_other = other.clone();
+        ranged_or_other.set_range(range.clone());
+        assert_eq!(&ranged_bitmap | &other, ranged_or_other);
+        let mut buf = ranged_bitmap.clone();
+        buf |= &other;
+        assert_eq!(buf, ranged_or_other);
+
+        let mut ranged_xor_other = ranged_bitmap.clone();
+        for idx in other_finite {
+            if ranged_xor_other.is_set(idx) {
+                ranged_xor_other.unset(idx);
+            } else {
+                ranged_xor_other.set(idx);
+            }
+        }
+        if let Some(infinite) = other_infinite {
+            ranged_xor_other.set_range(infinite.start..);
+            if !ranged_bitmap.is_empty() {
+                ranged_xor_other.unset_range(infinite.start.max(*range.start())..=*range.end());
+            }
+        }
+        assert_eq!(&ranged_bitmap ^ &other, ranged_xor_other);
+        let mut buf = ranged_bitmap.clone();
+        buf ^= &other;
+        assert_eq!(buf, ranged_xor_other);
+    }
 
     #[quickcheck]
     fn from_iterator(indices: HashSet<BitmapIndex>) {
@@ -2328,5 +2444,8 @@ mod tests {
     }
 
     // TODO: Add tests that check properties that should be true of any bitmap,
-    //       based on the above but sticking to generalities
+    //       based on the above but sticking to generalities (e.g. we cannot
+    //       tell anything about is_set() for an arbitrary bitmap, but we can
+    //       relate first_set() to iter_set(), and we know that if we unset()
+    //       an index then it should not be set afterwards)
 }
