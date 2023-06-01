@@ -4,7 +4,7 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpusets::CpuSet,
-    errors::{self, HybridError, NulError, RawHwlocError},
+    errors::{self, HybridError, RawHwlocError},
     ffi::{self, LibcString},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
@@ -241,13 +241,13 @@ impl<'topology> TopologyEditor<'topology> {
         }
         for (name, value) in input_infos {
             let new_string =
-                |s: &str| LibcString::new(s).map_err(CpuKindRegisterError::InfoContainsNul);
+                |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
             infos_ptrs.push(TextualInfo::new(&name, &value));
             infos.push((name, value));
         }
         let num_infos =
-            c_uint::try_from(infos_ptrs.len()).map_err(CpuKindRegisterError::TooManyInfos)?;
+            c_uint::try_from(infos_ptrs.len()).map_err(|_| CpuKindRegisterError::TooManyInfos)?;
 
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
             ffi::hwloc_cpukinds_register(
@@ -302,8 +302,10 @@ pub enum CpuKindFromSetError {
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum CpuKindRegisterError {
     /// One of the CPU kind's textual info strings contains the NUL char
+    #[error("one of the CPU kind's textual info strings contains the NUL char")]
     InfoContainsNul,
 
     /// There are too many CPU kind textual info (key, value) pairs for hwloc
+    #[error("there are too many CPU kind textual info (key, value) pairs for hwloc")]
     TooManyInfos,
 }

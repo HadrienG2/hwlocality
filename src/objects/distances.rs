@@ -1,7 +1,5 @@
 //! Object distances
 
-#[cfg(feature = "hwloc-2_5_0")]
-use crate::errors::HybridError;
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
 use crate::{

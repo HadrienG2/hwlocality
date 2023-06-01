@@ -1426,7 +1426,7 @@ impl PartialOrd<&BitmapIndex> for BitmapIndex {
 //
 impl PartialOrd<usize> for BitmapIndex {
     fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
-        usize::from(*self).partial_cmp(&other)
+        usize::from(*self).partial_cmp(other)
     }
 }
 //
