@@ -1921,28 +1921,25 @@ mod tests {
 
     fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) {
         let mut buf = initial.clone();
-
         buf.clear();
         assert!(buf.is_empty());
-        buf.copy_from(initial);
 
+        buf.copy_from(initial);
         buf.fill();
         assert!(buf.is_full());
-        buf.copy_from(initial);
 
+        buf.copy_from(initial);
         buf.invert();
         assert_eq!(buf, inverse);
-        buf.copy_from(initial);
 
-        if buf.weight().unwrap_or(usize::MAX) > 0 {
+        if initial.weight().unwrap_or(usize::MAX) > 0 {
+            buf.copy_from(initial);
             buf.singlify();
             assert_eq!(buf.weight(), Some(1));
-            buf.copy_from(initial);
         }
     }
 
     fn test_indexing(initial: &Bitmap, index: BitmapIndex, set: bool) {
-        let mut buf = initial.clone();
         let single = Bitmap::from(index);
         let single_hole = !&single;
 
@@ -1955,27 +1952,27 @@ mod tests {
 
         assert_eq!(initial.is_set(index), set);
 
+        let mut buf = initial.clone();
         buf.set(index);
         assert_eq!(buf.weight(), initial.weight().map(|w| w + !set as usize));
         for idx in std::iter::once(index).chain(initial.iter_set().take(max_iters)) {
             assert!(buf.is_set(idx));
         }
-        buf.copy_from(initial);
 
+        buf.copy_from(initial);
         buf.set_only(index);
         assert_eq!(buf, single);
-        buf.copy_from(initial);
 
+        buf.copy_from(initial);
         buf.set_all_but(index);
         assert_eq!(buf, single_hole);
-        buf.copy_from(initial);
 
+        buf.copy_from(initial);
         buf.unset(index);
         assert_eq!(buf.weight(), initial.weight().map(|w| w - set as usize));
         for idx in initial.iter_set().take(max_iters) {
             assert_eq!(buf.is_set(idx), idx != index);
         }
-        buf.copy_from(initial);
     }
 
     #[test]
@@ -2026,7 +2023,6 @@ mod tests {
     #[quickcheck]
     fn empty_op_range(range: Range<BitmapIndex>) {
         let mut buf = Bitmap::new();
-
         buf.set_range(range.clone());
         assert_eq!(buf, Bitmap::from_range(range.clone()));
         buf.clear();
@@ -2038,7 +2034,6 @@ mod tests {
     #[quickcheck]
     fn empty_op_bitmap(other: Bitmap) {
         let empty = Bitmap::new();
-        let mut buf = empty.clone();
 
         assert_eq!(empty.includes(&other), other.is_empty());
         assert!(other.includes(&empty));
@@ -2050,7 +2045,7 @@ mod tests {
         }
 
         assert!((&empty & &other).is_empty());
-        buf.clear();
+        let mut buf = Bitmap::new();
         buf &= &other;
         assert!(buf.is_empty());
 
@@ -2117,14 +2112,14 @@ mod tests {
 
     #[quickcheck]
     fn full_op_range(range: Range<BitmapIndex>) {
-        let mut buf = Bitmap::full();
         let mut ranged_hole = Bitmap::from_range(range.clone());
         ranged_hole.invert();
 
+        let mut buf = Bitmap::full();
         buf.set_range(range.clone());
         assert!(buf.is_full());
-        buf.fill();
 
+        buf.fill();
         buf.unset_range(range);
         assert_eq!(buf, ranged_hole);
     }
@@ -2132,7 +2127,6 @@ mod tests {
     #[quickcheck]
     fn full_op_bitmap(other: Bitmap) {
         let full = Bitmap::full();
-        let mut buf = full.clone();
         let not_other = !&other;
 
         assert!(full.includes(&other));
@@ -2150,7 +2144,7 @@ mod tests {
         );
 
         assert_eq!(&full & &other, other);
-        buf.fill();
+        let mut buf = Bitmap::full();
         buf &= &other;
         assert_eq!(buf, other);
 
@@ -2270,9 +2264,6 @@ mod tests {
         range: RangeInclusive<BitmapIndex>,
         other_range: RangeInclusive<BitmapIndex>,
     ) {
-        let ranged_bitmap = Bitmap::from_range(range.clone());
-        let mut buf = Bitmap::new();
-
         let to_usize_range = |range: &RangeInclusive<BitmapIndex>| {
             usize::from(*range.start())..=usize::from(*range.end())
         };
@@ -2288,7 +2279,9 @@ mod tests {
                 .saturating_sub(*usized.start().max(other_usized.start()))
         };
 
-        buf.copy_from(&ranged_bitmap);
+        let ranged_bitmap = Bitmap::from_range(range);
+
+        let mut buf = ranged_bitmap.clone();
         buf.set_range(other_range.clone());
         assert_eq!(
             buf.weight().unwrap(),
