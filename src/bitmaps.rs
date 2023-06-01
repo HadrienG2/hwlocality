@@ -868,22 +868,32 @@ impl Bitmap {
         Idx: Copy + TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
-        let convert_idx = |idx: Idx| idx.try_into().ok();
-        let start = match range.start_bound() {
-            Bound::Unbounded => Some(BitmapIndex::MIN),
-            Bound::Included(i) => convert_idx(*i),
-            Bound::Excluded(i) => convert_idx(*i).and_then(BitmapIndex::checked_succ),
-        }
-        .expect("Range start is too high for hwloc");
-        let end = match range.end_bound() {
-            Bound::Unbounded => Some(-1),
-            Bound::Included(i) => convert_idx(*i).map(c_int::from),
-            Bound::Excluded(i) => convert_idx(*i)
-                .and_then(BitmapIndex::checked_pred)
-                .map(c_int::from),
-        }
-        .expect("Range end is too high for hwloc");
-        (start.into(), end)
+        // Helper that literally translates the Rust range to an hwloc range if
+        // possible (shifting indices forwards/backwards to account for
+        // exclusive bounds). Panics if the user-specified bounds are too high,
+        // return None if they're fine but a literal translation cannot be done.
+        let helper = || -> Option<(c_uint, c_int)> {
+            let convert_idx = |idx: Idx| idx.try_into().ok();
+            let start_idx = |idx| convert_idx(idx).expect("Range start is too high for hwloc");
+            let start = match range.start_bound() {
+                Bound::Unbounded => BitmapIndex::MIN,
+                Bound::Included(i) => start_idx(*i),
+                Bound::Excluded(i) => start_idx(*i).checked_succ()?,
+            };
+            let end_idx = |idx| convert_idx(idx).expect("Range end is too high for hwloc");
+            let end = match range.end_bound() {
+                Bound::Unbounded => -1,
+                Bound::Included(i) => end_idx(*i).into(),
+                Bound::Excluded(i) => end_idx(*i).checked_pred()?.into(),
+            };
+            Some((start.into(), end))
+        };
+
+        // If a literal translation is not possible, it means either the start
+        // bound is BitmapIndex::MAX exclusive or the end bound is
+        // BitmapIndex::MIN exclusive. In both cases, the range covers no
+        // indices and can be replaced by any other empty range, including 1..=0
+        helper().unwrap_or((1, 0))
     }
 
     /// Iterator building block
@@ -1308,11 +1318,7 @@ impl BitmapIndex {
 
     /// Like [`uN::checked_sub(1)`], but enforces bitmap index limits
     pub fn checked_pred(self) -> Option<Self> {
-        if self.0 > 0 {
-            Some(Self(self.0 - 1))
-        } else {
-            None
-        }
+        self.0.checked_sub(1).map(Self)
     }
 
     /// Convert from an hwloc-originated c_int
@@ -2150,34 +2156,21 @@ mod tests {
 
     #[quickcheck]
     fn from_range(range: RangeInclusive<BitmapIndex>) {
-        // TODO: Embrace lessons learned from new empty/full tests
-        let bitmap = Bitmap::from_range(range.clone());
+        let ranged = Bitmap::from_range(range.clone());
+
         let elems = (usize::from(*range.start())..=usize::from(*range.end()))
             .map(|idx| BitmapIndex::try_from(idx).unwrap())
             .collect::<Vec<_>>();
-
-        assert_eq!(bitmap.first_set(), elems.first().copied());
-        assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
-        assert_eq!(bitmap.is_empty(), elems.is_empty());
-        assert!(!bitmap.is_full());
-        assert_eq!(bitmap.iter_set().collect::<Vec<_>>(), elems);
-        assert_eq!(bitmap.last_set(), elems.last().copied());
-        assert_eq!(bitmap.last_unset(), None);
-        assert_eq!(bitmap.weight(), Some(elems.len()));
-
-        let mut unset = bitmap.iter_unset();
-        if let Some(first_set) = elems.first() {
-            for expected_unset in 0..usize::from(*first_set) {
-                assert_eq!(unset.next().map(usize::from), Some(expected_unset));
-            }
-        }
-        let next_unset = if let Some(last_set) = elems.last() {
+        let first_unset = if let Some(&BitmapIndex::MIN) = elems.first() {
+            elems.last().copied().and_then(BitmapIndex::checked_succ)
+        } else {
+            Some(BitmapIndex::MIN)
+        };
+        let unset_after_set = if let Some(last_set) = elems.last() {
             last_set.checked_succ()
         } else {
             Some(BitmapIndex::MIN)
         };
-        assert_eq!(unset.next(), next_unset);
-
         let display = if let (Some(first), Some(last)) = (elems.first(), elems.last()) {
             if first != last {
                 format!("{first}-{last}")
@@ -2187,8 +2180,57 @@ mod tests {
         } else {
             String::new()
         };
-        assert_eq!(format!("{bitmap:?}"), display);
-        assert_eq!(format!("{bitmap}"), display);
+        let inverted = if let (Some(&first), Some(last)) = (elems.first(), elems.last()) {
+            let mut buf = Bitmap::from_range(..first);
+            if let Some(after_last) = last.checked_succ() {
+                buf.set_range(after_last..)
+            }
+            buf
+        } else {
+            Bitmap::full()
+        };
+
+        let test_ranged = |ranged: &Bitmap| {
+            assert_eq!(ranged.first_set(), elems.first().copied());
+            assert_eq!(ranged.first_unset(), first_unset);
+            assert_eq!(ranged.is_empty(), elems.is_empty());
+            assert!(!ranged.is_full());
+            assert_eq!(ranged.iter_set().collect::<Vec<_>>(), elems);
+            assert_eq!(ranged.last_set(), elems.last().copied());
+            assert_eq!(ranged.last_unset(), None);
+            assert_eq!(ranged.weight(), Some(elems.len()));
+
+            let mut unset = ranged.iter_unset();
+            if let Some(first_set) = elems.first() {
+                for expected_unset in 0..usize::from(*first_set) {
+                    assert_eq!(unset.next().map(usize::from), Some(expected_unset));
+                }
+            }
+            assert_eq!(unset.next(), unset_after_set);
+
+            assert_eq!(format!("{ranged:?}"), display);
+            assert_eq!(format!("{ranged}"), display);
+            assert_eq!(!ranged, inverted);
+        };
+
+        test_ranged(&ranged);
+        test_ranged(&ranged.clone());
+
+        let mut buf = ranged.clone();
+        buf.clear();
+        assert!(buf.is_empty());
+        buf.copy_from(&ranged);
+
+        buf.fill();
+        assert!(buf.is_full());
+        buf.copy_from(&ranged);
+
+        buf.invert();
+        assert_eq!(buf, inverted);
+        buf.copy_from(&ranged);
+
+        buf.singlify();
+        assert_eq!(buf.weight(), Some(1));
     }
 
     // TODO: Add from_range_extend
