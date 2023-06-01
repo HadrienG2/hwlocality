@@ -2447,5 +2447,6 @@ mod tests {
     //       based on the above but sticking to generalities (e.g. we cannot
     //       tell anything about is_set() for an arbitrary bitmap, but we can
     //       relate first_set() to iter_set(), and we know that if we unset()
-    //       an index then it should not be set afterwards)
+    //       an index then it should not be set afterwards and vice versa if we
+    //       set() an index)
 }
