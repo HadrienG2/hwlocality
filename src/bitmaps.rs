@@ -1913,7 +1913,11 @@ macro_rules! impl_bitmap_newtype {
 mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
-    use std::{collections::HashSet, ffi::c_ulonglong, ops::RangeInclusive};
+    use std::{
+        collections::HashSet,
+        ffi::c_ulonglong,
+        ops::{Range, RangeInclusive},
+    };
 
     fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) {
         let mut buf = initial.clone();
@@ -2020,14 +2024,13 @@ mod tests {
     }
 
     #[quickcheck]
-    fn empty_op_range(range: RangeInclusive<BitmapIndex>) {
+    fn empty_op_range(range: Range<BitmapIndex>) {
         let mut buf = Bitmap::new();
-        let ranged = Bitmap::from_range(range.clone());
 
         buf.set_range(range.clone());
-        assert_eq!(buf, ranged);
-
+        assert_eq!(buf, Bitmap::from_range(range.clone()));
         buf.clear();
+
         buf.unset_range(range);
         assert!(buf.is_empty());
     }
@@ -2113,13 +2116,14 @@ mod tests {
     }
 
     #[quickcheck]
-    fn full_op_range(range: RangeInclusive<BitmapIndex>) {
+    fn full_op_range(range: Range<BitmapIndex>) {
         let mut buf = Bitmap::full();
         let mut ranged_hole = Bitmap::from_range(range.clone());
         ranged_hole.invert();
 
         buf.set_range(range.clone());
         assert!(buf.is_full());
+        buf.fill();
 
         buf.unset_range(range);
         assert_eq!(buf, ranged_hole);
@@ -2261,7 +2265,49 @@ mod tests {
         );
     }
 
-    // TODO: Add from_range_op_range
+    #[quickcheck]
+    fn from_range_op_range(
+        range: RangeInclusive<BitmapIndex>,
+        other_range: RangeInclusive<BitmapIndex>,
+    ) {
+        let ranged_bitmap = Bitmap::from_range(range.clone());
+        let mut buf = Bitmap::new();
+
+        let to_usize_range = |range: &RangeInclusive<BitmapIndex>| {
+            usize::from(*range.start())..=usize::from(*range.end())
+        };
+        let usized = to_usize_range(&range);
+        let other_usized = to_usize_range(&other_range);
+
+        let num_indices =
+            |range: &RangeInclusive<usize>| (range.end() + 1).saturating_sub(*range.start());
+        let num_common_indices = if usized.is_empty() || other_usized.is_empty() {
+            0
+        } else {
+            (usized.end().min(other_usized.end()) + 1)
+                .saturating_sub(*usized.start().max(other_usized.start()))
+        };
+
+        buf.copy_from(&ranged_bitmap);
+        buf.set_range(other_range.clone());
+        assert_eq!(
+            buf.weight().unwrap(),
+            num_indices(&usized) + num_indices(&other_usized) - num_common_indices
+        );
+        for idx in usized.clone().chain(other_usized.clone()) {
+            assert!(buf.is_set(idx));
+        }
+
+        buf.copy_from(&ranged_bitmap);
+        buf.unset_range(other_range);
+        assert_eq!(
+            buf.weight().unwrap(),
+            num_indices(&usized) - num_common_indices
+        );
+        for idx in usized {
+            assert_eq!(buf.is_set(idx), !other_usized.contains(&idx));
+        }
+    }
 
     // FIXME: Optimize
     /*#[quickcheck]
