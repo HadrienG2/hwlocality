@@ -2372,7 +2372,7 @@ mod tests {
 
         assert_eq!(
             ranged_bitmap == other,
-            other.weight() == Some(usized.clone().count()) && other.includes(&ranged_bitmap)
+            other.weight() == Some(usized.count()) && other.includes(&ranged_bitmap)
         );
 
         if ranged_bitmap.is_empty() {
@@ -2401,8 +2401,8 @@ mod tests {
             .filter(|idx| range.contains(idx))
             .collect::<Bitmap>();
         if let Some(infinite) = &other_infinite {
-            if !ranged_bitmap.is_empty() && infinite.start <= range.end() {
-                ranged_and_other.set_range(infinite.start..=*range.end());
+            if !ranged_bitmap.is_empty() {
+                ranged_and_other.set_range(infinite.start.max(*range.start())..=*range.end());
             }
         }
         test_and_not(&ranged_bitmap, &other, &ranged_and_other);
@@ -2429,7 +2429,7 @@ mod tests {
             }
         }
         assert_eq!(&ranged_bitmap ^ &other, ranged_xor_other);
-        let mut buf = ranged_bitmap.clone();
+        let mut buf = ranged_bitmap;
         buf ^= &other;
         assert_eq!(buf, ranged_xor_other);
     }
