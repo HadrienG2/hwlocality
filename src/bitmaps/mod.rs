@@ -2,6 +2,8 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
+mod index;
+
 #[cfg(doc)]
 use crate::{
     cpu::cpusets::CpuSet,
@@ -13,11 +15,8 @@ use crate::{
     errors,
     ffi::{self, IncompleteType},
 };
-use derive_more::Display;
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
-#[cfg(any(test, feature = "quickcheck"))]
-use rand::Rng;
 use std::{
     borrow::Borrow,
     clone::Clone,
@@ -26,12 +25,16 @@ use std::{
     ffi::{c_int, c_uint},
     fmt::{self, Debug, Display},
     iter::{FromIterator, FusedIterator},
-    num::TryFromIntError,
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
+        Sub, SubAssign,
     },
     ptr::NonNull,
 };
+
+// Re-export BitmapIndex, the fact that it's in a separate module is an
+// implementation detail / valiant attempt to fight source file growth
+pub use index::BitmapIndex;
 
 /// Opaque bitmap struct
 ///
@@ -217,7 +220,7 @@ impl Bitmap {
         }
     }
 
-    /// Creates a new `Bitmap` with the given range
+    /// Creates a new `Bitmap` with the given range of indices set
     ///
     /// # Examples
     ///
@@ -320,7 +323,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
-            ffi::hwloc_bitmap_only(self.as_mut_ptr(), idx.0)
+            ffi::hwloc_bitmap_only(self.as_mut_ptr(), idx.into_c_uint())
         })
         .unwrap();
     }
@@ -349,7 +352,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
-            ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.0)
+            ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.into_c_uint())
         })
         .unwrap();
     }
@@ -378,7 +381,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
-            ffi::hwloc_bitmap_set(self.as_mut_ptr(), idx.0)
+            ffi::hwloc_bitmap_set(self.as_mut_ptr(), idx.into_c_uint())
         })
         .unwrap();
     }
@@ -444,7 +447,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
-            ffi::hwloc_bitmap_clr(self.as_mut_ptr(), idx.0)
+            ffi::hwloc_bitmap_clr(self.as_mut_ptr(), idx.into_c_uint())
         })
         .unwrap();
     }
@@ -544,7 +547,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_bool("hwloc_bitmap_isset", || unsafe {
-            ffi::hwloc_bitmap_isset(self.as_ptr(), idx.0)
+            ffi::hwloc_bitmap_isset(self.as_ptr(), idx.into_c_uint())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -587,8 +590,7 @@ impl Bitmap {
         .expect("Should not involve faillible syscalls")
     }
 
-    /// Check the first set index, if any (there may not be one if the bitmap
-    /// is empty)
+    /// Check the first set index, if any
     ///
     /// You can iterate over set indices with [`Bitmap::iter_set()`].
     ///
@@ -630,8 +632,7 @@ impl Bitmap {
         BitmapIterator::new(self, Bitmap::next_set)
     }
 
-    /// Check the last set index, if any (there may not be one if the bitmap
-    /// is empty or infinitely set)
+    /// Check the last set index, if any
     ///
     /// # Examples
     ///
@@ -738,58 +739,6 @@ impl Bitmap {
         BitmapIndex::try_from_c_int(result).ok()
     }
 
-    /// Optimized `self & !rhs`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwlocality::bitmaps::Bitmap;
-    ///
-    /// let bitmap = Bitmap::from_range(12..=56);
-    /// let bitmap2 = Bitmap::from_range(34..=78);
-    /// let result = bitmap.and_not(&bitmap2);
-    /// assert_eq!(format!("{result}"), "12-33");
-    /// ```
-    #[doc(alias = "hwloc_bitmap_andnot")]
-    pub fn and_not(&self, rhs: &Self) -> Self {
-        let mut result = Self::new();
-        unsafe {
-            Self::and_not_impl(result.as_mut_ptr(), self.as_ptr(), rhs);
-        }
-        result
-    }
-
-    /// Optimized `*self &= !rhs`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use hwlocality::bitmaps::Bitmap;
-    ///
-    /// let bitmap = Bitmap::from_range(12..=56);
-    /// let mut bitmap2 = bitmap.clone();
-    /// let rhs = Bitmap::from_range(34..=78);
-    /// bitmap2.and_not_assign(&rhs);
-    /// assert_eq!(format!("{bitmap2}"), "12-33");
-    /// ```
-    pub fn and_not_assign(&mut self, rhs: &Self) {
-        unsafe {
-            Self::and_not_impl(self.as_mut_ptr(), self.as_ptr(), rhs);
-        }
-    }
-
-    /// General `*target = (lhs & !rhs)`
-    ///
-    /// # Safety
-    ///
-    /// `target` and `lhs` must be valid bitmap pointers.
-    unsafe fn and_not_impl(target: *mut RawBitmap, lhs: *const RawBitmap, rhs: &Bitmap) {
-        errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
-            ffi::hwloc_bitmap_andnot(target, lhs, rhs.as_ptr())
-        })
-        .unwrap();
-    }
-
     /// Inverts the current `Bitmap`.
     ///
     /// # Examples
@@ -883,10 +832,10 @@ impl Bitmap {
             let end_idx = |idx| convert_idx(idx).expect("Range end is too high for hwloc");
             let end = match range.end_bound() {
                 Bound::Unbounded => -1,
-                Bound::Included(i) => end_idx(*i).into(),
-                Bound::Excluded(i) => end_idx(*i).checked_pred()?.into(),
+                Bound::Included(i) => end_idx(*i).into_c_int(),
+                Bound::Excluded(i) => end_idx(*i).checked_pred()?.into_c_int(),
             };
-            Some((start.into(), end))
+            Some((start.into_c_uint(), end))
         };
 
         // If a literal translation is not possible, it means either the start
@@ -902,7 +851,10 @@ impl Bitmap {
         index: Option<BitmapIndex>,
         next_fn: impl FnOnce(*const RawBitmap, c_int) -> c_int,
     ) -> Option<BitmapIndex> {
-        let result = next_fn(self.as_ptr(), index.map(c_int::from).unwrap_or(-1));
+        let result = next_fn(
+            self.as_ptr(),
+            index.map(BitmapIndex::into_c_int).unwrap_or(-1),
+        );
         assert!(
             result >= -1,
             "hwloc bitmap iterator returned error code {result}"
@@ -974,16 +926,18 @@ impl BitAnd<&Bitmap> for &Bitmap {
 impl BitAnd<Bitmap> for &Bitmap {
     type Output = Bitmap;
 
-    fn bitand(self, rhs: Bitmap) -> Bitmap {
-        self & (&rhs)
+    fn bitand(self, mut rhs: Bitmap) -> Bitmap {
+        rhs &= self;
+        rhs
     }
 }
 
 impl BitAnd<&Bitmap> for Bitmap {
     type Output = Bitmap;
 
-    fn bitand(self, rhs: &Bitmap) -> Bitmap {
-        (&self) & rhs
+    fn bitand(mut self, rhs: &Bitmap) -> Bitmap {
+        self &= rhs;
+        self
     }
 }
 
@@ -991,7 +945,7 @@ impl BitAnd<Bitmap> for Bitmap {
     type Output = Bitmap;
 
     fn bitand(self, rhs: Bitmap) -> Bitmap {
-        (&self) & (&rhs)
+        self & &rhs
     }
 }
 
@@ -1027,16 +981,18 @@ impl BitOr<&Bitmap> for &Bitmap {
 impl BitOr<Bitmap> for &Bitmap {
     type Output = Bitmap;
 
-    fn bitor(self, rhs: Bitmap) -> Bitmap {
-        self | &rhs
+    fn bitor(self, mut rhs: Bitmap) -> Bitmap {
+        rhs |= self;
+        rhs
     }
 }
 
 impl BitOr<&Bitmap> for Bitmap {
     type Output = Bitmap;
 
-    fn bitor(self, rhs: &Bitmap) -> Bitmap {
-        &self | rhs
+    fn bitor(mut self, rhs: &Bitmap) -> Bitmap {
+        self |= rhs;
+        self
     }
 }
 
@@ -1044,7 +1000,7 @@ impl BitOr<Bitmap> for Bitmap {
     type Output = Bitmap;
 
     fn bitor(self, rhs: Bitmap) -> Bitmap {
-        &self | &rhs
+        self | &rhs
     }
 }
 
@@ -1080,16 +1036,18 @@ impl BitXor<&Bitmap> for &Bitmap {
 impl BitXor<Bitmap> for &Bitmap {
     type Output = Bitmap;
 
-    fn bitxor(self, rhs: Bitmap) -> Bitmap {
-        self ^ (&rhs)
+    fn bitxor(self, mut rhs: Bitmap) -> Bitmap {
+        rhs ^= self;
+        rhs
     }
 }
 
 impl BitXor<&Bitmap> for Bitmap {
     type Output = Bitmap;
 
-    fn bitxor(self, rhs: &Bitmap) -> Bitmap {
-        (&self) ^ rhs
+    fn bitxor(mut self, rhs: &Bitmap) -> Bitmap {
+        self ^= rhs;
+        self
     }
 }
 
@@ -1097,7 +1055,7 @@ impl BitXor<Bitmap> for Bitmap {
     type Output = Bitmap;
 
     fn bitxor(self, rhs: Bitmap) -> Bitmap {
-        (&self) ^ (&rhs)
+        self ^ &rhs
     }
 }
 
@@ -1167,6 +1125,12 @@ impl Extend<BitmapIndex> for Bitmap {
     }
 }
 
+impl<'a> Extend<&'a BitmapIndex> for Bitmap {
+    fn extend<T: IntoIterator<Item = &'a BitmapIndex>>(&mut self, iter: T) {
+        self.extend(iter.into_iter().copied())
+    }
+}
+
 impl From<BitmapIndex> for Bitmap {
     fn from(value: BitmapIndex) -> Self {
         let mut bitmap = Self::new();
@@ -1175,11 +1139,23 @@ impl From<BitmapIndex> for Bitmap {
     }
 }
 
+impl From<&BitmapIndex> for Bitmap {
+    fn from(value: &BitmapIndex) -> Self {
+        Self::from(*value)
+    }
+}
+
 impl FromIterator<BitmapIndex> for Bitmap {
-    fn from_iter<I: IntoIterator<Item = BitmapIndex>>(iter: I) -> Bitmap {
+    fn from_iter<I: IntoIterator<Item = BitmapIndex>>(iter: I) -> Self {
         let mut bitmap = Self::new();
         bitmap.extend(iter);
         bitmap
+    }
+}
+
+impl<'a> FromIterator<&'a BitmapIndex> for Bitmap {
+    fn from_iter<I: IntoIterator<Item = &'a BitmapIndex>>(iter: I) -> Self {
+        Self::from_iter(iter.into_iter().copied())
     }
 }
 
@@ -1252,8 +1228,9 @@ impl Not for &Bitmap {
 impl Not for Bitmap {
     type Output = Bitmap;
 
-    fn not(self) -> Self {
-        !&self
+    fn not(mut self) -> Self {
+        self.invert();
+        self
     }
 }
 
@@ -1280,171 +1257,71 @@ impl PartialEq for Bitmap {
     }
 }
 
-impl<'a> PartialEq<&'a Bitmap> for Bitmap {
-    fn eq(&self, other: &&'a Bitmap) -> bool {
-        *self == **other
-    }
-}
-
 impl PartialOrd for Bitmap {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a> PartialOrd<&'a Bitmap> for Bitmap {
-    fn partial_cmp(&self, other: &&'a Bitmap) -> Option<Ordering> {
-        Some(self.cmp(*other))
+impl Sub<&Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    #[doc(alias = "hwloc_bitmap_andnot")]
+    fn sub(self, rhs: &Bitmap) -> Bitmap {
+        let mut result = Bitmap::new();
+        errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
+            ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .unwrap();
+        result
+    }
+}
+
+impl Sub<Bitmap> for &Bitmap {
+    type Output = Bitmap;
+
+    fn sub(self, mut rhs: Bitmap) -> Bitmap {
+        rhs &= self;
+        rhs
+    }
+}
+
+impl Sub<&Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn sub(mut self, rhs: &Bitmap) -> Bitmap {
+        self &= rhs;
+        self
+    }
+}
+
+impl Sub<Bitmap> for Bitmap {
+    type Output = Bitmap;
+
+    fn sub(self, rhs: Bitmap) -> Bitmap {
+        self & &rhs
+    }
+}
+
+impl SubAssign<&Bitmap> for Bitmap {
+    fn sub_assign(&mut self, rhs: &Bitmap) {
+        errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
+            ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+        })
+        .unwrap();
+    }
+}
+
+impl SubAssign<Bitmap> for Bitmap {
+    fn sub_assign(&mut self, rhs: Bitmap) {
+        *self &= &rhs
     }
 }
 
 unsafe impl Send for Bitmap {}
 unsafe impl Sync for Bitmap {}
 
-/// Bitmap indices can range from 0 to an implementation-defined limit
-///
-/// The limit is the upper bound of C's int type. On all platforms currently
-/// supported by Rust, it is at least 32767 (2^15-1), and outside of exotic
-/// 16-bit hardware, it will usually be greater than 2147483647 (2^31-1).
-///
-/// An alternate way to view BitmapIndex is as the intersection of integer
-/// values permitted by C's int and unsigned int types.
-#[derive(Clone, Copy, Debug, Default, Display, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct BitmapIndex(c_uint);
-//
-impl BitmapIndex {
-    /// Minimum allowed value of a bitmap index
-    pub const MIN: Self = Self(0);
-
-    /// Maximum allowed value of a bitmap index
-    pub const MAX: Self = Self(c_int::MAX as c_uint);
-
-    /// Like [`uN::checked_add(1)`], but enforces bitmap index limits
-    pub fn checked_succ(self) -> Option<Self> {
-        if self.0 < Self::MAX.0 {
-            Some(Self(self.0 + 1))
-        } else {
-            None
-        }
-    }
-
-    /// Like [`uN::checked_sub(1)`], but enforces bitmap index limits
-    pub fn checked_pred(self) -> Option<Self> {
-        self.0.checked_sub(1).map(Self)
-    }
-
-    /// Convert from an hwloc-originated c_int
-    ///
-    /// This is not a TryFrom implementation because that bound affects what
-    /// Bitmap implementations that take indices accept:
-    ///
-    /// - They would accept negative integers, which are always wrong.
-    /// - They could fail to infer the integer type in more cases.
-    fn try_from_c_int(x: c_int) -> Result<Self, TryFromIntError> {
-        x.try_into().map(Self)
-    }
-
-    /// Convert from an hwloc-originated c_uint
-    ///
-    /// This is not a TryFrom implementation because having that together with
-    /// a TryFrom<usize> (which is needed to elegantly interoperate with
-    /// indexing of other Rust containers) could cause type inference issues.
-    ///
-    /// Also, making the set of ints accepted by Bitmap methods depend on
-    /// how the C compiler feels like sizing int today sounds like a recipe for
-    /// portability issues. If this is a weirdly named method, then at least
-    /// people using it will know what they're getting into.
-    #[allow(unused)]
-    fn try_from_c_uint(x: c_uint) -> Result<Self, TryFromIntError> {
-        let x: c_int = x.try_into()?;
-        Self::try_from_c_int(x)
-    }
-}
-//
-#[cfg(any(test, feature = "quickcheck"))]
-impl Arbitrary for BitmapIndex {
-    fn arbitrary(g: &mut Gen) -> Self {
-        // Many index-based hwloc APIs exhibit O(n) behavior depending on which
-        // index is passed as input, so we enforce that indices used in tests
-        // are "not too big", as per the quickcheck size parameter
-        let mut rng = rand::thread_rng();
-        let max = Self::try_from(g.size()).unwrap_or(Self::MAX);
-        let value = rng.gen_range(0..max.0);
-        Self(value)
-    }
-
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(
-            self.0
-                .shrink()
-                .filter_map(|x: c_uint| BitmapIndex::try_from_c_uint(x).ok()),
-        )
-    }
-}
-//
-impl From<BitmapIndex> for c_int {
-    fn from(x: BitmapIndex) -> c_int {
-        x.0 as _
-    }
-}
-//
-impl From<BitmapIndex> for c_uint {
-    fn from(x: BitmapIndex) -> c_uint {
-        x.0
-    }
-}
-//
-impl From<BitmapIndex> for usize {
-    fn from(x: BitmapIndex) -> usize {
-        ffi::expect_usize(x.0)
-    }
-}
-//
-impl PartialEq<&BitmapIndex> for BitmapIndex {
-    fn eq(&self, other: &&Self) -> bool {
-        self == *other
-    }
-}
-//
-impl PartialEq<usize> for BitmapIndex {
-    fn eq(&self, other: &usize) -> bool {
-        usize::from(*self) == *other
-    }
-}
-//
-impl PartialEq<&usize> for BitmapIndex {
-    fn eq(&self, other: &&usize) -> bool {
-        usize::from(*self) == **other
-    }
-}
-//
-impl PartialOrd<&BitmapIndex> for BitmapIndex {
-    fn partial_cmp(&self, other: &&BitmapIndex) -> Option<Ordering> {
-        self.partial_cmp(*other)
-    }
-}
-//
-impl PartialOrd<usize> for BitmapIndex {
-    fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
-        usize::from(*self).partial_cmp(other)
-    }
-}
-//
-impl PartialOrd<&usize> for BitmapIndex {
-    fn partial_cmp(&self, other: &&usize) -> Option<Ordering> {
-        self.partial_cmp(*other)
-    }
-}
-//
-impl TryFrom<usize> for BitmapIndex {
-    type Error = TryFromIntError;
-
-    fn try_from(x: usize) -> Result<Self, TryFromIntError> {
-        c_int::try_from(x).and_then(Self::try_from_c_int)
-    }
-}
-
-/// Trait for manipulating specialized bitmaps in a homogeneous way
+/// Trait for manipulating specialized bitmaps (CpuSet, NodeSet) in a homogeneous way
 pub trait SpecializedBitmap:
     AsRef<Bitmap> + AsMut<Bitmap> + Clone + Debug + Display + From<Bitmap> + Into<Bitmap> + 'static
 {
@@ -1489,7 +1366,6 @@ macro_rules! impl_bitmap_newtype {
             derive_more::BitXor,
             derive_more::BitXorAssign,
             Clone,
-            Debug,
             Default,
             Eq,
             derive_more::From,
@@ -1499,9 +1375,18 @@ macro_rules! impl_bitmap_newtype {
             Ord,
             PartialEq,
             PartialOrd,
+            derive_more::Sub,
+            derive_more::SubAssign,
         )]
         #[repr(transparent)]
         pub struct $newtype($crate::bitmaps::Bitmap);
+
+        impl AsRef<$newtype> for $crate::bitmaps::Bitmap {
+            fn as_ref(&self) -> &$newtype {
+                // Safe because $newtype is repr(transparent)
+                unsafe { std::mem::transmute(self) }
+            }
+        }
 
         impl $crate::bitmaps::SpecializedBitmap for $newtype {
             const BITMAP_KIND: $crate::bitmaps::BitmapKind =
@@ -1512,25 +1397,12 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl std::fmt::Display for $newtype {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}({})", stringify!($newtype), &self.0)
-            }
-        }
-
-        impl AsRef<$newtype> for $crate::bitmaps::Bitmap {
-            fn as_ref(&self) -> &$newtype {
-                // Safe because $newtype is repr(transparent)
-                unsafe { std::mem::transmute(self) }
-            }
-        }
-
         /// # Re-export of the Bitmap API
         ///
         /// Only documentation headers are repeated here, you will find most of
         /// the documentation attached to identically named `Bitmap` methods.
         impl $newtype {
-            /// Wrap an owned bitmap from hwloc
+            /// Wraps an owned bitmap from hwloc
             ///
             /// See [`Bitmap::from_raw`](crate::bitmaps::Bitmap::from_raw).
             #[allow(unused)]
@@ -1540,7 +1412,7 @@ macro_rules! impl_bitmap_newtype {
                 $crate::bitmaps::Bitmap::from_raw(bitmap).map(Self::from)
             }
 
-            /// Wrap an owned bitmap from hwloc
+            /// Wraps an owned bitmap from hwloc
             ///
             /// See [`Bitmap::from_non_null`](crate::bitmaps::Bitmap::from_non_null).
             #[allow(unused)]
@@ -1550,7 +1422,7 @@ macro_rules! impl_bitmap_newtype {
                 Self::from($crate::bitmaps::Bitmap::from_non_null(bitmap))
             }
 
-            /// Wrap an hwloc-originated borrowed bitmap pointer
+            /// Wraps an hwloc-originated borrowed bitmap pointer into the bitmap representation.
             ///
             /// See [`Bitmap::borrow_from_raw`](crate::bitmaps::Bitmap::borrow_from_raw).
             #[allow(unused)]
@@ -1561,7 +1433,7 @@ macro_rules! impl_bitmap_newtype {
                     .map($crate::bitmaps::Bitmap::as_ref)
             }
 
-            /// Wrap an hwloc-originated borrowed bitmap pointer
+            /// Wraps an hwloc-originated borrowed bitmap pointer into the bitmap representation.
             ///
             /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmaps::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
@@ -1572,7 +1444,7 @@ macro_rules! impl_bitmap_newtype {
                     .map($crate::bitmaps::Bitmap::as_ref)
             }
 
-            /// Wrap an hwloc-originated borrowed bitmap pointer
+            /// Wraps an hwloc-originated borrowed bitmap pointer into the bitmap representation.
             ///
             /// See [`Bitmap::borrow_from_non_null`](crate::bitmaps::Bitmap::borrow_from_non_null).
             #[allow(unused)]
@@ -1797,20 +1669,6 @@ macro_rules! impl_bitmap_newtype {
                 self.0.last_unset()
             }
 
-            /// Optimized `self & !rhs`
-            ///
-            /// See [`Bitmap::and_not`](crate::bitmaps::Bitmap::and_not).
-            pub fn and_not(&self, rhs: &Self) -> Self {
-                Self(self.0.and_not(&rhs.0))
-            }
-
-            /// Optimized `*self &= !rhs`
-            ///
-            /// See [`Bitmap::and_not_assign`](crate::bitmaps::Bitmap::and_not_assign).
-            pub fn and_not_assign(&mut self, rhs: &Self) {
-                self.0.and_not_assign(&rhs.0)
-            }
-
             /// Inverts the current `Bitmap`.
             ///
             /// See [`Bitmap::invert`](crate::bitmaps::Bitmap::invert).
@@ -1833,11 +1691,33 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl std::ops::Not for &$newtype {
+        impl std::ops::BitAnd<&$newtype> for &$newtype {
             type Output = $newtype;
 
-            fn not(self) -> $newtype {
-                $newtype(!&self.0)
+            fn bitand(self, rhs: &$newtype) -> $newtype {
+                $newtype((&self.0) & (&rhs.0))
+            }
+        }
+
+        impl std::ops::BitAnd<$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn bitand(self, rhs: $newtype) -> $newtype {
+                $newtype((&self.0) & rhs.0)
+            }
+        }
+
+        impl std::ops::BitAnd<&$newtype> for $newtype {
+            type Output = $newtype;
+
+            fn bitand(self, rhs: &$newtype) -> $newtype {
+                $newtype(self.0 & (&rhs.0))
+            }
+        }
+
+        impl std::ops::BitAndAssign<&$newtype> for $newtype {
+            fn bitand_assign(&mut self, rhs: &$newtype) {
+                self.0 &= (&rhs.0)
             }
         }
 
@@ -1853,7 +1733,7 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn bitor(self, rhs: $newtype) -> $newtype {
-                $newtype(&self.0 | &rhs.0)
+                $newtype(&self.0 | rhs.0)
             }
         }
 
@@ -1861,7 +1741,7 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn bitor(self, rhs: &$newtype) -> $newtype {
-                $newtype(&self.0 | &rhs.0)
+                $newtype(self.0 | &rhs.0)
             }
         }
 
@@ -1871,41 +1751,11 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl std::ops::BitAnd<&$newtype> for &$newtype {
-            type Output = $newtype;
-
-            fn bitand(self, rhs: &$newtype) -> $newtype {
-                $newtype((&self.0) & (&rhs.0))
-            }
-        }
-
-        impl std::ops::BitAnd<$newtype> for &$newtype {
-            type Output = $newtype;
-
-            fn bitand(self, rhs: $newtype) -> $newtype {
-                $newtype((&self.0) & (&rhs.0))
-            }
-        }
-
-        impl std::ops::BitAnd<&$newtype> for $newtype {
-            type Output = $newtype;
-
-            fn bitand(self, rhs: &$newtype) -> $newtype {
-                $newtype((&self.0) & (&rhs.0))
-            }
-        }
-
-        impl std::ops::BitAndAssign<&$newtype> for $newtype {
-            fn bitand_assign(&mut self, rhs: &$newtype) {
-                self.0 &= &rhs.0
-            }
-        }
-
         impl std::ops::BitXor<&$newtype> for &$newtype {
             type Output = $newtype;
 
             fn bitxor(self, rhs: &$newtype) -> $newtype {
-                $newtype((&self.0) ^ (&rhs.0))
+                $newtype(&self.0 ^ &rhs.0)
             }
         }
 
@@ -1913,7 +1763,7 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn bitxor(self, rhs: $newtype) -> $newtype {
-                $newtype((&self.0) ^ (&rhs.0))
+                $newtype(&self.0 ^ rhs.0)
             }
         }
 
@@ -1921,7 +1771,7 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn bitxor(self, rhs: &$newtype) -> $newtype {
-                $newtype((&self.0) ^ (&rhs.0))
+                $newtype(self.0 ^ &rhs.0)
             }
         }
 
@@ -1931,9 +1781,98 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        impl std::fmt::Debug for $newtype {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}({:?})", stringify!($newtype), &self.0)
+            }
+        }
+
+        impl std::fmt::Display for $newtype {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}({})", stringify!($newtype), &self.0)
+            }
+        }
+
         impl Extend<$crate::bitmaps::BitmapIndex> for $newtype {
             fn extend<T: IntoIterator<Item = $crate::bitmaps::BitmapIndex>>(&mut self, iter: T) {
                 self.0.extend(iter)
+            }
+        }
+
+        impl<'a> Extend<&'a $crate::bitmaps::BitmapIndex> for $newtype {
+            fn extend<T: IntoIterator<Item = &'a $crate::bitmaps::BitmapIndex>>(&mut self, iter: T) {
+                self.0.extend(iter)
+            }
+        }
+
+        impl From<$crate::bitmaps::BitmapIndex> for $newtype {
+            fn from(value: $crate::bitmaps::BitmapIndex) -> Self {
+                Self(value.into())
+            }
+        }
+
+        impl From<&$crate::bitmaps::BitmapIndex> for $newtype {
+            fn from(value: &$crate::bitmaps::BitmapIndex) -> Self {
+                Self(value.into())
+            }
+        }
+
+        impl FromIterator<$crate::bitmaps::BitmapIndex> for $newtype {
+            fn from_iter<I: IntoIterator<Item = $crate::bitmaps::BitmapIndex>>(iter: I) -> Self {
+                Self($crate::bitmaps::Bitmap::from_iter(iter))
+            }
+        }
+
+        impl<'a> FromIterator<&'a $crate::bitmaps::BitmapIndex> for $newtype {
+            fn from_iter<I: IntoIterator<Item = &'a $crate::bitmaps::BitmapIndex>>(iter: I) -> Self {
+                Self($crate::bitmaps::Bitmap::from_iter(iter))
+            }
+        }
+
+        impl<'newtype> IntoIterator for &'newtype $newtype {
+            type Item = $crate::bitmaps::BitmapIndex;
+            type IntoIter = $crate::bitmaps::BitmapIterator<&'newtype $crate::bitmaps::Bitmap>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                (&self.0).into_iter()
+            }
+        }
+
+        impl std::ops::Not for &$newtype {
+            type Output = $newtype;
+
+            fn not(self) -> $newtype {
+                $newtype(!&self.0)
+            }
+        }
+
+        impl std::ops::Sub<&$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn sub(self, rhs: &$newtype) -> $newtype {
+                $newtype(&self.0 | &rhs.0)
+            }
+        }
+
+        impl std::ops::Sub<$newtype> for &$newtype {
+            type Output = $newtype;
+
+            fn sub(self, rhs: $newtype) -> $newtype {
+                $newtype(&self.0 | rhs.0)
+            }
+        }
+
+        impl std::ops::Sub<&$newtype> for $newtype {
+            type Output = $newtype;
+
+            fn sub(self, rhs: &$newtype) -> $newtype {
+                $newtype(self.0 | &rhs.0)
+            }
+        }
+
+        impl std::ops::SubAssign<&$newtype> for $newtype {
+            fn sub_assign(&mut self, rhs: &$newtype) {
+                self.0 |= &rhs.0
             }
         }
     };
@@ -1985,7 +1924,7 @@ mod tests {
 
         buf.copy_from(initial);
         buf.invert();
-        assert_eq!(buf, inverse);
+        assert_eq!(buf, *inverse);
 
         if initial.weight().unwrap_or(usize::MAX) > 0 {
             buf.copy_from(initial);
@@ -2030,22 +1969,22 @@ mod tests {
         }
     }
 
-    fn test_and_not(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) {
-        assert_eq!(b1 & b2, and);
+    fn test_and_sub(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) {
+        assert_eq!(b1 & b2, *and);
         let mut buf = b1.clone();
         buf &= b2;
-        assert_eq!(buf, and);
+        assert_eq!(buf, *and);
 
         let b1_andnot_b2 = b1 & !b2;
-        assert_eq!(b1.and_not(b2), b1_andnot_b2);
+        assert_eq!(b1 - b2, b1_andnot_b2);
         buf.copy_from(b1);
-        buf.and_not_assign(b2);
+        buf -= b2;
         assert_eq!(buf, b1_andnot_b2);
 
         let b2_andnot_b1 = b2 & !b1;
-        assert_eq!(b2.and_not(b1), b2_andnot_b1);
+        assert_eq!(b2 - b1, b2_andnot_b1);
         buf.copy_from(b2);
-        buf.and_not_assign(b1);
+        buf -= b1;
         assert_eq!(buf, b2_andnot_b1);
     }
 
@@ -2119,7 +2058,7 @@ mod tests {
             assert!(empty < other);
         }
 
-        test_and_not(&empty, &other, &empty);
+        test_and_sub(&empty, &other, &empty);
 
         assert_eq!(&empty | &other, other);
         let mut buf = Bitmap::new();
@@ -2206,7 +2145,7 @@ mod tests {
             }
         );
 
-        test_and_not(&full, &other, &other);
+        test_and_sub(&full, &other, &other);
 
         assert!((&full | &other).is_full());
         let mut buf = Bitmap::full();
@@ -2405,7 +2344,7 @@ mod tests {
                 ranged_and_other.set_range(infinite.start.max(*range.start())..=*range.end());
             }
         }
-        test_and_not(&ranged_bitmap, &other, &ranged_and_other);
+        test_and_sub(&ranged_bitmap, &other, &ranged_and_other);
 
         let mut ranged_or_other = other.clone();
         ranged_or_other.set_range(range.clone());

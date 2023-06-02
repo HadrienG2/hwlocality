@@ -238,7 +238,7 @@ impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
         let object_cpuset = object
             .cpuset()
             .expect("Output of first_largest_object_inside_cpuset should have a cpuset");
-        self.set.and_not_assign(object_cpuset);
+        self.set -= object_cpuset;
         Some(object)
     }
 }
