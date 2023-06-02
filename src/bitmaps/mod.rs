@@ -194,7 +194,7 @@ impl Bitmap {
         unsafe {
             let ptr =
                 errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || ffi::hwloc_bitmap_alloc())
-                    .unwrap();
+                    .expect("Bitmap operation failures are handled via panics");
             Self::from_non_null(ptr)
         }
     }
@@ -215,7 +215,7 @@ impl Bitmap {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc_full", || {
                 ffi::hwloc_bitmap_alloc_full()
             })
-            .unwrap();
+            .expect("Bitmap operation failures are handled via panics");
             Self::from_non_null(ptr)
         }
     }
@@ -264,7 +264,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
             ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Clear all indices
@@ -325,7 +325,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
             ffi::hwloc_bitmap_only(self.as_mut_ptr(), idx.into_c_uint())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Set all indices except for `idx`, which is cleared
@@ -354,7 +354,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
             ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.into_c_uint())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Set index `idx`
@@ -383,7 +383,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
             ffi::hwloc_bitmap_set(self.as_mut_ptr(), idx.into_c_uint())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Set indices covered by `range`
@@ -420,7 +420,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_set_range", || unsafe {
             ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end)
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Clear index `idx`
@@ -449,7 +449,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
             ffi::hwloc_bitmap_clr(self.as_mut_ptr(), idx.into_c_uint())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Clear indices covered by `range`
@@ -486,7 +486,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_clr_range", || unsafe {
             ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end)
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Keep a single index among those set in the bitmap
@@ -519,7 +519,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify", || unsafe {
             ffi::hwloc_bitmap_singlify(self.as_mut_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Check if index `idx` is set
@@ -754,7 +754,7 @@ impl Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 
     /// Truth that `self` and `rhs` have some set indices in common
@@ -918,7 +918,7 @@ impl BitAnd<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
             ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
@@ -954,7 +954,7 @@ impl BitAndAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
             ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 }
 
@@ -973,7 +973,7 @@ impl BitOr<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
             ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
@@ -1009,7 +1009,7 @@ impl BitOrAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
             ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 }
 
@@ -1028,7 +1028,7 @@ impl BitXor<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
             ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
@@ -1064,7 +1064,7 @@ impl BitXorAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
             ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 }
 
@@ -1081,7 +1081,7 @@ impl Clone for Bitmap {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_dup", || {
                 ffi::hwloc_bitmap_dup(self.as_ptr())
             })
-            .unwrap();
+            .expect("Bitmap operation failures are handled via panics");
             Self::from_non_null(ptr)
         }
     }
@@ -1220,7 +1220,7 @@ impl Not for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
@@ -1272,7 +1272,7 @@ impl Sub<&Bitmap> for &Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
             ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
@@ -1308,7 +1308,7 @@ impl SubAssign<&Bitmap> for Bitmap {
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
             ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
         })
-        .unwrap();
+        .expect("Bitmap operation failures are handled via panics");
     }
 }
 
