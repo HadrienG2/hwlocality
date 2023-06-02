@@ -1901,7 +1901,8 @@ mod tests {
     }
 
     // Split a possibly infinite bitmap into a finite bitmap and an infinite
-    // range of set indices. To get the original bitmap back, use `set_range`.
+    // range of set indices, separated from the indices of the finite bitmap by
+    // a range of unset indices. To get the original bitmap back, use `set_range`.
     fn split_infinite_bitmap(mut bitmap: Bitmap) -> (Bitmap, Option<RangeFrom<BitmapIndex>>) {
         // If this bitmap is infinite...
         if bitmap.weight().is_none() {
@@ -2006,12 +2007,13 @@ mod tests {
             assert!(!empty.is_full());
             assert_eq!(empty.into_iter().count(), 0);
             assert_eq!(empty.iter_set().count(), 0);
-            for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
-                assert_eq!(expected, usize::from(idx));
-            }
             assert_eq!(empty.last_set(), None);
             assert_eq!(empty.last_unset(), None);
             assert_eq!(empty.weight(), Some(0));
+
+            for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
+                assert_eq!(expected, usize::from(idx));
+            }
 
             assert_eq!(format!("{empty:?}"), "");
             assert_eq!(format!("{empty}"), "");
@@ -2088,6 +2090,11 @@ mod tests {
             assert_eq!(full.first_unset(), None);
             assert!(!full.is_empty());
             assert!(full.is_full());
+            assert_eq!(full.iter_unset().count(), 0);
+            assert_eq!(full.last_set(), None);
+            assert_eq!(full.last_unset(), None);
+            assert_eq!(full.weight(), None);
+
             fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) {
                 for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
                     assert_eq!(expected, usize::from(idx));
@@ -2095,10 +2102,6 @@ mod tests {
             }
             test_iter_set(full.into_iter());
             test_iter_set(full.iter_set());
-            assert_eq!(full.iter_unset().count(), 0);
-            assert_eq!(full.last_set(), None);
-            assert_eq!(full.last_unset(), None);
-            assert_eq!(full.weight(), None);
 
             assert_eq!(format!("{full:?}"), "0-");
             assert_eq!(format!("{full}"), "0-");
@@ -2210,6 +2213,7 @@ mod tests {
             assert_eq!(ranged_bitmap.first_unset(), first_unset);
             assert_eq!(ranged_bitmap.is_empty(), elems.is_empty());
             assert!(!ranged_bitmap.is_full());
+            assert_eq!(ranged_bitmap.into_iter().collect::<Vec<_>>(), elems);
             assert_eq!(ranged_bitmap.iter_set().collect::<Vec<_>>(), elems);
             assert_eq!(ranged_bitmap.last_set(), elems.last().copied());
             assert_eq!(ranged_bitmap.last_unset(), None);
