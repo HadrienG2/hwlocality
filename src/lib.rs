@@ -12,7 +12,7 @@ pub mod info;
 mod linux;
 pub mod memory;
 pub mod objects;
-pub mod path;
+pub mod paths;
 pub mod topology;
 #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
 mod windows;

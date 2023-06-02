@@ -2,7 +2,7 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
-mod index;
+mod indices;
 
 #[cfg(doc)]
 use crate::{
@@ -34,7 +34,7 @@ use std::{
 
 // Re-export BitmapIndex, the fact that it's in a separate module is an
 // implementation detail / valiant attempt to fight source file growth
-pub use index::BitmapIndex;
+pub use indices::BitmapIndex;
 
 /// Opaque bitmap struct
 ///

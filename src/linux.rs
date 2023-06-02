@@ -6,7 +6,7 @@ use crate::{
     cpu::cpusets::CpuSet,
     errors::{self, HybridError, RawHwlocError},
     ffi,
-    path::{self, PathError},
+    paths::{self, PathError},
     topology::Topology,
 };
 use std::path::Path;
@@ -96,7 +96,7 @@ impl Topology {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<CpuSet, HybridError<PathError>> {
-        let path = path::make_hwloc_path(path)?;
+        let path = paths::make_hwloc_path(path)?;
         let mut set = CpuSet::new();
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             ffi::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
