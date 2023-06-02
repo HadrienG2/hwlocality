@@ -107,6 +107,7 @@ hwloc-2_8_0 = ["hwloc-2_5_0"]
 # - Bump the hwloc version that's installed by CI.
 # - Adjust readthedocs links to point to the new release's documentation.
 
+# Implement quickcheck's Arbitrary trait for types where it makes sense
 quickcheck = ["dep:quickcheck", "rand"]
 
 [dependencies]

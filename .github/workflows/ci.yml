@@ -79,6 +79,7 @@ jobs:
           - '--features=hwloc-2_5_0'
           - '--features=hwloc-2_8_0'
           - '--features=hwloc-latest'
+          - '--features=hwloc-latest,quickcheck'
 
     steps:
       - name: Checkout sources
@@ -149,6 +150,7 @@ jobs:
           - '--features=hwloc-2_5_0'
           - '--features=hwloc-2_8_0'
           - '--features=hwloc-latest'
+          - '--features=hwloc-latest,quickcheck'
 
     steps:
       - name: Checkout sources
@@ -210,6 +212,7 @@ jobs:
           - '--features=hwloc-2_5_0'
           - '--features=hwloc-2_8_0'
           - '--features=hwloc-latest'
+          - '--features=hwloc-latest,quickcheck'
 
     steps:
       - name: Checkout sources
