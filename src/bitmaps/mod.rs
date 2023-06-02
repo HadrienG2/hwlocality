@@ -2326,7 +2326,11 @@ mod tests {
         } else {
             match ranged_bitmap.cmp(&other) {
                 Ordering::Less => {
-                    assert!(other.last_set().unwrap_or(BitmapIndex::MAX) > *range.end())
+                    assert!(
+                        other.last_set().unwrap_or(BitmapIndex::MAX) > *range.end()
+                            || (other.includes(&ranged_bitmap)
+                                && other.first_set().unwrap_or(BitmapIndex::MIN) < *range.start())
+                    )
                 }
                 Ordering::Equal => assert_eq!(ranged_bitmap, other),
                 Ordering::Greater => assert!(!other.includes(&ranged_bitmap)),
