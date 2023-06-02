@@ -1888,6 +1888,11 @@ mod tests {
         ops::{Range, RangeFrom, RangeInclusive},
     };
 
+    // We can't fully check the value of infinite iterators because that would
+    // literally take forever, so we only check a small subrange of the final
+    // all-set/unset region, large enough to catch off-by-one-longword issues.
+    const INFINITE_EXPLORE_ITERS: usize = std::mem::size_of::<c_ulonglong>() * 8;
+
     // Unfortunately, ranges of BitmapIndex cannot do everything that ranges of
     // built-in integer types can do due to some unstable integer traits, so
     // it's sometimes good to go back to usize.
@@ -1942,7 +1947,7 @@ mod tests {
         // account for off-by-one-word errors.
         let max_iters = initial
             .weight()
-            .unwrap_or(usize::from(index) + std::mem::size_of::<c_ulonglong>() * 8);
+            .unwrap_or(usize::from(index) + INFINITE_EXPLORE_ITERS);
 
         assert_eq!(initial.is_set(index), set);
 
@@ -2001,7 +2006,9 @@ mod tests {
             assert!(!empty.is_full());
             assert_eq!(empty.into_iter().count(), 0);
             assert_eq!(empty.iter_set().count(), 0);
-            assert_eq!(empty.iter_unset().next(), empty.first_unset());
+            for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
+                assert_eq!(expected, usize::from(idx));
+            }
             assert_eq!(empty.last_set(), None);
             assert_eq!(empty.last_unset(), None);
             assert_eq!(empty.weight(), Some(0));
@@ -2010,7 +2017,6 @@ mod tests {
             assert_eq!(format!("{empty}"), "");
             assert_eq!(!empty, inverse);
         };
-
         test_empty(&empty);
         test_empty(&empty.clone());
         test_empty(&Bitmap::default());
@@ -2082,8 +2088,13 @@ mod tests {
             assert_eq!(full.first_unset(), None);
             assert!(!full.is_empty());
             assert!(full.is_full());
-            assert_eq!(full.into_iter().next(), full.first_set());
-            assert_eq!(full.iter_set().next(), full.first_set());
+            fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) {
+                for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
+                    assert_eq!(expected, usize::from(idx));
+                }
+            }
+            test_iter_set(full.into_iter());
+            test_iter_set(full.iter_set());
             assert_eq!(full.iter_unset().count(), 0);
             assert_eq!(full.last_set(), None);
             assert_eq!(full.last_unset(), None);
@@ -2093,7 +2104,6 @@ mod tests {
             assert_eq!(format!("{full}"), "0-");
             assert_eq!(!full, inverse);
         };
-
         test_full(&full);
         test_full(&full.clone());
 
@@ -2211,13 +2221,16 @@ mod tests {
                     assert_eq!(unset.next().map(usize::from), Some(expected_unset));
                 }
             }
-            assert_eq!(unset.next(), unset_after_set);
+            let mut expected_unset =
+                std::iter::successors(unset_after_set, |unset| unset.checked_succ());
+            for unset_index in unset.take(INFINITE_EXPLORE_ITERS) {
+                assert_eq!(unset_index, expected_unset.next().unwrap())
+            }
 
             assert_eq!(format!("{ranged_bitmap:?}"), display);
             assert_eq!(format!("{ranged_bitmap}"), display);
             assert_eq!(!ranged_bitmap, inverse);
         };
-
         test_ranged(&ranged_bitmap);
         test_ranged(&ranged_bitmap.clone());
 
