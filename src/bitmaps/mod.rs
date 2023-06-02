@@ -2403,6 +2403,87 @@ mod tests {
         }
     }
 
+    #[allow(clippy::redundant_clone)]
+    #[quickcheck]
+    fn arbitrary(bitmap: Bitmap) {
+        // Test that accessors produce consistent results
+        assert_eq!(bitmap.first_set(), bitmap.iter_set().next());
+        assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
+        assert_eq!(bitmap.is_empty(), bitmap.weight() == Some(0));
+        assert_eq!(bitmap.is_full(), bitmap.first_unset() == None);
+        //
+        fn test_iter(
+            bitmap: &Bitmap,
+            mut iter_set: impl IntoIterator<Item = BitmapIndex>,
+        ) -> (Bitmap, String) {
+            let mut iter_unset = bitmap.iter_unset();
+            let mut inverse = Bitmap::new();
+            let mut display = String::new();
+            // TODO: Left to test: iterators, last_(un)?set (requires iterators),
+            //       weight (strongly related to iterators, will be used to decide
+            //       when iteration should stop). Along the way, predict the value
+            //       of inverse and display, then return it.
+        }
+        let (inverse, display) = test_iter(&bitmap, bitmap.into_iter());
+        let (inverse2, display2) = test_iter(&bitmap, bitmap.iter_set());
+        //
+        assert_eq!(inverse, inverse2);
+        assert_eq!(display, display2);
+        assert_eq!(!&bitmap, inverse);
+        assert_eq!(format!("{bitmap:?}"), display);
+        assert_eq!(format!("{bitmap}"), display);
+
+        // Test in-place operations
+        test_basic_inplace(&bitmap, &inverse);
+
+        // Test that a clone is indistinguishable from the original bitmap
+        let clone = bitmap.clone();
+        assert_eq!(clone.first_set(), bitmap.first_set());
+        assert_eq!(clone.first_unset(), bitmap.first_unset());
+        assert_eq!(clone.is_empty(), bitmap.is_empty());
+        assert_eq!(clone.is_full(), bitmap.is_full());
+        assert_eq!(clone.last_set(), bitmap.last_set());
+        assert_eq!(clone.last_unset(), bitmap.last_unset());
+        assert_eq!(clone.weight(), bitmap.weight());
+        //
+        let (finite, infinite) = split_infinite_bitmap(bitmap);
+        if let Some(infinite) = infinite {
+            let test_iter = |mut iter_set: Box<dyn Iterator<Item = BitmapIndex>>| {
+                let mut iter_unset = clone.iter_unset().fuse();
+                let infinite_start = usize::from(infinite.start);
+                for idx in 0..infinite_start {
+                    let next = if finite.is_set(idx) {
+                        iter_set.next()
+                    } else {
+                        iter_unset.next()
+                    };
+                    assert_eq!(next.map(usize::from), Some(idx));
+                }
+                assert_eq!(iter_unset.next(), None);
+                for idx in (infinite_start..).take(INFINITE_EXPLORE_ITERS) {
+                    assert_eq!(iter_set.next().map(usize::from), Some(idx));
+                }
+            };
+            test_iter(Box::new(clone.into_iter()));
+            test_iter(Box::new(clone.iter_set()));
+        } else {
+            assert_eq!(clone.into_iter().collect::<Bitmap>(), finite);
+            assert_eq!(clone.iter_set().collect::<Bitmap>(), finite);
+
+            let mut num_iters = usize::from(finite.last_set().unwrap()) - finite.weight().unwrap()
+                + INFINITE_EXPLORE_ITERS;
+            let mut iterator = finite.iter_unset().zip(clone.iter_unset());
+            for _ in 0..num_iters {
+                let (expected, actual) = iterator.next().unwrap();
+                assert_eq!(expected, actual);
+            }
+        }
+        //
+        assert_eq!(format!("{clone:?}"), display);
+        assert_eq!(format!("{clone}"), display);
+        assert_eq!(!clone, inverse);
+    }
+
     // TODO: Add tests that check properties that should be true of any bitmap,
     //       based on the above but sticking to generalities (e.g. we cannot
     //       tell anything about is_set() for an arbitrary bitmap, but we can
