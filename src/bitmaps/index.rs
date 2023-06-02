@@ -268,6 +268,7 @@ macro_rules! try_into {
         impl TryFrom<BitmapIndex> for $int {
             type Error = TryFromIntError;
 
+            #[allow(clippy::needless_question_mark)]
             fn try_from(value: BitmapIndex) -> Result<Self, TryFromIntError> {
                 Ok(value.0.try_into()?)
             }

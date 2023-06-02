@@ -1281,7 +1281,7 @@ impl Sub<Bitmap> for &Bitmap {
     type Output = Bitmap;
 
     fn sub(self, mut rhs: Bitmap) -> Bitmap {
-        rhs &= self;
+        rhs -= self;
         rhs
     }
 }
@@ -1290,7 +1290,7 @@ impl Sub<&Bitmap> for Bitmap {
     type Output = Bitmap;
 
     fn sub(mut self, rhs: &Bitmap) -> Bitmap {
-        self &= rhs;
+        self -= rhs;
         self
     }
 }
@@ -1299,7 +1299,7 @@ impl Sub<Bitmap> for Bitmap {
     type Output = Bitmap;
 
     fn sub(self, rhs: Bitmap) -> Bitmap {
-        self & &rhs
+        self - &rhs
     }
 }
 
@@ -1314,7 +1314,7 @@ impl SubAssign<&Bitmap> for Bitmap {
 
 impl SubAssign<Bitmap> for Bitmap {
     fn sub_assign(&mut self, rhs: Bitmap) {
-        *self &= &rhs
+        *self -= &rhs
     }
 }
 
@@ -1850,7 +1850,7 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn sub(self, rhs: &$newtype) -> $newtype {
-                $newtype(&self.0 | &rhs.0)
+                $newtype(&self.0 - &rhs.0)
             }
         }
 
@@ -1858,7 +1858,7 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn sub(self, rhs: $newtype) -> $newtype {
-                $newtype(&self.0 | rhs.0)
+                $newtype(&self.0 - rhs.0)
             }
         }
 
@@ -1866,13 +1866,13 @@ macro_rules! impl_bitmap_newtype {
             type Output = $newtype;
 
             fn sub(self, rhs: &$newtype) -> $newtype {
-                $newtype(self.0 | &rhs.0)
+                $newtype(self.0 - &rhs.0)
             }
         }
 
         impl std::ops::SubAssign<&$newtype> for $newtype {
             fn sub_assign(&mut self, rhs: &$newtype) {
-                self.0 |= &rhs.0
+                self.0 -= &rhs.0
             }
         }
     };
