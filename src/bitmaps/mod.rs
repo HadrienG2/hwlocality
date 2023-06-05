@@ -1885,6 +1885,7 @@ mod tests {
     use std::{
         collections::HashSet,
         ffi::c_ulonglong,
+        fmt::Write,
         ops::{Range, RangeFrom, RangeInclusive},
     };
 
@@ -1939,7 +1940,7 @@ mod tests {
         }
     }
 
-    fn test_indexing(initial: &Bitmap, index: BitmapIndex, set: bool) {
+    fn test_indexing(initial: &Bitmap, index: BitmapIndex, initially_set: bool) {
         let single = Bitmap::from(index);
         let single_hole = !&single;
 
@@ -1950,11 +1951,14 @@ mod tests {
             .weight()
             .unwrap_or(usize::from(index) + INFINITE_EXPLORE_ITERS);
 
-        assert_eq!(initial.is_set(index), set);
+        assert_eq!(initial.is_set(index), initially_set);
 
         let mut buf = initial.clone();
         buf.set(index);
-        assert_eq!(buf.weight(), initial.weight().map(|w| w + !set as usize));
+        assert_eq!(
+            buf.weight(),
+            initial.weight().map(|w| w + !initially_set as usize)
+        );
         for idx in std::iter::once(index).chain(initial.iter_set().take(max_iters)) {
             assert!(buf.is_set(idx));
         }
@@ -1969,7 +1973,10 @@ mod tests {
 
         buf.copy_from(initial);
         buf.unset(index);
-        assert_eq!(buf.weight(), initial.weight().map(|w| w - set as usize));
+        assert_eq!(
+            buf.weight(),
+            initial.weight().map(|w| w - initially_set as usize)
+        );
         for idx in initial.iter_set().take(max_iters) {
             assert_eq!(buf.is_set(idx), idx != index);
         }
@@ -2368,26 +2375,13 @@ mod tests {
         test_and_sub(&ranged_bitmap, &other, &ranged_and_other);
 
         let mut ranged_or_other = other.clone();
-        ranged_or_other.set_range(range.clone());
+        ranged_or_other.set_range(range);
         assert_eq!(&ranged_bitmap | &other, ranged_or_other);
         let mut buf = ranged_bitmap.clone();
         buf |= &other;
         assert_eq!(buf, ranged_or_other);
 
-        let mut ranged_xor_other = ranged_bitmap.clone();
-        for idx in other_finite {
-            if ranged_xor_other.is_set(idx) {
-                ranged_xor_other.unset(idx);
-            } else {
-                ranged_xor_other.set(idx);
-            }
-        }
-        if let Some(infinite) = other_infinite {
-            ranged_xor_other.set_range(infinite.start..);
-            if !ranged_bitmap.is_empty() {
-                ranged_xor_other.unset_range(infinite.start.max(*range.start())..=*range.end());
-            }
-        }
+        let ranged_xor_other = ranged_or_other - ranged_and_other;
         assert_eq!(&ranged_bitmap ^ &other, ranged_xor_other);
         let mut buf = ranged_bitmap;
         buf ^= &other;
@@ -2406,25 +2400,138 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     #[quickcheck]
     fn arbitrary(bitmap: Bitmap) {
-        // Test that accessors produce consistent results
+        // Test properties pertaining to first iterator output
         assert_eq!(bitmap.first_set(), bitmap.iter_set().next());
         assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
-        assert_eq!(bitmap.is_empty(), bitmap.weight() == Some(0));
-        assert_eq!(bitmap.is_full(), bitmap.first_unset() == None);
-        //
+        assert_eq!(bitmap.is_empty(), bitmap.first_set().is_none());
+        assert_eq!(bitmap.is_full(), bitmap.first_unset().is_none());
+
+        // Test iterator-wide properties
         fn test_iter(
             bitmap: &Bitmap,
-            mut iter_set: impl IntoIterator<Item = BitmapIndex>,
+            iter_set: impl Iterator<Item = BitmapIndex>,
         ) -> (Bitmap, String) {
-            let mut iter_unset = bitmap.iter_unset();
-            let mut inverse = Bitmap::new();
+            let mut iter_set = iter_set.peekable();
+            let mut iter_unset = bitmap.iter_unset().peekable();
+
+            // Iterate over BitmapIndex until the end ot either iterator is reached
+            let mut next_index = BitmapIndex::MIN;
+            let mut set_stripe_start = None;
+            let mut observed_weight = 0;
+            let mut observed_last_set = None;
+            let mut observed_last_unset = None;
+            let mut inverse = Bitmap::full();
             let mut display = String::new();
-            // TODO: Left to test: iterators, last_(un)?set (requires iterators),
-            //       weight (strongly related to iterators, will be used to decide
-            //       when iteration should stop). Along the way, predict the value
-            //       of inverse and display, then return it.
+            //
+            while let (Some(next_set), Some(next_unset)) =
+                (iter_set.peek().copied(), iter_unset.peek().copied())
+            {
+                // Move least advanced iterator forward
+                match next_set.cmp(&next_unset) {
+                    Ordering::Less => {
+                        // Next index should be set
+                        iter_set.next();
+                        assert_eq!(next_set, next_index);
+
+                        // Acknowledge that a set index has been processed
+                        observed_last_set = Some(next_set);
+                        observed_weight += 1;
+                        if set_stripe_start.is_none() {
+                            set_stripe_start = Some(next_set);
+                        }
+                    }
+                    // Next index should be unset
+                    Ordering::Greater => {
+                        // Next index should be unset
+                        iter_unset.next();
+                        assert_eq!(next_unset, next_index);
+                        observed_last_unset = Some(next_unset);
+
+                        // If we just went through a stripe of set indices,
+                        // propagate that into the inverse & display predictions
+                        if let Some(first_set) = set_stripe_start {
+                            let last_set = observed_last_set.unwrap();
+                            inverse.unset_range(first_set..=last_set);
+                            if !display.is_empty() {
+                                write!(display, ",").unwrap();
+                            }
+                            write!(display, "{first_set}").unwrap();
+                            if last_set != first_set {
+                                write!(display, "-{last_set}").unwrap();
+                            }
+                            set_stripe_start = None;
+                        }
+                    }
+                    Ordering::Equal => unreachable!("Next index can't be both set and unset"),
+                }
+
+                // Update next_index
+                next_index = next_index.checked_succ().expect(
+                    "Shouldn't overflow if we had both a next set & unset index before iterating",
+                );
+            }
+
+            // At this point, we reached the end of one of the iterators, and
+            // the other iterator should just keep producing an infinite
+            // sequence of consecutive indices. Reach some conclusions...
+            let mut infinite_iter: Box<dyn Iterator<Item = BitmapIndex>> =
+                match (iter_set.peek(), iter_unset.peek()) {
+                    (Some(next_set), None) => {
+                        // Check end-of-iterator properties
+                        assert_eq!(bitmap.last_set(), None);
+                        assert_eq!(bitmap.last_unset(), observed_last_unset);
+                        assert_eq!(bitmap.weight(), None);
+
+                        // Handle last (infinite) range of set elements
+                        let stripe_start = set_stripe_start.unwrap_or(*next_set);
+                        inverse.unset_range(stripe_start..);
+                        if !display.is_empty() {
+                            write!(display, ",").unwrap();
+                        }
+                        write!(display, "{stripe_start}-").unwrap();
+
+                        // Expose infinite iterator of set elements
+                        Box::new(iter_set)
+                    }
+                    (None, Some(_unset)) => {
+                        // Check end-of-iterator properties
+                        assert_eq!(bitmap.last_set(), observed_last_set);
+                        assert_eq!(bitmap.last_unset(), None);
+                        assert_eq!(bitmap.weight(), Some(observed_weight));
+
+                        // Handle previous range of set elements, if any
+                        if let Some(first_set) = set_stripe_start {
+                            let last_set = observed_last_set.unwrap();
+                            inverse.unset_range(first_set..=last_set);
+                            if !display.is_empty() {
+                                write!(display, ",").unwrap();
+                            }
+                            write!(display, "{first_set}").unwrap();
+                            if last_set != first_set {
+                                write!(display, "-{last_set}").unwrap();
+                            }
+                        }
+
+                        Box::new(iter_unset)
+                    }
+                    _ => unreachable!("At least one iterator is finite, they can't both be"),
+                };
+
+            // ...and iterate the infinite iterator for a while to check it
+            // does seem to meet expectations.
+            for _ in 0..INFINITE_EXPLORE_ITERS {
+                assert_eq!(infinite_iter.next(), Some(next_index));
+                if let Some(index) = next_index.checked_succ() {
+                    next_index = index;
+                } else {
+                    break;
+                }
+            }
+
+            // Return predicted bitmap inverse and display
+            (inverse, display)
         }
-        let (inverse, display) = test_iter(&bitmap, bitmap.into_iter());
+        let (inverse, display) = test_iter(&bitmap, (&bitmap).into_iter());
         let (inverse2, display2) = test_iter(&bitmap, bitmap.iter_set());
         //
         assert_eq!(inverse, inverse2);
@@ -2464,13 +2571,14 @@ mod tests {
                     assert_eq!(iter_set.next().map(usize::from), Some(idx));
                 }
             };
-            test_iter(Box::new(clone.into_iter()));
+            test_iter(Box::new((&clone).into_iter()));
             test_iter(Box::new(clone.iter_set()));
         } else {
-            assert_eq!(clone.into_iter().collect::<Bitmap>(), finite);
+            assert_eq!((&clone).into_iter().collect::<Bitmap>(), finite);
             assert_eq!(clone.iter_set().collect::<Bitmap>(), finite);
 
-            let mut num_iters = usize::from(finite.last_set().unwrap()) - finite.weight().unwrap()
+            let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN))
+                - finite.weight().unwrap()
                 + INFINITE_EXPLORE_ITERS;
             let mut iterator = finite.iter_unset().zip(clone.iter_unset());
             for _ in 0..num_iters {
@@ -2484,10 +2592,174 @@ mod tests {
         assert_eq!(!clone, inverse);
     }
 
-    // TODO: Add tests that check properties that should be true of any bitmap,
-    //       based on the above but sticking to generalities (e.g. we cannot
-    //       tell anything about is_set() for an arbitrary bitmap, but we can
-    //       relate first_set() to iter_set(), and we know that if we unset()
-    //       an index then it should not be set afterwards and vice versa if we
-    //       set() an index)
+    #[quickcheck]
+    fn arbitrary_extend(bitmap: Bitmap, extra: HashSet<BitmapIndex>) {
+        let mut extended = bitmap.clone();
+        extended.extend(extra.iter().copied());
+
+        if let Some(bitmap_weight) = bitmap.weight() {
+            let extra_weight = extended
+                .weight()
+                .unwrap()
+                .checked_sub(bitmap_weight)
+                .expect("Extending a bitmap shouldn't reduce the weight");
+            assert!(extra_weight <= extra.len());
+        }
+
+        for idx in extra {
+            assert!(extended.is_set(idx));
+        }
+    }
+
+    #[quickcheck]
+    fn arbitrary_op_index(bitmap: Bitmap, index: BitmapIndex) {
+        test_indexing(&bitmap, index, bitmap.is_set(index))
+    }
+
+    #[quickcheck]
+    fn arbitrary_op_range(bitmap: Bitmap, range: Range<BitmapIndex>) {
+        let range_usize = usize::from(range.start)..usize::from(range.end);
+        let range_len = range_usize.clone().count();
+
+        let mut buf = bitmap.clone();
+        buf.set_range(range.clone());
+        if let Some(bitmap_weight) = bitmap.weight() {
+            let extra_weight = buf
+                .weight()
+                .unwrap()
+                .checked_sub(bitmap_weight)
+                .expect("Setting indices shouldn't reduce the weight");
+            assert!(extra_weight <= range_len);
+
+            for idx in range_usize.clone() {
+                assert!(buf.is_set(idx));
+            }
+        }
+
+        buf.copy_from(&bitmap);
+        buf.unset_range(range);
+        if let Some(bitmap_weight) = bitmap.weight() {
+            let lost_weight = bitmap_weight
+                .checked_sub(buf.weight().unwrap())
+                .expect("Clearing indices shouldn't increase the weight");
+            assert!(lost_weight <= range_len);
+
+            for idx in range_usize {
+                assert!(!buf.is_set(idx));
+            }
+        }
+    }
+
+    #[quickcheck]
+    fn arbitrary_op_bitmap(bitmap: Bitmap, other: Bitmap) {
+        let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
+        let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
+
+        assert_eq!(
+            bitmap.includes(&other),
+            other_finite.iter_set().all(|idx| bitmap.is_set(idx))
+                && match (&infinite, &other_infinite) {
+                    (Some(infinite), Some(other_infinite)) => {
+                        (usize::from(other_infinite.start)..usize::from(infinite.start))
+                            .all(|idx| finite.is_set(idx))
+                    }
+                    (_, None) => true,
+                    (None, Some(_)) => false,
+                }
+        );
+
+        fn infinite_intersects_finite(infinite: &RangeFrom<BitmapIndex>, finite: &Bitmap) -> bool {
+            finite
+                .last_set()
+                .map(|last_set| infinite.start <= last_set)
+                .unwrap_or(false)
+        }
+        assert_eq!(
+            bitmap.intersects(&other),
+            finite.iter_set().any(|idx| other.is_set(idx))
+                || match (&infinite, &other_infinite) {
+                    (Some(_), Some(_)) => true,
+                    (Some(infinite), None) => infinite_intersects_finite(infinite, &other_finite),
+                    (None, Some(other_infinite)) =>
+                        infinite_intersects_finite(other_infinite, &finite),
+                    (None, None) => false,
+                }
+        );
+
+        assert_eq!(
+            bitmap == other,
+            bitmap.includes(&other) && other.includes(&bitmap)
+        );
+
+        fn expected_cmp(bitmap: &Bitmap, reference: &Bitmap) -> Ordering {
+            let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
+            let (ref_finite, ref_infinite) = split_infinite_bitmap(reference.clone());
+
+            let finite_end = match (infinite, ref_infinite) {
+                (Some(_), None) => return Ordering::Greater,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(infinite), Some(ref_infinite)) => infinite.start.max(ref_infinite.start),
+                (None, None) => finite
+                    .last_set()
+                    .unwrap_or(BitmapIndex::MIN)
+                    .max(ref_finite.last_set().unwrap_or(BitmapIndex::MIN)),
+            };
+
+            for idx in (0..=usize::from(finite_end)).rev() {
+                match (bitmap.is_set(idx), reference.is_set(idx)) {
+                    (true, false) => return Ordering::Greater,
+                    (false, true) => return Ordering::Less,
+                    _ => continue,
+                }
+            }
+            Ordering::Equal
+        }
+        assert_eq!(bitmap.cmp(&other), expected_cmp(&bitmap, &other));
+
+        let mut bitmap_and_other = finite
+            .iter_set()
+            .filter(|idx| other.is_set(*idx))
+            .collect::<Bitmap>();
+        match (&infinite, &other_infinite) {
+            (Some(infinite), Some(other_infinite)) => {
+                bitmap_and_other.set_range(infinite.start.max(other_infinite.start)..);
+                for idx in usize::from(infinite.start)..usize::from(other_infinite.start) {
+                    if other.is_set(idx) {
+                        bitmap_and_other.set(idx);
+                    }
+                }
+            }
+            (Some(infinite), None) => {
+                let other_end = other_finite.last_set().unwrap_or(BitmapIndex::MIN);
+                for idx in usize::from(infinite.start)..=usize::from(other_end) {
+                    if other.is_set(idx) {
+                        bitmap_and_other.set(idx)
+                    }
+                }
+            }
+            _ => {}
+        }
+        test_and_sub(&bitmap, &other, &bitmap_and_other);
+
+        let mut bitmap_or_other = finite;
+        for idx in &other_finite {
+            bitmap_or_other.set(idx);
+        }
+        if let Some(infinite) = infinite {
+            bitmap_or_other.set_range(infinite);
+        }
+        if let Some(other_infinite) = other_infinite {
+            bitmap_or_other.set_range(other_infinite);
+        }
+        assert_eq!(&bitmap | &other, bitmap_or_other);
+        let mut buf = bitmap.clone();
+        buf |= &other;
+        assert_eq!(buf, bitmap_or_other);
+
+        let bitmap_xor_other = bitmap_or_other - bitmap_and_other;
+        assert_eq!(&bitmap ^ &other, bitmap_xor_other);
+        buf.copy_from(&bitmap);
+        buf ^= &other;
+        assert_eq!(buf, bitmap_xor_other);
+    }
 }
