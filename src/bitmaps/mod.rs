@@ -2577,7 +2577,7 @@ mod tests {
             assert_eq!((&clone).into_iter().collect::<Bitmap>(), finite);
             assert_eq!(clone.iter_set().collect::<Bitmap>(), finite);
 
-            let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN))
+            let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN)) + 1
                 - finite.weight().unwrap()
                 + INFINITE_EXPLORE_ITERS;
             let mut iterator = finite.iter_unset().zip(clone.iter_unset());
