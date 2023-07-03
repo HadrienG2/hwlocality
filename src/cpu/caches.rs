@@ -86,8 +86,7 @@ impl CpuCacheStats {
                 found = true;
                 let num_threads = object
                     .cpuset()
-                    .map(CpuSet::weight)
-                    .flatten()
+                    .and_then(CpuSet::weight)
                     .expect("Caches should have cpusets") as u64;
                 let per_thread_size = cache.size() / num_threads;
                 smallest = smallest.min(cache.size());
