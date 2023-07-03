@@ -1,6 +1,7 @@
 //! CPU cache statistics
 
 use crate::{
+    cpu::cpusets::CpuSet,
     objects::{attributes::ObjectAttributes, types::ObjectType},
     topology::Topology,
 };
@@ -22,11 +23,15 @@ impl Topology {
     /// # let topology = hwlocality::Topology::test_instance();
     /// let stats = topology.cpu_cache_stats();
     /// println!(
-    ///     "Minimal data cache sizes per level: {:?}",
+    ///     "Minimal data cache sizes: {:?}",
     ///     stats.smallest_data_cache_sizes()
     /// );
     /// println!(
-    ///     "Total data cache size per level: {:?}",
+    ///     "Minimal data cache sizes per thread: {:?}",
+    ///     stats.smallest_data_cache_sizes_per_thread()
+    /// );
+    /// println!(
+    ///     "Total data cache sizes: {:?}",
     ///     stats.total_data_cache_sizes()
     /// );
     /// # Ok::<(), anyhow::Error>(())
@@ -55,6 +60,9 @@ pub struct CpuCacheStats {
     /// Size of the smallest caches of each type
     smallest_data_cache_sizes: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,
 
+    /// Size per thread of the smallest caches of each type
+    smallest_data_cache_sizes_per_thread: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,
+
     /// Sum of the sizes of the caches of each type
     total_data_cache_sizes: ArrayVec<u64, { DATA_CACHE_LEVELS.len() }>,
 }
@@ -63,10 +71,12 @@ impl CpuCacheStats {
     /// Compute CPU cache statistics
     pub fn new(topology: &Topology) -> Self {
         let mut smallest_data_cache_sizes = ArrayVec::new();
+        let mut smallest_data_cache_sizes_per_thread = ArrayVec::new();
         let mut total_data_cache_sizes = ArrayVec::new();
         for &data_cache_level in DATA_CACHE_LEVELS {
             // Compute cache capacity stats for this cache level
             let mut smallest = u64::MAX;
+            let mut smallest_per_thread = u64::MAX;
             let mut total = 0;
             let mut found = false;
             for object in topology.objects_with_type(data_cache_level) {
@@ -74,7 +84,14 @@ impl CpuCacheStats {
                     unreachable!("Caches should have cache attributes")
                 };
                 found = true;
+                let num_threads = object
+                    .cpuset()
+                    .map(CpuSet::weight)
+                    .flatten()
+                    .expect("Caches should have cpusets") as u64;
+                let per_thread_size = cache.size() / num_threads;
                 smallest = smallest.min(cache.size());
+                smallest_per_thread = smallest_per_thread.min(per_thread_size);
                 total += cache.size();
             }
 
@@ -82,6 +99,7 @@ impl CpuCacheStats {
             // If we didn't find cache level N, we won't find level N+1.
             if found {
                 smallest_data_cache_sizes.push(smallest);
+                smallest_data_cache_sizes_per_thread.push(smallest_per_thread);
                 total_data_cache_sizes.push(total);
             } else {
                 break;
@@ -89,6 +107,7 @@ impl CpuCacheStats {
         }
         Self {
             smallest_data_cache_sizes,
+            smallest_data_cache_sizes_per_thread,
             total_data_cache_sizes,
         }
     }
@@ -103,6 +122,21 @@ impl CpuCacheStats {
     /// cache level, if not possible in the second cache level, and so on.
     pub fn smallest_data_cache_sizes(&self) -> &[u64] {
         &self.smallest_data_cache_sizes[..]
+    }
+
+    /// Smallest CPU data cache capacity at each cache level, per thread
+    ///
+    /// This tells you how many cache levels there are in the deepest cache
+    /// hierarchy on this system, and what is the minimal
+    /// cache capacity at each level, divided by the number of threads sharing
+    /// that cache.
+    ///
+    /// In parallel algorithms where the fact that threads share cache cannot be
+    /// leveraged, you should tune the sequential tasks processed by each
+    /// thread such that they fit in the first cache level, if not possible in
+    /// the second cache level, and so on.
+    pub fn smallest_data_cache_sizes_per_thread(&self) -> &[u64] {
+        &self.smallest_data_cache_sizes_per_thread[..]
     }
 
     /// Total CPU data cache capacity at each cache level
