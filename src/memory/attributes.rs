@@ -296,9 +296,7 @@ impl MemoryAttributeBuilder<'_, '_> {
             .collect::<Vec<_>>();
 
         // Set memory attribute values
-        for (initiator_ptr, (target_ptr, value)) in
-            initiator_ptrs.zip(target_ptrs_and_values.into_iter())
-        {
+        for (initiator_ptr, (target_ptr, value)) in initiator_ptrs.zip(target_ptrs_and_values) {
             errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
                 ffi::hwloc_memattr_set_value(
                     self.editor.topology_mut_ptr(),
