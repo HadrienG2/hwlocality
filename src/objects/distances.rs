@@ -238,7 +238,7 @@ impl TopologyEditor<'_> {
             return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
         }
         let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
-            return Err(AddDistancesError::BadObjectsCount(objects.len()).into())
+            return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
         };
         let expected_distances_len = objects.len().pow(2);
         if distances.len() != expected_distances_len {

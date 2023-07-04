@@ -80,7 +80,9 @@ impl Topology {
             cpusets: &mut Vec<CpuSet>,
         ) {
             // If the current object does not have a cpuset, ignore it
-            let Some(parent_cpuset) = parent.cpuset() else { return };
+            let Some(parent_cpuset) = parent.cpuset() else {
+                return;
+            };
 
             // If it exactly covers the target cpuset, we're done
             if parent_cpuset == set {
@@ -93,7 +95,9 @@ impl Topology {
             for child in parent.normal_children() {
                 // Ignore children without a cpuset, or with a cpuset that
                 // doesn't intersect the target cpuset
-                let Some(child_cpuset) = child.cpuset() else { continue };
+                let Some(child_cpuset) = child.cpuset() else {
+                    continue;
+                };
                 if !child_cpuset.intersects(set) {
                     continue;
                 }

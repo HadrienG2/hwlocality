@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
     let Some(support) = topology.feature_support().cpu_binding() else {
         println!("This example requires CPU binding support");
-        return Ok(())
+        return Ok(());
     };
     if !(support.get_process() && support.set_process()) {
         println!("This example needs support for querying and setting process CPU bindings");

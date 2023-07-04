@@ -876,8 +876,13 @@ impl Topology {
         function: u8,
     ) -> Option<&TopologyObject> {
         self.pci_devices().find(|obj| {
-            let Some(ObjectAttributes::PCIDevice(pci)) = obj.attributes() else { unreachable!("All PCI devices should have PCI attributes") };
-            pci.domain() == domain && pci.bus_id() == bus_id && pci.bus_device() == bus_device && pci.function() == function
+            let Some(ObjectAttributes::PCIDevice(pci)) = obj.attributes() else {
+                unreachable!("All PCI devices should have PCI attributes")
+            };
+            pci.domain() == domain
+                && pci.bus_id() == bus_id
+                && pci.bus_device() == bus_device
+                && pci.function() == function
         })
     }
 
@@ -1442,8 +1447,12 @@ impl TopologyObject {
     /// Truth that this is a bridge covering the specified PCI bus
     #[doc(alias = "hwloc_bridge_covers_pcibus")]
     pub fn is_bridge_covering_pci_bus(&self, domain: PCIDomain, bus_id: u8) -> bool {
-        let Some(ObjectAttributes::Bridge(bridge)) = self.attributes() else { return false };
-        let Some(DownstreamAttributes::PCI(pci)) = bridge.downstream_attributes() else { return false };
+        let Some(ObjectAttributes::Bridge(bridge)) = self.attributes() else {
+            return false;
+        };
+        let Some(DownstreamAttributes::PCI(pci)) = bridge.downstream_attributes() else {
+            return false;
+        };
         pci.domain() == domain && pci.secondary_bus() <= bus_id && pci.subordinate_bus() >= bus_id
     }
 
@@ -1515,7 +1524,9 @@ impl TopologyObject {
     /// Objects are considered to be inside `set` if they have a non-empty
     /// cpuset which verifies `set.includes(object_cpuset)`.
     pub fn is_inside_cpuset(&self, set: &CpuSet) -> bool {
-        let Some(object_cpuset) = self.cpuset() else { return false };
+        let Some(object_cpuset) = self.cpuset() else {
+            return false;
+        };
         set.includes(object_cpuset) && !object_cpuset.is_empty()
     }
 
@@ -1524,7 +1535,9 @@ impl TopologyObject {
     /// Objects are considered to cover `set` if it is non-empty and the object
     /// has a cpuset which verifies `object_cpuset.includes(set)`.
     pub fn covers_cpuset(&self, set: &CpuSet) -> bool {
-        let Some(object_cpuset) = self.cpuset() else { return false };
+        let Some(object_cpuset) = self.cpuset() else {
+            return false;
+        };
         object_cpuset.includes(set) && !set.is_empty()
     }
 
@@ -1631,7 +1644,9 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj_get_info_by_name")]
     pub fn info(&self, key: &str) -> Option<&CStr> {
         self.infos().iter().find_map(|info| {
-            let Ok(info_name) = info.name().to_str() else { return None };
+            let Ok(info_name) = info.name().to_str() else {
+                return None;
+            };
             (info_name == key).then_some(info.value())
         })
     }

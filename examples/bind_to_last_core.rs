@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
     let Some(support) = topology.feature_support().cpu_binding() else {
         println!("This example requires CPU binding support");
-        return Ok(())
+        return Ok(());
     };
     if !((support.get_current_process() || support.get_current_thread())
         && (support.set_current_process() || support.set_current_thread()))
