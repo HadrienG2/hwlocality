@@ -330,7 +330,7 @@ pub enum InitiatorsError {
     BadInitiatorsCount,
 }
 
-//// Memory attribute identifier
+/// Memory attribute identifier
 ///
 /// May be a predefined identifier (see associated consts) or come from
 /// [`TopologyEditor::register_memory_attribute()`].

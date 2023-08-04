@@ -419,11 +419,11 @@ impl TopologyEditor<'_> {
         } else {
             let depths = (0..topology.depth())
                 .map(Depth::from)
-                .filter_map(|depth| {
+                .filter(|&depth| {
                     let depth_ty = topology
                         .type_at_depth(depth)
                         .expect("A type should be present at this depth");
-                    (depth_ty == ty).then_some(depth)
+                    depth_ty == ty
                 })
                 .collect::<Vec<_>>();
             for depth in depths {

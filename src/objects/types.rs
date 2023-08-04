@@ -332,9 +332,9 @@ impl PartialOrd for ObjectType {
         let result = unsafe { ffi::hwloc_compare_types(self.to_raw(), other.to_raw()) };
         match result {
             c_int::MAX => None,
-            c if c < 0 => Some(Ordering::Less),
-            c if c == 0 => Some(Ordering::Equal),
             c if c > 0 => Some(Ordering::Greater),
+            0 => Some(Ordering::Equal),
+            c if c < 0 => Some(Ordering::Less),
             _ => unreachable!(),
         }
     }
