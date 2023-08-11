@@ -14,7 +14,10 @@ rust-version = "1.67.1"
 edition = "2021"
 
 [features]
+# Automatically fetch and build the hwloc library from github. This feature is a
+# convenience for users of this crate.
 bundled=["autotools"]
+
 # Require the latest release of hwloc supported by this library
 #
 # It is not recommended to use this feature in production, since an update to
@@ -125,10 +128,8 @@ rand = { version = "0.8", optional = true }
 
 [build-dependencies]
 pkg-config = "0.3.8"
+autotools = {version = "0.2", optional=true }
 
-[build-dependencies.autotools]
-version = "^0.2"
-optional = true
 
 [dev-dependencies]
 anyhow = { version = "1.0", features = ["backtrace"] }
