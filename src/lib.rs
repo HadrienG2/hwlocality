@@ -52,3 +52,12 @@ pub fn get_api_version() -> usize {
 #[cfg(not(test))]
 #[cfg_attr(docsrs, doc(cfg(all())))]
 pub use topology::Topology;
+
+/// This module is an implementation detail of [`Sealed`]
+mod sealed {
+    /// This trait can only be implemented by types inside this crate
+    pub trait Sealed {}
+}
+
+/// Import of [`Sealed`] that only this crate can use
+pub(crate) use sealed::Sealed;

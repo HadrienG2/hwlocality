@@ -14,6 +14,7 @@ use crate::{
 use crate::{
     errors,
     ffi::{self, IncompleteType},
+    Sealed,
 };
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
@@ -25,9 +26,10 @@ use std::{
     ffi::{c_int, c_uint},
     fmt::{self, Debug, Display},
     iter::{FromIterator, FusedIterator},
+    marker::PhantomData,
     ops::{
-        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, RangeBounds,
-        Sub, SubAssign,
+        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Deref, Not,
+        RangeBounds, Sub, SubAssign,
     },
     ptr::NonNull,
 };
@@ -41,8 +43,9 @@ pub use indices::BitmapIndex;
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
 #[doc(alias = "hwloc_bitmap_s")]
+#[doc(hidden)]
 #[repr(C)]
-pub(crate) struct RawBitmap(IncompleteType);
+pub struct RawBitmap(IncompleteType);
 
 /// A generic bitmap, understood by hwloc
 ///
@@ -107,61 +110,67 @@ pub(crate) struct RawBitmap(IncompleteType);
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
-pub struct Bitmap(*mut RawBitmap);
+pub struct Bitmap(NonNull<RawBitmap>);
 
 // NOTE: Remember to keep the method signatures and first doc lines in
 //       impl_newtype_ops in sync with what's going on below.
 impl Bitmap {
     // === FFI interoperability ===
 
-    /// Wraps an owned bitmap from hwloc
+    /// Wraps an owned hwloc_bitmap_t
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a valid bitmap that we will acquire
     /// ownership of and automatically free on Drop.
-    pub(crate) unsafe fn from_raw(bitmap: *mut RawBitmap) -> Option<Self> {
-        NonNull::new(bitmap).map(|ptr| unsafe { Self::from_non_null(ptr) })
+    pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut RawBitmap) -> Option<Self> {
+        NonNull::new(bitmap).map(|ptr| unsafe { Self::from_owned_nonnull(ptr) })
     }
 
-    /// Wraps an owned bitmap from hwloc
+    /// Wraps an owned hwloc bitmap
     ///
     /// # Safety
     ///
     /// The pointer must target a valid bitmap that we will acquire ownership of
     /// and automatically free on Drop.
-    pub(crate) unsafe fn from_non_null(bitmap: NonNull<RawBitmap>) -> Self {
-        Self(bitmap.as_ptr())
+    pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<RawBitmap>) -> Self {
+        Self(bitmap)
     }
 
-    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    /// Wraps a borrowed hwloc_const_bitmap_t
     ///
     /// # Safety
     ///
-    /// If non-null, the pointer must target a valid bitmap, but unlike with
-    /// from_raw, it will not be automatically freed on Drop.
-    pub(crate) unsafe fn borrow_from_raw(bitmap: &*const RawBitmap) -> Option<&Self> {
-        (!bitmap.is_null()).then_some(std::mem::transmute::<&*const RawBitmap, &Self>(bitmap))
+    /// If non-null, the pointer must target a bitmap that is valid for 'target.
+    /// Unlike with from_raw, it will not be automatically freed on Drop.
+    pub(crate) unsafe fn borrow_from_raw<'target>(
+        bitmap: *const RawBitmap,
+    ) -> Option<BitmapRef<'target, Self>> {
+        unsafe { Self::borrow_from_raw_mut(bitmap.cast_mut()) }
     }
 
-    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    /// Wraps a borrowed hwloc_bitmap_t
     ///
     /// # Safety
     ///
-    /// If non-null, the pointer must target a valid bitmap, but unlike with
-    /// from_raw, it will not be automatically freed on Drop.
-    pub(crate) unsafe fn borrow_from_raw_mut(bitmap: &*mut RawBitmap) -> Option<&Self> {
-        (!bitmap.is_null()).then_some(std::mem::transmute::<&*mut RawBitmap, &Self>(bitmap))
+    /// If non-null, the pointer must target a bitmap that is valid for 'target.
+    /// Unlike with from_raw, it will not be automatically freed on Drop.
+    pub(crate) unsafe fn borrow_from_raw_mut<'target>(
+        bitmap: *mut RawBitmap,
+    ) -> Option<BitmapRef<'target, Self>> {
+        NonNull::new(bitmap).map(|ptr| unsafe { Self::borrow_from_nonnull(ptr) })
     }
 
-    /// Wraps an hwloc-originated borrowed bitmap pointer into the `Bitmap` representation.
+    /// Wraps a borrowed hwloc bitmap
     ///
     /// # Safety
     ///
-    /// If non-null, the pointer must target a valid bitmap, but unlike with
-    /// from_raw, it will not be automatically freed on Drop.
-    pub(crate) unsafe fn borrow_from_non_null(bitmap: &NonNull<RawBitmap>) -> &Self {
-        std::mem::transmute::<&NonNull<RawBitmap>, &Self>(bitmap)
+    /// The pointer must target a bitmap that is valid for 'target.
+    /// Unlike with from_raw, it will not be automatically freed on Drop.
+    pub(crate) unsafe fn borrow_from_nonnull<'target>(
+        bitmap: NonNull<RawBitmap>,
+    ) -> BitmapRef<'target, Self> {
+        BitmapRef(bitmap, PhantomData)
     }
 
     // NOTE: There is no borrow_mut_from_raw because it would not be safe as if
@@ -169,12 +178,12 @@ impl Bitmap {
 
     /// Contained bitmap pointer (for interaction with hwloc)
     pub(crate) fn as_ptr(&self) -> *const RawBitmap {
-        self.0
+        self.0.as_ptr()
     }
 
     /// Contained mutable bitmap pointer (for interaction with hwloc)
     pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
-        self.0
+        self.0.as_ptr()
     }
 
     // === Constructors ===
@@ -195,7 +204,7 @@ impl Bitmap {
             let ptr =
                 errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || ffi::hwloc_bitmap_alloc())
                     .expect("Bitmap operation failures are handled via panics");
-            Self::from_non_null(ptr)
+            Self::from_owned_nonnull(ptr)
         }
     }
 
@@ -216,7 +225,7 @@ impl Bitmap {
                 ffi::hwloc_bitmap_alloc_full()
             })
             .expect("Bitmap operation failures are handled via panics");
-            Self::from_non_null(ptr)
+            Self::from_owned_nonnull(ptr)
         }
     }
 
@@ -909,168 +918,99 @@ impl Arbitrary for Bitmap {
     }
 }
 
-impl BitAnd<&Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> BitAnd<B> for &Bitmap {
     type Output = Bitmap;
 
     #[doc(alias = "hwloc_bitmap_and")]
-    fn bitand(self, rhs: &Bitmap) -> Bitmap {
+    fn bitand(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
-            ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
 
-impl BitAnd<Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> BitAnd<B> for Bitmap {
     type Output = Bitmap;
 
-    fn bitand(self, mut rhs: Bitmap) -> Bitmap {
-        rhs &= self;
-        rhs
-    }
-}
-
-impl BitAnd<&Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitand(mut self, rhs: &Bitmap) -> Bitmap {
-        self &= rhs;
+    fn bitand(mut self, rhs: B) -> Bitmap {
+        self &= rhs.borrow();
         self
     }
 }
 
-impl BitAnd<Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitand(self, rhs: Bitmap) -> Bitmap {
-        self & &rhs
-    }
-}
-
-impl BitAndAssign<&Bitmap> for Bitmap {
-    fn bitand_assign(&mut self, rhs: &Bitmap) {
+impl<B: Borrow<Bitmap>> BitAndAssign<B> for Bitmap {
+    fn bitand_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
-            ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
 }
 
-impl BitAndAssign<Bitmap> for Bitmap {
-    fn bitand_assign(&mut self, rhs: Bitmap) {
-        *self &= &rhs
-    }
-}
-
-impl BitOr<&Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> BitOr<B> for &Bitmap {
     type Output = Bitmap;
 
     #[doc(alias = "hwloc_bitmap_or")]
-    fn bitor(self, rhs: &Bitmap) -> Bitmap {
+    fn bitor(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
-            ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
 
-impl BitOr<Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> BitOr<B> for Bitmap {
     type Output = Bitmap;
 
-    fn bitor(self, mut rhs: Bitmap) -> Bitmap {
-        rhs |= self;
-        rhs
-    }
-}
-
-impl BitOr<&Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitor(mut self, rhs: &Bitmap) -> Bitmap {
-        self |= rhs;
+    fn bitor(mut self, rhs: B) -> Bitmap {
+        self |= rhs.borrow();
         self
     }
 }
 
-impl BitOr<Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitor(self, rhs: Bitmap) -> Bitmap {
-        self | &rhs
-    }
-}
-
-impl BitOrAssign<&Bitmap> for Bitmap {
-    fn bitor_assign(&mut self, rhs: &Bitmap) {
+impl<B: Borrow<Bitmap>> BitOrAssign<B> for Bitmap {
+    fn bitor_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
-            ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
 }
 
-impl BitOrAssign<Bitmap> for Bitmap {
-    fn bitor_assign(&mut self, rhs: Bitmap) {
-        *self |= &rhs
-    }
-}
-
-impl BitXor<&Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> BitXor<B> for &Bitmap {
     type Output = Bitmap;
 
     #[doc(alias = "hwloc_bitmap_xor")]
-    fn bitxor(self, rhs: &Bitmap) -> Bitmap {
+    fn bitxor(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
-            ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
 
-impl BitXor<Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> BitXor<B> for Bitmap {
     type Output = Bitmap;
 
-    fn bitxor(self, mut rhs: Bitmap) -> Bitmap {
-        rhs ^= self;
-        rhs
-    }
-}
-
-impl BitXor<&Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitxor(mut self, rhs: &Bitmap) -> Bitmap {
-        self ^= rhs;
+    fn bitxor(mut self, rhs: B) -> Bitmap {
+        self ^= rhs.borrow();
         self
     }
 }
 
-impl BitXor<Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn bitxor(self, rhs: Bitmap) -> Bitmap {
-        self ^ &rhs
-    }
-}
-
-impl BitXorAssign<&Bitmap> for Bitmap {
-    fn bitxor_assign(&mut self, rhs: &Bitmap) {
+impl<B: Borrow<Bitmap>> BitXorAssign<B> for Bitmap {
+    fn bitxor_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
-            ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
-    }
-}
-
-impl BitXorAssign<Bitmap> for Bitmap {
-    fn bitxor_assign(&mut self, rhs: Bitmap) {
-        *self ^= &rhs
     }
 }
 
@@ -1082,7 +1022,7 @@ impl Clone for Bitmap {
                 ffi::hwloc_bitmap_dup(self.as_ptr())
             })
             .expect("Bitmap operation failures are handled via panics");
-            Self::from_non_null(ptr)
+            Self::from_owned_nonnull(ptr)
         }
     }
 }
@@ -1117,45 +1057,25 @@ impl Drop for Bitmap {
 
 impl Eq for Bitmap {}
 
-impl Extend<BitmapIndex> for Bitmap {
-    fn extend<T: IntoIterator<Item = BitmapIndex>>(&mut self, iter: T) {
+impl<BI: Borrow<BitmapIndex>> Extend<BI> for Bitmap {
+    fn extend<T: IntoIterator<Item = BI>>(&mut self, iter: T) {
         for i in iter {
-            self.set(i);
+            self.set(*i.borrow());
         }
     }
 }
 
-impl<'a> Extend<&'a BitmapIndex> for Bitmap {
-    fn extend<T: IntoIterator<Item = &'a BitmapIndex>>(&mut self, iter: T) {
-        self.extend(iter.into_iter().copied())
+impl<BI: Borrow<BitmapIndex>> From<BI> for Bitmap {
+    fn from(value: BI) -> Self {
+        Self::from_iter(std::iter::once(value))
     }
 }
 
-impl From<BitmapIndex> for Bitmap {
-    fn from(value: BitmapIndex) -> Self {
-        let mut bitmap = Self::new();
-        bitmap.set(value);
-        bitmap
-    }
-}
-
-impl From<&BitmapIndex> for Bitmap {
-    fn from(value: &BitmapIndex) -> Self {
-        Self::from(*value)
-    }
-}
-
-impl FromIterator<BitmapIndex> for Bitmap {
-    fn from_iter<I: IntoIterator<Item = BitmapIndex>>(iter: I) -> Self {
+impl<BI: Borrow<BitmapIndex>> FromIterator<BI> for Bitmap {
+    fn from_iter<I: IntoIterator<Item = BI>>(iter: I) -> Self {
         let mut bitmap = Self::new();
         bitmap.extend(iter);
         bitmap
-    }
-}
-
-impl<'a> FromIterator<&'a BitmapIndex> for Bitmap {
-    fn from_iter<I: IntoIterator<Item = &'a BitmapIndex>>(iter: I) -> Self {
-        Self::from_iter(iter.into_iter().copied())
     }
 }
 
@@ -1172,7 +1092,7 @@ pub struct BitmapIterator<B> {
     next: fn(&Bitmap, Option<BitmapIndex>) -> Option<BitmapIndex>,
 }
 //
-impl<B: Borrow<Bitmap>> BitmapIterator<B> {
+impl<B> BitmapIterator<B> {
     fn new(bitmap: B, next: fn(&Bitmap, Option<BitmapIndex>) -> Option<BitmapIndex>) -> Self {
         Self {
             bitmap,
@@ -1247,94 +1167,371 @@ impl Ord for Bitmap {
     }
 }
 
-impl PartialEq for Bitmap {
+impl<B: Borrow<Bitmap>> PartialEq<B> for Bitmap {
     #[doc(alias = "hwloc_bitmap_isequal")]
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &B) -> bool {
         errors::call_hwloc_bool("hwloc_bitmap_isequal", || unsafe {
-            ffi::hwloc_bitmap_isequal(self.as_ptr(), other.as_ptr())
+            ffi::hwloc_bitmap_isequal(self.as_ptr(), other.borrow().as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
 }
 
-impl PartialOrd for Bitmap {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl<B: Borrow<Bitmap>> PartialOrd<B> for Bitmap {
+    fn partial_cmp(&self, other: &B) -> Option<Ordering> {
+        Some(self.cmp(other.borrow()))
     }
 }
 
-impl Sub<&Bitmap> for &Bitmap {
+unsafe impl Send for Bitmap {}
+
+impl<B: Borrow<Bitmap>> Sub<B> for &Bitmap {
     type Output = Bitmap;
 
     #[doc(alias = "hwloc_bitmap_andnot")]
-    fn sub(self, rhs: &Bitmap) -> Bitmap {
+    fn sub(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
-            ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
         result
     }
 }
 
-impl Sub<Bitmap> for &Bitmap {
+impl<B: Borrow<Bitmap>> Sub<B> for Bitmap {
     type Output = Bitmap;
 
-    fn sub(self, mut rhs: Bitmap) -> Bitmap {
-        rhs -= self;
-        rhs
-    }
-}
-
-impl Sub<&Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn sub(mut self, rhs: &Bitmap) -> Bitmap {
-        self -= rhs;
+    fn sub(mut self, rhs: B) -> Bitmap {
+        self -= rhs.borrow();
         self
     }
 }
 
-impl Sub<Bitmap> for Bitmap {
-    type Output = Bitmap;
-
-    fn sub(self, rhs: Bitmap) -> Bitmap {
-        self - &rhs
-    }
-}
-
-impl SubAssign<&Bitmap> for Bitmap {
-    fn sub_assign(&mut self, rhs: &Bitmap) {
+impl<B: Borrow<Bitmap>> SubAssign<B> for Bitmap {
+    fn sub_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
-            ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.as_ptr())
+            ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
 }
 
-impl SubAssign<Bitmap> for Bitmap {
-    fn sub_assign(&mut self, rhs: Bitmap) {
-        *self -= &rhs
+unsafe impl Sync for Bitmap {}
+
+/// Bitmap or a specialized form thereof
+///
+/// # Safety
+///
+/// Implementations of this type must effectively be a `repr(transparent)`
+/// wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
+#[doc(hidden)]
+pub unsafe trait BitmapLike: Sealed {
+    /// Access the inner `NonNull<RawBitmap>`
+    fn as_raw(&self) -> NonNull<RawBitmap>;
+}
+//
+impl Sealed for Bitmap {}
+//
+unsafe impl BitmapLike for Bitmap {
+    fn as_raw(&self) -> NonNull<RawBitmap> {
+        self.0
     }
 }
 
-unsafe impl Send for Bitmap {}
-unsafe impl Sync for Bitmap {}
+/// Read-only reference to a [`Bitmap`]-like `Target` that is owned by hwloc
+///
+/// For most intents and purposes, you can think of this as an
+/// `&'target Target` and use it as such. But it cannot literally be an
+/// `&'target Target` due to annoying hwloc API technicalities...
+#[repr(transparent)]
+pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
+
+impl<'target, Target: BitmapLike> BitmapRef<'target, Target> {
+    /// Cast to another bitmap newtype
+    pub fn cast<Other: BitmapLike>(self) -> BitmapRef<'target, Other> {
+        BitmapRef(self.0, PhantomData)
+    }
+}
+
+impl<'target, Target: BitmapLike> AsRef<Target> for BitmapRef<'target, Target> {
+    fn as_ref(&self) -> &Target {
+        // This is safe because...
+        // - Both Target and BitmapRef are effectively repr(transparent)
+        //   newtypes of NonNull<RawBitmap>, so &Target and &BitmapRef are
+        //   effectively the same thing after compilation.
+        // - The borrow checker ensures that one cannot construct an
+        //   &'a BitmapRef<'target> which does not verify 'target: 'a, so one
+        //   cannot use this AsRef impl to build an excessively long-lived
+        //   &'a Target.
+        unsafe { std::mem::transmute::<&BitmapRef<'target, Target>, &Target>(self) }
+    }
+}
+
+impl<Target, Rhs> BitAnd<Rhs> for &BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: BitAnd<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn bitand(self, rhs: Rhs) -> Target {
+        self.as_ref() & rhs.borrow()
+    }
+}
+
+impl<Target, Rhs> BitAnd<Rhs> for BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: BitAnd<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn bitand(self, rhs: Rhs) -> Target {
+        self.as_ref() & rhs.borrow()
+    }
+}
+
+impl<Target, Rhs> BitOr<Rhs> for &BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: BitOr<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn bitor(self, rhs: Rhs) -> Target {
+        self.as_ref() | rhs.borrow()
+    }
+}
+
+impl<Target, Rhs> BitOr<Rhs> for BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: BitOr<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn bitor(self, rhs: Rhs) -> Target {
+        self.as_ref() | rhs.borrow()
+    }
+}
+
+impl<Target, Rhs> BitXor<Rhs> for &BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: BitXor<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn bitxor(self, rhs: Rhs) -> Target {
+        self.as_ref() ^ rhs.borrow()
+    }
+}
+
+impl<Target, Rhs> BitXor<Rhs> for BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: BitXor<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn bitxor(self, rhs: Rhs) -> Target {
+        self.as_ref() ^ rhs.borrow()
+    }
+}
+
+// NOTE: Needed to have impls of BitXyz<&BitmapRef> for Target
+impl<Target: BitmapLike> Borrow<Target> for &BitmapRef<'_, Target> {
+    fn borrow(&self) -> &Target {
+        self.as_ref()
+    }
+}
+
+impl<Target: BitmapLike> Borrow<Target> for BitmapRef<'_, Target> {
+    fn borrow(&self) -> &Target {
+        self.as_ref()
+    }
+}
+
+impl<'target> Borrow<BitmapRef<'target, Bitmap>> for Bitmap {
+    fn borrow(&self) -> &BitmapRef<'target, Bitmap> {
+        // This is safe because...
+        // - Bitmap and BitmapRef are effectively both repr(transparent)
+        //   wrappers of NonNull<RawBitmap>, so they are layout-compatible.
+        // - The borrow checker will not let us free the source Bitmap as long
+        //   as the &BitmapRef emitted by this function exists.
+        // - BitmapRef does not implement Clone, so it is not possible to create
+        //   another BitmapRef that isn't covered by the above guarantee.
+        unsafe { std::mem::transmute::<&Bitmap, &BitmapRef<'target, Bitmap>>(self) }
+    }
+}
+
+// SAFETY: Do not implement Clone, or the Borrow impl above will open the door to UB.
+
+impl<Target: BitmapLike + Debug> Debug for BitmapRef<'_, Target> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <Target as Debug>::fmt(self.as_ref(), f)
+    }
+}
+
+impl<Target: BitmapLike> Deref for BitmapRef<'_, Target> {
+    type Target = Target;
+
+    fn deref(&self) -> &Target {
+        self.as_ref()
+    }
+}
+
+impl<Target: BitmapLike + Display> Display for BitmapRef<'_, Target> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <Target as Display>::fmt(self.as_ref(), f)
+    }
+}
+
+impl<Target: BitmapLike + Eq + PartialEq<Self>> Eq for BitmapRef<'_, Target> {}
+
+impl<'target, Target: BitmapLike> From<&'target Target> for BitmapRef<'target, Target> {
+    fn from(input: &'target Target) -> Self {
+        Self(input.as_raw(), PhantomData)
+    }
+}
+
+impl<'target, 'self_, Target> IntoIterator for &'self_ BitmapRef<'target, Target>
+where
+    'target: 'self_,
+    Target: BitmapLike,
+    &'self_ Target: Borrow<Bitmap>,
+{
+    type Item = BitmapIndex;
+    type IntoIter = BitmapIterator<&'self_ Target>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitmapIterator::new(self.as_ref(), Bitmap::next_set)
+    }
+}
+
+impl<'target, Target> IntoIterator for BitmapRef<'target, Target>
+where
+    Target: BitmapLike,
+{
+    type Item = BitmapIndex;
+    type IntoIter = BitmapIterator<BitmapRef<'target, Bitmap>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitmapIterator::new(self.cast(), Bitmap::next_set)
+    }
+}
+
+impl<Target> Not for &BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    for<'target> &'target Target: Not<Output = Target>,
+{
+    type Output = Target;
+
+    fn not(self) -> Target {
+        !(self.as_ref())
+    }
+}
+
+impl<Target> Not for BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    for<'target> &'target Target: Not<Output = Target>,
+{
+    type Output = Target;
+
+    fn not(self) -> Target {
+        !(self.as_ref())
+    }
+}
+
+impl<Target, Rhs> PartialEq<Rhs> for BitmapRef<'_, Target>
+where
+    Target: BitmapLike + PartialEq<Rhs>,
+{
+    fn eq(&self, other: &Rhs) -> bool {
+        self.as_ref() == other
+    }
+}
+
+impl<Target, Rhs> PartialOrd<Rhs> for BitmapRef<'_, Target>
+where
+    Target: BitmapLike + PartialOrd<Rhs>,
+{
+    fn partial_cmp(&self, other: &Rhs) -> Option<Ordering> {
+        self.as_ref().partial_cmp(other)
+    }
+}
+
+// FIXME: Fix this, then propagate PartialEq/PartialOrd genericity to newtype
+impl<Target: BitmapLike + Ord + PartialOrd<Self>> Ord for BitmapRef<'_, Target> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_ref().cmp(other.as_ref())
+    }
+}
+
+unsafe impl<Target: BitmapLike + Send> Send for BitmapRef<'_, Target> {}
+
+impl<Target, Rhs> Sub<Rhs> for &BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: Sub<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn sub(self, rhs: Rhs) -> Target {
+        self.as_ref() - rhs.borrow()
+    }
+}
+
+impl<Target, Rhs> Sub<Rhs> for BitmapRef<'_, Target>
+where
+    Target: BitmapLike,
+    Rhs: Borrow<Target>,
+    for<'a, 'b> &'a Target: Sub<&'b Target, Output = Target>,
+{
+    type Output = Target;
+
+    fn sub(self, rhs: Rhs) -> Target {
+        self.as_ref() - rhs.borrow()
+    }
+}
+
+unsafe impl<Target: BitmapLike + Sync> Sync for BitmapRef<'_, Target> {}
+
+impl<'target, Target> ToOwned for BitmapRef<'target, Target>
+where
+    Target: BitmapLike + Borrow<BitmapRef<'target, Target>> + Clone,
+{
+    type Owned = Target;
+
+    fn to_owned(&self) -> Target {
+        self.as_ref().clone()
+    }
+}
 
 /// Trait for manipulating specialized bitmaps (CpuSet, NodeSet) in a homogeneous way
 pub trait SpecializedBitmap:
-    AsRef<Bitmap> + AsMut<Bitmap> + Clone + Debug + Display + From<Bitmap> + Into<Bitmap> + 'static
+    AsRef<Bitmap>
+    + AsMut<Bitmap>
+    + BitmapLike
+    + Clone
+    + Debug
+    + Display
+    + From<Bitmap>
+    + Into<Bitmap>
+    + 'static
 {
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;
-
-    /// Convert a reference to bitmap to a reference to this
-    //
-    // FIXME: Adding a `where Bitmap: AsRef<Self>` bound on the trait should
-    //        suffice, but for some unknown reason rustc v1.67.1 rejects this
-    //        claiming the trait isn't implemented.
-    #[doc(hidden)]
-    fn from_bitmap_ref(bitmap: &Bitmap) -> &Self;
 }
 
 /// Kind of specialized bitmap
@@ -1359,12 +1556,6 @@ macro_rules! impl_bitmap_newtype {
         #[derive(
             derive_more::AsMut,
             derive_more::AsRef,
-            derive_more::BitAnd,
-            derive_more::BitAndAssign,
-            derive_more::BitOr,
-            derive_more::BitOrAssign,
-            derive_more::BitXor,
-            derive_more::BitXorAssign,
             Clone,
             Default,
             Eq,
@@ -1373,10 +1564,6 @@ macro_rules! impl_bitmap_newtype {
             derive_more::IntoIterator,
             derive_more::Not,
             Ord,
-            PartialEq,
-            PartialOrd,
-            derive_more::Sub,
-            derive_more::SubAssign,
         )]
         #[repr(transparent)]
         pub struct $newtype($crate::bitmaps::Bitmap);
@@ -1391,10 +1578,6 @@ macro_rules! impl_bitmap_newtype {
         impl $crate::bitmaps::SpecializedBitmap for $newtype {
             const BITMAP_KIND: $crate::bitmaps::BitmapKind =
                 $crate::bitmaps::BitmapKind::$newtype;
-
-            fn from_bitmap_ref(bitmap: &$crate::bitmaps::Bitmap) -> &Self {
-                bitmap.as_ref()
-            }
         }
 
         /// # Re-export of the Bitmap API
@@ -1402,58 +1585,56 @@ macro_rules! impl_bitmap_newtype {
         /// Only documentation headers are repeated here, you will find most of
         /// the documentation attached to identically named `Bitmap` methods.
         impl $newtype {
-            /// Wraps an owned bitmap from hwloc
+            /// Wraps an owned hwloc_bitmap_t
             ///
-            /// See [`Bitmap::from_raw`](crate::bitmaps::Bitmap::from_raw).
+            /// See [`Bitmap::from_owned_raw_mut`](crate::bitmaps::Bitmap::from_owned_raw_mut).
             #[allow(unused)]
-            pub(crate) unsafe fn from_raw(
+            pub(crate) unsafe fn from_owned_raw_mut(
                 bitmap: *mut $crate::bitmaps::RawBitmap
             ) -> Option<Self> {
-                $crate::bitmaps::Bitmap::from_raw(bitmap).map(Self::from)
+                $crate::bitmaps::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
             }
 
-            /// Wraps an owned bitmap from hwloc
+            /// Wraps an owned hwloc bitmap
             ///
-            /// See [`Bitmap::from_non_null`](crate::bitmaps::Bitmap::from_non_null).
+            /// See [`Bitmap::from_owned_nonnull`](crate::bitmaps::Bitmap::from_owned_nonnull).
             #[allow(unused)]
-            pub(crate) unsafe fn from_non_null(
+            pub(crate) unsafe fn from_owned_nonnull(
                 bitmap: std::ptr::NonNull<$crate::bitmaps::RawBitmap>
             ) -> Self {
-                Self::from($crate::bitmaps::Bitmap::from_non_null(bitmap))
+                Self::from($crate::bitmaps::Bitmap::from_owned_nonnull(bitmap))
             }
 
-            /// Wraps an hwloc-originated borrowed bitmap pointer into the bitmap representation.
+            /// Wraps a borrowed hwloc_const_bitmap_t
             ///
             /// See [`Bitmap::borrow_from_raw`](crate::bitmaps::Bitmap::borrow_from_raw).
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw(
-                bitmap: &*const $crate::bitmaps::RawBitmap
-            ) -> Option<&Self> {
+            pub(crate) unsafe fn borrow_from_raw<'target>(
+                bitmap: *const $crate::bitmaps::RawBitmap
+            ) -> Option<$crate::bitmaps::BitmapRef<'target, Self>> {
                 $crate::bitmaps::Bitmap::borrow_from_raw(bitmap)
-                    .map($crate::bitmaps::Bitmap::as_ref)
+                    .map(|bitmap_ref| bitmap_ref.cast())
             }
 
-            /// Wraps an hwloc-originated borrowed bitmap pointer into the bitmap representation.
+            /// Wraps a borrowed hwloc_bitmap_t
             ///
             /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmaps::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw_mut(
-                bitmap: &*mut $crate::bitmaps::RawBitmap
-            ) -> Option<&Self> {
+            pub(crate) unsafe fn borrow_from_raw_mut<'target>(
+                bitmap: *mut $crate::bitmaps::RawBitmap
+            ) -> Option<$crate::bitmaps::BitmapRef<'target, Self>> {
                 $crate::bitmaps::Bitmap::borrow_from_raw_mut(bitmap)
-                    .map($crate::bitmaps::Bitmap::as_ref)
+                    .map(|bitmap_ref| bitmap_ref.cast())
             }
 
-            /// Wraps an hwloc-originated borrowed bitmap pointer into the bitmap representation.
+            /// Wraps a borrowed hwloc bitmap
             ///
-            /// See [`Bitmap::borrow_from_non_null`](crate::bitmaps::Bitmap::borrow_from_non_null).
+            /// See [`Bitmap::borrow_from_nonnull`](crate::bitmaps::Bitmap::borrow_from_nonnull).
             #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_non_null(
-                bitmap: &std::ptr::NonNull<$crate::bitmaps::RawBitmap>
-            ) -> &Self {
-                <$crate::bitmaps::Bitmap as AsRef<Self>>::as_ref(
-                    $crate::bitmaps::Bitmap::borrow_from_non_null(bitmap)
-                )
+            pub(crate) unsafe fn borrow_from_nonnull<'target>(
+                bitmap: std::ptr::NonNull<$crate::bitmaps::RawBitmap>
+            ) -> $crate::bitmaps::BitmapRef<'target, Self> {
+                $crate::bitmaps::Bitmap::borrow_from_nonnull(bitmap).cast()
             }
 
             /// Contained bitmap pointer (for interaction with hwloc)
@@ -1691,93 +1872,88 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl std::ops::BitAnd<&$newtype> for &$newtype {
+        unsafe impl $crate::bitmaps::BitmapLike for $newtype {
+            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmaps::RawBitmap> {
+                self.0.as_raw()
+            }
+        }
+
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitAnd<B> for &$newtype {
             type Output = $newtype;
 
-            fn bitand(self, rhs: &$newtype) -> $newtype {
-                $newtype((&self.0) & (&rhs.0))
+            fn bitand(self, rhs: B) -> $newtype {
+                $newtype((&self.0) & (&rhs.borrow().0))
             }
         }
 
-        impl std::ops::BitAnd<$newtype> for &$newtype {
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitAnd<B> for $newtype {
             type Output = $newtype;
 
-            fn bitand(self, rhs: $newtype) -> $newtype {
-                $newtype((&self.0) & rhs.0)
+            fn bitand(self, rhs: B) -> $newtype {
+                $newtype(self.0 & (&rhs.borrow().0))
             }
         }
 
-        impl std::ops::BitAnd<&$newtype> for $newtype {
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitAndAssign<B> for $newtype {
+            fn bitand_assign(&mut self, rhs: B) {
+                self.0 &= (&rhs.borrow().0)
+            }
+        }
+
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitOr<B> for &$newtype {
             type Output = $newtype;
 
-            fn bitand(self, rhs: &$newtype) -> $newtype {
-                $newtype(self.0 & (&rhs.0))
+            fn bitor(self, rhs: B) -> $newtype {
+                $newtype(&self.0 | &rhs.borrow().0)
             }
         }
 
-        impl std::ops::BitAndAssign<&$newtype> for $newtype {
-            fn bitand_assign(&mut self, rhs: &$newtype) {
-                self.0 &= (&rhs.0)
-            }
-        }
-
-        impl std::ops::BitOr<&$newtype> for &$newtype {
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitOr<B> for $newtype {
             type Output = $newtype;
 
-            fn bitor(self, rhs: &$newtype) -> $newtype {
-                $newtype(&self.0 | &rhs.0)
+            fn bitor(self, rhs: B) -> $newtype {
+                $newtype(self.0 | &rhs.borrow().0)
             }
         }
 
-        impl std::ops::BitOr<$newtype> for &$newtype {
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitOrAssign<B> for $newtype {
+            fn bitor_assign(&mut self, rhs: B) {
+                self.0 |= &rhs.borrow().0
+            }
+        }
+
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitXor<B> for &$newtype {
             type Output = $newtype;
 
-            fn bitor(self, rhs: $newtype) -> $newtype {
-                $newtype(&self.0 | rhs.0)
+            fn bitxor(self, rhs: B) -> $newtype {
+                $newtype(&self.0 ^ &rhs.borrow().0)
             }
         }
 
-        impl std::ops::BitOr<&$newtype> for $newtype {
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitXor<B> for $newtype {
             type Output = $newtype;
 
-            fn bitor(self, rhs: &$newtype) -> $newtype {
-                $newtype(self.0 | &rhs.0)
+            fn bitxor(self, rhs: B) -> $newtype {
+                $newtype(self.0 ^ &rhs.borrow().0)
             }
         }
 
-        impl std::ops::BitOrAssign<&$newtype> for $newtype {
-            fn bitor_assign(&mut self, rhs: &$newtype) {
-                self.0 |= &rhs.0
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitXorAssign<B> for $newtype {
+            fn bitxor_assign(&mut self, rhs: B) {
+                self.0 ^= &rhs.borrow().0
             }
         }
 
-        impl std::ops::BitXor<&$newtype> for &$newtype {
-            type Output = $newtype;
-
-            fn bitxor(self, rhs: &$newtype) -> $newtype {
-                $newtype(&self.0 ^ &rhs.0)
-            }
-        }
-
-        impl std::ops::BitXor<$newtype> for &$newtype {
-            type Output = $newtype;
-
-            fn bitxor(self, rhs: $newtype) -> $newtype {
-                $newtype(&self.0 ^ rhs.0)
-            }
-        }
-
-        impl std::ops::BitXor<&$newtype> for $newtype {
-            type Output = $newtype;
-
-            fn bitxor(self, rhs: &$newtype) -> $newtype {
-                $newtype(self.0 ^ &rhs.0)
-            }
-        }
-
-        impl std::ops::BitXorAssign<&$newtype> for $newtype {
-            fn bitxor_assign(&mut self, rhs: &$newtype) {
-                self.0 ^= &rhs.0
+        impl<'target> std::borrow::Borrow<$crate::bitmaps::BitmapRef<'target, $newtype>> for $newtype {
+            fn borrow(&self) -> &$crate::bitmaps::BitmapRef<'target, $newtype> {
+                // This is safe because...
+                // - $newtype and BitmapRef are effectively both repr(transparent)
+                //   wrappers of NonNull<RawBitmap>, so they are layout-compatible.
+                // - The borrow checker will not let us free the source $newtype as long
+                //   as the &BitmapRef emitted by this function exists.
+                // - BitmapRef does not implement Clone, so it is not possible to create
+                //   another BitmapRef that isn't covered by the above guarantee.
+                unsafe { std::mem::transmute::<&$newtype, &$crate::bitmaps::BitmapRef<'target, $newtype>>(self) }
             }
         }
 
@@ -1793,38 +1969,20 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl Extend<$crate::bitmaps::BitmapIndex> for $newtype {
-            fn extend<T: IntoIterator<Item = $crate::bitmaps::BitmapIndex>>(&mut self, iter: T) {
+        impl<BI: std::borrow::Borrow<$crate::bitmaps::BitmapIndex>> Extend<BI> for $newtype {
+            fn extend<T: IntoIterator<Item = BI>>(&mut self, iter: T) {
                 self.0.extend(iter)
             }
         }
 
-        impl<'a> Extend<&'a $crate::bitmaps::BitmapIndex> for $newtype {
-            fn extend<T: IntoIterator<Item = &'a $crate::bitmaps::BitmapIndex>>(&mut self, iter: T) {
-                self.0.extend(iter)
-            }
-        }
-
-        impl From<$crate::bitmaps::BitmapIndex> for $newtype {
-            fn from(value: $crate::bitmaps::BitmapIndex) -> Self {
+        impl<BI: std::borrow::Borrow<$crate::bitmaps::BitmapIndex>> From<BI> for $newtype {
+            fn from(value: BI) -> Self {
                 Self(value.into())
             }
         }
 
-        impl From<&$crate::bitmaps::BitmapIndex> for $newtype {
-            fn from(value: &$crate::bitmaps::BitmapIndex) -> Self {
-                Self(value.into())
-            }
-        }
-
-        impl FromIterator<$crate::bitmaps::BitmapIndex> for $newtype {
-            fn from_iter<I: IntoIterator<Item = $crate::bitmaps::BitmapIndex>>(iter: I) -> Self {
-                Self($crate::bitmaps::Bitmap::from_iter(iter))
-            }
-        }
-
-        impl<'a> FromIterator<&'a $crate::bitmaps::BitmapIndex> for $newtype {
-            fn from_iter<I: IntoIterator<Item = &'a $crate::bitmaps::BitmapIndex>>(iter: I) -> Self {
+        impl<BI: std::borrow::Borrow<$crate::bitmaps::BitmapIndex>> FromIterator<BI> for $newtype {
+            fn from_iter<I: IntoIterator<Item = BI>>(iter: I) -> Self {
                 Self($crate::bitmaps::Bitmap::from_iter(iter))
             }
         }
@@ -1846,33 +2004,39 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl std::ops::Sub<&$newtype> for &$newtype {
-            type Output = $newtype;
-
-            fn sub(self, rhs: &$newtype) -> $newtype {
-                $newtype(&self.0 - &rhs.0)
+        impl<B: std::borrow::Borrow<$newtype>> PartialEq<B> for $newtype {
+            fn eq(&self, other: &B) -> bool {
+                self.0 == other.borrow().0
             }
         }
 
-        impl std::ops::Sub<$newtype> for &$newtype {
-            type Output = $newtype;
-
-            fn sub(self, rhs: $newtype) -> $newtype {
-                $newtype(&self.0 - rhs.0)
+        impl<B: std::borrow::Borrow<$newtype>> PartialOrd<B> for $newtype {
+            fn partial_cmp(&self, other: &B) -> Option<std::cmp::Ordering> {
+                self.0.partial_cmp(&other.borrow().0)
             }
         }
 
-        impl std::ops::Sub<&$newtype> for $newtype {
+        impl $crate::Sealed for $newtype {}
+
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::Sub<B> for &$newtype {
             type Output = $newtype;
 
-            fn sub(self, rhs: &$newtype) -> $newtype {
-                $newtype(self.0 - &rhs.0)
+            fn sub(self, rhs: B) -> $newtype {
+                $newtype(&self.0 - &rhs.borrow().0)
             }
         }
 
-        impl std::ops::SubAssign<&$newtype> for $newtype {
-            fn sub_assign(&mut self, rhs: &$newtype) {
-                self.0 -= &rhs.0
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::Sub<B> for $newtype {
+            type Output = $newtype;
+
+            fn sub(self, rhs: B) -> $newtype {
+                $newtype(self.0 - &rhs.borrow().0)
+            }
+        }
+
+        impl<B: std::borrow::Borrow<$newtype>> std::ops::SubAssign<B> for $newtype {
+            fn sub_assign(&mut self, rhs: B) {
+                self.0 -= &rhs.borrow().0
             }
         }
     };

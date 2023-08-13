@@ -12,7 +12,7 @@ use crate::{
 };
 #[cfg(feature = "hwloc-2_2_0")]
 use std::ffi::c_uint;
-use std::{clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
+use std::{borrow::Borrow, clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
 use thiserror::Error;
 
 /// # Finding objects inside a CPU set
@@ -163,12 +163,11 @@ impl Topology {
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_type")]
     pub fn objects_inside_cpuset_with_type<'result>(
         &'result self,
-        set: &'result CpuSet,
+        set: impl Borrow<CpuSet> + 'result,
         object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
+    ) -> impl Iterator<Item = &TopologyObject> + DoubleEndedIterator + FusedIterator + 'result {
         self.objects_with_type(object_type)
-            .filter(|object| object.is_inside_cpuset(set))
+            .filter(move |object| object.is_inside_cpuset(set.borrow()))
     }
 
     /// First largest object included in the given cpuset `set`
@@ -200,13 +199,13 @@ impl Topology {
         // Walk the topology tree until we find an object included into set
         let mut parent = root;
         let mut parent_cpuset = root_cpuset;
-        while !set.includes(parent_cpuset) {
+        while !set.includes(&parent_cpuset) {
             // While the object intersects without being included, look at children
             let old_parent = parent;
             'iterate_children: for child in parent.normal_children() {
                 if let Some(child_cpuset) = child.cpuset() {
                     // This child intersects, make it the new parent and recurse
-                    if set.intersects(child_cpuset) {
+                    if set.intersects(&child_cpuset) {
                         parent = child;
                         parent_cpuset = child_cpuset;
                         break 'iterate_children;
