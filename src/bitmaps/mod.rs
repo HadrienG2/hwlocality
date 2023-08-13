@@ -1470,7 +1470,6 @@ where
     }
 }
 
-// FIXME: Fix this, then propagate PartialEq/PartialOrd genericity to newtype
 impl<Target: BitmapLike + Ord + PartialOrd<Self>> Ord for BitmapRef<'_, Target> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_ref().cmp(other.as_ref())
