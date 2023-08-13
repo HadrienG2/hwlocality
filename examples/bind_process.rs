@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
     print_binding_location("before binding")?;
 
     // Bind to one core.
-    topology.bind_process_cpu(pid, cpuset, CpuBindingFlags::PROCESS)?;
+    topology.bind_process_cpu(pid, &cpuset, CpuBindingFlags::PROCESS)?;
 
     // Query binding and CPU location after binding
     print_binding_location("after binding")?;

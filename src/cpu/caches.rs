@@ -1,7 +1,6 @@
 //! CPU cache statistics
 
 use crate::{
-    cpu::cpusets::CpuSet,
     objects::{attributes::ObjectAttributes, types::ObjectType},
     topology::Topology,
 };
@@ -86,7 +85,7 @@ impl CpuCacheStats {
                 found = true;
                 let num_threads = object
                     .cpuset()
-                    .and_then(CpuSet::weight)
+                    .and_then(|set| set.weight())
                     .expect("Caches should have cpusets") as u64;
                 let per_thread_size = cache.size() / num_threads;
                 smallest = smallest.min(cache.size());
