@@ -58,27 +58,14 @@ fn main() {
         let hwloc2_source_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
         fetch_hwloc(hwloc2_source_path.as_path(), source_version);
         let mut hwloc2_compiled_path: PathBuf = compile_hwloc2();
-        hwloc2_compiled_path.push("lib");
-        println!(
-            "cargo:rustc-link-arg=-Wl,-rpath,{}",
-            hwloc2_compiled_path
-                .to_str()
-                .expect("Link path is not an UTF-8 string")
-        );
-        println!(
-            "cargo:rustc-link-search={}",
-            hwloc2_compiled_path
-                .to_str()
-                .expect("Link path is not an UTF-8 string")
-        );
-        println!("cargo:rustc-link-lib=static=hwloc");
-        println!("cargo:rustc-link-lib=xml2");
-        println!("cargo:rustc-link-lib=pciaccess");
-        println!("cargo:rustc-link-lib=udev");
-        println!(
-            "cargo:rerun-if-changed={}",
-            hwloc2_source_path.to_str().expect("Invalid source path")
-        );
+
+        env::set_var("PKG_CONFIG_PATH", format!("{}", hwloc2_compiled_path.join("lib").join("pkgconfig").display()));
+
+        let lib = pkg_config::Config::new()
+            .atleast_version(required_version)
+            .statik(true)
+            .probe("hwloc")
+            .expect("Could not find a suitable version of hwloc");
     }
     #[cfg(not(feature = "bundled"))]
     {
