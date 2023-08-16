@@ -36,7 +36,6 @@ fn get_os_from_triple(triple: &str) -> Option<&str> {
 
 #[cfg(feature = "bundled")]
 fn compile_hwloc2_autotools(p: PathBuf) -> PathBuf {
-    println!("dummy: path is {}", p.display());
     let mut config = autotools::Config::new(p);
     config.reconf("-ivf").make_target("install").build()
 }
@@ -114,23 +113,12 @@ fn main() {
             compile_hwloc2_autotools(hwloc2_source_path)
         };
 
-        //#[cfg(target_os = "windows")]
-        //std::fs::copy(hwloc2_compiled_path.join("lib").join("hwloc.lib").as_path(), hwloc2_compiled_path.join("lib").join("libhwloc.lib").as_path());
-
-        #[cfg(target_os = "windows")]
-        {
-            println!("cargo:rustc-link-lib=static=hwloc");
-            println!("cargo:rustc-link-search={}", hwloc2_compiled_path.join("lib").display());
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            env::set_var("PKG_CONFIG_PATH", format!("{}", hwloc2_compiled_path.join("lib").join("pkgconfig").display()));
-            let lib = pkg_config::Config::new()
-                .atleast_version(required_version)
-                .statik(true)
-                .probe("hwloc")
-                .expect("Could not find a suitable version of hwloc");
-        }
+        env::set_var("PKG_CONFIG_PATH", format!("{}", hwloc2_compiled_path.join("lib").join("pkgconfig").display()));
+        let lib = pkg_config::Config::new()
+            .atleast_version(required_version)
+            .statik(true)
+            .probe("hwloc")
+            .expect("Could not find a suitable version of hwloc");
     }
     #[cfg(not(feature = "bundled"))]
     {
