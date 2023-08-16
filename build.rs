@@ -36,7 +36,6 @@ fn get_os_from_triple(triple: &str) -> Option<&str> {
 
 #[cfg(feature = "bundled")]
 fn compile_hwloc2_autotools(p: PathBuf) -> PathBuf {
-    println!("dummy: path is {}", p.display());
     let mut config = autotools::Config::new(p);
     config.reconf("-ivf").make_target("install").build()
 }
