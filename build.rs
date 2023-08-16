@@ -102,7 +102,11 @@ fn main() {
         let mut hwloc2_source_path = PathBuf::from(git_dir);
         fetch_hwloc(hwloc2_source_path.as_path(), source_version);
         hwloc2_source_path.push("hwloc");
-        let mut hwloc2_compiled_path: PathBuf = if hwloc2_source_path.join("contrib").join("windows-cmake").join("CMakeLists.txt").exists() {
+        #[cfg(target_os = "windows")]
+        let cmake = hwloc2_source_path.join("contrib").join("windows-cmake").join("CMakeLists.txt").exists();
+        #[cfg(not(target_os = "windows"))]
+        let cmake = false;
+        let mut hwloc2_compiled_path: PathBuf = if cmake {
             let target = env::var("TARGET").expect("Cargo build scripts always have TARGET");
             let target_os = get_os_from_triple(target.as_str()).unwrap();
             hwloc2_source_path.push("contrib");
