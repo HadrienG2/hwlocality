@@ -17,15 +17,13 @@ fn fetch_hwloc(path: &Path, version: &str) {
             ])
             .current_dir(path.clone())
             .output();
-        match r {
-            Ok(m) => {
-                if !m.status.success() {
-                    eprintln!("git clone for hwloc returned {}", m.status);
-                    eprintln!("{:?}", m);
-                }
-            }
-            Err(e) => eprintln!("Error cloning hwloc {}", e),
-        }
+        let m = r.expect("Failed to run git clone");
+        assert!(
+            m.status.success(),
+            "git clone for hwloc returned failure code {}\n{:?}",
+            m.status,
+            m
+        );
     }
 }
 
@@ -35,12 +33,13 @@ fn get_os_from_triple(triple: &str) -> Option<&str> {
 }
 
 #[cfg(feature = "bundled")]
-fn compile_hwloc2_autotools(p: PathBuf) -> PathBuf {
+fn compile_hwloc_autotools(p: PathBuf) -> PathBuf {
     let mut config = autotools::Config::new(p);
     config.reconf("-ivf").make_target("install").build()
 }
 
-fn compile_hwloc2_cmake(build_path: &Path, target_os: &str) -> PathBuf {
+#[cfg(feature = "bundled")]
+fn compile_hwloc_cmake(build_path: &Path, target_os: &str) -> PathBuf {
     let mut cfg = cmake::Config::new(build_path);
     if let Ok(profile) = env::var("HWLOC_BUILD_PROFILE") {
         cfg.profile(&profile);
@@ -48,100 +47,93 @@ fn compile_hwloc2_cmake(build_path: &Path, target_os: &str) -> PathBuf {
         cfg.profile("release");
     }
 
-    // Allow specifying custom toolchain specifically for SDL2.
+    // Allow specifying custom toolchain specifically for hwloc.
     if let Ok(toolchain) = env::var("HWLOC_TOOLCHAIN") {
         cfg.define("CMAKE_TOOLCHAIN_FILE", &toolchain);
-    } else {
-        // Override __FLTUSED__ to keep the _fltused symbol from getting defined in the static build.
-        // This conflicts and fails to link properly when building statically on Windows, likely due to
-        // COMDAT conflicts/breakage happening somewhere.
-        #[cfg(feature = "static-link")]
-        cfg.cflag("-D__FLTUSED__");
-
-        #[cfg(target_os = "linux")]
-        {
-            // Add common flag for affected version and above
-            use version_compare::{compare_to, Cmp};
-            if let Ok(version) = std::process::Command::new("cc")
-                .arg("-dumpversion")
-                .output()
-            {
-                let affected =
-                    compare_to(std::str::from_utf8(&version.stdout).unwrap(), "10", Cmp::Ge)
-                        .unwrap_or(true);
-                if affected {
-                    cfg.cflag("-fcommon");
-                }
-            }
-        }
     }
     cfg.build()
 }
 
+fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
+    let lib = pkg_config::Config::new()
+        .range_version(required_version.."3.0.0")
+        .statik(true)
+        .probe("hwloc")
+        .expect("Could not find a suitable version of hwloc");
+    lib
+}
+
 fn main() {
     let git_dir = env::var("OUT_DIR").expect("No output directory given");
-    let (required_version, source_version) = if cfg!(feature = "hwloc-2_8_0") {
-        ("2.8.0", "v2.8")
+    let required_version = if cfg!(feature = "hwloc-2_8_0") {
+        "2.8.0"
     } else if cfg!(feature = "hwloc-2_5_0") {
-        ("2.5.0", "v2.5")
+        "2.5.0"
     } else if cfg!(feature = "hwloc-2_4_0") {
-        ("2.4.0", "v2.4")
+        "2.4.0"
     } else if cfg!(feature = "hwloc-2_3_0") {
-        ("2.3.0", "v2.3")
+        "2.3.0"
     } else if cfg!(feature = "hwloc-2_2_0") {
-        ("2.2.0", "v2.2")
+        "2.2.0"
     } else if cfg!(feature = "hwloc-2_1_0") {
-        ("2.1.0", "v2.1")
+        "2.1.0"
     } else if cfg!(feature = "hwloc-2_0_4") {
-        ("2.0.4", "v2.x")
+        "2.0.4"
     } else {
-        ("2.0.0", "v2.0")
+        "2.0.0"
     };
     #[cfg(feature = "bundled")]
     {
-        let mut hwloc2_source_path = PathBuf::from(git_dir);
-        fetch_hwloc(hwloc2_source_path.as_path(), source_version);
-        hwloc2_source_path.push("hwloc");
-        #[cfg(target_os = "windows")]
-        let cmake = hwloc2_source_path.join("contrib").join("windows-cmake").join("CMakeLists.txt").exists();
-        #[cfg(not(target_os = "windows"))]
-        let cmake = false;
-        let mut hwloc2_compiled_path: PathBuf = if cmake {
+        let source_version = match required_version
+            .split('.')
+            .next()
+            .expect("No major version in required_version")
+        {
+            "2" => "v2.x",
+            other => panic!("Please add support for bundling hwloc v{other}.x"),
+        };
+        let mut hwloc_source_path = PathBuf::from(git_dir);
+        fetch_hwloc(hwloc_source_path.as_path(), source_version);
+        hwloc_source_path.push("hwloc");
+        let cmake = cfg!(target_os = "windows")
+            && hwloc_source_path
+                .join("contrib")
+                .join("windows-cmake")
+                .join("CMakeLists.txt")
+                .exists();
+        let mut hwloc_compiled_path: PathBuf = if cmake {
             let target = env::var("TARGET").expect("Cargo build scripts always have TARGET");
             let target_os = get_os_from_triple(target.as_str()).unwrap();
-            hwloc2_source_path.push("contrib");
-            hwloc2_source_path.push("windows-cmake");
-            compile_hwloc2_cmake(hwloc2_source_path.as_path(), target_os)
-        }
-        else {
-            compile_hwloc2_autotools(hwloc2_source_path)
+            hwloc_source_path.push("contrib");
+            hwloc_source_path.push("windows-cmake");
+            compile_hwloc_cmake(hwloc_source_path.as_path(), target_os)
+        } else {
+            compile_hwloc_autotools(hwloc_source_path)
         };
-
-        //#[cfg(target_os = "windows")]
-        //std::fs::copy(hwloc2_compiled_path.join("lib").join("hwloc.lib").as_path(), hwloc2_compiled_path.join("lib").join("libhwloc.lib").as_path());
 
         #[cfg(target_os = "windows")]
         {
             println!("cargo:rustc-link-lib=static=hwloc");
-            println!("cargo:rustc-link-search={}", hwloc2_compiled_path.join("lib").display());
+            println!(
+                "cargo:rustc-link-search={}",
+                hwloc_compiled_path.join("lib").display()
+            );
         }
         #[cfg(not(target_os = "windows"))]
         {
-            env::set_var("PKG_CONFIG_PATH", format!("{}", hwloc2_compiled_path.join("lib").join("pkgconfig").display()));
-            let lib = pkg_config::Config::new()
-                .atleast_version(required_version)
-                .statik(true)
-                .probe("hwloc")
-                .expect("Could not find a suitable version of hwloc");
+            env::set_var(
+                "PKG_CONFIG_PATH",
+                format!(
+                    "{}",
+                    hwloc_compiled_path.join("lib").join("pkgconfig").display()
+                ),
+            );
+            use_pkgconfig(required_version);
         }
     }
     #[cfg(not(feature = "bundled"))]
     {
-        let lib = pkg_config::Config::new()
-            .atleast_version(required_version)
-            .statik(true)
-            .probe("hwloc")
-            .expect("Could not find a suitable version of hwloc");
+        let lib = use_pkgconfig(required_version);
         if cfg!(target_family = "unix") {
             for link_path in lib.link_paths {
                 println!(
