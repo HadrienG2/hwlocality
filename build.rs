@@ -1,6 +1,10 @@
+#[cfg(feature = "bundled")]
 use std::env;
+#[cfg(feature = "bundled")]
 use std::path::Path;
+#[cfg(feature = "bundled")]
 use std::path::PathBuf;
+#[cfg(feature = "bundled")]
 use std::process::Command;
 
 #[cfg(feature = "bundled")]
@@ -28,18 +32,13 @@ fn fetch_hwloc(path: &Path, version: &str) {
 }
 
 #[cfg(feature = "bundled")]
-fn get_os_from_triple(triple: &str) -> Option<&str> {
-    triple.splitn(3, "-").nth(2)
-}
-
-#[cfg(feature = "bundled")]
 fn compile_hwloc_autotools(p: PathBuf) -> PathBuf {
     let mut config = autotools::Config::new(p);
     config.reconf("-ivf").make_target("install").build()
 }
 
 #[cfg(feature = "bundled")]
-fn compile_hwloc_cmake(build_path: &Path, target_os: &str) -> PathBuf {
+fn compile_hwloc_cmake(build_path: &Path) -> PathBuf {
     let mut cfg = cmake::Config::new(build_path);
     if let Ok(profile) = env::var("HWLOC_BUILD_PROFILE") {
         cfg.profile(&profile);
@@ -54,17 +53,26 @@ fn compile_hwloc_cmake(build_path: &Path, target_os: &str) -> PathBuf {
     cfg.build()
 }
 
-fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
+fn use_pkgconfig(required_version: &str, first_unsupported_version: &str) -> pkg_config::Library {
     let lib = pkg_config::Config::new()
-        .range_version(required_version.."3.0.0")
+        .range_version(required_version..first_unsupported_version)
         .statik(true)
         .probe("hwloc")
         .expect("Could not find a suitable version of hwloc");
+    if cfg!(target_family = "unix") {
+        for link_path in &lib.link_paths {
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}",
+                link_path
+                    .to_str()
+                    .expect("Link path is not an UTF-8 string")
+            );
+        }
+    }
     lib
 }
 
 fn main() {
-    let git_dir = env::var("OUT_DIR").expect("No output directory given");
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
     } else if cfg!(feature = "hwloc-2_5_0") {
@@ -84,14 +92,15 @@ fn main() {
     };
     #[cfg(feature = "bundled")]
     {
-        let source_version = match required_version
-            .split('.')
-            .next()
-            .expect("No major version in required_version")
-        {
-            "2" => "v2.x",
-            other => panic!("Please add support for bundling hwloc v{other}.x"),
-        };
+		let git_dir = env::var("OUT_DIR").expect("No output directory given");
+        let (source_version, first_unsupported_version) = match required_version
+			.split('.')
+			.next()
+			.expect("No major version in required_version")
+		{
+			"2" => ("v2.x", "3.0.0"),
+			other => panic!("Please add support for bundling hwloc v{other}.x"),
+		};
         let mut hwloc_source_path = PathBuf::from(git_dir);
         fetch_hwloc(hwloc_source_path.as_path(), source_version);
         hwloc_source_path.push("hwloc");
@@ -101,12 +110,10 @@ fn main() {
                 .join("windows-cmake")
                 .join("CMakeLists.txt")
                 .exists();
-        let mut hwloc_compiled_path: PathBuf = if cmake {
-            let target = env::var("TARGET").expect("Cargo build scripts always have TARGET");
-            let target_os = get_os_from_triple(target.as_str()).unwrap();
+        let hwloc_compiled_path: PathBuf = if cmake {
             hwloc_source_path.push("contrib");
             hwloc_source_path.push("windows-cmake");
-            compile_hwloc_cmake(hwloc_source_path.as_path(), target_os)
+            compile_hwloc_cmake(hwloc_source_path.as_path())
         } else {
             compile_hwloc_autotools(hwloc_source_path)
         };
@@ -128,21 +135,19 @@ fn main() {
                     hwloc_compiled_path.join("lib").join("pkgconfig").display()
                 ),
             );
-            use_pkgconfig(required_version);
+            use_pkgconfig(required_version, first_unsupported_version);
         }
     }
     #[cfg(not(feature = "bundled"))]
     {
-        let lib = use_pkgconfig(required_version);
-        if cfg!(target_family = "unix") {
-            for link_path in lib.link_paths {
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                    link_path
-                        .to_str()
-                        .expect("Link path is not an UTF-8 string")
-                );
-            }
-        }
+		let first_unsupported_version = match required_version
+			.split('.')
+			.next()
+			.expect("No major version in required_version")
+		{
+			"2" => "3.0.0",
+			other => panic!("Please add support for hwloc v{other}.x"),
+		};
+        use_pkgconfig(required_version, first_unsupported_version);
     }
 }
