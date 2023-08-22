@@ -1,11 +1,9 @@
 #[cfg(feature = "bundled")]
-use std::env;
-#[cfg(feature = "bundled")]
-use std::path::Path;
-#[cfg(feature = "bundled")]
-use std::path::PathBuf;
-#[cfg(feature = "bundled")]
-use std::process::Command;
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command
+};
 
 #[cfg(feature = "bundled")]
 fn fetch_hwloc(path: &Path, version: &str) {
@@ -92,15 +90,15 @@ fn main() {
     };
     #[cfg(feature = "bundled")]
     {
-		let git_dir = env::var("OUT_DIR").expect("No output directory given");
+        let git_dir = env::var("OUT_DIR").expect("No output directory given");
         let (source_version, first_unsupported_version) = match required_version
-			.split('.')
-			.next()
-			.expect("No major version in required_version")
-		{
-			"2" => ("v2.x", "3.0.0"),
-			other => panic!("Please add support for bundling hwloc v{other}.x"),
-		};
+            .split('.')
+            .next()
+            .expect("No major version in required_version")
+        {
+            "2" => ("v2.x", "3.0.0"),
+            other => panic!("Please add support for bundling hwloc v{other}.x"),
+        };
         let mut hwloc_source_path = PathBuf::from(git_dir);
         fetch_hwloc(hwloc_source_path.as_path(), source_version);
         hwloc_source_path.push("hwloc");
@@ -140,14 +138,14 @@ fn main() {
     }
     #[cfg(not(feature = "bundled"))]
     {
-		let first_unsupported_version = match required_version
-			.split('.')
-			.next()
-			.expect("No major version in required_version")
-		{
-			"2" => "3.0.0",
-			other => panic!("Please add support for hwloc v{other}.x"),
-		};
+        let first_unsupported_version = match required_version
+            .split('.')
+            .next()
+            .expect("No major version in required_version")
+        {
+            "2" => "3.0.0",
+            other => panic!("Please add support for hwloc v{other}.x"),
+        };
         use_pkgconfig(required_version, first_unsupported_version);
     }
 }
