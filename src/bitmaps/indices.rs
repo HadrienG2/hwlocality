@@ -297,15 +297,15 @@ impl BitmapIndex {
     // FIXME: Support more integer operations, see usize for inspiration. Don't
     //        forget traits :
     //        Add, Sub, Mul, Div, Rem, Shl, Not, with Assign and ref versions, as
-    //        well as FromStr using from_str_radix. Also, Sum and Product.
+    //        well as FromStr using from_str_radix. Also, Sum and Product with
+    //        ref version.
     //
     //        Offsets should be isize, so checked_(add|sub)_signed should take
-    //        isize, and Add<isize> and Sub<isize> should be a thing.
+    //        isize, and Add<isize> and Sub<isize> should be a thing (unlike
+    //        usize, we don't break integer literal type inference by doint that).
     //        Multiplicands and divisors should be unsigned since sign changes
     //        are illegal. In addition to Mul/Div/Rem ops internal to BitmapIndex,
     //        BitmapIndex * or / or % usize should also be a thing.
-    //        To support references, make binary operators accept Borrow<Other>
-    //        (this will require relying less on derive_more)
 
     /// Like [`uN::checked_add(1)`], but enforces bitmap index limits
     pub const fn checked_succ(self) -> Option<Self> {
