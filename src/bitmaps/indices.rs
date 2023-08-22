@@ -116,8 +116,9 @@ impl BitmapIndex {
     /// ```
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(BitmapIndex::MIN.count_ones(), 0);
+    /// assert_eq!(BitmapIndex::MAX.count_ones(), BitmapIndex::EFFECTIVE_BITS);
     /// ```
-    pub fn count_ones(self) -> u32 {
+    pub const fn count_ones(self) -> u32 {
         self.0.count_ones()
     }
 
@@ -129,15 +130,174 @@ impl BitmapIndex {
     ///
     /// ```
     /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.count_zeros(), BitmapIndex::EFFECTIVE_BITS);
     /// assert_eq!(BitmapIndex::MAX.count_zeros(), 0);
     /// ```
-    pub fn count_zeros(self) -> u32 {
+    pub const fn count_zeros(self) -> u32 {
         self.0.count_zeros() - 1
     }
 
+    /// Returns the number of leading zeros in the binary representation of
+    /// `self`.
+    ///
+    /// Depending on what you’re doing with the value, you might also be
+    /// interested in the `ilog2` function which returns a consistent number,
+    /// even if the type widens.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.leading_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::MAX.leading_zeros(), 0);
+    /// ```
+    pub const fn leading_zeros(self) -> u32 {
+        self.0.leading_zeros() - 1
+    }
+
+    /// Returns the number of trailing zeros in the binary representation of
+    /// `self`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.trailing_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::MAX.trailing_zeros(), 0);
+    /// ```
+    pub const fn trailing_zeros(self) -> u32 {
+        if self.0 > 0 {
+            self.0.trailing_zeros()
+        } else {
+            Self::EFFECTIVE_BITS
+        }
+    }
+
+    /// Returns the number of leading ones in the binary representation of
+    /// `self`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.leading_ones(), 0);
+    /// assert_eq!(BitmapIndex::MAX.leading_ones(), BitmapIndex::EFFECTIVE_BITS);
+    /// ```
+    pub const fn leading_ones(self) -> u32 {
+        (self.0 << 1).leading_ones()
+    }
+
+    /// Returns the number of trailing ones in the binary representation of
+    /// `self`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.trailing_ones(), 0);
+    /// assert_eq!(BitmapIndex::MAX.trailing_ones(), BitmapIndex::EFFECTIVE_BITS);
+    /// ```
+    pub const fn trailing_ones(self) -> u32 {
+        self.0.trailing_ones()
+    }
+
+    /// Shifts the bits to the left by a specified amount, `n`, wrapping the
+    /// truncated bits to the end of the resulting integer.
+    ///
+    /// Please note this isn’t the same operation as the `<<` shifting operator!
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.rotate_left(42), BitmapIndex::MIN);
+    /// assert_eq!(BitmapIndex::MAX.rotate_left(42), BitmapIndex::MAX);
+    /// ```
+    pub const fn rotate_left(self, n: u32) -> Self {
+        self.rotate_impl(n, true)
+    }
+
+    /// Shifts the bits to the right by a specified amount, `n`, wrapping the
+    /// truncated bits to the beginning of the resulting integer.
+    ///
+    /// Please note this isn’t the same operation as the `>>` shifting operator!
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.rotate_right(42), BitmapIndex::MIN);
+    /// assert_eq!(BitmapIndex::MAX.rotate_right(42), BitmapIndex::MAX);
+    /// ```
+    pub const fn rotate_right(self, n: u32) -> Self {
+        self.rotate_impl(n, false)
+    }
+
+    // Common preparation of rotate_xyz operations
+    #[inline]
+    const fn rotate_impl(self, n: u32, left: bool) -> Self {
+        // We model a rotation as the boolean OR of two bitshifts going in
+        // opposite directions:
+        // - The direct shift is applied to bits that are just being shifted in
+        //   the direction of the rotation, in said direction.
+        // - The opposite shift is applied the bits that are brought to the
+        //   opposite side of the binary representation by the rotation process,
+        //   pushing them in the opposite direction by the expected amount.
+        let direct_shift = n % Self::EFFECTIVE_BITS;
+        let opposite_shift = Self::EFFECTIVE_BITS - direct_shift;
+        let (left_shift, right_shift) = if left {
+            (direct_shift, opposite_shift)
+        } else {
+            (opposite_shift, direct_shift)
+        };
+
+        // Compute and composite the low and high order bits
+        // Must mask out the high order bit to honor our expected
+        // 15/31/63-bit unsigned integer semantics.
+        let high_order_bits = (self.0 << left_shift) & Self::MAX.0;
+        let low_order_bits = self.0 >> right_shift;
+        Self(high_order_bits | low_order_bits)
+    }
+
+    // NOTE: No swap_bytes operation, the modeled integer is not made of an
+    //       integral number of bytes so this operation does not make sense.
+
+    /// Reverses the order of bits in the integer. The least significant bit
+    /// becomes the most significant bit, second least-significant bit becomes
+    /// second most-significant bit, etc.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(BitmapIndex::MIN.reverse_bits(), BitmapIndex::MIN);
+    /// assert_eq!(BitmapIndex::MAX.reverse_bits(), BitmapIndex::MAX);
+    /// ```
+    pub const fn reverse_bits(self) -> Self {
+        Self(self.0.reverse_bits() >> 1)
+    }
+
+    // NOTE: No (from|to)_(be|le) operation, the modeled integer is not made of
+    //       an integral number of bytes so these operations do not make sense.
+
     // FIXME: Support more integer operations, see usize for inspiration. Don't
     //        forget Add, Sub, Mul, Shl, with Assign and ref versions, as well
-    //        as FromStr (using from_str_radix), Sum and Product with ref versions,
+    //        as FromStr (using from_str_radix), Sum and Product with ref versions.
+    //        Also support heterogeneous arithmetic with usize literals.
 
     /// Like [`uN::checked_add(1)`], but enforces bitmap index limits
     pub const fn checked_succ(self) -> Option<Self> {
@@ -254,7 +414,7 @@ impl PartialOrd<usize> for BitmapIndex {
 }
 
 // NOTE: Only implementing TryFrom<usize> for the same reason slices can only be
-//       indexed by usize, namely to avoid integer type inference fuck-up
+//       indexed by usize, namely to avoid integer type inference issues
 impl TryFrom<usize> for BitmapIndex {
     type Error = TryFromIntError;
 
