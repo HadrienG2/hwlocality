@@ -3,7 +3,7 @@
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
-    bitmaps::RawBitmap,
+    bitmaps::{BitmapRef, RawBitmap},
     cpu::cpusets::CpuSet,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
@@ -915,14 +915,14 @@ pub enum MemoryAttributeQueryError {
 #[doc(alias = "hwloc_location::type")]
 #[doc(alias = "hwloc_location_u")]
 #[doc(alias = "hwloc_location_type_e")]
-#[derive(Copy, Clone, Debug, Display)]
+#[derive(Debug, Display)]
 pub enum MemoryAttributeLocation<'target> {
     /// Directly provide CPU set to find NUMA nodes with corresponding locality
     ///
     /// This is the only initiator type supported by most memory attribute
     /// queries on hwloc-defined memory attributes, though `Object` remains an
     /// option for user-defined memory attributes.
-    CpuSet(&'target CpuSet),
+    CpuSet(BitmapRef<'target, CpuSet>),
 
     /// Use a topology object as an initiator
     ///
@@ -964,9 +964,7 @@ impl<'target> MemoryAttributeLocation<'target> {
             RawLocationType::CPUSET => unsafe {
                 let ptr = NonNull::new(raw.location.cpuset.cast_mut())
                     .expect("Unexpected null CpuSet from hwloc");
-                let topology_ref =
-                    std::mem::transmute::<&NonNull<RawBitmap>, &'target NonNull<RawBitmap>>(&ptr);
-                let cpuset = CpuSet::borrow_from_non_null(topology_ref);
+                let cpuset = CpuSet::borrow_from_nonnull(ptr);
                 Ok(MemoryAttributeLocation::CpuSet(cpuset))
             },
             RawLocationType::OBJECT => unsafe {
@@ -981,7 +979,7 @@ impl<'target> MemoryAttributeLocation<'target> {
 //
 impl<'target> From<&'target CpuSet> for MemoryAttributeLocation<'target> {
     fn from(cpuset: &'target CpuSet) -> Self {
-        Self::CpuSet(cpuset)
+        Self::CpuSet(cpuset.into())
     }
 }
 //

@@ -13,7 +13,7 @@ use self::{
 #[cfg(all(feature = "hwloc-2_3_0", doc))]
 use crate::topology::support::MiscSupport;
 use crate::{
-    bitmaps::{Bitmap, RawBitmap, SpecializedBitmap},
+    bitmaps::{Bitmap, BitmapRef, RawBitmap, SpecializedBitmap},
     cpu::cpusets::CpuSet,
     errors::{self, RawHwlocError},
     ffi::{self, IncompleteType},
@@ -381,7 +381,7 @@ impl Topology {
         // With this function, we process an object that is presumed normal,
         // extract this information, and return it as an Option that is None if
         // the object has access to no CPUs.
-        type ObjSetWeightDepth<'a> = (&'a TopologyObject, &'a CpuSet, usize, usize);
+        type ObjSetWeightDepth<'a> = (&'a TopologyObject, BitmapRef<'a, CpuSet>, usize, usize);
         fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth> {
             debug_assert!(obj.object_type().is_normal());
             let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
@@ -537,8 +537,17 @@ impl Topology {
     ///
     /// This is equivalent to calling [`TopologyObject::cpuset()`] on
     /// the topology's root object.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!("Visible CPUs in this topology: {}", topology.cpuset());
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_get_topology_cpuset")]
-    pub fn cpuset(&self) -> &CpuSet {
+    pub fn cpuset(&self) -> BitmapRef<CpuSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_cpuset",
@@ -551,8 +560,20 @@ impl Topology {
     ///
     /// This is equivalent to calling [`TopologyObject::complete_cpuset()`] on
     /// the topology's root object.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Overall CPUs in this topology: {}",
+    ///     topology.complete_cpuset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_get_complete_cpuset")]
-    pub fn complete_cpuset(&self) -> &CpuSet {
+    pub fn complete_cpuset(&self) -> BitmapRef<CpuSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_cpuset",
@@ -570,8 +591,20 @@ impl Topology {
     /// PUs by calling `cpuset.intersects(topology.allowed_cpuset())`, and if so
     /// you can get the set of allowed PUs with
     /// `cpuset & topology.allowed_cpuset()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Allowed CPUs in this topology: {}",
+    ///     topology.allowed_cpuset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
-    pub fn allowed_cpuset(&self) -> &CpuSet {
+    pub fn allowed_cpuset(&self) -> BitmapRef<CpuSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_cpuset",
@@ -584,8 +617,17 @@ impl Topology {
     ///
     /// This is equivalent to calling [`TopologyObject::nodeset()`] on
     /// the topology's root object.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!("Visible NUMA nodes in this topology: {}", topology.nodeset());
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_get_topology_nodeset")]
-    pub fn nodeset(&self) -> &NodeSet {
+    pub fn nodeset(&self) -> BitmapRef<NodeSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_nodeset",
@@ -598,8 +640,20 @@ impl Topology {
     ///
     /// This is equivalent to calling [`TopologyObject::complete_nodeset()`] on
     /// the topology's root object.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Overall NUMA nodes in this topology: {}",
+    ///     topology.complete_nodeset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_get_complete_nodeset")]
-    pub fn complete_nodeset(&self) -> &NodeSet {
+    pub fn complete_nodeset(&self) -> BitmapRef<NodeSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_nodeset",
@@ -617,8 +671,20 @@ impl Topology {
     /// NUMA nodes by calling `nodeset.intersects(topology.allowed_nodeset())`,
     /// and if so you can get the set of allowed NUMA nodes with
     /// `nodeset & topology.allowed_nodeset()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Allowed NUMA nodes in this topology: {}",
+    ///     topology.allowed_nodeset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
-    pub fn allowed_nodeset(&self) -> &NodeSet {
+    pub fn allowed_nodeset(&self) -> BitmapRef<NodeSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_nodeset",
@@ -642,16 +708,13 @@ impl Topology {
         &'topology self,
         getter_name: &'static str,
         getter: unsafe extern "C" fn(*const RawTopology) -> *const RawBitmap,
-    ) -> &Set {
-        Set::from_bitmap_ref(unsafe {
+    ) -> BitmapRef<'topology, Set> {
+        let bitmap_ref = unsafe {
             let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))
                 .expect("According to their docs, these functions cannot return NULL");
-            let bitmap_ref = std::mem::transmute::<
-                &NonNull<RawBitmap>,
-                &'topology NonNull<RawBitmap>,
-            >(&bitmap_ptr);
-            Bitmap::borrow_from_non_null(bitmap_ref)
-        })
+            Bitmap::borrow_from_nonnull::<'topology>(bitmap_ptr)
+        };
+        bitmap_ref.cast()
     }
 }
 

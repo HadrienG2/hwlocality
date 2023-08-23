@@ -13,7 +13,7 @@ use self::{
 #[cfg(doc)]
 use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
-    bitmaps::RawBitmap,
+    bitmaps::{BitmapRef, RawBitmap},
     cpu::cpusets::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
     ffi::{self, LibcString},
@@ -673,7 +673,7 @@ impl Topology {
     pub fn closest_objects<'result>(
         &'result self,
         obj: &'result TopologyObject,
-    ) -> Result<impl Iterator<Item = &TopologyObject> + Clone + 'result, MissingCpuSetError> {
+    ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, MissingCpuSetError> {
         // This search may only be applied to objects with cpusets
         let obj_cpuset = obj.cpuset().ok_or(MissingCpuSetError)?;
 
@@ -681,7 +681,7 @@ impl Topology {
         fn obj_and_cpuset<'obj>(
             obj: &'obj TopologyObject,
             error: &str,
-        ) -> (&'obj TopologyObject, &'obj CpuSet) {
+        ) -> (&'obj TopologyObject, BitmapRef<'obj, CpuSet>) {
             (obj, obj.cpuset().expect(error))
         }
 
@@ -690,7 +690,7 @@ impl Topology {
         fn find_larger_parent<'obj>(
             known_obj: &'obj TopologyObject,
             known_cpuset: &CpuSet,
-        ) -> Option<(&'obj TopologyObject, &'obj CpuSet)> {
+        ) -> Option<(&'obj TopologyObject, BitmapRef<'obj, CpuSet>)> {
             known_obj
                 .ancestors()
                 .map(|ancestor| {
@@ -699,9 +699,9 @@ impl Topology {
                         "Ancestors of an object with a cpuset should have a cpuset",
                     )
                 })
-                .find(|&(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
+                .find(|(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
         }
-        let mut ancestor_and_cpuset = find_larger_parent(obj, obj_cpuset);
+        let mut ancestor_and_cpuset = find_larger_parent(obj, &obj_cpuset);
 
         // Prepare to jointly iterate over cousins and their cpusets
         // On each pass, we're going to find which cousins are covered by the
@@ -723,9 +723,9 @@ impl Topology {
         Ok(std::iter::from_fn(move || {
             loop {
                 // Look for a cousin that is covered by the current ancestor
-                let (ancestor, ancestor_cpuset) = ancestor_and_cpuset?;
+                let (ancestor, ancestor_cpuset) = ancestor_and_cpuset.take()?;
                 while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.pop() {
-                    if ancestor_cpuset.includes(cousin_cpuset) {
+                    if ancestor_cpuset.includes(&cousin_cpuset) {
                         return Some(cousin);
                     } else {
                         next_cousins_and_cpusets.push((cousin, cousin_cpuset));
@@ -734,7 +734,7 @@ impl Topology {
 
                 // We ran out of cousins, go to a higher-level ancestor or end
                 // iteration if we reached the top of the tree.
-                let (ancestor, ancestor_cpuset) = find_larger_parent(ancestor, ancestor_cpuset)?;
+                let (ancestor, ancestor_cpuset) = find_larger_parent(ancestor, &ancestor_cpuset)?;
                 ancestor_and_cpuset = Some((ancestor, ancestor_cpuset));
                 std::mem::swap(&mut cousins_and_cpusets, &mut next_cousins_and_cpusets);
             }
@@ -1231,7 +1231,7 @@ impl TopologyObject {
     pub fn is_in_subtree(&self, subtree_root: &TopologyObject) -> bool {
         // Take a cpuset-based shortcut on normal objects
         if let (Some(self_cpuset), Some(subtree_cpuset)) = (self.cpuset(), subtree_root.cpuset()) {
-            return subtree_cpuset.includes(self_cpuset);
+            return subtree_cpuset.includes(&self_cpuset);
         }
 
         // Otherwise, walk the ancestor chain
@@ -1248,7 +1248,12 @@ impl TopologyObject {
     pub fn first_shared_cache(&self) -> Option<&TopologyObject> {
         let cpuset = self.cpuset()?;
         self.ancestors()
-            .skip_while(|ancestor| ancestor.cpuset() == Some(cpuset))
+            .skip_while(|ancestor| {
+                ancestor
+                    .cpuset()
+                    .map(|ancestor_set| ancestor_set == cpuset)
+                    .unwrap_or(false)
+            })
             .find(|ancestor| ancestor.object_type().is_cpu_data_cache())
     }
 
@@ -1514,9 +1519,21 @@ impl TopologyObject {
     /// All objects have CPU and node sets except Misc and I/O objects, so if
     /// you know this object to be a normal or Memory object, you can safely
     /// unwrap this Option.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Visible CPUs attached to the root object: {:?}",
+    ///     topology.root_object().cpuset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_obj::cpuset")]
-    pub fn cpuset(&self) -> Option<&CpuSet> {
-        unsafe { CpuSet::borrow_from_raw_mut(&self.cpuset) }
+    pub fn cpuset(&self) -> Option<BitmapRef<CpuSet>> {
+        unsafe { CpuSet::borrow_from_raw_mut(self.cpuset) }
     }
 
     /// Truth that this object is inside of the given cpuset `set`
@@ -1527,7 +1544,7 @@ impl TopologyObject {
         let Some(object_cpuset) = self.cpuset() else {
             return false;
         };
-        set.includes(object_cpuset) && !object_cpuset.is_empty()
+        set.includes(&object_cpuset) && !object_cpuset.is_empty()
     }
 
     /// Truth that this object covers the given cpuset `set`
@@ -1552,10 +1569,22 @@ impl TopologyObject {
     /// the precise position is undefined. It is however known that it would be
     /// somewhere under this object.
     ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Overall CPUs attached to the root object: {:?}",
+    ///     topology.root_object().complete_cpuset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    ///
     /// [`cpuset()`]: TopologyObject::cpuset()
     #[doc(alias = "hwloc_obj::complete_cpuset")]
-    pub fn complete_cpuset(&self) -> Option<&CpuSet> {
-        unsafe { CpuSet::borrow_from_raw_mut(&self.complete_cpuset) }
+    pub fn complete_cpuset(&self) -> Option<BitmapRef<CpuSet>> {
+        unsafe { CpuSet::borrow_from_raw_mut(self.complete_cpuset) }
     }
 }
 
@@ -1585,9 +1614,21 @@ impl TopologyObject {
     /// All objects have CPU and node sets except Misc and I/O objects, so if
     /// you know this object to be a normal or Memory object, you can safely
     /// unwrap this Option.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Visible NUMA nodes attached to the root object: {:?}",
+    ///     topology.root_object().nodeset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_obj::nodeset")]
-    pub fn nodeset(&self) -> Option<&NodeSet> {
-        unsafe { NodeSet::borrow_from_raw_mut(&self.nodeset) }
+    pub fn nodeset(&self) -> Option<BitmapRef<NodeSet>> {
+        unsafe { NodeSet::borrow_from_raw_mut(self.nodeset) }
     }
 
     /// The complete NUMA node set of this object
@@ -1604,10 +1645,22 @@ impl TopologyObject {
     /// If there are no NUMA nodes in the machine, all the memory is close to
     /// this object, so complete_nodeset is full.
     ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!(
+    ///     "Overall NUMA nodes attached to the root object: {:?}",
+    ///     topology.root_object().complete_nodeset()
+    /// );
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    ///
     /// [`nodeset()`]: TopologyObject::nodeset()
     #[doc(alias = "hwloc_obj::complete_nodeset")]
-    pub fn complete_nodeset(&self) -> Option<&NodeSet> {
-        unsafe { NodeSet::borrow_from_raw_mut(&self.complete_nodeset) }
+    pub fn complete_nodeset(&self) -> Option<BitmapRef<NodeSet>> {
+        unsafe { NodeSet::borrow_from_raw_mut(self.complete_nodeset) }
     }
 }
 
