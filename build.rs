@@ -6,7 +6,17 @@ use std::{
 };
 
 // Use pkg-config to configure the build for a certain hwloc release
-fn use_pkgconfig(required_version: &str, first_unsupported_version: &str) -> pkg_config::Library {
+fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
+    // Determine the first unsupported version
+    let first_unsupported_version = match required_version
+        .split('.')
+        .next()
+        .expect("No major version in required_version")
+    {
+        "2" => "3.0.0",
+        other => panic!("Please add support for hwloc v{other}.x"),
+    };
+
     // Run pkg-config
     let lib = pkg_config::Config::new()
         .range_version(required_version..first_unsupported_version)
@@ -120,12 +130,12 @@ fn main() {
     #[cfg(feature = "bundled")]
     {
         // Determine which version to fetch and where to fetch it
-        let (source_version, first_unsupported_version) = match required_version
+        let source_version = match required_version
             .split('.')
             .next()
             .expect("No major version in required_version")
         {
-            "2" => ("v2.x", "3.0.0"),
+            "2" => "v2.x",
             other => panic!("Please add support for bundling hwloc v{other}.x"),
         };
         let out_path = env::var("OUT_DIR").expect("No output directory given");
@@ -178,21 +188,11 @@ fn main() {
             }
 
             // Configure this build to use hwloc via pkg-config
-            use_pkgconfig(required_version, first_unsupported_version);
+            use_pkgconfig(required_version);
         }
     }
 
     // If asked to use system hwloc, we configure it using pkg-config
     #[cfg(not(feature = "bundled"))]
-    {
-        let first_unsupported_version = match required_version
-            .split('.')
-            .next()
-            .expect("No major version in required_version")
-        {
-            "2" => "3.0.0",
-            other => panic!("Please add support for hwloc v{other}.x"),
-        };
-        use_pkgconfig(required_version, first_unsupported_version);
-    }
+    use_pkgconfig(required_version);
 }
