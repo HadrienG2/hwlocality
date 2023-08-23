@@ -171,7 +171,7 @@ jobs:
 
       - name: Set up hwloc build dependencies (macOS)
         run: brew install automake
-        if contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
+        if: contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
@@ -239,7 +239,7 @@ jobs:
 
       - name: Set up hwloc build dependencies (macOS)
         run: brew install automake
-        if contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
+        if: contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
