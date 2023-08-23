@@ -6,7 +6,18 @@ use std::{
 };
 
 // Use pkg-config to configure the build for a certain hwloc release
-fn use_pkgconfig(required_version: &str, first_unsupported_version: &str) -> pkg_config::Library {
+#[cfg(not(all(feature = "bundled", windows)))]
+fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
+    // Determine the first unsupported version
+    let first_unsupported_version = match required_version
+        .split('.')
+        .next()
+        .expect("No major version in required_version")
+    {
+        "2" => "3.0.0",
+        other => panic!("Please add support for hwloc v{other}.x"),
+    };
+
     // Run pkg-config
     let lib = pkg_config::Config::new()
         .range_version(required_version..first_unsupported_version)
@@ -73,15 +84,15 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
 
 // Compile hwloc using autotools, return local installation path
 #[cfg(all(feature = "bundled", not(windows)))]
-fn compile_hwloc_autotools(p: PathBuf) -> PathBuf {
-    let mut config = autotools::Config::new(p);
+fn compile_hwloc_autotools(source_path: impl AsRef<Path>) -> PathBuf {
+    let mut config = autotools::Config::new(source_path);
     config.fast_build(true).reconf("-ivf").build()
 }
 
 // Compile hwloc using cmake, return local installation path
 #[cfg(all(feature = "bundled", windows))]
-fn compile_hwloc_cmake(build_path: &Path) -> PathBuf {
-    let mut config = cmake::Config::new(build_path);
+fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
+    let mut config = cmake::Config::new(cmake_path);
 
     // Allow specifying the CMake build profile
     if let Ok(profile) = env::var("HWLOC_BUILD_PROFILE") {
@@ -119,13 +130,19 @@ fn main() {
     // If asked to build hwloc ourselves...
     #[cfg(feature = "bundled")]
     {
+        // Bundled builds are not supported on macOS because for some strange
+        // reason the resulting library does not correctly emit the proper
+        // -framework flags in its pkg-config configuration. Patches welcome!
+        #[cfg(target_os = "macos")]
+        compile_error!("FATAL: Bundled builds are not currently supported on macOS");
+
         // Determine which version to fetch and where to fetch it
-        let (source_version, first_unsupported_version) = match required_version
+        let source_version = match required_version
             .split('.')
             .next()
             .expect("No major version in required_version")
         {
-            "2" => ("v2.x", "3.0.0"),
+            "2" => "v2.x",
             other => panic!("Please add support for bundling hwloc v{other}.x"),
         };
         let out_path = env::var("OUT_DIR").expect("No output directory given");
@@ -178,21 +195,11 @@ fn main() {
             }
 
             // Configure this build to use hwloc via pkg-config
-            use_pkgconfig(required_version, first_unsupported_version);
+            use_pkgconfig(required_version);
         }
     }
 
     // If asked to use system hwloc, we configure it using pkg-config
     #[cfg(not(feature = "bundled"))]
-    {
-        let first_unsupported_version = match required_version
-            .split('.')
-            .next()
-            .expect("No major version in required_version")
-        {
-            "2" => "3.0.0",
-            other => panic!("Please add support for hwloc v{other}.x"),
-        };
-        use_pkgconfig(required_version, first_unsupported_version);
-    }
+    use_pkgconfig(required_version);
 }

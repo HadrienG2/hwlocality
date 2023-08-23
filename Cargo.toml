@@ -107,8 +107,9 @@ hwloc-2_8_0 = ["hwloc-2_5_0"]
 # - Bump the hwloc version that's installed by CI.
 # - Adjust readthedocs links to point to the new release's documentation.
 
-# Automatically fetch and build the hwloc library from github.
+# Automatically fetch and build the latest compatible hwloc version from github.
 # Otherwise, the system installation of hwloc will be used.
+# This feature is not currently supported on macOS, see build.rs for details.
 bundled = ["dep:autotools", "dep:cmake"]
 
 # Implement quickcheck's Arbitrary trait for types where it makes sense
