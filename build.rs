@@ -1,3 +1,4 @@
+use std::env::VarError;
 #[cfg(feature = "bundled")]
 use std::{
     env,
@@ -154,14 +155,30 @@ fn main() {
             );
         }
 
-        // On other OSes, we build using autotools and configure using pkg-config
+        // On other OSes, we use autotools and pkg-config
         #[cfg(not(target_os = "windows"))]
         {
+            // Build using autotools
             let install_path = compile_hwloc_autotools(source_path);
-            env::set_var(
-                "PKG_CONFIG_PATH",
-                format!("{}", install_path.join("lib").join("pkgconfig").display()),
+
+            // Compute the associated PKG_CONFIG_PATH
+            let new_path = |lib_dir: &str| install_path.join(lib_dir).join("pkgconfig");
+            let new_path = format!(
+                "{}:{}",
+                new_path("lib").display(),
+                new_path("lib64").display()
             );
+
+            // Combine it with any pre-existing PKG_CONFIG_PATH
+            match env::var("PKG_CONFIG_PATH") {
+                Ok(old_path) if !old_path.is_empty() => {
+                    env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}"))
+                }
+                Ok(_) | Err(VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
+                Err(other_err) => panic!("Failed to check PKG_CONFIG_PATH: {other_err}"),
+            }
+
+            // Configure this build to use hwloc via pkg-config
             use_pkgconfig(required_version, first_unsupported_version);
         }
     }
