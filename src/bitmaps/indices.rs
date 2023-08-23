@@ -468,7 +468,7 @@ impl BitmapIndex {
     }
 
     /// Checked Euclidean division. Computes `self / rhs`, returning `None`
-    /// if `rhs == Self::MIN`.
+    /// if `rhs == Self::MIN`. Equivalent to integer division for this type.
     ///
     /// # Examples
     ///
@@ -532,7 +532,7 @@ impl BitmapIndex {
     }
 
     /// Checked Euclidean remainder. Computes `self % rhs`, returning `None`
-    /// if `rhs == Self::MIN`.
+    /// if `rhs == Self::MIN`. Equivalent to integer division for this type.
     ///
     /// # Examples
     ///
@@ -559,6 +559,144 @@ impl BitmapIndex {
     /// ```
     pub const fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
         self.checked_rem(rhs)
+    }
+
+    /// Returns the logarithm of the number with respect to an arbitrary base,
+    /// rounded down.
+    ///
+    /// This method might not be optimized owing to implementation details;
+    /// `ilog2` can produce results more efficiently for base 2, and `ilog10`
+    /// can produce results more efficiently for base 10.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `self` is zero, or if `base` is less than 2.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.ilog(BitmapIndex::MAX),
+    ///     1
+    /// );
+    /// ```
+    pub const fn ilog(self, base: Self) -> u32 {
+        self.0.ilog(base.0)
+    }
+
+    /// Returns the base 2 logarithm of the number, rounded down.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `self` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.ilog2(),
+    ///     BitmapIndex::EFFECTIVE_BITS - 1
+    /// );
+    /// ```
+    pub const fn ilog2(self) -> u32 {
+        self.0.ilog2()
+    }
+
+    /// Returns the base 10 logarithm of the number, rounded down.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `self` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::try_from(10).unwrap().ilog10(),
+    ///     1
+    /// );
+    /// ```
+    pub const fn ilog10(self) -> u32 {
+        self.0.ilog10()
+    }
+
+    /// Returns the logarithm of the number with respect to an arbitrary base,
+    /// rounded down.
+    ///
+    /// Returns `None` if the number is zero, or if the base is not at least 2.
+    ///
+    /// This method might not be optimized owing to implementation details;
+    /// `checked_ilog2` can produce results more efficiently for base 2, and
+    /// `checked_ilog10` can produce results more efficiently for base 10.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_ilog(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_ilog(BitmapIndex::MAX),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_ilog(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_ilog(BitmapIndex::MAX),
+    ///     Some(1)
+    /// );
+    /// ```
+    pub const fn checked_ilog(self, base: Self) -> Option<u32> {
+        self.0.checked_ilog(base.0)
+    }
+
+    /// Returns the base 2 logarithm of the number, rounded down.
+    ///
+    /// Returns `None` if the number is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_ilog2(),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_ilog2(),
+    ///     Some(BitmapIndex::EFFECTIVE_BITS - 1)
+    /// );
+    /// ```
+    pub const fn checked_ilog2(self) -> Option<u32> {
+        self.0.checked_ilog2()
+    }
+
+    /// Returns the base 10 logarithm of the number, rounded down.
+    ///
+    /// Returns `None` if the number is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_ilog10(),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::try_from(10).ok().and_then(BitmapIndex::checked_ilog10),
+    ///     Some(1)
+    /// );
+    /// ```
+    pub const fn checked_ilog10(self) -> Option<u32> {
+        self.0.checked_ilog10()
     }
 
     // FIXME: Support more integer operations, see usize for inspiration. Don't
