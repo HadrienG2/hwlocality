@@ -73,15 +73,15 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
 
 // Compile hwloc using autotools, return local installation path
 #[cfg(all(feature = "bundled", not(windows)))]
-fn compile_hwloc_autotools(p: PathBuf) -> PathBuf {
-    let mut config = autotools::Config::new(p);
+fn compile_hwloc_autotools(source_path: impl AsRef<Path>) -> PathBuf {
+    let mut config = autotools::Config::new(source_path);
     config.fast_build(true).reconf("-ivf").build()
 }
 
 // Compile hwloc using cmake, return local installation path
 #[cfg(all(feature = "bundled", windows))]
-fn compile_hwloc_cmake(build_path: &Path) -> PathBuf {
-    let mut config = cmake::Config::new(build_path);
+fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
+    let mut config = cmake::Config::new(cmake_path);
 
     // Allow specifying the CMake build profile
     if let Ok(profile) = env::var("HWLOC_BUILD_PROFILE") {
