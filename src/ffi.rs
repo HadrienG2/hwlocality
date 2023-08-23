@@ -1039,8 +1039,11 @@ macro_rules! extern_c_block {
     };
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(not(feature = "bundled"), target_os = "windows"))]
 extern_c_block!("libhwloc");
+
+#[cfg(all(feature = "bundled", target_os = "windows"))]
+extern_c_block!("hwloc");
 
 #[cfg(not(target_os = "windows"))]
 extern_c_block!("hwloc");

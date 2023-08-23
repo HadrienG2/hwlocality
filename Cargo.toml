@@ -107,6 +107,10 @@ hwloc-2_8_0 = ["hwloc-2_5_0"]
 # - Bump the hwloc version that's installed by CI.
 # - Adjust readthedocs links to point to the new release's documentation.
 
+# Automatically fetch and build the hwloc library from github.
+# Otherwise, the system installation of hwloc will be used.
+bundled = ["dep:autotools", "dep:cmake"]
+
 # Implement quickcheck's Arbitrary trait for types where it makes sense
 quickcheck = ["dep:quickcheck", "rand"]
 
@@ -122,7 +126,12 @@ thiserror = "1.0"
 quickcheck = { version = "1.0", optional = true }
 rand = { version = "0.8", optional = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
 [build-dependencies]
+autotools = { version = "0.2", optional = true }
+cmake = { version = "0.1.50", optional = true }
 pkg-config = "0.3.8"
 
 [dev-dependencies]
@@ -130,9 +139,6 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 rand = "0.8"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [package.metadata.docs.rs]
 all-features = true
