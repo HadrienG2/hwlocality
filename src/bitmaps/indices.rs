@@ -699,11 +699,11 @@ impl BitmapIndex {
         self.0.checked_ilog10()
     }
 
-    // FIXME: Support more integer operations, see usize for inspiration. Don't
-    //        forget traits :
-    //        Add, Sub, Mul, Div, Rem, Shl, Not, with Assign and ref versions, as
-    //        well as FromStr using from_str_radix. Also, Sum and Product with
-    //        ref version.
+    // FIXME: Support more integer operations, see u16 for inspiration.
+    //
+    //        Don't forget traits : Add, Sub, Mul, Div, Rem, Shl, Not, with
+    //        Assign and ref versions, as well as FromStr using from_str_radix.
+    //        Also, Sum and Product with ref version.
     //
     //        Offsets should be isize, so Add<isize> and Sub<isize> should be a
     //        thing (unlike usize, we don't break integer literal type inference
