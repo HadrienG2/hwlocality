@@ -78,7 +78,7 @@ jobs:
           - '--features=hwloc-2_4_0'
           - '--features=hwloc-2_5_0'
           - '--features=hwloc-2_8_0'
-          - '--features=hwloc-latest'
+          - '--features=hwloc-latest,bundled'
           - '--features=hwloc-latest,quickcheck'
 
     steps:
@@ -103,6 +103,7 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+        if: !contains(${{ matrix.features }}, 'bundled')
 
       - name: Check clippy lints
         run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
@@ -149,7 +150,7 @@ jobs:
           - '--features=hwloc-2_4_0'
           - '--features=hwloc-2_5_0'
           - '--features=hwloc-2_8_0'
-          - '--features=hwloc-latest'
+          - '--features=hwloc-latest,bundled'
           - '--features=hwloc-latest,quickcheck'
 
     steps:
@@ -166,9 +167,11 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+        if: !contains(${{ matrix.features }}, 'bundled')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
+        if: !contains(${{ matrix.features }}, 'bundled')
 
       - name: Run basic tests
         run: cargo test ${{ matrix.features }}
@@ -211,7 +214,7 @@ jobs:
           - '--features=hwloc-2_4_0'
           - '--features=hwloc-2_5_0'
           - '--features=hwloc-2_8_0'
-          - '--features=hwloc-latest'
+          - '--features=hwloc-latest,bundled'
           - '--features=hwloc-latest,quickcheck'
 
     steps:
@@ -228,9 +231,11 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+        if: !contains(${{ matrix.features }}, 'bundled')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
+        if: !contains(${{ matrix.features }}, 'bundled')
 
       - name: Run basic tests
         run: cargo test ${{ matrix.features }}
