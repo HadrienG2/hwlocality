@@ -103,7 +103,7 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-        if: !contains(${{ matrix.features }}, 'bundled')
+        if: contains(${{ matrix.features }}, 'bundled') == false
 
       - name: Check clippy lints
         run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
@@ -167,11 +167,11 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-        if: !contains(${{ matrix.features }}, 'bundled')
+        if: contains(${{ matrix.features }}, 'bundled') == false
 
       - name: Collect system information
         uses: ./.github/actions/system-information
-        if: !contains(${{ matrix.features }}, 'bundled')
+        if: contains(${{ matrix.features }}, 'bundled') == false
 
       - name: Run basic tests
         run: cargo test ${{ matrix.features }}
@@ -231,11 +231,11 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-        if: !contains(${{ matrix.features }}, 'bundled')
+        if: contains(${{ matrix.features }}, 'bundled') == false
 
       - name: Collect system information
         uses: ./.github/actions/system-information
-        if: !contains(${{ matrix.features }}, 'bundled')
+        if: contains(${{ matrix.features }}, 'bundled') == false
 
       - name: Run basic tests
         run: cargo test ${{ matrix.features }}
