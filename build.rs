@@ -6,6 +6,7 @@ use std::{
 };
 
 // Use pkg-config to configure the build for a certain hwloc release
+#[cfg(not(all(feature = "bundled", windows)))]
 fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
     // Determine the first unsupported version
     let first_unsupported_version = match required_version
