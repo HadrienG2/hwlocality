@@ -53,9 +53,10 @@ Beware that some Linux distributions provide very old hwloc versions. You may
 have to install it from [source code](https://www.open-mpi.org/projects/hwloc/).
 
 If you enable the `bundled` Cargo feature, we will attempt to build a recent
-hwloc internally. In addition to a valid C build toolchain, this requires
-autotools on Linux and CMake on Windows. [This feature does not currently work
-on macOS](https://github.com/HadrienG2/hwlocality/issues/31) (patches welcome!).
+hwloc internally. In addition to a valid C build environment, this requires
+autotools on Unices and CMake on Windows. Unfortunately, [this feature does not
+currently work on macOS and I do not have access to a Mac to fix it
+myself](https://github.com/HadrienG2/hwlocality/issues/31): patches welcome!
 
 ## Usage
 
