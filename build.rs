@@ -1,4 +1,3 @@
-use std::env::VarError;
 #[cfg(feature = "bundled")]
 use std::{
     env,
@@ -174,7 +173,7 @@ fn main() {
                 Ok(old_path) if !old_path.is_empty() => {
                     env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}"))
                 }
-                Ok(_) | Err(VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
+                Ok(_) | Err(env::VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
                 Err(other_err) => panic!("Failed to check PKG_CONFIG_PATH: {other_err}"),
             }
 
