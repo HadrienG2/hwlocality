@@ -98,7 +98,7 @@ jobs:
           toolchain: nightly
           components: clippy
 
-      - name: Set up hwloc dependencies
+      - name: Set up hwloc
         uses: ./.github/actions/setup-hwloc-dependencies
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
@@ -162,12 +162,16 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
-      - name: Set up hwloc dependencies
+      - name: Set up hwloc
         uses: ./.github/actions/setup-hwloc-dependencies
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
         if: contains(matrix.features, 'bundled') == false
+
+      - name: Set up hwloc build dependencies (macOS)
+        run: brew install automake
+        if contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
@@ -226,12 +230,16 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
-      - name: Set up hwloc dependencies
+      - name: Set up hwloc
         uses: ./.github/actions/setup-hwloc-dependencies
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
         if: contains(matrix.features, 'bundled') == false
+
+      - name: Set up hwloc build dependencies (macOS)
+        run: brew install automake
+        if contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
