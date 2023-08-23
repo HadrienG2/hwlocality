@@ -836,13 +836,13 @@ impl Bitmap {
             let start = match range.start_bound() {
                 Bound::Unbounded => BitmapIndex::MIN,
                 Bound::Included(i) => start_idx(*i),
-                Bound::Excluded(i) => start_idx(*i).checked_succ()?,
+                Bound::Excluded(i) => start_idx(*i).checked_add_signed(1)?,
             };
             let end_idx = |idx| convert_idx(idx).expect("Range end is too high for hwloc");
             let end = match range.end_bound() {
                 Bound::Unbounded => -1,
                 Bound::Included(i) => end_idx(*i).into_c_int(),
-                Bound::Excluded(i) => end_idx(*i).checked_pred()?.into_c_int(),
+                Bound::Excluded(i) => end_idx(*i).checked_add_signed(-1)?.into_c_int(),
             };
             Some((start.into_c_uint(), end))
         };
@@ -2072,7 +2072,7 @@ mod tests {
         if bitmap.weight().is_none() {
             // ...and it has a finite part...
             if let Some(last_unset) = bitmap.last_unset() {
-                let infinite_part = last_unset.checked_succ().unwrap()..;
+                let infinite_part = last_unset.checked_add_signed(1).unwrap()..;
                 bitmap.unset_range(infinite_part.clone());
                 (bitmap, Some(infinite_part))
             } else {
@@ -2350,12 +2350,15 @@ mod tests {
             .map(|idx| BitmapIndex::try_from(idx).unwrap())
             .collect::<Vec<_>>();
         let first_unset = if let Some(&BitmapIndex::MIN) = elems.first() {
-            elems.last().copied().and_then(BitmapIndex::checked_succ)
+            elems
+                .last()
+                .copied()
+                .and_then(|item| item.checked_add_signed(1))
         } else {
             Some(BitmapIndex::MIN)
         };
         let unset_after_set = if let Some(last_set) = elems.last() {
-            last_set.checked_succ()
+            last_set.checked_add_signed(1)
         } else {
             Some(BitmapIndex::MIN)
         };
@@ -2370,7 +2373,7 @@ mod tests {
         };
         let inverse = if let (Some(&first), Some(last)) = (elems.first(), elems.last()) {
             let mut buf = Bitmap::from_range(..first);
-            if let Some(after_last) = last.checked_succ() {
+            if let Some(after_last) = last.checked_add_signed(1) {
                 buf.set_range(after_last..)
             }
             buf
@@ -2396,7 +2399,7 @@ mod tests {
                 }
             }
             let mut expected_unset =
-                std::iter::successors(unset_after_set, |unset| unset.checked_succ());
+                std::iter::successors(unset_after_set, |unset| unset.checked_add_signed(1));
             for unset_index in unset.take(INFINITE_EXPLORE_ITERS) {
                 assert_eq!(unset_index, expected_unset.next().unwrap())
             }
@@ -2629,7 +2632,7 @@ mod tests {
                 }
 
                 // Update next_index
-                next_index = next_index.checked_succ().expect(
+                next_index = next_index.checked_add_signed(1).expect(
                     "Shouldn't overflow if we had both a next set & unset index before iterating",
                 );
             }
@@ -2684,7 +2687,7 @@ mod tests {
             // does seem to meet expectations.
             for _ in 0..INFINITE_EXPLORE_ITERS {
                 assert_eq!(infinite_iter.next(), Some(next_index));
-                if let Some(index) = next_index.checked_succ() {
+                if let Some(index) = next_index.checked_add_signed(1) {
                     next_index = index;
                 } else {
                     break;

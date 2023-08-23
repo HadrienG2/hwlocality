@@ -170,7 +170,7 @@ impl BitmapIndex {
     /// assert_eq!(BitmapIndex::MAX.trailing_zeros(), 0);
     /// ```
     pub const fn trailing_zeros(self) -> u32 {
-        if self.0 > 0 {
+        if self.0 != 0 {
             self.0.trailing_zeros()
         } else {
             Self::EFFECTIVE_BITS
@@ -294,6 +294,114 @@ impl BitmapIndex {
     // NOTE: No (from|to)_(be|le) operation, the modeled integer is not made of
     //       an integral number of bytes so these operations do not make sense.
 
+    /// Checked integer addition. Computes `self + rhs`, returning `None` if
+    /// overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_add(BitmapIndex::MIN),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_add(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_add(BitmapIndex::MIN),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_add(BitmapIndex::MAX),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_add(self, rhs: Self) -> Option<Self> {
+        let Some(inner) = self.0.checked_add(rhs.0) else { return None };
+        Self::const_try_from_c_uint(inner)
+    }
+
+    /// Checked addition with a signed integer. Computes `self + rhs`, returning
+    /// `None` if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_add_signed(0),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_add_signed(-1),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_add_signed(0),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_add_signed(1),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_add_signed(self, rhs: isize) -> Option<Self> {
+        let Some(rhs) = Self::try_c_int_from_isize(rhs) else { return None };
+        let Some(inner) = self.0.checked_add_signed(rhs) else { return None };
+        Self::const_try_from_c_uint(inner)
+    }
+
+    /// Try to convert from isize to c_int
+    ///
+    /// Will be dropped once TryFrom/TryInto is usable in const fn
+    const fn try_c_int_from_isize(x: isize) -> Option<c_int> {
+        if x >= c_int::MIN as isize && x <= c_int::MAX as isize {
+            Some(x as c_int)
+        } else {
+            None
+        }
+    }
+
+    /// Checked integer subtraction. Computes `self - rhs`, returning `None` if
+    /// overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_sub(BitmapIndex::MIN),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_sub(BitmapIndex::MAX),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_sub(BitmapIndex::MIN),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_sub(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// ```
+    pub const fn checked_sub(self, rhs: Self) -> Option<Self> {
+        if let Some(inner) = self.0.checked_sub(rhs.0) {
+            Some(Self(inner))
+        } else {
+            None
+        }
+    }
+
     // FIXME: Support more integer operations, see usize for inspiration. Don't
     //        forget traits :
     //        Add, Sub, Mul, Div, Rem, Shl, Not, with Assign and ref versions, as
@@ -306,24 +414,6 @@ impl BitmapIndex {
     //        Multiplicands and divisors should be unsigned since sign changes
     //        are illegal. In addition to Mul/Div/Rem ops internal to BitmapIndex,
     //        BitmapIndex * or / or % usize should also be a thing.
-
-    /// Like [`uN::checked_add(1)`], but enforces bitmap index limits
-    pub const fn checked_succ(self) -> Option<Self> {
-        if self.0 < Self::MAX.0 {
-            Some(Self(self.0 + 1))
-        } else {
-            None
-        }
-    }
-
-    /// Like [`uN::checked_sub(1)`], but enforces bitmap index limits
-    pub const fn checked_pred(self) -> Option<Self> {
-        if let Some(res) = self.0.checked_sub(1) {
-            Some(Self(res))
-        } else {
-            None
-        }
-    }
 
     /// Convert from an hwloc-originated c_int
     ///
@@ -342,6 +432,17 @@ impl BitmapIndex {
     #[allow(unused)]
     fn try_from_c_uint(x: c_uint) -> Result<Self, TryFromIntError> {
         Self::try_from_c_int(x.try_into()?)
+    }
+
+    /// Const version of `try_from_c_uint`
+    ///
+    /// Will be dropped once TryFrom/TryInto is usable in const fn
+    const fn const_try_from_c_uint(x: c_uint) -> Option<Self> {
+        if x <= Self::MAX.0 {
+            Some(Self(x))
+        } else {
+            None
+        }
     }
 
     /// Convert into a c_int (okay by construction)
