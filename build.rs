@@ -130,6 +130,12 @@ fn main() {
     // If asked to build hwloc ourselves...
     #[cfg(feature = "bundled")]
     {
+        // Bundled builds are not supported on macOS because for some strange
+        // reason the resulting library does not correctly emit the proper
+        // -framework flags in its pkg-config configuration. Patches welcome!
+        #[cfg(target_os = "macos")]
+        compile_error!("FATAL: Bundled builds are not currently supported on macOS");
+
         // Determine which version to fetch and where to fetch it
         let source_version = match required_version
             .split('.')
