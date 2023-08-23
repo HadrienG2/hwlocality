@@ -402,18 +402,178 @@ impl BitmapIndex {
         }
     }
 
+    /// Checked integer multiplication. Computes `self * rhs`, returning `None`
+    /// if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_mul(BitmapIndex::MIN),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_mul(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_mul(BitmapIndex::MIN),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_mul(BitmapIndex::MAX),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_mul(self, rhs: Self) -> Option<Self> {
+        let Some(inner) = self.0.checked_mul(rhs.0) else { return None };
+        Self::const_try_from_c_uint(inner)
+    }
+
+    /// Checked integer division. Computes `self / rhs`, returning `None`
+    /// if `rhs == Self::MIN`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_div(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_div(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_div(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_div(BitmapIndex::MAX),
+    ///     BitmapIndex::try_from(1).ok()
+    /// );
+    /// ```
+    pub const fn checked_div(self, rhs: Self) -> Option<Self> {
+        if let Some(inner) = self.0.checked_div(rhs.0) {
+            Some(Self(inner))
+        } else {
+            None
+        }
+    }
+
+    /// Checked Euclidean division. Computes `self / rhs`, returning `None`
+    /// if `rhs == Self::MIN`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_div_euclid(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_div_euclid(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::try_from(1).ok()
+    /// );
+    /// ```
+    pub const fn checked_div_euclid(self, rhs: Self) -> Option<Self> {
+        self.checked_div(rhs)
+    }
+
+    /// Checked integer remainder. Computes `self % rhs`, returning `None`
+    /// if `rhs == Self::MIN`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_rem(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_rem(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_rem(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_rem(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// ```
+    pub const fn checked_rem(self, rhs: Self) -> Option<Self> {
+        if let Some(inner) = self.0.checked_rem(rhs.0) {
+            Some(Self(inner))
+        } else {
+            None
+        }
+    }
+
+    /// Checked Euclidean remainder. Computes `self % rhs`, returning `None`
+    /// if `rhs == Self::MIN`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_rem_euclid(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_rem_euclid(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::MIN),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// ```
+    pub const fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
+        self.checked_rem(rhs)
+    }
+
     // FIXME: Support more integer operations, see usize for inspiration. Don't
     //        forget traits :
     //        Add, Sub, Mul, Div, Rem, Shl, Not, with Assign and ref versions, as
     //        well as FromStr using from_str_radix. Also, Sum and Product with
     //        ref version.
     //
-    //        Offsets should be isize, so checked_(add|sub)_signed should take
-    //        isize, and Add<isize> and Sub<isize> should be a thing (unlike
-    //        usize, we don't break integer literal type inference by doint that).
+    //        Offsets should be isize, so Add<isize> and Sub<isize> should be a
+    //        thing (unlike usize, we don't break integer literal type inference
+    //        by having that).
+    //
     //        Multiplicands and divisors should be unsigned since sign changes
-    //        are illegal. In addition to Mul/Div/Rem ops internal to BitmapIndex,
-    //        BitmapIndex * or / or % usize should also be a thing.
+    //        are illegal. In addition to Mul/Div/Rem ops internal to
+    //        BitmapIndex, BitmapIndex * or / or % usize should be a thing.
 
     /// Convert from an hwloc-originated c_int
     ///
