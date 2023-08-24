@@ -321,7 +321,9 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn checked_add(self, rhs: Self) -> Option<Self> {
-        let Some(inner) = self.0.checked_add(rhs.0) else { return None };
+        let Some(inner) = self.0.checked_add(rhs.0) else {
+            return None;
+        };
         Self::const_try_from_c_uint(inner)
     }
 
@@ -352,8 +354,12 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn checked_add_signed(self, rhs: isize) -> Option<Self> {
-        let Some(rhs) = Self::try_c_int_from_isize(rhs) else { return None };
-        let Some(inner) = self.0.checked_add_signed(rhs) else { return None };
+        let Some(rhs) = Self::try_c_int_from_isize(rhs) else {
+            return None;
+        };
+        let Some(inner) = self.0.checked_add_signed(rhs) else {
+            return None;
+        };
         Self::const_try_from_c_uint(inner)
     }
 
@@ -429,7 +435,9 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let Some(inner) = self.0.checked_mul(rhs.0) else { return None };
+        let Some(inner) = self.0.checked_mul(rhs.0) else {
+            return None;
+        };
         Self::const_try_from_c_uint(inner)
     }
 
@@ -825,7 +833,9 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn checked_pow(self, exp: u32) -> Option<Self> {
-        let Some(inner) = self.0.checked_pow(exp) else { return None };
+        let Some(inner) = self.0.checked_pow(exp) else {
+            return None;
+        };
         Self::const_try_from_c_uint(inner)
     }
 
