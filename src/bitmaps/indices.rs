@@ -532,7 +532,7 @@ impl BitmapIndex {
     }
 
     /// Checked Euclidean remainder. Computes `self % rhs`, returning `None`
-    /// if `rhs == Self::MIN`. Equivalent to integer division for this type.
+    /// if `rhs == Self::MIN`. Equivalent to integer remainder for this type.
     ///
     /// # Examples
     ///
@@ -974,7 +974,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.saturating_div(BitmapIndex::MAX),
-    ///     BitmapIndex::try_from(1).unwrap()
+    ///     1
     /// );
     /// ```
     pub const fn saturating_div(self, rhs: Self) -> Self {
@@ -992,7 +992,7 @@ impl BitmapIndex {
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.saturating_pow(0),
-    ///     BitmapIndex::try_from(1).unwrap()
+    ///     1
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MIN.saturating_pow(2),
@@ -1139,6 +1139,136 @@ impl BitmapIndex {
     /// ```
     pub const fn wrapping_mul(self, rhs: Self) -> Self {
         Self(self.0.wrapping_mul(rhs.0) & Self::MAX.0)
+    }
+
+    /// Wrapping (modular) division. Computes `self / rhs`. Wrapped division on
+    /// unsigned types is just normal division. There’s no way wrapping could
+    /// ever happen. This function exists, so that all operations are accounted
+    /// for in the wrapping operations.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_div(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_div(BitmapIndex::MAX),
+    ///     1
+    /// );
+    /// ```
+    pub const fn wrapping_div(self, rhs: Self) -> Self {
+        Self(self.0 / rhs.0)
+    }
+
+    /// Wrapping Euclidean division. Computes `self.div_euclid(rhs)`. Wrapped
+    /// division on unsigned types is just normal division. There’s no way
+    /// wrapping could ever happen. This function exists, so that all
+    /// operations are accounted for in the wrapping operations. Since, for the
+    /// positive integers, all common definitions of division are equal, this
+    /// is exactly equal to `self.wrapping_div(rhs)`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_div_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_div_euclid(BitmapIndex::MAX),
+    ///     1
+    /// );
+    /// ```
+    pub const fn wrapping_div_euclid(self, rhs: Self) -> Self {
+        Self(self.0 / rhs.0)
+    }
+
+    /// Wrapping (modular) remainder. Computes `self % rhs`. Wrapped remainder
+    /// calculation on unsigned types is just the regular remainder
+    /// calculation. There’s no way wrapping could ever happen. This function
+    /// exists, so that all operations are accounted for in the wrapping
+    /// operations.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_rem(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_rem(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// ```
+    pub const fn wrapping_rem(self, rhs: Self) -> Self {
+        Self(self.0 % rhs.0)
+    }
+
+    /// Wrapping Euclidean modulo. Computes `self.rem_euclid(rhs)`. Wrapped
+    /// modulo calculation on unsigned types is just the regular remainder
+    /// calculation. There’s no way wrapping could ever happen. This function
+    /// exists, so that all operations are accounted for in the wrapping
+    /// operations. Since, for the positive integers, all common definitions of
+    /// division are equal, this is exactly equal to `self.wrapping_rem(rhs)`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_rem_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_rem_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// ```
+    pub const fn wrapping_rem_euclid(self, rhs: Self) -> Self {
+        Self(self.0 % rhs.0)
+    }
+
+    /// Wrapping (modular) negation. Computes `-self`, wrapping around at the
+    /// boundary of the type.
+    ///
+    /// Since unsigned types do not have negative equivalents all applications
+    /// of this function will wrap (except for `-0`). For values smaller than
+    /// the corresponding signed type’s maximum the result is the same as
+    /// casting the corresponding signed value. Any larger values are
+    /// equivalent to `MAX + 1 - (val - MAX - 1)` where `MAX` is the
+    /// corresponding signed type’s maximum.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_neg(),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_neg(),
+    ///     1
+    /// );
+    /// ```
+    pub const fn wrapping_neg(self) -> Self {
+        Self(self.0.wrapping_neg() & Self::MAX.0)
     }
 
     // FIXME: Support other wrapping operations, and other integer operations in
