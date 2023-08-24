@@ -1674,18 +1674,16 @@ impl Sub<isize> for BitmapIndex {
             rhs.checked_neg()
                 .and_then(|minus_rhs| self.checked_add_signed(minus_rhs))
                 .expect("Attempted to subtract with overflow")
+        } else if rhs != isize::MIN {
+            self.wrapping_add_signed(-rhs)
         } else {
-            if rhs != isize::MIN {
-                self.wrapping_add_signed(-rhs)
-            } else {
-                // isize::MIN is -2^(isize::BITS - 1).
-                // So -isize::MIN is 2^(isize::BITS - 1).
-                // A core assumption of ours is that (isize::BITS >= c_int::BITS)
-                // Thus 2^(isize::BITS - 1) is a power of two greater than or
-                // equal to 2^(Self::EFFECTIVE_BITS), and thus adding it does
-                // nothing in the presence of wraparound
-                self
-            }
+            // isize::MIN is -2^(isize::BITS - 1).
+            // So -isize::MIN is 2^(isize::BITS - 1).
+            // A core assumption of ours is that (isize::BITS >= c_int::BITS)
+            // Thus 2^(isize::BITS - 1) is a power of two greater than or
+            // equal to 2^(Self::EFFECTIVE_BITS), and thus adding it does
+            // nothing in the presence of wraparound
+            self
         }
     }
 }
