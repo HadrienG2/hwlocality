@@ -9,21 +9,22 @@ use crate::{
     topology::{builder::BuildFlags, Topology},
 };
 use derive_more::{
-    Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
-    DivAssign, LowerExp, LowerHex, Octal, Rem, RemAssign, Shr, ShrAssign, UpperExp, UpperHex,
+    Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, LowerExp,
+    LowerHex, Octal, Shr, ShrAssign, UpperExp, UpperHex,
 };
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(any(test, feature = "quickcheck"))]
 use rand::Rng;
 use std::{
+    borrow::Borrow,
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},
     fmt::Debug,
     num::{ParseIntError, TryFromIntError},
-    ops::Not,
+    ops::{Div, DivAssign, Mul, MulAssign, Not, Rem, RemAssign},
 };
 
 /// Bitmap indices can range from 0 to an implementation-defined limit
@@ -47,8 +48,6 @@ use std::{
     Debug,
     Default,
     Display,
-    Div,
-    DivAssign,
     Eq,
     Hash,
     LowerExp,
@@ -57,8 +56,6 @@ use std::{
     Ord,
     PartialEq,
     PartialOrd,
-    Rem,
-    RemAssign,
     Shr,
     ShrAssign,
     UpperExp,
@@ -78,7 +75,7 @@ impl BitmapIndex {
     /// The actual storage uses more bits for hardware reasons, which is why
     /// this is not called BITS like the other integer::BITS as that could be
     /// misinterpreted by careless users.
-    pub const EFFECTIVE_BITS: u32 = c_int::BITS - 1;
+    pub const EFFECTIVE_BITS: u32 = c_uint::BITS - 1;
 
     /// Converts a string slice in a given base to an integer
     ///
@@ -726,19 +723,126 @@ impl BitmapIndex {
         }
     }
 
+    /// Checked shift left. Computes `self << rhs`, returning `None` if `rhs` is
+    /// larger than or equal to `Self::EFFECTIVE_BITS`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_shl(1),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_shl(u32::MAX),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_shl(0),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_shl(1),
+    ///     Some((BitmapIndex::MAX / 2) * 2)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_shl(u32::MAX),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_shl(self, rhs: u32) -> Option<Self> {
+        if rhs < Self::EFFECTIVE_BITS {
+            Some(Self((self.0 << rhs) & Self::MAX.0))
+        } else {
+            None
+        }
+    }
+
+    /// Checked shift right. Computes `self >> rhs`, returning `None` if `rhs`
+    /// is larger than or equal to `Self::EFFECTIVE_BITS`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_shr(1),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_shr(u32::MAX),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_shr(0),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_shr(1),
+    ///     Some(BitmapIndex::MAX / 2)
+    /// );
+    /// ```
+    pub const fn checked_shr(self, rhs: u32) -> Option<Self> {
+        if rhs < Self::EFFECTIVE_BITS {
+            Some(Self(self.0 >> rhs))
+        } else {
+            None
+        }
+    }
+
+    /// Checked exponentiation. Computes `self.pow(exp)`, returning `None` if
+    /// overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_pow(0),
+    ///     BitmapIndex::try_from(1).ok()
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_pow(1),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_pow(2),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_pow(0),
+    ///     BitmapIndex::try_from(1).ok()
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_pow(1),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_pow(2),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_pow(self, exp: u32) -> Option<Self> {
+        let Some(inner) = self.0.checked_pow(exp) else { return None };
+        Self::const_try_from_c_uint(inner)
+    }
+
     // FIXME: Support more integer operations, see u16 for inspiration.
     //
-    //        Don't forget traits : Add, Sub, Mul, Div, Rem, Shl, Not, with
-    //        Assign and ref versions, as well as FromStr using from_str_radix.
-    //        Also, Sum and Product with ref version.
+    //        Don't forget traits : Add, Sub, Shl, Not, with Assign and ref
+    //        versions, as well as FromStr using from_str_radix. Also, Sum and
+    //        Product with ref version (may require giving up on derive_more).
     //
     //        Offsets should be isize, so Add<isize> and Sub<isize> should be a
     //        thing (unlike usize, we don't break integer literal type inference
     //        by having that).
-    //
-    //        Multiplicands and divisors should be unsigned since sign changes
-    //        are illegal. In addition to Mul/Div/Rem ops internal to
-    //        BitmapIndex, BitmapIndex * or / or % usize should be a thing.
 
     /// Convert from an hwloc-originated c_int
     ///
@@ -802,6 +906,39 @@ impl Arbitrary for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Div<B> for BitmapIndex {
+    type Output = Self;
+
+    fn div(self, rhs: B) -> Self {
+        Self(self.0 / rhs.borrow().0)
+    }
+}
+
+impl Div<usize> for BitmapIndex {
+    type Output = Self;
+
+    fn div(self, rhs: usize) -> Self {
+        self / Self::try_from(rhs).unwrap()
+    }
+}
+
+impl Div<&usize> for BitmapIndex {
+    type Output = Self;
+
+    fn div(self, rhs: &usize) -> Self {
+        self / *rhs
+    }
+}
+
+impl<Rhs> DivAssign<Rhs> for BitmapIndex
+where
+    Self: Div<Rhs, Output = Self>,
+{
+    fn div_assign(&mut self, rhs: Rhs) {
+        *self = *self / rhs
+    }
+}
+
 // NOTE: Guaranteed to succeed because C mandates that int is >=16 bits
 //       u16 would not work because it allows u16::MAX > i16::MAX.
 //       Not implementing From<u8> to avoid messing with integer type inference.
@@ -816,6 +953,39 @@ impl From<bool> for BitmapIndex {
 impl From<BitmapIndex> for usize {
     fn from(x: BitmapIndex) -> usize {
         ffi::expect_usize(x.0)
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> Mul<B> for BitmapIndex {
+    type Output = Self;
+
+    fn mul(self, rhs: B) -> Self {
+        self.checked_mul(*rhs.borrow()).unwrap()
+    }
+}
+
+impl Mul<usize> for BitmapIndex {
+    type Output = Self;
+
+    fn mul(self, rhs: usize) -> Self {
+        self * Self::try_from(rhs).unwrap()
+    }
+}
+
+impl Mul<&usize> for BitmapIndex {
+    type Output = Self;
+
+    fn mul(self, rhs: &usize) -> Self {
+        self * (*rhs)
+    }
+}
+
+impl<Rhs> MulAssign<Rhs> for BitmapIndex
+where
+    Self: Mul<Rhs, Output = Self>,
+{
+    fn mul_assign(&mut self, rhs: Rhs) {
+        *self = *self * rhs
     }
 }
 
@@ -844,6 +1014,39 @@ impl PartialEq<usize> for BitmapIndex {
 impl PartialOrd<usize> for BitmapIndex {
     fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
         usize::from(*self).partial_cmp(other)
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> Rem<B> for BitmapIndex {
+    type Output = Self;
+
+    fn rem(self, rhs: B) -> Self {
+        self.checked_rem(*rhs.borrow()).unwrap()
+    }
+}
+
+impl Rem<usize> for BitmapIndex {
+    type Output = Self;
+
+    fn rem(self, rhs: usize) -> Self {
+        self % Self::try_from(rhs).unwrap()
+    }
+}
+
+impl Rem<&usize> for BitmapIndex {
+    type Output = Self;
+
+    fn rem(self, rhs: &usize) -> Self {
+        self % (*rhs)
+    }
+}
+
+impl<Rhs> RemAssign<Rhs> for BitmapIndex
+where
+    Self: Rem<Rhs, Output = Self>,
+{
+    fn rem_assign(&mut self, rhs: Rhs) {
+        *self = *self % rhs
     }
 }
 
