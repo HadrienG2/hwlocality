@@ -10,7 +10,7 @@ use crate::{
 };
 use derive_more::{
     Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, LowerExp,
-    LowerHex, Octal, Shr, ShrAssign, UpperExp, UpperHex,
+    LowerHex, Octal, UpperExp, UpperHex,
 };
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
@@ -23,8 +23,13 @@ use std::{
     convert::TryFrom,
     ffi::{c_int, c_uint},
     fmt::Debug,
+    iter::{Product, Sum},
     num::{ParseIntError, TryFromIntError},
-    ops::{Div, DivAssign, Mul, MulAssign, Not, Rem, RemAssign},
+    ops::{
+        Add, AddAssign, Div, DivAssign, Mul, MulAssign, Not, Rem, RemAssign, Shl, ShlAssign, Shr,
+        ShrAssign, Sub, SubAssign,
+    },
+    str::FromStr,
 };
 
 /// Bitmap indices can range from 0 to an implementation-defined limit
@@ -56,8 +61,6 @@ use std::{
     Ord,
     PartialEq,
     PartialOrd,
-    Shr,
-    ShrAssign,
     UpperExp,
     UpperHex,
 )]
@@ -809,16 +812,8 @@ impl BitmapIndex {
     ///     BitmapIndex::try_from(1).ok()
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_pow(1),
-    ///     Some(BitmapIndex::MIN)
-    /// );
-    /// assert_eq!(
     ///     BitmapIndex::MIN.checked_pow(2),
     ///     Some(BitmapIndex::MIN)
-    /// );
-    /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_pow(0),
-    ///     BitmapIndex::try_from(1).ok()
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_pow(1),
@@ -834,15 +829,130 @@ impl BitmapIndex {
         Self::const_try_from_c_uint(inner)
     }
 
-    // FIXME: Support more integer operations, see u16 for inspiration.
-    //
-    //        Don't forget traits : Add, Sub, Shl, Not, with Assign and ref
-    //        versions, as well as FromStr using from_str_radix. Also, Sum and
-    //        Product with ref version (may require giving up on derive_more).
-    //
-    //        Offsets should be isize, so Add<isize> and Sub<isize> should be a
-    //        thing (unlike usize, we don't break integer literal type inference
-    //        by having that).
+    // FIXME: Support saturating operations
+
+    /// Wrapping (modular) addition. Computes `self + rhs`, wrapping around at
+    /// the boundary of the type.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_add(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_add(BitmapIndex::MAX),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_add(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_add(BitmapIndex::MAX),
+    ///     BitmapIndex::MAX - 1
+    /// );
+    /// ```
+    pub const fn wrapping_add(self, rhs: Self) -> Self {
+        Self(self.0.wrapping_add(rhs.0) & Self::MAX.0)
+    }
+
+    /// Wrapping (modular) addition with a signed integer. Computes `self +
+    /// rhs`, wrapping around at the boundary of the type.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_add_signed(0),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_add_signed(-1),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_add_signed(0),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_add_signed(1),
+    ///     BitmapIndex::MIN
+    /// );
+    /// ```
+    pub const fn wrapping_add_signed(self, rhs: isize) -> Self {
+        Self(self.0.wrapping_add_signed(rhs as _) & Self::MAX.0)
+    }
+
+    /// Wrapping (modular) subtraction. Computes `self - rhs`, wrapping around
+    /// at the boundary of the type.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::MAX),
+    ///     1
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// ```
+    pub const fn wrapping_sub(self, rhs: Self) -> Self {
+        Self(self.0.wrapping_sub(rhs.0) & Self::MAX.0)
+    }
+
+    /// Wrapping (modular) multiplication. Computes `self * rhs`, wrapping
+    /// around at the boundary of the type.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_mul(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_mul(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::MAX),
+    ///     1
+    /// );
+    /// ```
+    pub const fn wrapping_mul(self, rhs: Self) -> Self {
+        Self(self.0.wrapping_mul(rhs.0) & Self::MAX.0)
+    }
+
+    // FIXME: Support other wrapping operations, and other integer operations in
+    //        general, see u64 for inspiration.
 
     /// Convert from an hwloc-originated c_int
     ///
@@ -885,6 +995,49 @@ impl BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Add<B> for BitmapIndex {
+    type Output = Self;
+
+    fn add(self, rhs: B) -> Self {
+        if cfg!(debug_assertions) {
+            self.checked_add(*rhs.borrow())
+                .expect("Attempted to add with overflow")
+        } else {
+            self.wrapping_add(*rhs.borrow())
+        }
+    }
+}
+
+impl Add<isize> for BitmapIndex {
+    type Output = Self;
+
+    fn add(self, rhs: isize) -> Self {
+        if cfg!(debug_assertions) {
+            self.checked_add_signed(rhs)
+                .expect("Attempted to add with overflow")
+        } else {
+            self.wrapping_add_signed(rhs)
+        }
+    }
+}
+
+impl Add<&isize> for BitmapIndex {
+    type Output = Self;
+
+    fn add(self, rhs: &isize) -> Self {
+        self + (*rhs)
+    }
+}
+
+impl<Rhs> AddAssign<Rhs> for BitmapIndex
+where
+    Self: Add<Rhs, Output = Self>,
+{
+    fn add_assign(&mut self, rhs: Rhs) {
+        *self = *self + rhs
+    }
+}
+
 #[cfg(any(test, feature = "quickcheck"))]
 impl Arbitrary for BitmapIndex {
     fn arbitrary(g: &mut Gen) -> Self {
@@ -918,7 +1071,9 @@ impl Div<usize> for BitmapIndex {
     type Output = Self;
 
     fn div(self, rhs: usize) -> Self {
-        self / Self::try_from(rhs).unwrap()
+        Self::try_from(rhs)
+            .map(|rhs| self / rhs)
+            .unwrap_or(Self::MIN)
     }
 }
 
@@ -956,11 +1111,24 @@ impl From<BitmapIndex> for usize {
     }
 }
 
+impl FromStr for BitmapIndex {
+    type Err = ParseIntError;
+
+    fn from_str(src: &str) -> Result<Self, ParseIntError> {
+        Self::from_str_radix(src, 10)
+    }
+}
+
 impl<B: Borrow<BitmapIndex>> Mul<B> for BitmapIndex {
     type Output = Self;
 
     fn mul(self, rhs: B) -> Self {
-        self.checked_mul(*rhs.borrow()).unwrap()
+        if cfg!(debug_assertions) {
+            self.checked_mul(*rhs.borrow())
+                .expect("Attempted to multiply with overflow")
+        } else {
+            self.wrapping_mul(*rhs.borrow())
+        }
     }
 }
 
@@ -968,7 +1136,16 @@ impl Mul<usize> for BitmapIndex {
     type Output = Self;
 
     fn mul(self, rhs: usize) -> Self {
-        self * Self::try_from(rhs).unwrap()
+        if cfg!(debug_assertions) {
+            Self::try_from(rhs)
+                .ok()
+                .and_then(|rhs| self.checked_mul(rhs))
+                .expect("Attempted to multiply with overflow")
+        } else {
+            let usize_result = usize::from(self) * rhs;
+            let truncated = usize_result & (Self::MAX.0 as usize);
+            Self(truncated as _)
+        }
     }
 }
 
@@ -1017,11 +1194,17 @@ impl PartialOrd<usize> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Product<B> for BitmapIndex {
+    fn product<I: Iterator<Item = B>>(iter: I) -> Self {
+        iter.fold(BitmapIndex::MIN, |acc, contrib| acc * contrib.borrow())
+    }
+}
+
 impl<B: Borrow<BitmapIndex>> Rem<B> for BitmapIndex {
     type Output = Self;
 
     fn rem(self, rhs: B) -> Self {
-        self.checked_rem(*rhs.borrow()).unwrap()
+        Self(self.0 % rhs.borrow().0)
     }
 }
 
@@ -1029,7 +1212,7 @@ impl Rem<usize> for BitmapIndex {
     type Output = Self;
 
     fn rem(self, rhs: usize) -> Self {
-        self % Self::try_from(rhs).unwrap()
+        Self::try_from(rhs).map(|rhs| self % rhs).unwrap_or(self)
     }
 }
 
@@ -1047,6 +1230,156 @@ where
 {
     fn rem_assign(&mut self, rhs: Rhs) {
         *self = *self % rhs
+    }
+}
+
+impl Shl<BitmapIndex> for BitmapIndex {
+    type Output = Self;
+
+    fn shl(self, rhs: Self) -> Self {
+        self << usize::from(rhs)
+    }
+}
+
+impl Shl<&BitmapIndex> for BitmapIndex {
+    type Output = Self;
+
+    fn shl(self, rhs: &Self) -> Self {
+        self << *rhs
+    }
+}
+
+impl<InnerRhs: Copy> Shl<InnerRhs> for BitmapIndex
+where
+    c_uint: Shl<InnerRhs, Output = c_uint>,
+    i32: TryFrom<InnerRhs>,
+{
+    type Output = Self;
+
+    fn shl(self, rhs: InnerRhs) -> Self {
+        if cfg!(debug_assertions) {
+            assert!(
+                i32::try_from(rhs)
+                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as i32))
+                    .unwrap_or(false),
+                "Attempted to shift left with overflow"
+            );
+        }
+        Self((self.0 << rhs) & Self::MAX.0)
+    }
+}
+
+impl<Rhs> ShlAssign<Rhs> for BitmapIndex
+where
+    Self: Shl<Rhs, Output = Self>,
+{
+    fn shl_assign(&mut self, rhs: Rhs) {
+        *self = *self << rhs
+    }
+}
+
+impl Shr<BitmapIndex> for BitmapIndex {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self {
+        self >> usize::from(rhs)
+    }
+}
+
+impl Shr<&BitmapIndex> for BitmapIndex {
+    type Output = Self;
+
+    fn shr(self, rhs: &Self) -> Self {
+        self >> *rhs
+    }
+}
+
+impl<InnerRhs: Copy> Shr<InnerRhs> for BitmapIndex
+where
+    c_uint: Shr<InnerRhs, Output = c_uint>,
+    i32: TryFrom<InnerRhs>,
+{
+    type Output = Self;
+
+    fn shr(self, rhs: InnerRhs) -> Self {
+        if cfg!(debug_assertions) {
+            assert!(
+                i32::try_from(rhs)
+                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as i32))
+                    .unwrap_or(false),
+                "Attempted to shift right with overflow"
+            );
+        }
+        Self((self.0 >> rhs) & Self::MAX.0)
+    }
+}
+
+impl<Rhs> ShrAssign<Rhs> for BitmapIndex
+where
+    Self: Shr<Rhs, Output = Self>,
+{
+    fn shr_assign(&mut self, rhs: Rhs) {
+        *self = *self >> rhs
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> Sub<B> for BitmapIndex {
+    type Output = Self;
+
+    fn sub(self, rhs: B) -> Self {
+        if cfg!(debug_assertions) {
+            self.checked_sub(*rhs.borrow())
+                .expect("Attempted to subtract with overflow")
+        } else {
+            self.wrapping_sub(*rhs.borrow())
+        }
+    }
+}
+
+impl Sub<isize> for BitmapIndex {
+    type Output = Self;
+
+    fn sub(self, rhs: isize) -> Self {
+        if cfg!(debug_assertions) {
+            rhs.checked_neg()
+                .and_then(|minus_rhs| self.checked_add_signed(minus_rhs))
+                .expect("Attempted to subtract with overflow")
+        } else {
+            if rhs != isize::MIN {
+                self.wrapping_add_signed(-rhs)
+            } else {
+                // isize::MIN is -2^(isize::BITS - 1).
+                // So -isize::MIN is 2^(isize::BITS - 1).
+                // A core assumption of ours is that (isize::BITS >= c_int::BITS)
+                // Thus 2^(isize::BITS - 1) is a power of two greater than or
+                // equal to 2^(Self::EFFECTIVE_BITS), and thus adding it does
+                // nothing in the presence of wraparound
+                self
+            }
+        }
+    }
+}
+
+impl Sub<&isize> for BitmapIndex {
+    type Output = Self;
+
+    fn sub(self, rhs: &isize) -> Self {
+        self - (*rhs)
+    }
+}
+
+impl<Rhs> SubAssign<Rhs> for BitmapIndex
+where
+    Self: Sub<Rhs, Output = Self>,
+{
+    fn sub_assign(&mut self, rhs: Rhs) {
+        *self = *self - rhs
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> Sum<B> for BitmapIndex {
+    fn sum<I: Iterator<Item = B>>(iter: I) -> Self {
+        iter.fold(BitmapIndex::MIN, |acc, contrib| acc + contrib.borrow())
     }
 }
 
