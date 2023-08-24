@@ -699,6 +699,33 @@ impl BitmapIndex {
         self.0.checked_ilog10()
     }
 
+    /// Checked negation. Computes `-self`, returning `None` unless `self == 0`.
+    ///
+    /// Note that negating any positive integer will overflow.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.checked_neg(),
+    ///     Some(BitmapIndex::MIN)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_neg(),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_neg(self) -> Option<Self> {
+        if self.0 == 0 {
+            Some(Self(0))
+        } else {
+            None
+        }
+    }
+
     // FIXME: Support more integer operations, see u16 for inspiration.
     //
     //        Don't forget traits : Add, Sub, Mul, Div, Rem, Shl, Not, with
