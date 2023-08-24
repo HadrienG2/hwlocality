@@ -829,7 +829,197 @@ impl BitmapIndex {
         Self::const_try_from_c_uint(inner)
     }
 
-    // FIXME: Support saturating operations
+    /// Saturating integer addition. Computes `self + rhs`, saturating at the
+    /// numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_add(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_add(BitmapIndex::MAX),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_add(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_add(BitmapIndex::MAX),
+    ///     BitmapIndex::MAX
+    /// );
+    /// ```
+    pub const fn saturating_add(self, rhs: Self) -> Self {
+        let inner = self.0.saturating_add(rhs.0);
+        Self::const_sat_from_c_uint(inner)
+    }
+
+    /// Saturating addition with a signed integer. Computes `self + rhs`,
+    /// saturating at the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_add_signed(0),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_add_signed(-1),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_add_signed(0),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_add_signed(1),
+    ///     BitmapIndex::MAX
+    /// );
+    /// ```
+    pub const fn saturating_add_signed(self, rhs: isize) -> Self {
+        const C_INT_MIN: isize = c_int::MIN as isize;
+        const C_INT_MAX: isize = c_int::MAX as isize;
+        let rhs = match rhs {
+            C_INT_MIN..=C_INT_MAX => rhs as c_int,
+            under if under < 0 => c_int::MIN,
+            _over => c_int::MAX,
+        };
+        let inner = self.0.saturating_add_signed(rhs);
+        Self::const_sat_from_c_uint(inner)
+    }
+
+    /// Saturating integer subtraction. Computes `self - rhs`, saturating at the
+    /// numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// ```
+    pub const fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
+    /// Saturating integer multiplication. Computes `self * rhs`, saturating at
+    /// the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_mul(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_mul(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::MAX),
+    ///     BitmapIndex::MAX
+    /// );
+    /// ```
+    pub const fn saturating_mul(self, rhs: Self) -> Self {
+        let inner = self.0.saturating_mul(rhs.0);
+        Self::const_sat_from_c_uint(inner)
+    }
+
+    /// Saturating integer division. Identical to `self / rhs` for this
+    /// unsigned integer type
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_div(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_div(BitmapIndex::MAX),
+    ///     BitmapIndex::try_from(1).unwrap()
+    /// );
+    /// ```
+    pub const fn saturating_div(self, rhs: Self) -> Self {
+        Self(self.0 / rhs.0)
+    }
+
+    /// Saturating integer exponentiation. Computes `self.pow(rhs)`, saturating
+    /// at the numeric bounds instead of overflowing.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_pow(0),
+    ///     BitmapIndex::try_from(1).unwrap()
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.saturating_pow(2),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_pow(1),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.saturating_pow(2),
+    ///     BitmapIndex::MAX
+    /// );
+    /// ```
+    pub const fn saturating_pow(self, exp: u32) -> Self {
+        let inner = self.0.saturating_pow(exp);
+        Self::const_sat_from_c_uint(inner)
+    }
+
+    /// Saturating version of const_try_from_c_uint
+    const fn const_sat_from_c_uint(inner: c_uint) -> Self {
+        if inner <= Self::MAX.0 {
+            Self(inner)
+        } else {
+            Self::MAX
+        }
+    }
 
     /// Wrapping (modular) addition. Computes `self + rhs`, wrapping around at
     /// the boundary of the type.
