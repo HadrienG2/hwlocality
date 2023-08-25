@@ -2523,4 +2523,22 @@ macro_rules! try_into {
 //
 try_into!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128);
 
-// FIXME: Add tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nullary() {
+        assert_eq!(BitmapIndex::MIN, BitmapIndex::ZERO);
+        assert_eq!(BitmapIndex::ZERO, 0);
+        assert_eq!(BitmapIndex::ONE, 1);
+        assert_eq!(
+            BitmapIndex::MAX,
+            (1usize << BitmapIndex::EFFECTIVE_BITS) - 1
+        );
+        assert_eq!(BitmapIndex::from(false), 0);
+        assert_eq!(BitmapIndex::from(true), 1);
+    }
+
+    // TODO: Add quickchecks
+}
