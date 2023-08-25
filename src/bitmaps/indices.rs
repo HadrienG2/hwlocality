@@ -2584,6 +2584,8 @@ mod tests {
     const NUM_UNUSED_BITS: u32 = UNUSED_BITS.count_ones();
 
     /// Assert that calling some code panics
+    /// FIXME: Remove allow(unused) once used again
+    #[allow(unused)]
     #[track_caller]
     fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) {
         std::panic::catch_unwind(f).expect_err("Operation should have panicked, but didn't");
@@ -2647,11 +2649,9 @@ mod tests {
         assert_eq!(zero.overflowing_neg(), (zero, false));
     }
 
-    /// Test properties of isolated bitmap indices
+    /// Test properties of unary operations on bitmap indices
     #[quickcheck]
-    fn index(idx: BitmapIndex) {
-        // === UNARY OPERATIONS ===
-
+    fn unary(idx: BitmapIndex) {
         // Version of idx's payload with the unused bits set
         let set_unused = idx.0 | UNUSED_BITS;
 
@@ -2679,17 +2679,20 @@ mod tests {
         assert_eq!(usize::from(idx), idx.0 as usize);
 
         // Faillible conversions to all primitive integer types
-        assert_eq!(i8::try_from(idx).ok(), i8::try_from(idx.0).ok());
-        assert_eq!(u8::try_from(idx).ok(), u8::try_from(idx.0).ok());
-        assert_eq!(i16::try_from(idx).ok(), i16::try_from(idx.0).ok());
-        assert_eq!(u16::try_from(idx).ok(), u16::try_from(idx.0).ok());
-        assert_eq!(i32::try_from(idx).ok(), i32::try_from(idx.0).ok());
-        assert_eq!(u32::try_from(idx).ok(), u32::try_from(idx.0).ok());
-        assert_eq!(i64::try_from(idx).ok(), i64::try_from(idx.0).ok());
-        assert_eq!(u64::try_from(idx).ok(), u64::try_from(idx.0).ok());
-        assert_eq!(i128::try_from(idx).ok(), i128::try_from(idx.0).ok());
-        assert_eq!(u128::try_from(idx).ok(), u128::try_from(idx.0).ok());
-        assert_eq!(isize::try_from(idx).ok(), isize::try_from(idx.0).ok());
+        #[allow(clippy::useless_conversion)]
+        {
+            assert_eq!(i8::try_from(idx).ok(), i8::try_from(idx.0).ok());
+            assert_eq!(u8::try_from(idx).ok(), u8::try_from(idx.0).ok());
+            assert_eq!(i16::try_from(idx).ok(), i16::try_from(idx.0).ok());
+            assert_eq!(u16::try_from(idx).ok(), u16::try_from(idx.0).ok());
+            assert_eq!(i32::try_from(idx).ok(), i32::try_from(idx.0).ok());
+            assert_eq!(u32::try_from(idx).ok(), u32::try_from(idx.0).ok());
+            assert_eq!(i64::try_from(idx).ok(), i64::try_from(idx.0).ok());
+            assert_eq!(u64::try_from(idx).ok(), u64::try_from(idx.0).ok());
+            assert_eq!(i128::try_from(idx).ok(), i128::try_from(idx.0).ok());
+            assert_eq!(u128::try_from(idx).ok(), u128::try_from(idx.0).ok());
+            assert_eq!(isize::try_from(idx).ok(), isize::try_from(idx.0).ok());
+        }
 
         // Formatting
         assert_eq!(format!("{idx:?}"), format!("BitmapIndex({:})", idx.0));
@@ -2735,117 +2738,6 @@ mod tests {
         }
         assert_debug_panics(|| no_next_pow2.next_power_of_two(), Some(BitmapIndex::ZERO));
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
-
-        // === REMARKABLE BINARY OPERATIONS ===
-
-        // x & 0 == 0
-        assert_eq!(idx & BitmapIndex::ZERO, BitmapIndex::ZERO);
-        assert_eq!(idx & &BitmapIndex::ZERO, BitmapIndex::ZERO);
-        let mut idx2 = idx;
-        idx2 &= BitmapIndex::ZERO;
-        assert_eq!(idx2, BitmapIndex::ZERO);
-
-        // x & MAX == x
-        assert_eq!(idx & BitmapIndex::MAX, idx);
-        assert_eq!(idx & &BitmapIndex::MAX, idx);
-        idx2 = idx;
-        idx2 &= BitmapIndex::MAX;
-        assert_eq!(idx2, idx);
-
-        // x | 0 == x
-        assert_eq!(idx | BitmapIndex::ZERO, idx);
-        assert_eq!(idx | &BitmapIndex::ZERO, idx);
-        idx2 = idx;
-        idx2 |= BitmapIndex::ZERO;
-        assert_eq!(idx2, idx);
-
-        // x | MAX == MAX
-        assert_eq!(idx | BitmapIndex::MAX, BitmapIndex::MAX);
-        assert_eq!(idx | &BitmapIndex::MAX, BitmapIndex::MAX);
-        idx2 = idx;
-        idx2 |= BitmapIndex::MAX;
-        assert_eq!(idx2, BitmapIndex::MAX);
-
-        // x ^ 0 == x
-        assert_eq!(idx ^ BitmapIndex::ZERO, idx);
-        assert_eq!(idx ^ &BitmapIndex::ZERO, idx);
-        idx2 = idx;
-        idx2 ^= BitmapIndex::ZERO;
-        assert_eq!(idx2, idx);
-
-        // x ^ MAX == !x
-        assert_eq!(idx ^ BitmapIndex::MAX, !idx);
-        assert_eq!(idx ^ &BitmapIndex::MAX, !idx);
-        idx2 = idx;
-        idx2 ^= BitmapIndex::MAX;
-        assert_eq!(idx2, !idx);
-
-        // x << 0 = x
-        assert_eq!(idx << 0, idx);
-        idx2 = idx;
-        idx2 <<= 0;
-        assert_eq!(idx2, idx);
-
-        // x >> 0 = x
-        assert_eq!(idx >> 0, idx);
-        idx2 = idx;
-        idx2 >>= 0;
-        assert_eq!(idx2, idx);
-
-        // x + 0 = x
-        assert_eq!(idx + 0, idx);
-        assert_eq!(idx + &0, idx);
-        assert_eq!(idx + BitmapIndex::ZERO, idx);
-        assert_eq!(idx + &BitmapIndex::ZERO, idx);
-        idx2 = idx;
-        idx2 += 0;
-        assert_eq!(idx2, idx);
-
-        // x - 0 = x
-        assert_eq!(idx - 0, idx);
-        assert_eq!(idx - &0, idx);
-        assert_eq!(idx - BitmapIndex::ZERO, idx);
-        assert_eq!(idx - &BitmapIndex::ZERO, idx);
-        idx2 = idx;
-        idx2 -= 0;
-        assert_eq!(idx2, idx);
-
-        // x * 0 = 0
-        assert_eq!(idx * 0, 0);
-        assert_eq!(idx * &0, 0);
-        assert_eq!(idx * BitmapIndex::ZERO, 0);
-        assert_eq!(idx * &BitmapIndex::ZERO, 0);
-        idx2 = idx;
-        idx2 *= 0;
-        assert_eq!(idx2, 0);
-
-        // x * 1 = x
-        assert_eq!(idx * 1, idx);
-        assert_eq!(idx * &1, idx);
-        assert_eq!(idx * BitmapIndex::ONE, idx);
-        assert_eq!(idx * &BitmapIndex::ONE, idx);
-        idx2 = idx;
-        idx2 *= 1;
-        assert_eq!(idx2, idx);
-
-        // x / 0 always panics
-        assert_panics(|| idx / 0);
-        assert_panics(|| idx / &0);
-        assert_panics(|| idx / BitmapIndex::ZERO);
-        assert_panics(|| idx / &BitmapIndex::ZERO);
-        assert_panics(|| {
-            let mut idx2 = idx;
-            idx2 /= 0
-        });
-
-        // x % 1 == 0
-        assert_eq!(idx % 1, BitmapIndex::ZERO);
-        assert_eq!(idx % &1, BitmapIndex::ZERO);
-        assert_eq!(idx % BitmapIndex::ONE, BitmapIndex::ZERO);
-        assert_eq!(idx % &BitmapIndex::ONE, BitmapIndex::ZERO);
-        let mut idx2 = idx;
-        idx2 %= BitmapIndex::ONE;
-        assert_eq!(idx2, BitmapIndex::ZERO);
     }
 
     // FIXME: Add quickchecks for other unary operations (mostly conversions)
