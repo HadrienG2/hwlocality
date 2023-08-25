@@ -72,11 +72,11 @@ publicly report the vulnerability anyway.
 
 Here's what you can expect from us in terms of response time :
 
-- At the time of writing, the project only has one permanent
-  maintainer, @HadrienG2. I will aim for fast replies (less than a week,
-  ideally next-day), but I may be momentarily unavailable for various reasons:
-  holidays, sickness... So please ping me a few times (e.g. after a week and a
-  month) before concluding that I am unresponsive and have abandoned the
-  project.
+- At the time of writing, the project only has one permanent maintainer,
+  [**@HadrienG2**](https://github.com/HadrienG2). I will aim for fast replies
+  (less than a week, ideally next-day), but I may be momentarily unavailable
+  for various reasons: holidays, sickness... So please ping me a few times
+  (e.g. after a week and a month) before concluding that I am unresponsive and
+  must have abandoned the project.
 - Unless the vulnerability is extremely complex and requires a major library
   rewrite to fix, 90 days should be more than enough time for me to fix it.
