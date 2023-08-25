@@ -1083,7 +1083,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.saturating_div(BitmapIndex::MAX),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// ```
     pub const fn saturating_div(self, rhs: Self) -> Self {
@@ -1101,7 +1101,7 @@ impl BitmapIndex {
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.saturating_pow(0),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::ZERO.saturating_pow(2),
@@ -1217,7 +1217,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::MAX),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::ZERO),
@@ -1255,7 +1255,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::MAX),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// ```
     pub const fn wrapping_mul(self, rhs: Self) -> Self {
@@ -1279,7 +1279,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_div(BitmapIndex::MAX),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// ```
     pub const fn wrapping_div(self, rhs: Self) -> Self {
@@ -1305,7 +1305,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_div_euclid(BitmapIndex::MAX),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// ```
     pub const fn wrapping_div_euclid(self, rhs: Self) -> Self {
@@ -1389,7 +1389,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_neg(),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// ```
     pub const fn wrapping_neg(self) -> Self {
@@ -1412,14 +1412,6 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shl(0),
-    ///     BitmapIndex::MAX
-    /// );
-    /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shl(1),
-    ///     BitmapIndex::MAX << 1
-    /// );
-    /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - 1),
     ///     BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1)
     /// );
@@ -1433,7 +1425,8 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn wrapping_shl(self, rhs: u32) -> Self {
-        Self((self.0 << (rhs % Self::EFFECTIVE_BITS)) & Self::MAX.0)
+        let wrapped_rhs = rhs % Self::EFFECTIVE_BITS;
+        Self((self.0 << wrapped_rhs) & Self::MAX.0)
     }
 
     /// Panic-free bitwise shift-right; yields `self >>
@@ -1451,14 +1444,6 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shr(0),
-    ///     BitmapIndex::MAX
-    /// );
-    /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shr(1),
-    ///     BitmapIndex::MAX >> 1
-    /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - 1),
     ///     BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1)
@@ -1487,7 +1472,7 @@ impl BitmapIndex {
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.wrapping_pow(0),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::ONE.wrapping_pow(3),
@@ -1499,7 +1484,7 @@ impl BitmapIndex {
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_pow(2),
-    ///     1
+    ///     BitmapIndex::ONE
     /// );
     /// ```
     pub const fn wrapping_pow(self, exp: u32) -> Self {
@@ -1630,7 +1615,276 @@ impl BitmapIndex {
         Self(self.0.abs_diff(other.0))
     }
 
+    /// Calculates the multiplication of `self` and `rhs`.
+    ///
+    /// Returns a tuple of the multiplication along with a boolean indicating
+    /// whether an arithmetic overflow would occur. If an overflow would have
+    /// occurred then the wrapped value is returned.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.overflowing_mul(BitmapIndex::ZERO),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.overflowing_mul(BitmapIndex::MAX),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_mul(BitmapIndex::ZERO),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_mul(BitmapIndex::MAX),
+    ///     (BitmapIndex::ONE, true)
+    /// );
+    /// ```
+    pub const fn overflowing_mul(self, rhs: Self) -> (Self, bool) {
+        let (inner, mut overflow) = self.0.overflowing_mul(rhs.0);
+        overflow |= inner > Self::MAX.0;
+        (Self(inner & Self::MAX.0), overflow)
+    }
+
+    /// Calculates the divisor when `self` is divided by `rhs`.
+    ///
+    /// Returns a tuple of the divisor along with a boolean indicating whether
+    /// an arithmetic overflow would occur. Note that for unsigned integers
+    /// overflow never occurs, so the second value is always `false`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.overflowing_div(BitmapIndex::MAX),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_div(BitmapIndex::MAX),
+    ///     (BitmapIndex::ONE, false)
+    /// );
+    /// ```
+    pub const fn overflowing_div(self, rhs: Self) -> (Self, bool) {
+        (Self(self.0 / rhs.0), false)
+    }
+
+    /// Calculates the quotient of Euclidean division `self.div_euclid(rhs)`.
+    ///
+    /// Returns a tuple of the divisor along with a boolean indicating whether
+    /// an arithmetic overflow would occur. Note that for unsigned integers
+    /// overflow never occurs, so the second value is always `false`. Since,
+    /// for the positive integers, all common definitions of division are
+    /// equal, this is exactly equal to `self.overflowing_div(rhs)`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.overflowing_div_euclid(BitmapIndex::MAX),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_div_euclid(BitmapIndex::MAX),
+    ///     (BitmapIndex::ONE, false)
+    /// );
+    /// ```
+    pub const fn overflowing_div_euclid(self, rhs: Self) -> (Self, bool) {
+        (Self(self.0 / rhs.0), false)
+    }
+
+    /// Calculates the remainder when `self is divided by rhs`.
+    ///
+    /// Returns a tuple of the remainder along with a boolean indicating whether
+    /// an arithmetic overflow would occur. Note that for unsigned integers
+    /// overflow never occurs, so the second value is always `false`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.overflowing_rem(BitmapIndex::MAX),
+    ///     (BitmapIndex::ONE, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_rem(BitmapIndex::MAX),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// ```
+    pub const fn overflowing_rem(self, rhs: Self) -> (Self, bool) {
+        (Self(self.0 % rhs.0), false)
+    }
+
+    /// Calculates the remainder `self.rem_euclid(rhs)` as if by Euclidean
+    /// division.
+    ///
+    /// Returns a tuple of the remainder along with a boolean indicating whether
+    /// an arithmetic overflow would occur. Note that for unsigned integers
+    /// overflow never occurs, so the second value is always `false`. Since,
+    /// for the positive integers, all common definitions of division are
+    /// equal, this operation is exactly equal to `self.overflowing_rem(rhs)`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.overflowing_rem_euclid(BitmapIndex::MAX),
+    ///     (BitmapIndex::ONE, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_rem_euclid(BitmapIndex::MAX),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// ```
+    pub const fn overflowing_rem_euclid(self, rhs: Self) -> (Self, bool) {
+        (Self(self.0 % rhs.0), false)
+    }
+
+    /// Negates `self in an overflowing fashion.
+    ///
+    /// Returns `!self + BitmapIndex::ONE` using wrapping operations to return
+    /// the value that represents the negation of this unsigned value. Note
+    /// that for positive unsigned values overflow always occurs, but negating
+    /// `BitmapIndex::ZERO` does not overflow.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.overflowing_neg(),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.overflowing_neg(),
+    ///     (BitmapIndex::MAX, true)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_neg(),
+    ///     (BitmapIndex::ONE, true)
+    /// );
+    /// ```
+    pub const fn overflowing_neg(self) -> (Self, bool) {
+        (self.wrapping_neg(), self.0 != 0)
+    }
+
+    /// Shifts `self` left by `rhs` bits.
+    ///
+    /// Returns a tuple of the shifted version of `self` along with a boolean
+    /// indicating whether the shift value was larger than or equal to the
+    /// number of bits. If the shift value is too large, then it is wrapped
+    /// around through `rhs % Self::EFFECTIVE_BITS`, and this value is then
+    /// used to perform the shift.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS - 1),
+    ///     (BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1), false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS),
+    ///     (BitmapIndex::MAX, true)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS + 1),
+    ///     (BitmapIndex::MAX << 1, true)
+    /// );
+    /// ```
+    pub const fn overflowing_shl(self, rhs: u32) -> (Self, bool) {
+        (self.wrapping_shl(rhs), rhs >= Self::EFFECTIVE_BITS)
+    }
+
+    /// Shifts `self` right by `rhs` bits.
+    ///
+    /// Returns a tuple of the shifted version of `self` along with a boolean
+    /// indicating whether the shift value was larger than or equal to the
+    /// number of bits. If the shift value is too large, then it is wrapped
+    /// around through `rhs % Self::EFFECTIVE_BITS`, and this value is then
+    /// used to perform the shift.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS - 1),
+    ///     (BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1), false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS),
+    ///     (BitmapIndex::MAX, true)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS + 1),
+    ///     (BitmapIndex::MAX >> 1, true)
+    /// );
+    /// ```
+    pub const fn overflowing_shr(self, rhs: u32) -> (Self, bool) {
+        (self.wrapping_shr(rhs), rhs >= Self::EFFECTIVE_BITS)
+    }
+
+    /// Raises `self` to the power of `exp`, using exponentiation by squaring.
+    ///
+    /// Returns a tuple of the exponentiation along with a `bool` indicating
+    /// whether an overflow happened.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.overflowing_pow(0),
+    ///     (BitmapIndex::ONE, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.overflowing_pow(3),
+    ///     (BitmapIndex::ONE, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_pow(1),
+    ///     (BitmapIndex::MAX, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_pow(2),
+    ///     (BitmapIndex::ONE, true)
+    /// );
+    /// ```
+    pub const fn overflowing_pow(self, exp: u32) -> (Self, bool) {
+        let (inner, mut overflow) = self.0.overflowing_pow(exp);
+        overflow |= inner > Self::MAX.0;
+        (Self(inner & Self::MAX.0), overflow)
+    }
+
     // FIXME: Support other integer operations, see u64 for inspiration.
+
+    // NOTE: No (from|to)_(be|le)_bytes, the modeled integer is not made of an
+    //       integral number of bytes so these operations do not make sense.
 
     /// Convert from an hwloc-originated c_int
     ///
