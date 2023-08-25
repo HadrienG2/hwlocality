@@ -1881,7 +1881,176 @@ impl BitmapIndex {
         (Self(inner & Self::MAX.0), overflow)
     }
 
-    // FIXME: Support other integer operations, see u64 for inspiration.
+    /// Raises `self` to the power of `exp`, using exponentiation by squaring.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.pow(0),
+    ///     BitmapIndex::ONE
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.pow(3),
+    ///     BitmapIndex::ONE
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.pow(1),
+    ///     BitmapIndex::MAX
+    /// );
+    /// ```
+    pub const fn pow(self, exp: u32) -> Self {
+        if cfg!(debug_assertions) {
+            match self.checked_pow(exp) {
+                Some(res) => res,
+                None => panic!("Attempted to call BitmapIndex::pow() with overflow"),
+            }
+        } else {
+            self.wrapping_pow(exp)
+        }
+    }
+
+    /// Performs Euclidean division.
+    ///
+    /// Since, for the positive integers, all common definitions of division are
+    /// equal, this is exactly equal to `self / rhs`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `rhs` is `BitmapIndex::ZERO`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.div_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.div_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::ONE
+    /// );
+    /// ```
+    pub const fn div_euclid(self, rhs: Self) -> Self {
+        Self(self.0 / rhs.0)
+    }
+
+    /// Calculates the least remainder of `self (mod rhs)`.
+    ///
+    /// Since, for the positive integers, all common definitions of division are
+    /// equal, this is exactly equal to `self % rhs`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `rhs` is `BitmapIndex::ZERO`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.rem_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::ONE
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.rem_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// ```
+    pub const fn rem_euclid(self, rhs: Self) -> Self {
+        Self(self.0 % rhs.0)
+    }
+
+    /// Returns `true` if and only if `self == 2^k` for some `k`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert!(!BitmapIndex::ZERO.is_power_of_two());
+    /// assert!(BitmapIndex::ONE.is_power_of_two());
+    /// assert!(!BitmapIndex::MAX.is_power_of_two());
+    /// ```
+    pub const fn is_power_of_two(self) -> bool {
+        self.0.is_power_of_two()
+    }
+
+    /// Returns the smallest power of two greater than or equal to `self`.
+    ///
+    /// When return value overflows (i.e., `self > (BitmapIndex::ONE <<
+    /// (BitmapIndex::EFFECTIVE_BITS - 1))`, it panics in debug mode and the
+    /// return value is wrapped to 0 in release mode (the only situation in
+    /// which method can return 0).
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.next_power_of_two(),
+    ///     BitmapIndex::ONE
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.next_power_of_two(),
+    ///     BitmapIndex::ONE
+    /// );
+    /// ```
+    pub const fn next_power_of_two(self) -> Self {
+        if cfg!(debug_assertions) {
+            match self.checked_next_power_of_two() {
+                Some(res) => res,
+                None => panic!("Attempted to compute next power of two with overflow"),
+            }
+        } else {
+            Self(self.0.next_power_of_two() % Self::MAX.0)
+        }
+    }
+
+    /// Returns the smallest power of two greater than or equal to `self`. If
+    /// the next power of two is greater than the type’s maximum value, `None`
+    /// is returned, otherwise the power of two is wrapped in `Some`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.checked_next_power_of_two(),
+    ///     Some(BitmapIndex::ONE)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_next_power_of_two(),
+    ///     Some(BitmapIndex::ONE)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_next_power_of_two(),
+    ///     None
+    /// );
+    /// ```
+    pub const fn checked_next_power_of_two(self) -> Option<Self> {
+        let Some(inner) = self.0.checked_next_power_of_two() else {
+            return None;
+        };
+        if inner <= Self::MAX.0 {
+            Some(Self(inner))
+        } else {
+            None
+        }
+    }
 
     // NOTE: No (from|to)_(be|le)_bytes, the modeled integer is not made of an
     //       integral number of bytes so these operations do not make sense.
