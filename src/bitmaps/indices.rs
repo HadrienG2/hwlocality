@@ -8,10 +8,7 @@ use crate::{
     objects::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
-use derive_more::{
-    Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, LowerExp,
-    LowerHex, Octal, UpperExp, UpperHex,
-};
+use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex};
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(any(test, feature = "quickcheck"))]
@@ -26,8 +23,9 @@ use std::{
     iter::{Product, Sum},
     num::{ParseIntError, TryFromIntError},
     ops::{
-        Add, AddAssign, Div, DivAssign, Mul, MulAssign, Not, Rem, RemAssign, Shl, ShlAssign, Shr,
-        ShrAssign, Sub, SubAssign,
+        Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div,
+        DivAssign, Mul, MulAssign, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
+        SubAssign,
     },
     str::FromStr,
 };
@@ -42,12 +40,6 @@ use std::{
 /// values permitted by C's int and unsigned int types.
 #[derive(
     Binary,
-    BitAnd,
-    BitAndAssign,
-    BitOr,
-    BitOrAssign,
-    BitXor,
-    BitXorAssign,
     Clone,
     Copy,
     Debug,
@@ -2160,6 +2152,57 @@ impl Arbitrary for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> BitAnd<B> for BitmapIndex {
+    type Output = Self;
+
+    fn bitand(self, rhs: B) -> Self {
+        Self(self.0 & rhs.borrow().0)
+    }
+}
+
+impl<Rhs> BitAndAssign<Rhs> for BitmapIndex
+where
+    Self: BitAnd<Rhs, Output = Self>,
+{
+    fn bitand_assign(&mut self, rhs: Rhs) {
+        *self = *self & rhs
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> BitOr<B> for BitmapIndex {
+    type Output = Self;
+
+    fn bitor(self, rhs: B) -> Self {
+        Self(self.0 | rhs.borrow().0)
+    }
+}
+
+impl<Rhs> BitOrAssign<Rhs> for BitmapIndex
+where
+    Self: BitOr<Rhs, Output = Self>,
+{
+    fn bitor_assign(&mut self, rhs: Rhs) {
+        *self = *self | rhs
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> BitXor<B> for BitmapIndex {
+    type Output = Self;
+
+    fn bitxor(self, rhs: B) -> Self {
+        Self(self.0 ^ rhs.borrow().0)
+    }
+}
+
+impl<Rhs> BitXorAssign<Rhs> for BitmapIndex
+where
+    Self: BitXor<Rhs, Output = Self>,
+{
+    fn bitxor_assign(&mut self, rhs: Rhs) {
+        *self = *self ^ rhs
+    }
+}
+
 impl<B: Borrow<BitmapIndex>> Div<B> for BitmapIndex {
     type Output = Self;
 
@@ -2526,9 +2569,58 @@ try_into!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck_macros::quickcheck;
+    use std::{
+        collections::hash_map::DefaultHasher,
+        ffi::c_uint,
+        hash::{Hash, Hasher},
+        panic::UnwindSafe,
+    };
 
+    /// Inner bits of BitmapIndex that are not used by the implementation
+    const UNUSED_BITS: c_uint = 1 << BitmapIndex::EFFECTIVE_BITS;
+
+    /// Number of bits that are not used
+    const NUM_UNUSED_BITS: u32 = UNUSED_BITS.count_ones();
+
+    /// Assert that calling some code panics
+    #[track_caller]
+    fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) {
+        std::panic::catch_unwind(f).expect_err("Operation should have panicked, but didn't");
+    }
+
+    /// Assert that calling some code panics in debug builds and does not do so
+    /// in release builds
+    #[track_caller]
+    fn assert_debug_panics<R: Debug + Eq>(
+        f: impl FnOnce() -> R + UnwindSafe,
+        release_result: Option<R>,
+    ) {
+        let res = std::panic::catch_unwind(f);
+        if cfg!(debug_assertions) {
+            res.expect_err("Operation should have panicked, but didn't panic");
+        } else {
+            let result = res.expect("Operation should not have panicked, but did panic");
+            if let Some(release_result) = release_result {
+                assert_eq!(
+                    result, release_result,
+                    "Operation does not produce the expected result in release builds"
+                );
+            }
+        }
+    }
+
+    /// Hash something
+    fn hash(x: impl Hash) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        x.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Test basic properties of our constants
     #[test]
-    fn nullary() {
+    fn constants() {
+        // Constants and conversions to/from bool
         assert_eq!(BitmapIndex::MIN, BitmapIndex::ZERO);
         assert_eq!(BitmapIndex::ZERO, 0);
         assert_eq!(BitmapIndex::ONE, 1);
@@ -2536,9 +2628,226 @@ mod tests {
             BitmapIndex::MAX,
             (1usize << BitmapIndex::EFFECTIVE_BITS) - 1
         );
+        assert_eq!(BitmapIndex::default(), 0);
         assert_eq!(BitmapIndex::from(false), 0);
         assert_eq!(BitmapIndex::from(true), 1);
+
+        // Now let's test some properties that are specific to zero
+        let zero = BitmapIndex::ZERO;
+
+        // Logarithm fails for zero
+        assert_debug_panics(|| zero.ilog2(), None);
+        assert_debug_panics(|| zero.ilog10(), None);
+        assert_eq!(zero.checked_ilog2(), None);
+        assert_eq!(zero.checked_ilog10(), None);
+
+        // Negation succeeds for zero
+        assert_eq!(zero.wrapping_neg(), zero);
+        assert_eq!(zero.checked_neg(), Some(zero));
+        assert_eq!(zero.overflowing_neg(), (zero, false));
     }
 
-    // TODO: Add quickchecks
+    /// Test properties of isolated bitmap indices
+    #[quickcheck]
+    fn index(idx: BitmapIndex) {
+        // === UNARY OPERATIONS ===
+
+        // Version of idx's payload with the unused bits set
+        let set_unused = idx.0 | UNUSED_BITS;
+
+        // Make sure clone is trivial and equality works early on
+        assert_eq!(idx.clone(), idx);
+
+        // Bit fiddling
+        assert_eq!(idx.count_ones(), idx.0.count_ones());
+        assert_eq!(idx.count_zeros(), set_unused.count_zeros());
+        assert_eq!(idx.leading_zeros(), idx.0.leading_zeros() - NUM_UNUSED_BITS);
+        assert_eq!(idx.trailing_zeros(), set_unused.trailing_zeros());
+        assert_eq!(
+            idx.leading_ones(),
+            set_unused.leading_ones() - NUM_UNUSED_BITS
+        );
+        assert_eq!(idx.trailing_ones(), idx.0.trailing_ones());
+        assert_eq!(
+            idx.reverse_bits().0,
+            idx.0.reverse_bits() >> NUM_UNUSED_BITS
+        );
+        assert_eq!(idx.is_power_of_two(), idx.0.is_power_of_two());
+        assert_eq!((!idx).0, !(idx.0 | set_unused));
+
+        // Infaillible conversion to usize
+        assert_eq!(usize::from(idx), idx.0 as usize);
+
+        // Faillible conversions to all primitive integer types
+        assert_eq!(i8::try_from(idx).ok(), i8::try_from(idx.0).ok());
+        assert_eq!(u8::try_from(idx).ok(), u8::try_from(idx.0).ok());
+        assert_eq!(i16::try_from(idx).ok(), i16::try_from(idx.0).ok());
+        assert_eq!(u16::try_from(idx).ok(), u16::try_from(idx.0).ok());
+        assert_eq!(i32::try_from(idx).ok(), i32::try_from(idx.0).ok());
+        assert_eq!(u32::try_from(idx).ok(), u32::try_from(idx.0).ok());
+        assert_eq!(i64::try_from(idx).ok(), i64::try_from(idx.0).ok());
+        assert_eq!(u64::try_from(idx).ok(), u64::try_from(idx.0).ok());
+        assert_eq!(i128::try_from(idx).ok(), i128::try_from(idx.0).ok());
+        assert_eq!(u128::try_from(idx).ok(), u128::try_from(idx.0).ok());
+        assert_eq!(isize::try_from(idx).ok(), isize::try_from(idx.0).ok());
+
+        // Formatting
+        assert_eq!(format!("{idx:?}"), format!("BitmapIndex({:})", idx.0));
+        assert_eq!(format!("{idx}"), format!("{:}", idx.0));
+        assert_eq!(format!("{idx:b}"), format!("{:b}", idx.0));
+        assert_eq!(format!("{idx:e}"), format!("{:e}", idx.0));
+        assert_eq!(format!("{idx:o}"), format!("{:o}", idx.0));
+        assert_eq!(format!("{idx:x}"), format!("{:x}", idx.0));
+        assert_eq!(format!("{idx:E}"), format!("{:E}", idx.0));
+        assert_eq!(format!("{idx:X}"), format!("{:X}", idx.0));
+
+        // Hashing
+        assert_eq!(hash(idx), hash(idx.0));
+
+        // Considerations specific to positive numbers
+        if idx != 0 {
+            // Based logarithms succeed for positive numbers
+            let expected_log2 = idx.0.ilog2();
+            let expected_log10 = idx.0.ilog10();
+            assert_eq!(idx.ilog2(), expected_log2);
+            assert_eq!(idx.ilog10(), expected_log10);
+            assert_eq!(idx.checked_ilog2(), Some(expected_log2));
+            assert_eq!(idx.checked_ilog10(), Some(expected_log10));
+
+            // Negation fails or wraps around for positive numbers
+            let wrapping_neg = (!idx).wrapping_add(BitmapIndex(1));
+            assert_eq!(idx.checked_neg(), None);
+            assert_eq!(idx.wrapping_neg(), wrapping_neg);
+            assert_eq!(idx.overflowing_neg(), (wrapping_neg, true));
+        }
+
+        // Considerations specific to numbers that have a next power of 2
+        let last_pow2 = BitmapIndex::ONE << (BitmapIndex::EFFECTIVE_BITS - 1);
+        let has_next_pow2 = idx & (!last_pow2);
+        let next_pow2 = BitmapIndex(has_next_pow2.0.next_power_of_two());
+        assert_eq!(has_next_pow2.next_power_of_two(), next_pow2);
+        assert_eq!(has_next_pow2.checked_next_power_of_two(), Some(next_pow2));
+
+        // Considerations specific to numbers that don't have a next power of 2
+        let mut no_next_pow2 = idx | last_pow2;
+        if no_next_pow2 == last_pow2 {
+            no_next_pow2 += 1;
+        }
+        assert_debug_panics(|| no_next_pow2.next_power_of_two(), Some(BitmapIndex::ZERO));
+        assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
+
+        // === REMARKABLE BINARY OPERATIONS ===
+
+        // x & 0 == 0
+        assert_eq!(idx & BitmapIndex::ZERO, BitmapIndex::ZERO);
+        assert_eq!(idx & &BitmapIndex::ZERO, BitmapIndex::ZERO);
+        let mut idx2 = idx;
+        idx2 &= BitmapIndex::ZERO;
+        assert_eq!(idx2, BitmapIndex::ZERO);
+
+        // x & MAX == x
+        assert_eq!(idx & BitmapIndex::MAX, idx);
+        assert_eq!(idx & &BitmapIndex::MAX, idx);
+        idx2 = idx;
+        idx2 &= BitmapIndex::MAX;
+        assert_eq!(idx2, idx);
+
+        // x | 0 == x
+        assert_eq!(idx | BitmapIndex::ZERO, idx);
+        assert_eq!(idx | &BitmapIndex::ZERO, idx);
+        idx2 = idx;
+        idx2 |= BitmapIndex::ZERO;
+        assert_eq!(idx2, idx);
+
+        // x | MAX == MAX
+        assert_eq!(idx | BitmapIndex::MAX, BitmapIndex::MAX);
+        assert_eq!(idx | &BitmapIndex::MAX, BitmapIndex::MAX);
+        idx2 = idx;
+        idx2 |= BitmapIndex::MAX;
+        assert_eq!(idx2, BitmapIndex::MAX);
+
+        // x ^ 0 == x
+        assert_eq!(idx ^ BitmapIndex::ZERO, idx);
+        assert_eq!(idx ^ &BitmapIndex::ZERO, idx);
+        idx2 = idx;
+        idx2 ^= BitmapIndex::ZERO;
+        assert_eq!(idx2, idx);
+
+        // x ^ MAX == !x
+        assert_eq!(idx ^ BitmapIndex::MAX, !idx);
+        assert_eq!(idx ^ &BitmapIndex::MAX, !idx);
+        idx2 = idx;
+        idx2 ^= BitmapIndex::MAX;
+        assert_eq!(idx2, !idx);
+
+        // x << 0 = x
+        assert_eq!(idx << 0, idx);
+        idx2 = idx;
+        idx2 <<= 0;
+        assert_eq!(idx2, idx);
+
+        // x >> 0 = x
+        assert_eq!(idx >> 0, idx);
+        idx2 = idx;
+        idx2 >>= 0;
+        assert_eq!(idx2, idx);
+
+        // x + 0 = x
+        assert_eq!(idx + 0, idx);
+        assert_eq!(idx + &0, idx);
+        assert_eq!(idx + BitmapIndex::ZERO, idx);
+        assert_eq!(idx + &BitmapIndex::ZERO, idx);
+        idx2 = idx;
+        idx2 += 0;
+        assert_eq!(idx2, idx);
+
+        // x - 0 = x
+        assert_eq!(idx - 0, idx);
+        assert_eq!(idx - &0, idx);
+        assert_eq!(idx - BitmapIndex::ZERO, idx);
+        assert_eq!(idx - &BitmapIndex::ZERO, idx);
+        idx2 = idx;
+        idx2 -= 0;
+        assert_eq!(idx2, idx);
+
+        // x * 0 = 0
+        assert_eq!(idx * 0, 0);
+        assert_eq!(idx * &0, 0);
+        assert_eq!(idx * BitmapIndex::ZERO, 0);
+        assert_eq!(idx * &BitmapIndex::ZERO, 0);
+        idx2 = idx;
+        idx2 *= 0;
+        assert_eq!(idx2, 0);
+
+        // x * 1 = x
+        assert_eq!(idx * 1, idx);
+        assert_eq!(idx * &1, idx);
+        assert_eq!(idx * BitmapIndex::ONE, idx);
+        assert_eq!(idx * &BitmapIndex::ONE, idx);
+        idx2 = idx;
+        idx2 *= 1;
+        assert_eq!(idx2, idx);
+
+        // x / 0 always panics
+        assert_panics(|| idx / 0);
+        assert_panics(|| idx / &0);
+        assert_panics(|| idx / BitmapIndex::ZERO);
+        assert_panics(|| idx / &BitmapIndex::ZERO);
+        assert_panics(|| {
+            let mut idx2 = idx;
+            idx2 /= 0
+        });
+
+        // x % 1 == 0
+        assert_eq!(idx % 1, BitmapIndex::ZERO);
+        assert_eq!(idx % &1, BitmapIndex::ZERO);
+        assert_eq!(idx % BitmapIndex::ONE, BitmapIndex::ZERO);
+        assert_eq!(idx % &BitmapIndex::ONE, BitmapIndex::ZERO);
+        let mut idx2 = idx;
+        idx2 %= BitmapIndex::ONE;
+        assert_eq!(idx2, BitmapIndex::ZERO);
+    }
+
+    // FIXME: Add quickchecks for other unary operations (mostly conversions)
+    //        then binary+ operations, etc.
 }
