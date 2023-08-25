@@ -1281,8 +1281,117 @@ impl BitmapIndex {
         Self(self.0.wrapping_neg() & Self::MAX.0)
     }
 
-    // FIXME: Support other wrapping operations, and other integer operations in
-    //        general, see u64 for inspiration.
+    /// Panic-free bitwise shift-left; yields `self <<
+    /// (rhs % Self::EFFECTIVE_BITS)`.
+    ///
+    /// Note that this is _not_ the same as a rotate-left; the RHS of a wrapping
+    /// shift-left is restricted to the range of the type, rather than the bits
+    /// shifted out of the LHS being returned to the other end. This type also
+    /// implements a `rotate_left` function, which may be what
+    /// you want instead.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shl(0),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shl(1),
+    ///     BitmapIndex::MAX << 1
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - 1),
+    ///     BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS + 1),
+    ///     BitmapIndex::MAX << 1
+    /// );
+    /// ```
+    pub const fn wrapping_shl(self, rhs: u32) -> Self {
+        Self((self.0 << (rhs % Self::EFFECTIVE_BITS)) & Self::MAX.0)
+    }
+
+    /// Panic-free bitwise shift-right; yields `self >>
+    /// (rhs % Self::EFFECTIVE_BITS)`.
+    ///
+    /// Note that this is _not_ the same as a rotate-right; the RHS of a
+    /// wrapping shift-right is restricted to the range of the type, rather
+    /// than the bits shifted out of the LHS being returned to the other end.
+    /// This type also implements a `rotate_right` function, which may be what
+    /// you want instead.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shr(0),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shr(1),
+    ///     BitmapIndex::MAX >> 1
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - 1),
+    ///     BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS + 1),
+    ///     BitmapIndex::MAX >> 1
+    /// );
+    /// ```
+    pub const fn wrapping_shr(self, rhs: u32) -> Self {
+        Self(self.0 >> (rhs % Self::EFFECTIVE_BITS))
+    }
+
+    /// Wrapping (modular) exponentiation. Computes `self.pow(exp)`, wrapping
+    /// around at the boundary of the type.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_pow(0),
+    ///     1
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_pow(2),
+    ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_pow(1),
+    ///     BitmapIndex::MAX
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_pow(2),
+    ///     1
+    /// );
+    /// ```
+    pub const fn wrapping_pow(self, exp: u32) -> Self {
+        Self(self.0.wrapping_pow(exp) & Self::MAX.0)
+    }
+
+    // FIXME: Support other integer operations, see u64 for inspiration.
 
     /// Convert from an hwloc-originated c_int
     ///
@@ -1582,18 +1691,26 @@ impl Shl<&BitmapIndex> for BitmapIndex {
 impl<InnerRhs: Copy> Shl<InnerRhs> for BitmapIndex
 where
     c_uint: Shl<InnerRhs, Output = c_uint>,
-    i32: TryFrom<InnerRhs>,
+    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
+    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
+    isize: TryFrom<InnerRhs>,
 {
     type Output = Self;
 
-    fn shl(self, rhs: InnerRhs) -> Self {
+    fn shl(self, mut rhs: InnerRhs) -> Self {
         if cfg!(debug_assertions) {
+            // Debug mode checks if the shift is in range
             assert!(
-                i32::try_from(rhs)
-                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as i32))
+                isize::try_from(rhs)
+                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as isize))
                     .unwrap_or(false),
                 "Attempted to shift left with overflow"
             );
+        } else {
+            // Release mode wraps around the shift operand
+            rhs = rhs
+                % InnerRhs::try_from(Self::EFFECTIVE_BITS)
+                    .expect("Such a small number should always fit");
         }
         Self((self.0 << rhs) & Self::MAX.0)
     }
@@ -1627,18 +1744,26 @@ impl Shr<&BitmapIndex> for BitmapIndex {
 impl<InnerRhs: Copy> Shr<InnerRhs> for BitmapIndex
 where
     c_uint: Shr<InnerRhs, Output = c_uint>,
-    i32: TryFrom<InnerRhs>,
+    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
+    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
+    isize: TryFrom<InnerRhs>,
 {
     type Output = Self;
 
-    fn shr(self, rhs: InnerRhs) -> Self {
+    fn shr(self, mut rhs: InnerRhs) -> Self {
         if cfg!(debug_assertions) {
+            // Debug mode checks if the shift is in range
             assert!(
-                i32::try_from(rhs)
-                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as i32))
+                isize::try_from(rhs)
+                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as isize))
                     .unwrap_or(false),
-                "Attempted to shift right with overflow"
+                "Attempted to shift left with overflow"
             );
+        } else {
+            // Release mode wraps around the shift operand
+            rhs = rhs
+                % InnerRhs::try_from(Self::EFFECTIVE_BITS)
+                    .expect("Such a small number should always fit");
         }
         Self((self.0 >> rhs) & Self::MAX.0)
     }
