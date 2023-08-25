@@ -29,7 +29,7 @@ channels such as...
 - A [CVE
   Report](https://en.wikipedia.org/wiki/Common_Vulnerabilities_and_Exposures)
 
-Doing so is the computer security equivalent as reporting a fire safety risk by
+Doing so is the computer security equivalent of reporting a fire safety risk by
 starting a fire: you are informing attackers that software has a problem before
 a fix is available, and they will be able to exploit this information for the
 entire duration it will take us to come up with a fix, which is [Very
