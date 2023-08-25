@@ -1607,6 +1607,29 @@ impl BitmapIndex {
         (self.wrapping_sub(rhs), rhs.0 > self.0)
     }
 
+    /// Computes the absolute difference between `self` and `other`.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// let big = BitmapIndex::MAX;
+    /// let small = BitmapIndex::ONE;
+    /// assert_eq!(
+    ///     big.abs_diff(small),
+    ///     big - small
+    /// );
+    /// assert_eq!(
+    ///     small.abs_diff(big),
+    ///     big - small
+    /// );
+    /// ```
+    pub const fn abs_diff(self, other: Self) -> Self {
+        Self(self.0.abs_diff(other.0))
+    }
+
     // FIXME: Support other integer operations, see u64 for inspiration.
 
     /// Convert from an hwloc-originated c_int
