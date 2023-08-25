@@ -70,6 +70,12 @@ impl BitmapIndex {
     /// The smallest value that can be used as a bitmap index
     pub const MIN: Self = Self(0);
 
+    /// The zero of this integer type
+    pub const ZERO: Self = Self(0);
+
+    /// The 1 of this integer type
+    pub const ONE: Self = Self(1);
+
     /// The largest value that can be used as a bitmap index
     pub const MAX: Self = Self(c_int::MAX as c_uint);
 
@@ -100,7 +106,7 @@ impl BitmapIndex {
     ///
     /// ```
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::from_str_radix("0", 16), Ok(BitmapIndex::MIN));
+    /// assert_eq!(BitmapIndex::from_str_radix("0", 16), Ok(BitmapIndex::ZERO));
     /// ```
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, ParseIntError> {
         // This convoluted impl is needed because I can't construct ParseIntError
@@ -115,7 +121,8 @@ impl BitmapIndex {
     ///
     /// ```
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.count_ones(), 0);
+    /// assert_eq!(BitmapIndex::ZERO.count_ones(), 0);
+    /// assert_eq!(BitmapIndex::ONE.count_ones(), 1);
     /// assert_eq!(BitmapIndex::MAX.count_ones(), BitmapIndex::EFFECTIVE_BITS);
     /// ```
     pub const fn count_ones(self) -> u32 {
@@ -130,7 +137,8 @@ impl BitmapIndex {
     ///
     /// ```
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.count_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::ZERO.count_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::ONE.count_zeros(), BitmapIndex::EFFECTIVE_BITS - 1);
     /// assert_eq!(BitmapIndex::MAX.count_zeros(), 0);
     /// ```
     pub const fn count_zeros(self) -> u32 {
@@ -150,7 +158,8 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.leading_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::ZERO.leading_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::ONE.leading_zeros(), BitmapIndex::EFFECTIVE_BITS - 1);
     /// assert_eq!(BitmapIndex::MAX.leading_zeros(), 0);
     /// ```
     pub const fn leading_zeros(self) -> u32 {
@@ -166,7 +175,8 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.trailing_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::ZERO.trailing_zeros(), BitmapIndex::EFFECTIVE_BITS);
+    /// assert_eq!(BitmapIndex::ONE.trailing_zeros(), 0);
     /// assert_eq!(BitmapIndex::MAX.trailing_zeros(), 0);
     /// ```
     pub const fn trailing_zeros(self) -> u32 {
@@ -186,7 +196,8 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.leading_ones(), 0);
+    /// assert_eq!(BitmapIndex::ZERO.leading_ones(), 0);
+    /// assert_eq!(BitmapIndex::ONE.leading_ones(), 0);
     /// assert_eq!(BitmapIndex::MAX.leading_ones(), BitmapIndex::EFFECTIVE_BITS);
     /// ```
     pub const fn leading_ones(self) -> u32 {
@@ -202,7 +213,8 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.trailing_ones(), 0);
+    /// assert_eq!(BitmapIndex::ZERO.trailing_ones(), 0);
+    /// assert_eq!(BitmapIndex::ONE.trailing_ones(), 1);
     /// assert_eq!(BitmapIndex::MAX.trailing_ones(), BitmapIndex::EFFECTIVE_BITS);
     /// ```
     pub const fn trailing_ones(self) -> u32 {
@@ -220,8 +232,18 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.rotate_left(42), BitmapIndex::MIN);
-    /// assert_eq!(BitmapIndex::MAX.rotate_left(42), BitmapIndex::MAX);
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.rotate_left(129),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.rotate_left(129),
+    ///     BitmapIndex::ONE << (129 % BitmapIndex::EFFECTIVE_BITS)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.rotate_left(129),
+    ///     BitmapIndex::MAX
+    /// );
     /// ```
     pub const fn rotate_left(self, n: u32) -> Self {
         self.rotate_impl(n, true)
@@ -238,8 +260,19 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.rotate_right(42), BitmapIndex::MIN);
-    /// assert_eq!(BitmapIndex::MAX.rotate_right(42), BitmapIndex::MAX);
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.rotate_right(129),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// let effective_rotate = 129 % BitmapIndex::EFFECTIVE_BITS;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.rotate_right(129),
+    ///     BitmapIndex::ONE << (BitmapIndex::EFFECTIVE_BITS - effective_rotate)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.rotate_right(129),
+    ///     BitmapIndex::MAX
+    /// );
     /// ```
     pub const fn rotate_right(self, n: u32) -> Self {
         self.rotate_impl(n, false)
@@ -284,8 +317,18 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
-    /// assert_eq!(BitmapIndex::MIN.reverse_bits(), BitmapIndex::MIN);
-    /// assert_eq!(BitmapIndex::MAX.reverse_bits(), BitmapIndex::MAX);
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.reverse_bits(),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.reverse_bits(),
+    ///     BitmapIndex::ONE << BitmapIndex::EFFECTIVE_BITS - 1
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.reverse_bits(),
+    ///     BitmapIndex::MAX
+    /// );
     /// ```
     pub const fn reverse_bits(self) -> Self {
         Self(self.0.reverse_bits() >> 1)
@@ -304,19 +347,27 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_add(BitmapIndex::MIN),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_add(BitmapIndex::ZERO),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_add(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO.checked_add(BitmapIndex::MAX),
     ///     Some(BitmapIndex::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_add(BitmapIndex::MIN),
+    ///     BitmapIndex::ONE.checked_add(BitmapIndex::ONE),
+    ///     BitmapIndex::try_from(2).ok()
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_add(BitmapIndex::MAX),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_add(BitmapIndex::ZERO),
     ///     Some(BitmapIndex::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_add(BitmapIndex::MAX),
+    ///     BitmapIndex::MAX.checked_add(BitmapIndex::ONE),
     ///     None
     /// );
     /// ```
@@ -337,8 +388,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_add_signed(0),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_add_signed(0),
+    ///     Some(BitmapIndex::ZERO)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.checked_add_signed(1),
+    ///     Some(BitmapIndex::ONE)
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MIN.checked_add_signed(-1),
@@ -384,20 +439,20 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_sub(BitmapIndex::MIN),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_sub(BitmapIndex::ZERO),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_sub(BitmapIndex::MAX),
+    ///     BitmapIndex::MIN.checked_sub(BitmapIndex::ONE),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.checked_sub(BitmapIndex::ZERO),
     ///     Some(BitmapIndex::MAX)
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_sub(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// ```
     pub const fn checked_sub(self, rhs: Self) -> Option<Self> {
@@ -418,16 +473,24 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_mul(BitmapIndex::MIN),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_mul(BitmapIndex::ONE),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_mul(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_mul(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_mul(BitmapIndex::MIN),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ONE.checked_mul(BitmapIndex::ONE),
+    ///     Some(BitmapIndex::ONE)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_mul(BitmapIndex::MAX),
+    ///     Some(BitmapIndex::MAX)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_mul(BitmapIndex::ZERO),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_mul(BitmapIndex::MAX),
@@ -442,7 +505,7 @@ impl BitmapIndex {
     }
 
     /// Checked integer division. Computes `self / rhs`, returning `None`
-    /// if `rhs == Self::MIN`.
+    /// if `rhs == Self::ZERO`.
     ///
     /// # Examples
     ///
@@ -451,20 +514,20 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_div(BitmapIndex::MIN),
+    ///     BitmapIndex::ZERO.checked_div(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_div(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_div(BitmapIndex::ONE),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_div(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.checked_div(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_div(BitmapIndex::MAX),
-    ///     BitmapIndex::try_from(1).ok()
+    ///     Some(BitmapIndex::ONE)
     /// );
     /// ```
     pub const fn checked_div(self, rhs: Self) -> Option<Self> {
@@ -476,7 +539,7 @@ impl BitmapIndex {
     }
 
     /// Checked Euclidean division. Computes `self / rhs`, returning `None`
-    /// if `rhs == Self::MIN`. Equivalent to integer division for this type.
+    /// if `rhs == Self::ZERO`. Equivalent to integer division for this type.
     ///
     /// # Examples
     ///
@@ -485,20 +548,20 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_div_euclid(BitmapIndex::MIN),
+    ///     BitmapIndex::ZERO.checked_div_euclid(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_div_euclid(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_div_euclid(BitmapIndex::ONE),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::try_from(1).ok()
+    ///     Some(BitmapIndex::ONE)
     /// );
     /// ```
     pub const fn checked_div_euclid(self, rhs: Self) -> Option<Self> {
@@ -506,7 +569,7 @@ impl BitmapIndex {
     }
 
     /// Checked integer remainder. Computes `self % rhs`, returning `None`
-    /// if `rhs == Self::MIN`.
+    /// if `rhs == Self::ZERO`.
     ///
     /// # Examples
     ///
@@ -515,20 +578,20 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_rem(BitmapIndex::MIN),
+    ///     BitmapIndex::ZERO.checked_rem(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_rem(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_rem(BitmapIndex::ONE),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_rem(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.checked_rem(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_rem(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// ```
     pub const fn checked_rem(self, rhs: Self) -> Option<Self> {
@@ -540,7 +603,7 @@ impl BitmapIndex {
     }
 
     /// Checked Euclidean remainder. Computes `self % rhs`, returning `None`
-    /// if `rhs == Self::MIN`. Equivalent to integer remainder for this type.
+    /// if `rhs == Self::ZERO`. Equivalent to integer remainder for this type.
     ///
     /// # Examples
     ///
@@ -549,20 +612,20 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_rem_euclid(BitmapIndex::MIN),
+    ///     BitmapIndex::ZERO.checked_rem_euclid(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_rem_euclid(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_rem_euclid(BitmapIndex::ONE),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MIN)
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// ```
     pub const fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
@@ -585,6 +648,10 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
+    ///     BitmapIndex::ONE.ilog(BitmapIndex::MAX),
+    ///     0
+    /// );
+    /// assert_eq!(
     ///     BitmapIndex::MAX.ilog(BitmapIndex::MAX),
     ///     1
     /// );
@@ -603,6 +670,10 @@ impl BitmapIndex {
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.ilog2(),
+    ///     0
+    /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.ilog2(),
     ///     BitmapIndex::EFFECTIVE_BITS - 1
@@ -623,8 +694,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::try_from(10).unwrap().ilog10(),
-    ///     1
+    ///     BitmapIndex::ONE.ilog10(),
+    ///     0
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::try_from(100).unwrap().ilog10(),
+    ///     2
     /// );
     /// ```
     pub const fn ilog10(self) -> u32 {
@@ -645,15 +720,15 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_ilog(BitmapIndex::MIN),
+    ///     BitmapIndex::ZERO.checked_ilog(BitmapIndex::ONE),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_ilog(BitmapIndex::MAX),
-    ///     None
+    ///     BitmapIndex::ONE.checked_ilog(BitmapIndex::MAX),
+    ///     Some(0)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_ilog(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.checked_ilog(BitmapIndex::ZERO),
     ///     None
     /// );
     /// assert_eq!(
@@ -674,8 +749,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_ilog2(),
+    ///     BitmapIndex::ZERO.checked_ilog2(),
     ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_ilog2(),
+    ///     Some(0)
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_ilog2(),
@@ -695,12 +774,16 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_ilog10(),
+    ///     BitmapIndex::ZERO.checked_ilog10(),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::try_from(10).ok().and_then(BitmapIndex::checked_ilog10),
-    ///     Some(1)
+    ///     BitmapIndex::ONE.checked_ilog10(),
+    ///     Some(0)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::try_from(100).ok().and_then(BitmapIndex::checked_ilog10),
+    ///     Some(2)
     /// );
     /// ```
     pub const fn checked_ilog10(self) -> Option<u32> {
@@ -718,8 +801,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_neg(),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_neg(),
+    ///     Some(BitmapIndex::ZERO)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_neg(),
+    ///     None
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_neg(),
@@ -739,17 +826,21 @@ impl BitmapIndex {
     ///
     /// # Examples
     ///
-    /// Basic usage
+    /// Basic usage:
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_shl(1),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_shl(1),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_shl(u32::MAX),
+    ///     BitmapIndex::ZERO.checked_shl(BitmapIndex::EFFECTIVE_BITS),
     ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_shl(1),
+    ///     BitmapIndex::try_from(2).ok()
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_shl(0),
@@ -760,7 +851,7 @@ impl BitmapIndex {
     ///     Some((BitmapIndex::MAX / 2) * 2)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shl(u32::MAX),
+    ///     BitmapIndex::MAX.checked_shl(BitmapIndex::EFFECTIVE_BITS),
     ///     None
     /// );
     /// ```
@@ -777,17 +868,21 @@ impl BitmapIndex {
     ///
     /// # Examples
     ///
-    /// Basic usage
+    /// Basic usage:
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_shr(1),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ZERO.checked_shr(1),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_shr(u32::MAX),
+    ///     BitmapIndex::ZERO.checked_shr(BitmapIndex::EFFECTIVE_BITS),
     ///     None
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.checked_shr(1),
+    ///     Some(BitmapIndex::ZERO)
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_shr(0),
@@ -796,6 +891,10 @@ impl BitmapIndex {
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_shr(1),
     ///     Some(BitmapIndex::MAX / 2)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.checked_shr(BitmapIndex::EFFECTIVE_BITS),
+    ///     None
     /// );
     /// ```
     pub const fn checked_shr(self, rhs: u32) -> Option<Self> {
@@ -811,17 +910,17 @@ impl BitmapIndex {
     ///
     /// # Examples
     ///
-    /// Basic usage
+    /// Basic usage:
     ///
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_pow(0),
-    ///     BitmapIndex::try_from(1).ok()
+    ///     BitmapIndex::ZERO.checked_pow(0),
+    ///     Some(BitmapIndex::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_pow(2),
-    ///     Some(BitmapIndex::MIN)
+    ///     BitmapIndex::ONE.checked_pow(3),
+    ///     Some(BitmapIndex::ONE)
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.checked_pow(1),
@@ -849,15 +948,15 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_add(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN.saturating_add(BitmapIndex::ZERO),
     ///     BitmapIndex::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_add(BitmapIndex::MAX),
-    ///     BitmapIndex::MAX
+    ///     BitmapIndex::ONE.saturating_add(BitmapIndex::ZERO),
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_add(BitmapIndex::MIN),
+    ///     BitmapIndex::ONE.saturating_add(BitmapIndex::MAX),
     ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
@@ -918,7 +1017,7 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::ZERO),
     ///     BitmapIndex::MIN
     /// );
     /// assert_eq!(
@@ -926,12 +1025,12 @@ impl BitmapIndex {
     ///     BitmapIndex::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::ZERO),
     ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO
     /// );
     /// ```
     pub const fn saturating_sub(self, rhs: Self) -> Self {
@@ -948,16 +1047,16 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_mul(BitmapIndex::MIN),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.saturating_mul(BitmapIndex::ZERO),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_mul(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.saturating_mul(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::MIN),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::ONE),
+    ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::MAX),
@@ -979,8 +1078,8 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_div(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ONE.saturating_div(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.saturating_div(BitmapIndex::MAX),
@@ -1001,12 +1100,16 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_pow(0),
+    ///     BitmapIndex::ZERO.saturating_pow(0),
     ///     1
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_pow(2),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.saturating_pow(2),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.saturating_pow(3),
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.saturating_pow(1),
@@ -1041,15 +1144,19 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_add(BitmapIndex::MIN),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.wrapping_add(BitmapIndex::ZERO),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_add(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO.wrapping_add(BitmapIndex::MAX),
     ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_add(BitmapIndex::MIN),
+    ///     BitmapIndex::ONE.wrapping_add(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.wrapping_add(BitmapIndex::ZERO),
     ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
@@ -1101,20 +1208,24 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::ZERO),
     ///     BitmapIndex::MIN
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::ONE),
+    ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::MAX),
     ///     1
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::MIN),
+    ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::ZERO),
     ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO
     /// );
     /// ```
     pub const fn wrapping_sub(self, rhs: Self) -> Self {
@@ -1131,16 +1242,16 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_mul(BitmapIndex::MIN),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.wrapping_mul(BitmapIndex::ZERO),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_mul(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.wrapping_mul(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::MIN),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::ZERO),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::MAX),
@@ -1163,8 +1274,8 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_div(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ONE.wrapping_div(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_div(BitmapIndex::MAX),
@@ -1189,8 +1300,8 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_div_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ONE.wrapping_div_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::ZERO
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_div_euclid(BitmapIndex::MAX),
@@ -1214,12 +1325,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_rem(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ONE.wrapping_rem(BitmapIndex::MAX),
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_rem(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO
     /// );
     /// ```
     pub const fn wrapping_rem(self, rhs: Self) -> Self {
@@ -1240,12 +1351,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_rem_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ONE.wrapping_rem_euclid(BitmapIndex::MAX),
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_rem_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO
     /// );
     /// ```
     pub const fn wrapping_rem_euclid(self, rhs: Self) -> Self {
@@ -1269,8 +1380,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_neg(),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ZERO.wrapping_neg(),
+    ///     BitmapIndex::ZERO
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ONE.wrapping_neg(),
+    ///     BitmapIndex::MAX
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_neg(),
@@ -1371,12 +1486,12 @@ impl BitmapIndex {
     /// ```rust
     /// # use hwlocality::bitmaps::BitmapIndex;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_pow(0),
+    ///     BitmapIndex::ZERO.wrapping_pow(0),
     ///     1
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_pow(2),
-    ///     BitmapIndex::MIN
+    ///     BitmapIndex::ONE.wrapping_pow(3),
+    ///     BitmapIndex::ONE
     /// );
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_pow(1),
@@ -1389,6 +1504,107 @@ impl BitmapIndex {
     /// ```
     pub const fn wrapping_pow(self, exp: u32) -> Self {
         Self(self.0.wrapping_pow(exp) & Self::MAX.0)
+    }
+
+    /// Calculates `self` + `rhs`
+    ///
+    /// Returns a tuple of the addition along with a boolean indicating whether
+    /// an arithmetic overflow would occur. If an overflow would have occurred
+    /// then the wrapped value is returned.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.overflowing_add(BitmapIndex::ZERO),
+    ///     (BitmapIndex::MIN, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::ZERO.overflowing_add(BitmapIndex::MAX),
+    ///     (BitmapIndex::MAX, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_add(BitmapIndex::ZERO),
+    ///     (BitmapIndex::MAX, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_add(BitmapIndex::ONE),
+    ///     (BitmapIndex::MIN, true)
+    /// );
+    /// ```
+    pub const fn overflowing_add(self, rhs: Self) -> (Self, bool) {
+        let overflow = rhs.0 > Self::MAX.0 - self.0;
+        (self.wrapping_add(rhs), overflow)
+    }
+
+    /// Calculates `self` + `rhs` with a signed `rhs`.
+    ///
+    /// Returns a tuple of the addition along with a boolean indicating whether
+    /// an arithmetic overflow would occur. If an overflow would have occurred
+    /// then the wrapped value is returned.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.overflowing_add_signed(0),
+    ///     (BitmapIndex::MIN, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.overflowing_add_signed(-1),
+    ///     (BitmapIndex::MAX, true)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_add_signed(0),
+    ///     (BitmapIndex::MAX, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_add_signed(1),
+    ///     (BitmapIndex::MIN, true)
+    /// );
+    /// ```
+    pub const fn overflowing_add_signed(self, rhs: isize) -> (Self, bool) {
+        let overflow = (rhs > (Self::MAX.0 - self.0) as isize) || (rhs < -(self.0 as isize));
+        (self.wrapping_add_signed(rhs), overflow)
+    }
+
+    /// Calculates `self` - `rhs`
+    ///
+    /// Returns a tuple of the addition along with a boolean indicating whether
+    /// an arithmetic overflow would occur. If an overflow would have occurred
+    /// then the wrapped value is returned.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```rust
+    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.overflowing_sub(BitmapIndex::ZERO),
+    ///     (BitmapIndex::MIN, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MIN.overflowing_sub(BitmapIndex::ONE),
+    ///     (BitmapIndex::MAX, true)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_sub(BitmapIndex::ZERO),
+    ///     (BitmapIndex::MAX, false)
+    /// );
+    /// assert_eq!(
+    ///     BitmapIndex::MAX.overflowing_sub(BitmapIndex::MAX),
+    ///     (BitmapIndex::ZERO, false)
+    /// );
+    /// ```
+    pub const fn overflowing_sub(self, rhs: Self) -> (Self, bool) {
+        (self.wrapping_sub(rhs), rhs.0 > self.0)
     }
 
     // FIXME: Support other integer operations, see u64 for inspiration.
@@ -1512,7 +1728,7 @@ impl Div<usize> for BitmapIndex {
     fn div(self, rhs: usize) -> Self {
         Self::try_from(rhs)
             .map(|rhs| self / rhs)
-            .unwrap_or(Self::MIN)
+            .unwrap_or(Self::ZERO)
     }
 }
 
@@ -1635,7 +1851,7 @@ impl PartialOrd<usize> for BitmapIndex {
 
 impl<B: Borrow<BitmapIndex>> Product<B> for BitmapIndex {
     fn product<I: Iterator<Item = B>>(iter: I) -> Self {
-        iter.fold(BitmapIndex::MIN, |acc, contrib| acc * contrib.borrow())
+        iter.fold(BitmapIndex::ONE, |acc, contrib| acc * contrib.borrow())
     }
 }
 
@@ -1832,7 +2048,7 @@ where
 
 impl<B: Borrow<BitmapIndex>> Sum<B> for BitmapIndex {
     fn sum<I: Iterator<Item = B>>(iter: I) -> Self {
-        iter.fold(BitmapIndex::MIN, |acc, contrib| acc + contrib.borrow())
+        iter.fold(BitmapIndex::ZERO, |acc, contrib| acc + contrib.borrow())
     }
 }
 
