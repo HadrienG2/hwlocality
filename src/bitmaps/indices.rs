@@ -2122,6 +2122,30 @@ impl Add<&isize> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Add<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: B) -> BitmapIndex {
+        *self + rhs
+    }
+}
+
+impl Add<isize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: isize) -> BitmapIndex {
+        *self + rhs
+    }
+}
+
+impl Add<&isize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: &isize) -> BitmapIndex {
+        *self + (*rhs)
+    }
+}
+
 impl<Rhs> AddAssign<Rhs> for BitmapIndex
 where
     Self: Add<Rhs, Output = Self>,
@@ -2160,6 +2184,14 @@ impl<B: Borrow<BitmapIndex>> BitAnd<B> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> BitAnd<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: B) -> BitmapIndex {
+        *self & rhs
+    }
+}
+
 impl<Rhs> BitAndAssign<Rhs> for BitmapIndex
 where
     Self: BitAnd<Rhs, Output = Self>,
@@ -2177,6 +2209,14 @@ impl<B: Borrow<BitmapIndex>> BitOr<B> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> BitOr<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: B) -> BitmapIndex {
+        *self | rhs
+    }
+}
+
 impl<Rhs> BitOrAssign<Rhs> for BitmapIndex
 where
     Self: BitOr<Rhs, Output = Self>,
@@ -2191,6 +2231,14 @@ impl<B: Borrow<BitmapIndex>> BitXor<B> for BitmapIndex {
 
     fn bitxor(self, rhs: B) -> Self {
         Self(self.0 ^ rhs.borrow().0)
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> BitXor<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: B) -> BitmapIndex {
+        *self ^ rhs
     }
 }
 
@@ -2226,6 +2274,30 @@ impl Div<&usize> for BitmapIndex {
 
     fn div(self, rhs: &usize) -> Self {
         self / *rhs
+    }
+}
+
+impl<B: Borrow<BitmapIndex>> Div<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn div(self, rhs: B) -> BitmapIndex {
+        *self / rhs
+    }
+}
+
+impl Div<usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn div(self, rhs: usize) -> BitmapIndex {
+        *self / rhs
+    }
+}
+
+impl Div<&usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn div(self, rhs: &usize) -> BitmapIndex {
+        *self / *rhs
     }
 }
 
@@ -2301,6 +2373,30 @@ impl Mul<&usize> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Mul<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: B) -> BitmapIndex {
+        *self * rhs
+    }
+}
+
+impl Mul<usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: usize) -> BitmapIndex {
+        *self * rhs
+    }
+}
+
+impl Mul<&usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: &usize) -> BitmapIndex {
+        (*self) * (*rhs)
+    }
+}
+
 impl<Rhs> MulAssign<Rhs> for BitmapIndex
 where
     Self: Mul<Rhs, Output = Self>,
@@ -2368,6 +2464,30 @@ impl Rem<&usize> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Rem<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn rem(self, rhs: B) -> BitmapIndex {
+        *self % rhs
+    }
+}
+
+impl Rem<usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn rem(self, rhs: usize) -> BitmapIndex {
+        *self % rhs
+    }
+}
+
+impl Rem<&usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn rem(self, rhs: &usize) -> BitmapIndex {
+        *self % (*rhs)
+    }
+}
+
 impl<Rhs> RemAssign<Rhs> for BitmapIndex
 where
     Self: Rem<Rhs, Output = Self>,
@@ -2418,6 +2538,36 @@ where
                     .expect("Such a small number should always fit");
         }
         Self((self.0 << rhs) & Self::MAX.0)
+    }
+}
+
+impl Shl<BitmapIndex> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn shl(self, rhs: BitmapIndex) -> BitmapIndex {
+        *self << rhs
+    }
+}
+
+impl Shl<&BitmapIndex> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn shl(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *self << *rhs
+    }
+}
+
+impl<InnerRhs: Copy> Shl<InnerRhs> for &BitmapIndex
+where
+    c_uint: Shl<InnerRhs, Output = c_uint>,
+    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
+    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
+    isize: TryFrom<InnerRhs>,
+{
+    type Output = BitmapIndex;
+
+    fn shl(self, rhs: InnerRhs) -> BitmapIndex {
+        *self << rhs
     }
 }
 
@@ -2474,6 +2624,36 @@ where
     }
 }
 
+impl Shr<BitmapIndex> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn shr(self, rhs: BitmapIndex) -> BitmapIndex {
+        *self >> rhs
+    }
+}
+
+impl Shr<&BitmapIndex> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn shr(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *self >> *rhs
+    }
+}
+
+impl<InnerRhs: Copy> Shr<InnerRhs> for &BitmapIndex
+where
+    c_uint: Shr<InnerRhs, Output = c_uint>,
+    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
+    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
+    isize: TryFrom<InnerRhs>,
+{
+    type Output = BitmapIndex;
+
+    fn shr(self, rhs: InnerRhs) -> BitmapIndex {
+        *self >> rhs
+    }
+}
+
 impl<Rhs> ShrAssign<Rhs> for BitmapIndex
 where
     Self: Shr<Rhs, Output = Self>,
@@ -2526,6 +2706,30 @@ impl Sub<&isize> for BitmapIndex {
     }
 }
 
+impl<B: Borrow<BitmapIndex>> Sub<B> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn sub(self, rhs: B) -> BitmapIndex {
+        *self - rhs
+    }
+}
+
+impl Sub<isize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn sub(self, rhs: isize) -> BitmapIndex {
+        *self - rhs
+    }
+}
+
+impl Sub<&isize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn sub(self, rhs: &isize) -> BitmapIndex {
+        *self - (*rhs)
+    }
+}
+
 impl<Rhs> SubAssign<Rhs> for BitmapIndex
 where
     Self: Sub<Rhs, Output = Self>,
@@ -2575,7 +2779,7 @@ mod tests {
         ffi::c_uint,
         hash::{Hash, Hasher},
         num::IntErrorKind,
-        panic::UnwindSafe,
+        panic::{RefUnwindSafe, UnwindSafe},
     };
 
     /// Inner bits of BitmapIndex that are not used by the implementation
@@ -2593,21 +2797,16 @@ mod tests {
     /// Assert that calling some code panics in debug builds and does not do so
     /// in release builds
     #[track_caller]
-    fn assert_debug_panics<R: Debug + Eq>(
-        f: impl FnOnce() -> R + UnwindSafe,
-        release_result: Option<R>,
-    ) {
+    fn assert_debug_panics<R: Debug + Eq>(f: impl FnOnce() -> R + UnwindSafe, release_result: R) {
         let res = std::panic::catch_unwind(f);
         if cfg!(debug_assertions) {
             res.expect_err("Operation should have panicked, but didn't panic");
         } else {
             let result = res.expect("Operation should not have panicked, but did panic");
-            if let Some(release_result) = release_result {
-                assert_eq!(
-                    result, release_result,
-                    "Operation does not produce the expected result in release builds"
-                );
-            }
+            assert_eq!(
+                result, release_result,
+                "Operation does not produce the expected result in release builds"
+            );
         }
     }
 
@@ -2637,8 +2836,8 @@ mod tests {
         let zero = BitmapIndex::ZERO;
 
         // Logarithm fails for zero
-        assert_debug_panics(|| zero.ilog2(), None);
-        assert_debug_panics(|| zero.ilog10(), None);
+        assert_panics(|| zero.ilog2());
+        assert_panics(|| zero.ilog10());
         assert_eq!(zero.checked_ilog2(), None);
         assert_eq!(zero.checked_ilog10(), None);
 
@@ -2735,7 +2934,7 @@ mod tests {
         if no_next_pow2 == last_pow2 {
             no_next_pow2 += 1;
         }
-        assert_debug_panics(|| no_next_pow2.next_power_of_two(), Some(BitmapIndex::ZERO));
+        assert_debug_panics(|| no_next_pow2.next_power_of_two(), BitmapIndex::ZERO);
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
     }
 
@@ -2796,35 +2995,358 @@ mod tests {
         test_from_str_radix(&src, radix, || BitmapIndex::from_str_radix(&src, radix))
     }
 
-    // FIXME: Add quickchecks for other unary operations (mostly conversions)
-    //        then binary+ operations, etc.
+    /// Test a faillible operation, produce the checked result for verification
+    fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
+        index: BitmapIndex,
+        rhs: Rhs,
+        checked_op: impl FnOnce(BitmapIndex, Rhs) -> Option<BitmapIndex>,
+        faillible_ops: [Box<dyn Fn(BitmapIndex, Rhs) -> BitmapIndex + RefUnwindSafe>; LEN],
+        release_result: Option<BitmapIndex>,
+    ) -> Option<BitmapIndex> {
+        let checked_result = checked_op(index, rhs);
+        match (checked_result, release_result) {
+            (Some(result), _) => {
+                for faillible_op in faillible_ops {
+                    assert_eq!(faillible_op(index, rhs), result);
+                }
+            }
+            (None, Some(release_result)) => {
+                for faillible_op in faillible_ops {
+                    assert_debug_panics(|| faillible_op(index, rhs), release_result);
+                }
+            }
+            (None, None) => {
+                for faillible_op in faillible_ops {
+                    assert_panics(|| faillible_op(index, rhs));
+                }
+            }
+        }
+        checked_result
+    }
 
-    /// Test iterator reductions (Sum and Product)
+    /// Test an overflowing operation, produce the overflowing result for verification
+    fn test_overflowing<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
+        index: BitmapIndex,
+        rhs: Rhs,
+        checked_op: impl Fn(BitmapIndex, Rhs) -> Option<BitmapIndex>,
+        overflowing_op: impl Fn(BitmapIndex, Rhs) -> (BitmapIndex, bool),
+        wrapping_op: impl Fn(BitmapIndex, Rhs) -> BitmapIndex,
+        faillible_ops: [Box<dyn Fn(BitmapIndex, Rhs) -> BitmapIndex + RefUnwindSafe>; LEN],
+        release_wraps: bool,
+    ) -> (BitmapIndex, bool) {
+        let overflowing_result = overflowing_op(index, rhs);
+        let (wrapped_result, overflow) = overflowing_result;
+        assert_eq!(wrapping_op(index, rhs), wrapped_result);
+        let release_result = if release_wraps {
+            Some(wrapped_result)
+        } else {
+            None
+        };
+        let checked_result = test_faillible(index, rhs, checked_op, faillible_ops, release_result);
+        if overflow {
+            assert_eq!(checked_result, None);
+        } else {
+            assert_eq!(checked_result, Some(wrapped_result));
+        }
+        overflowing_result
+    }
+
+    /// Test index-index binary operations
+    #[allow(clippy::op_ref)]
+    #[quickcheck]
+    fn index_op_index(i1: BitmapIndex, i2: BitmapIndex) {
+        // We'll use overflowing usize arithmetic as a source of truth
+        fn predict_overflowing_result(
+            i1: BitmapIndex,
+            i2: BitmapIndex,
+            usize_op: fn(usize, usize) -> (usize, bool),
+        ) -> (BitmapIndex, bool) {
+            let used_bits_usize = (1usize << BitmapIndex::EFFECTIVE_BITS) - 1;
+            let max_usize = usize::from(BitmapIndex::MAX);
+            let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), usize::from(i2));
+            let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
+            let expected_overflow = overflow_usize && (wrapped_usize > max_usize);
+            (expected_wrapped, expected_overflow)
+        }
+
+        // Addition
+        let (expected_wrapped, expected_overflow) =
+            predict_overflowing_result(i1, i2, usize::overflowing_add);
+        let (wrapped, overflow) = test_overflowing(
+            i1,
+            i2,
+            BitmapIndex::checked_add,
+            BitmapIndex::overflowing_add,
+            BitmapIndex::wrapping_add,
+            [
+                Box::new(|i1, i2| i1 + i2),
+                Box::new(|i1, i2| &i1 + i2),
+                Box::new(|i1, i2| i1 + &i2),
+                Box::new(|i1, i2| &i1 + &i2),
+                Box::new(|mut i1, i2| {
+                    i1 += i2;
+                    i1
+                }),
+                Box::new(|mut i1, i2| {
+                    i1 += &i2;
+                    i1
+                }),
+            ],
+            true,
+        );
+        assert_eq!(wrapped, expected_wrapped);
+        assert_eq!(overflow, expected_overflow);
+        if overflow {
+            assert_eq!(i1.saturating_add(i2), BitmapIndex::MAX);
+        } else {
+            assert_eq!(i1.saturating_add(i2), wrapped);
+        }
+
+        // Subtraction
+        let (expected_wrapped, expected_overflow) =
+            predict_overflowing_result(i1, i2, usize::overflowing_sub);
+        let (wrapped, overflow) = test_overflowing(
+            i1,
+            i2,
+            BitmapIndex::checked_sub,
+            BitmapIndex::overflowing_sub,
+            BitmapIndex::wrapping_sub,
+            [
+                Box::new(|i1, i2| i1 - i2),
+                Box::new(|i1, i2| &i1 - i2),
+                Box::new(|i1, i2| i1 - &i2),
+                Box::new(|i1, i2| &i1 - &i2),
+                Box::new(|mut i1, i2| {
+                    i1 -= i2;
+                    i1
+                }),
+                Box::new(|mut i1, i2| {
+                    i1 -= &i2;
+                    i1
+                }),
+            ],
+            true,
+        );
+        assert_eq!(wrapped, expected_wrapped);
+        assert_eq!(overflow, expected_overflow);
+        if overflow {
+            assert_eq!(i1.saturating_sub(i2), BitmapIndex::MIN);
+        } else {
+            assert_eq!(i1.saturating_sub(i2), wrapped);
+        }
+
+        // Multiplication
+        let (expected_wrapped, expected_overflow) =
+            predict_overflowing_result(i1, i2, usize::overflowing_mul);
+        let (wrapped, overflow) = test_overflowing(
+            i1,
+            i2,
+            BitmapIndex::checked_mul,
+            BitmapIndex::overflowing_mul,
+            BitmapIndex::wrapping_mul,
+            [
+                Box::new(|i1, i2| i1 * i2),
+                Box::new(|i1, i2| &i1 * i2),
+                Box::new(|i1, i2| i1 * &i2),
+                Box::new(|i1, i2| &i1 * &i2),
+                Box::new(|mut i1, i2| {
+                    i1 *= i2;
+                    i1
+                }),
+                Box::new(|mut i1, i2| {
+                    i1 *= &i2;
+                    i1
+                }),
+            ],
+            true,
+        );
+        assert_eq!(wrapped, expected_wrapped);
+        assert_eq!(overflow, expected_overflow);
+        if overflow {
+            assert_eq!(i1.saturating_mul(i2), BitmapIndex::MAX);
+        } else {
+            assert_eq!(i1.saturating_mul(i2), wrapped);
+        }
+
+        // Division and remainder by nonzero
+        {
+            // Division
+            let nonzero = i2.saturating_add(BitmapIndex::ONE);
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(i1, nonzero, usize::overflowing_div);
+            let res1 = test_overflowing(
+                i1,
+                nonzero,
+                BitmapIndex::checked_div,
+                BitmapIndex::overflowing_div,
+                BitmapIndex::wrapping_div,
+                [
+                    Box::new(|i1, nonzero| i1 / nonzero),
+                    Box::new(|i1, nonzero| &i1 / nonzero),
+                    Box::new(|i1, nonzero| i1 / &nonzero),
+                    Box::new(|i1, nonzero| &i1 / &nonzero),
+                    Box::new(|mut i1, nonzero| {
+                        i1 /= nonzero;
+                        i1
+                    }),
+                    Box::new(|mut i1, nonzero| {
+                        i1 /= &nonzero;
+                        i1
+                    }),
+                ],
+                true,
+            );
+            let res2 = test_overflowing(
+                i1,
+                nonzero,
+                BitmapIndex::checked_div_euclid,
+                BitmapIndex::overflowing_div_euclid,
+                BitmapIndex::wrapping_div_euclid,
+                [Box::new(|i1, nonzero| i1.div_euclid(nonzero))],
+                true,
+            );
+            assert_eq!(i1.saturating_div(nonzero), expected_wrapped);
+            for (wrapped, overflow) in [res1, res2] {
+                assert_eq!(wrapped, expected_wrapped);
+                assert_eq!(overflow, expected_overflow);
+            }
+
+            // Remainder
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(i1, nonzero, usize::overflowing_rem);
+            let res1 = test_overflowing(
+                i1,
+                nonzero,
+                BitmapIndex::checked_rem,
+                BitmapIndex::overflowing_rem,
+                BitmapIndex::wrapping_rem,
+                [
+                    Box::new(|i1, nonzero| i1 % nonzero),
+                    Box::new(|i1, nonzero| &i1 % nonzero),
+                    Box::new(|i1, nonzero| i1 % &nonzero),
+                    Box::new(|i1, nonzero| &i1 % &nonzero),
+                    Box::new(|mut i1, nonzero| {
+                        i1 %= nonzero;
+                        i1
+                    }),
+                    Box::new(|mut i1, nonzero| {
+                        i1 %= &nonzero;
+                        i1
+                    }),
+                ],
+                true,
+            );
+            let res2 = test_overflowing(
+                i1,
+                nonzero,
+                BitmapIndex::checked_rem_euclid,
+                BitmapIndex::overflowing_rem_euclid,
+                BitmapIndex::wrapping_rem_euclid,
+                [Box::new(|i1, nonzero| i1.rem_euclid(nonzero))],
+                true,
+            );
+            for (wrapped, overflow) in [res1, res2] {
+                assert_eq!(wrapped, expected_wrapped);
+                assert_eq!(overflow, expected_overflow);
+            }
+        }
+
+        // Division and remainder by zero
+        {
+            let zero = BitmapIndex::ZERO;
+            assert_eq!(i1.checked_div(zero), None);
+            assert_panics(|| i1.overflowing_div(zero));
+            assert_panics(|| i1.saturating_div(zero));
+            assert_panics(|| i1.wrapping_div(zero));
+            assert_panics(|| i1 / zero);
+            assert_panics(|| &i1 / zero);
+            assert_panics(|| i1 / &zero);
+            assert_panics(|| &i1 / &zero);
+            assert_eq!(i1.checked_div_euclid(zero), None);
+            assert_panics(|| i1.overflowing_div_euclid(zero));
+            assert_panics(|| i1.wrapping_div_euclid(zero));
+            assert_eq!(i1.checked_rem(zero), None);
+            assert_panics(|| i1.overflowing_rem(zero));
+            assert_panics(|| i1.wrapping_rem(zero));
+            assert_panics(|| i1 % zero);
+            assert_panics(|| &i1 % zero);
+            assert_panics(|| i1 % &zero);
+            assert_panics(|| &i1 % &zero);
+            assert_eq!(i1.checked_rem_euclid(zero), None);
+            assert_panics(|| i1.overflowing_rem_euclid(zero));
+            assert_panics(|| i1.wrapping_rem_euclid(zero));
+        }
+
+        // TODO: Add more: abs_diff, ilog, bitwise ops + assign variants, Eq, Ord, Shr/Shl
+    }
+
+    /* /// Test index-u32 binary operations
+    #[quickcheck]
+    fn index_op_u32(index: BitmapIndex, other: u32) {
+        // TODO: Add more, including bitshift
+    }
+
+    /// Test index-usize binary operations
+    #[quickcheck]
+    fn index_op_usize(index: BitmapIndex, other: usize) {
+        // TODO: Add more, including bitshift, div, mul, rem, eq, ord
+    }
+
+    /// Test index-isize binary operations
+    #[quickcheck]
+    fn index_op_isize(index: BitmapIndex, other: isize) {
+        // TODO: Add more, including bitshift, add, sub
+    } */
+
+    /// Test iterator reductions
     #[quickcheck]
     fn reductions(indices: Vec<BitmapIndex>) {
-        let checked_reduction =
-            |neutral: BitmapIndex,
-             checked_op: fn(BitmapIndex, BitmapIndex) -> Option<BitmapIndex>|
-             -> Option<BitmapIndex> {
-                indices.iter().copied().fold(Some(neutral), |acc, elem| {
-                    acc.and_then(|acc| checked_op(acc, elem))
-                })
-            };
+        use std::iter::Copied;
+        type IndexRefIter<'a> = std::slice::Iter<'a, BitmapIndex>;
 
-        let checked_sum = checked_reduction(BitmapIndex::ZERO, BitmapIndex::checked_add);
-        let compute_sum = || indices.iter().sum::<BitmapIndex>();
-        if let Some(sum) = checked_sum {
-            assert_eq!(compute_sum(), sum);
-        } else {
-            assert_debug_panics(compute_sum, None)
+        fn test_reduction(
+            indices: &[BitmapIndex],
+            neutral: BitmapIndex,
+            overflowing_op: impl Fn(BitmapIndex, BitmapIndex) -> (BitmapIndex, bool),
+            reduce_by_ref: impl Fn(IndexRefIter) -> BitmapIndex + RefUnwindSafe,
+            reduce_by_value: impl Fn(Copied<IndexRefIter>) -> BitmapIndex + RefUnwindSafe,
+        ) {
+            // Perform reduction using the overflowing operator
+            let (wrapping_result, overflow) = indices.iter().copied().fold(
+                (neutral, false),
+                |(wrapping_acc, prev_overflow), elem| {
+                    let (wrapping_acc, new_overflow) = overflowing_op(wrapping_acc, elem);
+                    (wrapping_acc, prev_overflow || new_overflow)
+                },
+            );
+
+            // Test the standard reductions accordingly
+            let reductions: [&(dyn Fn() -> BitmapIndex + RefUnwindSafe); 2] =
+                [&|| reduce_by_ref(indices.iter()), &|| {
+                    reduce_by_value(indices.iter().copied())
+                }];
+            for reduction in reductions {
+                if overflow {
+                    assert_debug_panics(reduction, wrapping_result);
+                } else {
+                    assert_eq!(reduction(), wrapping_result);
+                }
+            }
         }
 
-        let checked_prod = checked_reduction(BitmapIndex::ONE, BitmapIndex::checked_mul);
-        let compute_prod = || indices.iter().product::<BitmapIndex>();
-        if let Some(prod) = checked_prod {
-            assert_eq!(compute_prod(), prod);
-        } else {
-            assert_debug_panics(compute_prod, None)
-        }
+        test_reduction(
+            &indices,
+            BitmapIndex::ZERO,
+            BitmapIndex::overflowing_add,
+            |ref_iter| ref_iter.sum::<BitmapIndex>(),
+            |value_iter| value_iter.sum::<BitmapIndex>(),
+        );
+        test_reduction(
+            &indices,
+            BitmapIndex::ONE,
+            BitmapIndex::overflowing_mul,
+            |ref_iter| ref_iter.product::<BitmapIndex>(),
+            |value_iter| value_iter.product::<BitmapIndex>(),
+        );
     }
 }
