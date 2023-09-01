@@ -2996,6 +2996,13 @@ mod tests {
     }
 
     /// Test a faillible operation, produce the checked result for verification
+    ///
+    /// If `release_result` is `Some(result)`, it indicates that in release
+    /// builds, the faillible operation will return `result` instead of
+    /// panicking. This is the behavior of most built-in arithmetic operations.
+    ///
+    /// If `release_result` is `None`, it indicates that the faillible operation
+    /// should panick even in release mode, as e.g. ilog() does.
     fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
         index: BitmapIndex,
         rhs: Rhs,
@@ -3032,17 +3039,12 @@ mod tests {
         overflowing_op: impl Fn(BitmapIndex, Rhs) -> (BitmapIndex, bool),
         wrapping_op: impl Fn(BitmapIndex, Rhs) -> BitmapIndex,
         faillible_ops: [Box<dyn Fn(BitmapIndex, Rhs) -> BitmapIndex + RefUnwindSafe>; LEN],
-        release_wraps: bool,
     ) -> (BitmapIndex, bool) {
         let overflowing_result = overflowing_op(index, rhs);
         let (wrapped_result, overflow) = overflowing_result;
         assert_eq!(wrapping_op(index, rhs), wrapped_result);
-        let release_result = if release_wraps {
-            Some(wrapped_result)
-        } else {
-            None
-        };
-        let checked_result = test_faillible(index, rhs, checked_op, faillible_ops, release_result);
+        let checked_result =
+            test_faillible(index, rhs, checked_op, faillible_ops, Some(wrapped_result));
         if overflow {
             assert_eq!(checked_result, None);
         } else {
@@ -3092,7 +3094,6 @@ mod tests {
                     i1
                 }),
             ],
-            true,
         );
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
@@ -3125,7 +3126,6 @@ mod tests {
                     i1
                 }),
             ],
-            true,
         );
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
@@ -3158,7 +3158,6 @@ mod tests {
                     i1
                 }),
             ],
-            true,
         );
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
@@ -3194,7 +3193,6 @@ mod tests {
                         i1
                     }),
                 ],
-                true,
             );
             let res2 = test_overflowing(
                 i1,
@@ -3203,7 +3201,6 @@ mod tests {
                 BitmapIndex::overflowing_div_euclid,
                 BitmapIndex::wrapping_div_euclid,
                 [Box::new(|i1, nonzero| i1.div_euclid(nonzero))],
-                true,
             );
             assert_eq!(i1.saturating_div(nonzero), expected_wrapped);
             for (wrapped, overflow) in [res1, res2] {
@@ -3234,7 +3231,6 @@ mod tests {
                         i1
                     }),
                 ],
-                true,
             );
             let res2 = test_overflowing(
                 i1,
@@ -3243,7 +3239,6 @@ mod tests {
                 BitmapIndex::overflowing_rem_euclid,
                 BitmapIndex::wrapping_rem_euclid,
                 [Box::new(|i1, nonzero| i1.rem_euclid(nonzero))],
-                true,
             );
             for (wrapped, overflow) in [res1, res2] {
                 assert_eq!(wrapped, expected_wrapped);
