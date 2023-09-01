@@ -2798,4 +2798,33 @@ mod tests {
 
     // FIXME: Add quickchecks for other unary operations (mostly conversions)
     //        then binary+ operations, etc.
+
+    /// Test iterator reductions (Sum and Product)
+    #[quickcheck]
+    fn reductions(indices: Vec<BitmapIndex>) {
+        let checked_reduction =
+            |neutral: BitmapIndex,
+             checked_op: fn(BitmapIndex, BitmapIndex) -> Option<BitmapIndex>|
+             -> Option<BitmapIndex> {
+                indices.iter().copied().fold(Some(neutral), |acc, elem| {
+                    acc.and_then(|acc| checked_op(acc, elem))
+                })
+            };
+
+        let checked_sum = checked_reduction(BitmapIndex::ZERO, BitmapIndex::checked_add);
+        let compute_sum = || indices.iter().sum::<BitmapIndex>();
+        if let Some(sum) = checked_sum {
+            assert_eq!(compute_sum(), sum);
+        } else {
+            assert_debug_panics(compute_sum, None)
+        }
+
+        let checked_prod = checked_reduction(BitmapIndex::ONE, BitmapIndex::checked_mul);
+        let compute_prod = || indices.iter().product::<BitmapIndex>();
+        if let Some(prod) = checked_prod {
+            assert_eq!(compute_prod(), prod);
+        } else {
+            assert_debug_panics(compute_prod, None)
+        }
+    }
 }
