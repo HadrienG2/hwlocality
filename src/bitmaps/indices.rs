@@ -2574,6 +2574,7 @@ mod tests {
         collections::hash_map::DefaultHasher,
         ffi::c_uint,
         hash::{Hash, Hasher},
+        num::IntErrorKind,
         panic::UnwindSafe,
     };
 
@@ -2584,8 +2585,6 @@ mod tests {
     const NUM_UNUSED_BITS: u32 = UNUSED_BITS.count_ones();
 
     /// Assert that calling some code panics
-    /// FIXME: Remove allow(unused) once used again
-    #[allow(unused)]
     #[track_caller]
     fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) {
         std::panic::catch_unwind(f).expect_err("Operation should have panicked, but didn't");
@@ -2738,6 +2737,54 @@ mod tests {
         }
         assert_debug_panics(|| no_next_pow2.next_power_of_two(), Some(BitmapIndex::ZERO));
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
+    }
+
+    /// Test str -> BitmapIndex conversion (common harness)
+    fn test_from_str_radix(
+        src: &str,
+        radix: u32,
+        parse: impl FnOnce() -> Result<BitmapIndex, ParseIntError> + UnwindSafe,
+    ) {
+        // Handle excessive radix
+        if !(2..=36).contains(&radix) {
+            assert_panics(parse);
+            return;
+        }
+        let result = parse();
+
+        // Use known-good parser to usize
+        let as_usize = match usize::from_str_radix(src, radix) {
+            Ok(as_usize) => as_usize,
+            e @ Err(_) => {
+                // If it fails for usize, it should fail similarly for BitmapIndex
+                assert_eq!(e, result.map(usize::from));
+                return;
+            }
+        };
+
+        // Handle the fact that valid BitmapIndex is a subset of usize
+        const MAX: usize = BitmapIndex::MAX.0 as usize;
+        match as_usize {
+            0..=MAX => {
+                assert_eq!(result.unwrap(), as_usize);
+            }
+            _overflow => {
+                assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
+            }
+        }
+    }
+
+    /// Test conversion via the FromStr trait
+    #[quickcheck]
+    fn from_str(src: String) {
+        test_from_str_radix(&src, 10, || BitmapIndex::from_str(&src))
+    }
+
+    /// Test conversion via from_str_radix method
+    #[quickcheck]
+    fn from_str_radix(src: String, radix: u32) {
+        let radix = radix % 37;
+        test_from_str_radix(&src, radix, || BitmapIndex::from_str_radix(&src, radix))
     }
 
     // FIXME: Add quickchecks for other unary operations (mostly conversions)
