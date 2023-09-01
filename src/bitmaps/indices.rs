@@ -2739,6 +2739,15 @@ mod tests {
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
     }
 
+    /// Test usize -> BitmapIndex conversion
+    #[quickcheck]
+    fn from_usize(x: usize) {
+        assert_eq!(
+            BitmapIndex::try_from(x),
+            c_int::try_from(x).map(|i| BitmapIndex(i as c_uint))
+        );
+    }
+
     /// Test str -> BitmapIndex conversion (common harness)
     fn test_from_str_radix(
         src: &str,
