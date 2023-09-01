@@ -2783,13 +2783,13 @@ mod tests {
         }
     }
 
-    /// Test conversion via the FromStr trait
+    /// Test str -> BitmapIndex conversion via the FromStr trait
     #[quickcheck]
     fn from_str(src: String) {
         test_from_str_radix(&src, 10, || BitmapIndex::from_str(&src))
     }
 
-    /// Test conversion via from_str_radix method
+    /// Test str -> BitmapIndex conversion via the from_str_radix() method
     #[quickcheck]
     fn from_str_radix(src: String, radix: u32) {
         let radix = radix % 37;
