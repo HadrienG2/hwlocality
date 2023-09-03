@@ -576,9 +576,8 @@ impl<'topology> Distances<'topology> {
     #[doc(alias = "hwloc_distances_s::objs")]
     pub fn objects(
         &self,
-    ) -> impl Iterator<Item = Option<&TopologyObject>>
+    ) -> impl DoubleEndedIterator<Item = Option<&TopologyObject>>
            + Clone
-           + DoubleEndedIterator
            + ExactSizeIterator
            + FusedIterator {
         unsafe {
@@ -674,9 +673,8 @@ impl<'topology> Distances<'topology> {
     /// See also [`Distances::distances()`].
     pub fn enumerate_distances(
         &self,
-    ) -> impl Iterator<Item = ((usize, usize), u64)>
+    ) -> impl DoubleEndedIterator<Item = ((usize, usize), u64)>
            + Clone
-           + DoubleEndedIterator
            + ExactSizeIterator
            + FusedIterator
            + '_ {
@@ -693,10 +691,8 @@ impl<'topology> Distances<'topology> {
     /// See also [`Distances::distances()`].
     pub fn enumerate_distances_mut(
         &mut self,
-    ) -> impl Iterator<Item = ((usize, usize), &mut u64)>
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = ((usize, usize), &mut u64)> + ExactSizeIterator + FusedIterator
+    {
         let num_objects = self.num_objects();
         self.distances_mut()
             .iter_mut()

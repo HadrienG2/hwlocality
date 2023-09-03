@@ -48,9 +48,8 @@ impl Topology {
     pub fn processor_groups(
         &self,
     ) -> Result<
-        impl Iterator<Item = Result<CpuSet, RawHwlocError>>
+        impl DoubleEndedIterator<Item = Result<CpuSet, RawHwlocError>>
             + Clone
-            + DoubleEndedIterator
             + ExactSizeIterator
             + FusedIterator
             + '_,

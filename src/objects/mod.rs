@@ -415,11 +415,8 @@ impl Topology {
     pub fn objects_at_depth(
         &self,
         depth: impl Into<Depth>,
-    ) -> impl Iterator<Item = &TopologyObject>
-           + Clone
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    {
         let depth = depth.into();
         let size = self.size_at_depth(depth);
         let depth = RawDepth::from(depth);
@@ -495,11 +492,8 @@ impl Topology {
     pub fn objects_with_type(
         &self,
         object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject>
-           + Clone
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    {
         let type_depth = self.depth_for_type(object_type);
         let depth_iter = (0..self.depth())
             .map(Depth::from)
@@ -550,8 +544,8 @@ impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> Iterator
     }
 }
 //
-impl<'topology, Inner: Iterator<Item = &'topology TopologyObject> + DoubleEndedIterator>
-    DoubleEndedIterator for ObjectsWithType<Inner>
+impl<'topology, Inner: DoubleEndedIterator<Item = &'topology TopologyObject>> DoubleEndedIterator
+    for ObjectsWithType<Inner>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back()
@@ -563,7 +557,7 @@ impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> ExactSizeIter
 {
 }
 //
-impl<'topology, Inner: Iterator<Item = &'topology TopologyObject> + FusedIterator> FusedIterator
+impl<'topology, Inner: FusedIterator<Item = &'topology TopologyObject>> FusedIterator
     for ObjectsWithType<Inner>
 {
 }
@@ -595,8 +589,7 @@ impl Topology {
     pub fn pus_from_cpuset<'result>(
         &'result self,
         cpuset: &'result CpuSet,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::PU)
             .filter_map(|(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
     }
@@ -623,8 +616,7 @@ impl Topology {
     pub fn nodes_from_nodeset<'result>(
         &'result self,
         nodeset: &'result NodeSet,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::NUMANode)
             .filter_map(|(node, os_index)| nodeset.is_set(os_index).then_some(node))
     }
@@ -641,9 +633,8 @@ impl Topology {
     fn objs_and_os_indices(
         &self,
         ty: ObjectType,
-    ) -> impl Iterator<Item = (&TopologyObject, usize)>
+    ) -> impl DoubleEndedIterator<Item = (&TopologyObject, usize)>
            + Clone
-           + DoubleEndedIterator
            + ExactSizeIterator
            + FusedIterator {
         self.objects_at_depth(
@@ -857,11 +848,8 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_pcidev")]
     pub fn pci_devices(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject>
-           + Clone
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    {
         self.objects_at_depth(Depth::PCIDevice)
     }
 
@@ -926,11 +914,8 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_osdev")]
     pub fn os_devices(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject>
-           + Clone
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    {
         self.objects_at_depth(Depth::OSDevice)
     }
 
@@ -938,11 +923,8 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_bridge")]
     pub fn bridges(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject>
-           + Clone
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    {
         self.objects_at_depth(Depth::Bridge)
     }
 }
@@ -1351,11 +1333,8 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj::last_child")]
     pub fn normal_children(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject>
-           + Clone
-           + DoubleEndedIterator
-           + ExactSizeIterator
-           + FusedIterator {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    {
         if self.children.is_null() {
             assert_eq!(
                 self.normal_arity(),

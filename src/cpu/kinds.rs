@@ -95,9 +95,8 @@ impl Topology {
     pub fn cpu_kinds(
         &self,
     ) -> Result<
-        impl Iterator<Item = (CpuSet, Option<CpuEfficiency>, &[TextualInfo])>
+        impl DoubleEndedIterator<Item = (CpuSet, Option<CpuEfficiency>, &[TextualInfo])>
             + Clone
-            + DoubleEndedIterator
             + ExactSizeIterator
             + FusedIterator,
         CpuKindsUnknown,

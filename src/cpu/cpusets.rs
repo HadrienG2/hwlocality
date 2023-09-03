@@ -125,8 +125,7 @@ impl Topology {
         &'result self,
         set: &'result CpuSet,
         depth: impl Into<Depth>,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         let depth = depth.into();
         self.objects_at_depth(depth)
             .filter(|object| object.is_inside_cpuset(set))
@@ -165,7 +164,7 @@ impl Topology {
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
         object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject> + DoubleEndedIterator + FusedIterator + 'result {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
         self.objects_with_type(object_type)
             .filter(move |object| object.is_inside_cpuset(set.borrow()))
     }
@@ -303,8 +302,7 @@ impl Topology {
         &'result self,
         set: &'result CpuSet,
         depth: impl Into<Depth>,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         let depth = depth.into();
         self.objects_at_depth(depth)
             .filter(|object| object.covers_cpuset(set))
@@ -320,8 +318,7 @@ impl Topology {
         &'result self,
         set: &'result CpuSet,
         object_type: ObjectType,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + DoubleEndedIterator + FusedIterator + 'result
-    {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         self.objects_with_type(object_type)
             .filter(|object| object.covers_cpuset(set))
     }

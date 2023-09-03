@@ -395,7 +395,7 @@ impl Topology {
 
         // Inner recursive algorithm
         fn recurse<'a>(
-            roots_and_cpusets: impl Iterator<Item = ObjSetWeightDepth<'a>> + Clone + DoubleEndedIterator,
+            roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'a>> + Clone,
             num_items: usize,
             max_depth: usize,
             flags: DistributeFlags,
