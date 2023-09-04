@@ -3216,6 +3216,48 @@ mod tests {
         }
         assert_debug_panics(|| no_next_pow2.next_power_of_two(), BitmapIndex::ZERO);
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
+
+        // Division and remainder by zero
+        {
+            let zero = BitmapIndex::ZERO;
+            assert_eq!(idx.checked_div(zero), None);
+            assert_panics(|| idx.overflowing_div(zero));
+            assert_panics(|| idx.saturating_div(zero));
+            assert_panics(|| idx.wrapping_div(zero));
+            assert_panics(|| idx / zero);
+            assert_panics(|| &idx / zero);
+            assert_panics(|| idx / &zero);
+            assert_panics(|| &idx / &zero);
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp /= zero
+            });
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp /= &zero
+            });
+            assert_eq!(idx.checked_div_euclid(zero), None);
+            assert_panics(|| idx.overflowing_div_euclid(zero));
+            assert_panics(|| idx.wrapping_div_euclid(zero));
+            assert_eq!(idx.checked_rem(zero), None);
+            assert_panics(|| idx.overflowing_rem(zero));
+            assert_panics(|| idx.wrapping_rem(zero));
+            assert_panics(|| idx % zero);
+            assert_panics(|| &idx % zero);
+            assert_panics(|| idx % &zero);
+            assert_panics(|| &idx % &zero);
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp %= zero
+            });
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp %= &zero
+            });
+            assert_eq!(idx.checked_rem_euclid(zero), None);
+            assert_panics(|| idx.overflowing_rem_euclid(zero));
+            assert_panics(|| idx.wrapping_rem_euclid(zero));
+        }
     }
 
     /// Test usize -> BitmapIndex conversion
@@ -3341,7 +3383,7 @@ mod tests {
         assert_eq!(i1 == i2, i1.0 == i2.0);
         assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
 
-        // Bitwise AND just passes through (no risk of setting high-order bit)
+        // Bitwise AND passes through (no risk of setting high-order bit)
         let expected_and = BitmapIndex(i1.0 & i2.0);
         assert_eq!(i1 & i2, expected_and);
         assert_eq!(&i1 & i2, expected_and);
@@ -3354,7 +3396,7 @@ mod tests {
         tmp &= &i2;
         assert_eq!(tmp, expected_and);
 
-        // Bitwise OR passes through as well
+        // Bitwise OR passes through (no risk of setting high-order bit)
         let expected_or = BitmapIndex(i1.0 | i2.0);
         assert_eq!(i1 | i2, expected_or);
         assert_eq!(&i1 | i2, expected_or);
@@ -3367,7 +3409,7 @@ mod tests {
         tmp |= &i2;
         assert_eq!(tmp, expected_or);
 
-        // Bitwise XOR passes through as well
+        // Bitwise XOR passes through (no risk of setting high-order bit)
         let expected_xor = BitmapIndex(i1.0 ^ i2.0);
         assert_eq!(i1 ^ i2, expected_xor);
         assert_eq!(&i1 ^ i2, expected_xor);
@@ -3493,7 +3535,7 @@ mod tests {
             assert_eq!(i1.saturating_mul(i2), wrapped);
         }
 
-        // Division and remainder by nonzero
+        // Division and remainder by nonzero (zero case tested in unary tests)
         {
             // Division
             let nonzero = i2.saturating_add(BitmapIndex::ONE);
@@ -3570,32 +3612,6 @@ mod tests {
                 assert_eq!(wrapped, expected_wrapped);
                 assert_eq!(overflow, expected_overflow);
             }
-        }
-
-        // Division and remainder by zero
-        {
-            let zero = BitmapIndex::ZERO;
-            assert_eq!(i1.checked_div(zero), None);
-            assert_panics(|| i1.overflowing_div(zero));
-            assert_panics(|| i1.saturating_div(zero));
-            assert_panics(|| i1.wrapping_div(zero));
-            assert_panics(|| i1 / zero);
-            assert_panics(|| &i1 / zero);
-            assert_panics(|| i1 / &zero);
-            assert_panics(|| &i1 / &zero);
-            assert_eq!(i1.checked_div_euclid(zero), None);
-            assert_panics(|| i1.overflowing_div_euclid(zero));
-            assert_panics(|| i1.wrapping_div_euclid(zero));
-            assert_eq!(i1.checked_rem(zero), None);
-            assert_panics(|| i1.overflowing_rem(zero));
-            assert_panics(|| i1.wrapping_rem(zero));
-            assert_panics(|| i1 % zero);
-            assert_panics(|| &i1 % zero);
-            assert_panics(|| i1 % &zero);
-            assert_panics(|| &i1 % &zero);
-            assert_eq!(i1.checked_rem_euclid(zero), None);
-            assert_panics(|| i1.overflowing_rem_euclid(zero));
-            assert_panics(|| i1.wrapping_rem_euclid(zero));
         }
 
         // Checked logarithm
