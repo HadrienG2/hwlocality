@@ -705,9 +705,8 @@ impl<'topology> Distances<'topology> {
     /// See also [`Distances::distances()`].
     pub fn object_distances(
         &self,
-    ) -> impl Iterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), u64)>
-           + Clone
-           + FusedIterator {
+    ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), u64)> + Clone
+    {
         self.objects()
             .flat_map(|obj1| self.objects().map(move |obj2| (obj1, obj2)))
             .zip(self.distances().iter().copied())
@@ -718,8 +717,8 @@ impl<'topology> Distances<'topology> {
     /// See also [`Distances::distances()`].
     pub fn object_distances_mut(
         &mut self,
-    ) -> impl Iterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
-           + FusedIterator {
+    ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
+    {
         let objects = unsafe { std::slice::from_raw_parts(self.inner().objs, self.num_objects()) };
         self.enumerate_distances_mut()
             .map(move |((sender_idx, receiver_idx), distance)| {

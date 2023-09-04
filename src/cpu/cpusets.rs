@@ -38,7 +38,7 @@ impl Topology {
     pub fn largest_objects_inside_cpuset(
         &self,
         set: CpuSet,
-    ) -> impl Iterator<Item = &TopologyObject> + FusedIterator {
+    ) -> impl FusedIterator<Item = &TopologyObject> {
         LargestObjectsInsideCpuSet {
             topology: self,
             set,

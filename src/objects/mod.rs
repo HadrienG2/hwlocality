@@ -1093,7 +1093,7 @@ impl TopologyObject {
     /// Chain of parent objects up to the topology root
     pub fn ancestors(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject> + Copy + ExactSizeIterator + FusedIterator {
+    ) -> impl ExactSizeIterator<Item = &TopologyObject> + Copy + FusedIterator {
         Ancestors(self)
     }
 
@@ -1398,7 +1398,7 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj::memory_first_child")]
     pub fn memory_children(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+    ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         self.singly_linked_children(self.memory_first_child, self.memory_arity())
     }
 
@@ -1424,7 +1424,7 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj::io_first_child")]
     pub fn io_children(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+    ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         self.singly_linked_children(self.io_first_child, self.io_arity())
     }
 
@@ -1453,13 +1453,13 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj::misc_first_child")]
     pub fn misc_children(
         &self,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+    ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         self.singly_linked_children(self.misc_first_child, self.misc_arity())
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
     #[doc(alias = "hwloc_get_next_child")]
-    pub fn all_children(&self) -> impl Iterator<Item = &TopologyObject> + Clone + FusedIterator {
+    pub fn all_children(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
         self.normal_children()
             .chain(self.memory_children())
             .chain(self.io_children())
@@ -1471,7 +1471,7 @@ impl TopologyObject {
         &self,
         first: *mut TopologyObject,
         arity: usize,
-    ) -> impl Iterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator {
+    ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");

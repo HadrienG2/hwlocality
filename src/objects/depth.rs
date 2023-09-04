@@ -57,7 +57,7 @@ impl Depth {
     }
 
     /// List of virtual depths
-    pub const VIRTUAL_DEPTHS: &[Self] = &[
+    pub const VIRTUAL_DEPTHS: &'static [Self] = &[
         Self::NUMANode,
         Self::Bridge,
         Self::PCIDevice,
