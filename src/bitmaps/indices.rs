@@ -3337,6 +3337,45 @@ mod tests {
     #[allow(clippy::op_ref)]
     #[quickcheck]
     fn index_op_index(i1: BitmapIndex, i2: BitmapIndex) {
+        // Bitwise AND just passes through (no risk of setting high-order bit)
+        let expected_and = BitmapIndex(i1.0 & i2.0);
+        assert_eq!(i1 & i2, expected_and);
+        assert_eq!(&i1 & i2, expected_and);
+        assert_eq!(i1 & (&i2), expected_and);
+        assert_eq!(&i1 & (&i2), expected_and);
+        let mut tmp = i1;
+        tmp &= i2;
+        assert_eq!(tmp, expected_and);
+        tmp = i1;
+        tmp &= &i2;
+        assert_eq!(tmp, expected_and);
+
+        // Bitwise OR passes through as well
+        let expected_or = BitmapIndex(i1.0 | i2.0);
+        assert_eq!(i1 | i2, expected_or);
+        assert_eq!(&i1 | i2, expected_or);
+        assert_eq!(i1 | (&i2), expected_or);
+        assert_eq!(&i1 | (&i2), expected_or);
+        tmp = i1;
+        tmp |= i2;
+        assert_eq!(tmp, expected_or);
+        tmp = i1;
+        tmp |= &i2;
+        assert_eq!(tmp, expected_or);
+
+        // Bitwise XOR passes through as well
+        let expected_xor = BitmapIndex(i1.0 ^ i2.0);
+        assert_eq!(i1 ^ i2, expected_xor);
+        assert_eq!(&i1 ^ i2, expected_xor);
+        assert_eq!(i1 ^ (&i2), expected_xor);
+        assert_eq!(&i1 ^ (&i2), expected_xor);
+        let mut tmp = i1;
+        tmp ^= i2;
+        assert_eq!(tmp, expected_xor);
+        tmp = i1;
+        tmp ^= &i2;
+        assert_eq!(tmp, expected_xor);
+
         // We'll use overflowing usize arithmetic as a source of truth
         fn predict_overflowing_result(
             i1: BitmapIndex,
@@ -3570,7 +3609,7 @@ mod tests {
             assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
         }
 
-        // TODO: Add more: bitwise ops + assign variants, Eq, Ord, Shr/Shl
+        // TODO: Add more: Eq, Ord, Shr/Shl
     }
 
     /* /// Test index-u32 binary operations
