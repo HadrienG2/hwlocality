@@ -3629,13 +3629,85 @@ mod tests {
             assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
         }
 
-        // TODO: Add more: Shr/Shl
+        // Non-overflowing left shift must keep high-order bit cleared
+        let effective_bits = BitmapIndex(BitmapIndex::EFFECTIVE_BITS as _);
+        let wrapped_shift = i2 % effective_bits;
+        let wrapped_shl = BitmapIndex((i1.0 << wrapped_shift.0) & BitmapIndex::MAX.0);
+        assert_eq!(i1 << wrapped_shift, wrapped_shl);
+        assert_eq!(&i1 << wrapped_shift, wrapped_shl);
+        assert_eq!(i1 << (&wrapped_shift), wrapped_shl);
+        assert_eq!(&i1 << (&wrapped_shift), wrapped_shl);
+        tmp = i1;
+        tmp <<= wrapped_shift;
+        assert_eq!(tmp, wrapped_shl);
+        tmp = i1;
+        tmp <<= &wrapped_shift;
+        assert_eq!(tmp, wrapped_shl);
+
+        // Overflowing left shift should panic or wraparound
+        let overflown_shift = i2.saturating_add(effective_bits);
+        assert_debug_panics(|| i1 << overflown_shift, wrapped_shl);
+        assert_debug_panics(|| &i1 << overflown_shift, wrapped_shl);
+        assert_debug_panics(|| i1 << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(|| &i1 << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(
+            || {
+                let mut tmp = i1;
+                tmp <<= overflown_shift;
+                tmp
+            },
+            wrapped_shl,
+        );
+        assert_debug_panics(
+            || {
+                let mut tmp = i1;
+                tmp <<= &overflown_shift;
+                tmp
+            },
+            wrapped_shl,
+        );
+
+        // Non-overflowing right shift can pass through
+        let wrapped_shr = BitmapIndex(i1.0 >> wrapped_shift.0);
+        assert_eq!(i1 >> wrapped_shift, wrapped_shr);
+        assert_eq!(&i1 >> wrapped_shift, wrapped_shr);
+        assert_eq!(i1 >> (&wrapped_shift), wrapped_shr);
+        assert_eq!(&i1 >> (&wrapped_shift), wrapped_shr);
+        tmp = i1;
+        tmp >>= wrapped_shift;
+        assert_eq!(tmp, wrapped_shr);
+        tmp = i1;
+        tmp >>= &wrapped_shift;
+        assert_eq!(tmp, wrapped_shr);
+
+        // Overflowing left shift should panic or wraparound
+        let overflown_shift = i2.saturating_add(effective_bits);
+        assert_debug_panics(|| i1 >> overflown_shift, wrapped_shr);
+        assert_debug_panics(|| &i1 >> overflown_shift, wrapped_shr);
+        assert_debug_panics(|| i1 >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(|| &i1 >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(
+            || {
+                let mut tmp = i1;
+                tmp >>= overflown_shift;
+                tmp
+            },
+            wrapped_shr,
+        );
+        assert_debug_panics(
+            || {
+                let mut tmp = i1;
+                tmp >>= &overflown_shift;
+                tmp
+            },
+            wrapped_shr,
+        );
     }
 
     /* /// Test index-u32 binary operations
     #[quickcheck]
     fn index_op_u32(index: BitmapIndex, other: u32) {
-        // TODO: Add more, including bitshift
+        // TODO: Add more, including bitshift, including checked/overflowing/wrapping, also pow
     }
 
     /// Test index-usize binary operations
