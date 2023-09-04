@@ -3337,6 +3337,10 @@ mod tests {
     #[allow(clippy::op_ref)]
     #[quickcheck]
     fn index_op_index(i1: BitmapIndex, i2: BitmapIndex) {
+        // Ordering passes through
+        assert_eq!(i1 == i2, i1.0 == i2.0);
+        assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
+
         // Bitwise AND just passes through (no risk of setting high-order bit)
         let expected_and = BitmapIndex(i1.0 & i2.0);
         assert_eq!(i1 & i2, expected_and);
@@ -3609,7 +3613,7 @@ mod tests {
             assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
         }
 
-        // TODO: Add more: Eq, Ord, Shr/Shl
+        // TODO: Add more: Shr/Shl
     }
 
     /* /// Test index-u32 binary operations
