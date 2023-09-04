@@ -2905,6 +2905,19 @@ mod tests {
         // Hashing
         assert_eq!(hash(idx), hash(idx.0));
 
+        // Logarithm of zero should fail/panic
+        {
+            // ...with base >= 2
+            let base_above2 = idx.saturating_add(BitmapIndex(2));
+            assert_panics(|| BitmapIndex::ZERO.ilog(base_above2));
+            assert_eq!(BitmapIndex::ZERO.checked_ilog(base_above2), None);
+
+            // ...with base < 2
+            let base_below2 = idx % 2;
+            assert_panics(|| BitmapIndex::ZERO.ilog(base_below2));
+            assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
+        }
+
         // Considerations specific to positive numbers
         if idx != 0 {
             // Based logarithms succeed for positive numbers
@@ -3135,6 +3148,9 @@ mod tests {
             assert_eq!(i1.saturating_sub(i2), wrapped);
         }
 
+        // Absolute difference
+        assert_eq!(i1.abs_diff(i2), BitmapIndex(i1.0.abs_diff(i2.0)));
+
         // Multiplication
         let (expected_wrapped, expected_overflow) =
             predict_overflowing_result(i1, i2, usize::overflowing_mul);
@@ -3272,7 +3288,22 @@ mod tests {
             assert_panics(|| i1.wrapping_rem_euclid(zero));
         }
 
-        // TODO: Add more: abs_diff, ilog, bitwise ops + assign variants, Eq, Ord, Shr/Shl
+        // Checked logarithm
+        {
+            // Should succeed for a number >= 0 with a basis >= 2
+            let number_above0 = i1.saturating_add(BitmapIndex::ONE);
+            let base_above2 = i2.saturating_add(BitmapIndex(2));
+            let expected_ilog = number_above0.0.ilog(base_above2.0);
+            assert_eq!(number_above0.ilog(base_above2), expected_ilog);
+            assert_eq!(number_above0.checked_ilog(base_above2), Some(expected_ilog));
+
+            // Should fail if the basis is below 2
+            let base_below2 = i2 % 2;
+            assert_panics(|| BitmapIndex::ZERO.ilog(base_below2));
+            assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
+        }
+
+        // TODO: Add more: bitwise ops + assign variants, Eq, Ord, Shr/Shl
     }
 
     /* /// Test index-u32 binary operations
