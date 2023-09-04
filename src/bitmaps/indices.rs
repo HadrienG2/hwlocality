@@ -3173,6 +3173,7 @@ mod tests {
         assert_eq!(hash(idx), hash(idx.0));
 
         // Division and remainder by zero
+        #[allow(clippy::op_ref)]
         {
             let zero = BitmapIndex::ZERO;
             assert_eq!(idx.checked_div(zero), None);
