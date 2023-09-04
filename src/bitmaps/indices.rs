@@ -2114,11 +2114,27 @@ impl Add<isize> for BitmapIndex {
     }
 }
 
+impl Add<BitmapIndex> for isize {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs + self
+    }
+}
+
 impl Add<&isize> for BitmapIndex {
     type Output = Self;
 
     fn add(self, rhs: &isize) -> Self {
         self + (*rhs)
+    }
+}
+
+impl Add<BitmapIndex> for &isize {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs + (*self)
     }
 }
 
@@ -2138,11 +2154,27 @@ impl Add<isize> for &BitmapIndex {
     }
 }
 
+impl Add<&BitmapIndex> for isize {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs + self
+    }
+}
+
 impl Add<&isize> for &BitmapIndex {
     type Output = BitmapIndex;
 
     fn add(self, rhs: &isize) -> BitmapIndex {
         *self + (*rhs)
+    }
+}
+
+impl Add<&BitmapIndex> for &isize {
+    type Output = BitmapIndex;
+
+    fn add(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs + (*self)
     }
 }
 
@@ -2184,11 +2216,76 @@ impl<B: Borrow<BitmapIndex>> BitAnd<B> for BitmapIndex {
     }
 }
 
+impl BitAnd<usize> for BitmapIndex {
+    type Output = Self;
+
+    fn bitand(self, rhs: usize) -> Self {
+        // This is ok because AND cannot set bits which are unset in self
+        Self(self.0 & (rhs as c_uint))
+    }
+}
+
+impl BitAnd<BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs & self
+    }
+}
+
+impl BitAnd<&usize> for BitmapIndex {
+    type Output = Self;
+
+    fn bitand(self, rhs: &usize) -> Self {
+        self & (*rhs)
+    }
+}
+
+impl BitAnd<BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs & (*self)
+    }
+}
+
 impl<B: Borrow<BitmapIndex>> BitAnd<B> for &BitmapIndex {
     type Output = BitmapIndex;
 
     fn bitand(self, rhs: B) -> BitmapIndex {
         *self & rhs
+    }
+}
+
+impl BitAnd<usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: usize) -> BitmapIndex {
+        *self & rhs
+    }
+}
+
+impl BitAnd<&BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs & self
+    }
+}
+
+impl BitAnd<&usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: &usize) -> BitmapIndex {
+        *self & (*rhs)
+    }
+}
+
+impl BitAnd<&BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn bitand(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs & (*self)
     }
 }
 
@@ -2209,11 +2306,80 @@ impl<B: Borrow<BitmapIndex>> BitOr<B> for BitmapIndex {
     }
 }
 
+impl BitOr<usize> for BitmapIndex {
+    type Output = Self;
+
+    fn bitor(self, rhs: usize) -> Self {
+        // This is only ok if rhs is in range because OR can set bits which are
+        // unset in self. We go the usual debug-panic/release-truncate way.
+        if cfg!(debug_assertions) {
+            assert!(rhs > usize::from(Self::MAX), "RHS out of range");
+        }
+        Self(self.0 | ((rhs as c_uint) & Self::MAX.0))
+    }
+}
+
+impl BitOr<BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs | self
+    }
+}
+
+impl BitOr<&usize> for BitmapIndex {
+    type Output = Self;
+
+    fn bitor(self, rhs: &usize) -> Self {
+        self | (*rhs)
+    }
+}
+
+impl BitOr<BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs | (*self)
+    }
+}
+
 impl<B: Borrow<BitmapIndex>> BitOr<B> for &BitmapIndex {
     type Output = BitmapIndex;
 
     fn bitor(self, rhs: B) -> BitmapIndex {
         *self | rhs
+    }
+}
+
+impl BitOr<usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: usize) -> BitmapIndex {
+        *self | rhs
+    }
+}
+
+impl BitOr<&BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs | self
+    }
+}
+
+impl BitOr<&usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: &usize) -> BitmapIndex {
+        *self | (*rhs)
+    }
+}
+
+impl BitOr<&BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn bitor(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs | (*self)
     }
 }
 
@@ -2234,11 +2400,80 @@ impl<B: Borrow<BitmapIndex>> BitXor<B> for BitmapIndex {
     }
 }
 
+impl BitXor<usize> for BitmapIndex {
+    type Output = Self;
+
+    fn bitxor(self, rhs: usize) -> Self {
+        // This is only ok if rhs is in range because XOR can set bits which are
+        // unset in self. We go the usual debug-panic/release-truncate way.
+        if cfg!(debug_assertions) {
+            assert!(rhs > usize::from(Self::MAX), "RHS out of range");
+        }
+        Self(self.0 ^ ((rhs as c_uint) & Self::MAX.0))
+    }
+}
+
+impl BitXor<BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs ^ self
+    }
+}
+
+impl BitXor<&usize> for BitmapIndex {
+    type Output = Self;
+
+    fn bitxor(self, rhs: &usize) -> Self {
+        self ^ (*rhs)
+    }
+}
+
+impl BitXor<BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs ^ (*self)
+    }
+}
+
 impl<B: Borrow<BitmapIndex>> BitXor<B> for &BitmapIndex {
     type Output = BitmapIndex;
 
     fn bitxor(self, rhs: B) -> BitmapIndex {
         *self ^ rhs
+    }
+}
+
+impl BitXor<usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: usize) -> BitmapIndex {
+        *self ^ rhs
+    }
+}
+
+impl BitXor<&BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs ^ self
+    }
+}
+
+impl BitXor<&usize> for &BitmapIndex {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: &usize) -> BitmapIndex {
+        *self ^ (*rhs)
+    }
+}
+
+impl BitXor<&BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn bitxor(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs ^ (*self)
     }
 }
 
@@ -2365,11 +2600,27 @@ impl Mul<usize> for BitmapIndex {
     }
 }
 
+impl Mul<BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs * self
+    }
+}
+
 impl Mul<&usize> for BitmapIndex {
     type Output = Self;
 
     fn mul(self, rhs: &usize) -> Self {
         self * (*rhs)
+    }
+}
+
+impl Mul<BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: BitmapIndex) -> BitmapIndex {
+        rhs * (*self)
     }
 }
 
@@ -2389,11 +2640,27 @@ impl Mul<usize> for &BitmapIndex {
     }
 }
 
+impl Mul<&BitmapIndex> for usize {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: &BitmapIndex) -> BitmapIndex {
+        *rhs * self
+    }
+}
+
 impl Mul<&usize> for &BitmapIndex {
     type Output = BitmapIndex;
 
     fn mul(self, rhs: &usize) -> BitmapIndex {
         (*self) * (*rhs)
+    }
+}
+
+impl Mul<&BitmapIndex> for &usize {
+    type Output = BitmapIndex;
+
+    fn mul(self, rhs: &BitmapIndex) -> BitmapIndex {
+        (*rhs) * (*self)
     }
 }
 
