@@ -3172,6 +3172,48 @@ mod tests {
         // Hashing
         assert_eq!(hash(idx), hash(idx.0));
 
+        // Division and remainder by zero
+        {
+            let zero = BitmapIndex::ZERO;
+            assert_eq!(idx.checked_div(zero), None);
+            assert_panics(|| idx.overflowing_div(zero));
+            assert_panics(|| idx.saturating_div(zero));
+            assert_panics(|| idx.wrapping_div(zero));
+            assert_panics(|| idx / zero);
+            assert_panics(|| &idx / zero);
+            assert_panics(|| idx / &zero);
+            assert_panics(|| &idx / &zero);
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp /= zero
+            });
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp /= &zero
+            });
+            assert_eq!(idx.checked_div_euclid(zero), None);
+            assert_panics(|| idx.overflowing_div_euclid(zero));
+            assert_panics(|| idx.wrapping_div_euclid(zero));
+            assert_eq!(idx.checked_rem(zero), None);
+            assert_panics(|| idx.overflowing_rem(zero));
+            assert_panics(|| idx.wrapping_rem(zero));
+            assert_panics(|| idx % zero);
+            assert_panics(|| &idx % zero);
+            assert_panics(|| idx % &zero);
+            assert_panics(|| &idx % &zero);
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp %= zero
+            });
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp %= &zero
+            });
+            assert_eq!(idx.checked_rem_euclid(zero), None);
+            assert_panics(|| idx.overflowing_rem_euclid(zero));
+            assert_panics(|| idx.wrapping_rem_euclid(zero));
+        }
+
         // Logarithm of zero should fail/panic
         {
             // ...with base >= 2
@@ -3216,48 +3258,6 @@ mod tests {
         }
         assert_debug_panics(|| no_next_pow2.next_power_of_two(), BitmapIndex::ZERO);
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
-
-        // Division and remainder by zero
-        {
-            let zero = BitmapIndex::ZERO;
-            assert_eq!(idx.checked_div(zero), None);
-            assert_panics(|| idx.overflowing_div(zero));
-            assert_panics(|| idx.saturating_div(zero));
-            assert_panics(|| idx.wrapping_div(zero));
-            assert_panics(|| idx / zero);
-            assert_panics(|| &idx / zero);
-            assert_panics(|| idx / &zero);
-            assert_panics(|| &idx / &zero);
-            assert_panics(|| {
-                let mut tmp = idx;
-                tmp /= zero
-            });
-            assert_panics(|| {
-                let mut tmp = idx;
-                tmp /= &zero
-            });
-            assert_eq!(idx.checked_div_euclid(zero), None);
-            assert_panics(|| idx.overflowing_div_euclid(zero));
-            assert_panics(|| idx.wrapping_div_euclid(zero));
-            assert_eq!(idx.checked_rem(zero), None);
-            assert_panics(|| idx.overflowing_rem(zero));
-            assert_panics(|| idx.wrapping_rem(zero));
-            assert_panics(|| idx % zero);
-            assert_panics(|| &idx % zero);
-            assert_panics(|| idx % &zero);
-            assert_panics(|| &idx % &zero);
-            assert_panics(|| {
-                let mut tmp = idx;
-                tmp %= zero
-            });
-            assert_panics(|| {
-                let mut tmp = idx;
-                tmp %= &zero
-            });
-            assert_eq!(idx.checked_rem_euclid(zero), None);
-            assert_panics(|| idx.overflowing_rem_euclid(zero));
-            assert_panics(|| idx.wrapping_rem_euclid(zero));
-        }
     }
 
     /// Test usize -> BitmapIndex conversion
