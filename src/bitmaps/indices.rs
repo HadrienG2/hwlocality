@@ -2555,7 +2555,13 @@ impl From<bool> for BitmapIndex {
 }
 
 // NOTE: Assumed to work, otherwise the whole premise of allowing users to use
-//       usize instead of c_int for indexing falls flat.
+//       usize/isize instead of c_u?int for indexing falls flat.
+impl From<BitmapIndex> for isize {
+    fn from(x: BitmapIndex) -> isize {
+        ffi::expect_isize(x.0 as c_int)
+    }
+}
+//
 impl From<BitmapIndex> for usize {
     fn from(x: BitmapIndex) -> usize {
         ffi::expect_usize(x.0)
@@ -2780,34 +2786,6 @@ impl Shl<&BitmapIndex> for BitmapIndex {
     }
 }
 
-impl<InnerRhs: Copy> Shl<InnerRhs> for BitmapIndex
-where
-    c_uint: Shl<InnerRhs, Output = c_uint>,
-    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
-    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
-    isize: TryFrom<InnerRhs>,
-{
-    type Output = Self;
-
-    fn shl(self, mut rhs: InnerRhs) -> Self {
-        if cfg!(debug_assertions) {
-            // Debug mode checks if the shift is in range
-            assert!(
-                isize::try_from(rhs)
-                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as isize))
-                    .unwrap_or(false),
-                "Attempted to shift left with overflow"
-            );
-        } else {
-            // Release mode wraps around the shift operand
-            rhs = rhs
-                % InnerRhs::try_from(Self::EFFECTIVE_BITS)
-                    .expect("Such a small number should always fit");
-        }
-        Self((self.0 << rhs) & Self::MAX.0)
-    }
-}
-
 impl Shl<BitmapIndex> for &BitmapIndex {
     type Output = BitmapIndex;
 
@@ -2824,19 +2802,53 @@ impl Shl<&BitmapIndex> for &BitmapIndex {
     }
 }
 
-impl<InnerRhs: Copy> Shl<InnerRhs> for &BitmapIndex
-where
-    c_uint: Shl<InnerRhs, Output = c_uint>,
-    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
-    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
-    isize: TryFrom<InnerRhs>,
-{
-    type Output = BitmapIndex;
+macro_rules! shl_with_int {
+    ( $( $int:ty ),* ) => { $(
+        impl Shl<$int> for BitmapIndex {
+            type Output = Self;
 
-    fn shl(self, rhs: InnerRhs) -> BitmapIndex {
-        *self << rhs
-    }
+            fn shl(self, mut rhs: $int) -> Self {
+                if cfg!(debug_assertions) {
+                    // Debug mode checks if the shift is in range
+                    assert!(
+                        rhs < Self::EFFECTIVE_BITS as $int,
+                        "Attempted to shift left with overflow"
+                    );
+                } else {
+                    // Release mode wraps around the shift operand
+                    rhs %= Self::EFFECTIVE_BITS as $int;
+                }
+                Self((self.0 << rhs) & Self::MAX.0)
+            }
+        }
+
+        impl Shl<&$int> for BitmapIndex {
+            type Output = Self;
+
+            fn shl(self, rhs: &$int) -> Self {
+                self << *rhs
+            }
+        }
+
+        impl Shl<$int> for &BitmapIndex {
+            type Output = BitmapIndex;
+
+            fn shl(self, rhs: $int) -> BitmapIndex {
+                *self << rhs
+            }
+        }
+
+        impl Shl<&$int> for &BitmapIndex {
+            type Output = BitmapIndex;
+
+            fn shl(self, rhs: &$int) -> BitmapIndex {
+                *self << *rhs
+            }
+        }
+    )* };
 }
+//
+shl_with_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
 impl<Rhs> ShlAssign<Rhs> for BitmapIndex
 where
@@ -2863,34 +2875,6 @@ impl Shr<&BitmapIndex> for BitmapIndex {
     }
 }
 
-impl<InnerRhs: Copy> Shr<InnerRhs> for BitmapIndex
-where
-    c_uint: Shr<InnerRhs, Output = c_uint>,
-    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
-    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
-    isize: TryFrom<InnerRhs>,
-{
-    type Output = Self;
-
-    fn shr(self, mut rhs: InnerRhs) -> Self {
-        if cfg!(debug_assertions) {
-            // Debug mode checks if the shift is in range
-            assert!(
-                isize::try_from(rhs)
-                    .map(|bits| bits.abs() < (Self::EFFECTIVE_BITS as isize))
-                    .unwrap_or(false),
-                "Attempted to shift left with overflow"
-            );
-        } else {
-            // Release mode wraps around the shift operand
-            rhs = rhs
-                % InnerRhs::try_from(Self::EFFECTIVE_BITS)
-                    .expect("Such a small number should always fit");
-        }
-        Self((self.0 >> rhs) & Self::MAX.0)
-    }
-}
-
 impl Shr<BitmapIndex> for &BitmapIndex {
     type Output = BitmapIndex;
 
@@ -2907,19 +2891,53 @@ impl Shr<&BitmapIndex> for &BitmapIndex {
     }
 }
 
-impl<InnerRhs: Copy> Shr<InnerRhs> for &BitmapIndex
-where
-    c_uint: Shr<InnerRhs, Output = c_uint>,
-    InnerRhs: TryFrom<c_uint> + Rem<Output = InnerRhs>,
-    <InnerRhs as TryFrom<c_uint>>::Error: Debug,
-    isize: TryFrom<InnerRhs>,
-{
-    type Output = BitmapIndex;
+macro_rules! shr_with_int {
+    ( $( $int:ty ),* ) => { $(
+        impl Shr<$int> for BitmapIndex {
+            type Output = Self;
 
-    fn shr(self, rhs: InnerRhs) -> BitmapIndex {
-        *self >> rhs
-    }
+            fn shr(self, mut rhs: $int) -> Self {
+                if cfg!(debug_assertions) {
+                    // Debug mode checks if the shift is in range
+                    assert!(
+                        rhs < Self::EFFECTIVE_BITS as $int,
+                        "Attempted to shift right with overflow"
+                    );
+                } else {
+                    // Release mode wraps around the shift operand
+                    rhs %= Self::EFFECTIVE_BITS as $int;
+                }
+                Self(self.0 >> rhs)
+            }
+        }
+
+        impl Shr<&$int> for BitmapIndex {
+            type Output = Self;
+
+            fn shr(self, rhs: &$int) -> Self {
+                self >> *rhs
+            }
+        }
+
+        impl Shr<$int> for &BitmapIndex {
+            type Output = BitmapIndex;
+
+            fn shr(self, rhs: $int) -> BitmapIndex {
+                *self >> rhs
+            }
+        }
+
+        impl Shr<&$int> for &BitmapIndex {
+            type Output = BitmapIndex;
+
+            fn shr(self, rhs: &$int) -> BitmapIndex {
+                *self >> *rhs
+            }
+        }
+    )* };
 }
+//
+shr_with_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
 impl<Rhs> ShrAssign<Rhs> for BitmapIndex
 where
@@ -3035,7 +3053,7 @@ macro_rules! try_into {
     )* };
 }
 //
-try_into!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128);
+try_into!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 
 #[cfg(test)]
 mod tests {
@@ -3140,7 +3158,8 @@ mod tests {
         assert_eq!(idx.is_power_of_two(), idx.0.is_power_of_two());
         assert_eq!((!idx).0, !(idx.0 | set_unused));
 
-        // Infaillible conversion to usize
+        // Infaillible conversion to isize and usize
+        assert_eq!(isize::from(idx), idx.0 as isize);
         assert_eq!(usize::from(idx), idx.0 as usize);
 
         // Faillible conversions to all primitive integer types
@@ -3156,7 +3175,6 @@ mod tests {
             assert_eq!(u64::try_from(idx).ok(), u64::try_from(idx.0).ok());
             assert_eq!(i128::try_from(idx).ok(), i128::try_from(idx.0).ok());
             assert_eq!(u128::try_from(idx).ok(), u128::try_from(idx.0).ok());
-            assert_eq!(isize::try_from(idx).ok(), isize::try_from(idx.0).ok());
         }
 
         // Formatting
@@ -3433,7 +3451,7 @@ mod tests {
             let max_usize = usize::from(BitmapIndex::MAX);
             let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), usize::from(i2));
             let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
-            let expected_overflow = overflow_usize && (wrapped_usize > max_usize);
+            let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
             (expected_wrapped, expected_overflow)
         }
 
@@ -3681,8 +3699,7 @@ mod tests {
         tmp >>= &wrapped_shift;
         assert_eq!(tmp, wrapped_shr);
 
-        // Overflowing left shift should panic or wraparound
-        let overflown_shift = i2.saturating_add(effective_bits);
+        // Overflowing right shift should panic or wraparound
         assert_debug_panics(|| i1 >> overflown_shift, wrapped_shr);
         assert_debug_panics(|| &i1 >> overflown_shift, wrapped_shr);
         assert_debug_panics(|| i1 >> (&overflown_shift), wrapped_shr);
@@ -3705,13 +3722,117 @@ mod tests {
         );
     }
 
-    /* /// Test index-u32 binary operations
+    /// Test index-u32 binary operations
+    #[allow(clippy::op_ref)]
     #[quickcheck]
-    fn index_op_u32(index: BitmapIndex, other: u32) {
-        // TODO: Add more, including bitshift, including checked/overflowing/wrapping, also pow
+    fn index_op_u32(index: BitmapIndex, rhs: u32) {
+        // We'll use overflowing usize arithmetic as a source of truth
+        fn predict_overflowing_result(
+            index: BitmapIndex,
+            rhs: u32,
+            usize_op: fn(usize, u32) -> (usize, bool),
+        ) -> (BitmapIndex, bool) {
+            let used_bits_usize = (1usize << BitmapIndex::EFFECTIVE_BITS) - 1;
+            let max_usize = usize::from(BitmapIndex::MAX);
+            let (wrapped_usize, overflow_usize) = usize_op(usize::from(index), rhs);
+            let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
+            let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
+            (expected_wrapped, expected_overflow)
+        }
+
+        // Elevation to an integer power
+        let (expected_wrapped, expected_overflow) =
+            predict_overflowing_result(index, rhs, usize::overflowing_pow);
+        let (wrapped, overflow) = test_overflowing(
+            index,
+            rhs,
+            BitmapIndex::checked_pow,
+            BitmapIndex::overflowing_pow,
+            BitmapIndex::wrapping_pow,
+            [Box::new(|index, rhs| index.pow(rhs))],
+        );
+        assert_eq!(wrapped, expected_wrapped);
+        assert_eq!(overflow, expected_overflow);
+        if overflow {
+            assert_eq!(index.saturating_pow(rhs), BitmapIndex::MAX);
+        } else {
+            assert_eq!(index.saturating_pow(rhs), wrapped);
+        }
+
+        // Non-overflowing left shift
+        let test_overflowing_shl = |rhs| {
+            test_overflowing(
+                index,
+                rhs,
+                BitmapIndex::checked_shl,
+                BitmapIndex::overflowing_shl,
+                BitmapIndex::wrapping_shl,
+                [
+                    Box::new(|index, rhs| index << rhs),
+                    Box::new(|index, rhs| &index << rhs),
+                    Box::new(|index, rhs| index << &rhs),
+                    Box::new(|index, rhs| &index << &rhs),
+                    Box::new(|mut index, rhs| {
+                        index <<= rhs;
+                        index
+                    }),
+                    Box::new(|mut index, rhs| {
+                        index <<= &rhs;
+                        index
+                    }),
+                ],
+            )
+        };
+        let wrapped_shift = rhs % BitmapIndex::EFFECTIVE_BITS;
+        let expected_wrapped = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
+        let (wrapped, overflow) = test_overflowing_shl(wrapped_shift);
+        assert_eq!(wrapped, expected_wrapped);
+        assert!(!overflow);
+
+        // Overflowing left shift
+        let overflown_shift = rhs.saturating_add(BitmapIndex::EFFECTIVE_BITS);
+        let (wrapped, overflow) = test_overflowing_shl(overflown_shift);
+        assert_eq!(wrapped, expected_wrapped);
+        assert!(overflow);
+
+        // Non-overflowing right shift
+        let test_overflowing_shr = |rhs| {
+            test_overflowing(
+                index,
+                rhs,
+                BitmapIndex::checked_shr,
+                BitmapIndex::overflowing_shr,
+                BitmapIndex::wrapping_shr,
+                [
+                    Box::new(|index, rhs| index >> rhs),
+                    Box::new(|index, rhs| &index >> rhs),
+                    Box::new(|index, rhs| index >> &rhs),
+                    Box::new(|index, rhs| &index >> &rhs),
+                    Box::new(|mut index, rhs| {
+                        index >>= rhs;
+                        index
+                    }),
+                    Box::new(|mut index, rhs| {
+                        index >>= &rhs;
+                        index
+                    }),
+                ],
+            )
+        };
+        let expected_wrapped = BitmapIndex(index.0 >> wrapped_shift);
+        let (wrapped, overflow) = test_overflowing_shr(wrapped_shift);
+        assert_eq!(wrapped, expected_wrapped);
+        assert!(!overflow);
+
+        // Overflowing right shift
+        let (wrapped, overflow) = test_overflowing_shr(overflown_shift);
+        assert_eq!(wrapped, expected_wrapped);
+        assert!(overflow);
+
+        // TODO: rotate
     }
 
-    /// Test index-usize binary operations
+    /* /// Test index-usize binary operations
     #[quickcheck]
     fn index_op_usize(index: BitmapIndex, other: usize) {
         // TODO: Add more, including bitshift, div, mul, rem, eq, ord

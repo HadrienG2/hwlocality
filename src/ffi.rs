@@ -21,6 +21,15 @@ use std::{
     ptr::{self, NonNull},
 };
 
+/// Assert that a c_int can be converted to a isize
+///
+/// As far as I can tell, this is only false on very weird platforms that aren't
+/// supported by hwloc. However, counter-examples are welcome!
+pub(crate) fn expect_isize(x: c_int) -> isize {
+    x.try_into()
+        .expect("Expected on any platform supported by hwloc")
+}
+
 /// Assert that a c_uint can be converted to a usize
 ///
 /// As far as I can tell, this is only false on very weird platforms that aren't
