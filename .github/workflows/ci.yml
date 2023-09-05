@@ -30,7 +30,7 @@ jobs:
 
       steps:
         - name: Checkout sources
-          uses: actions/checkout@v3
+          uses: actions/checkout@v4
 
         - name: Set up stable toolchain
           if: github.event_name != 'schedule'
@@ -83,7 +83,7 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up stable toolchain
         if: github.event_name != 'schedule'
@@ -160,7 +160,7 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -232,7 +232,7 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
