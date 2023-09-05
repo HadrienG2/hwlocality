@@ -3229,6 +3229,7 @@ mod tests {
         // Division and remainder by zero
         #[allow(clippy::op_ref)]
         {
+            // With BitmapIndex denominator
             let zero = BitmapIndex::ZERO;
             assert_eq!(idx.checked_div(zero), None);
             assert_panics(|| idx.overflowing_div(zero));
@@ -3267,6 +3268,32 @@ mod tests {
             assert_eq!(idx.checked_rem_euclid(zero), None);
             assert_panics(|| idx.overflowing_rem_euclid(zero));
             assert_panics(|| idx.wrapping_rem_euclid(zero));
+
+            // With usize denominator
+            assert_panics(|| idx / 0);
+            assert_panics(|| &idx / 0);
+            assert_panics(|| idx / &0);
+            assert_panics(|| &idx / &0);
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp /= 0
+            });
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp /= &0
+            });
+            assert_panics(|| idx % 0);
+            assert_panics(|| &idx % 0);
+            assert_panics(|| idx % &0);
+            assert_panics(|| &idx % &0);
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp %= 0
+            });
+            assert_panics(|| {
+                let mut tmp = idx;
+                tmp %= &0
+            });
         }
 
         // Logarithm of zero should fail/panic
@@ -4048,7 +4075,8 @@ mod tests {
 
         // Multiplication by an out-of-range usize fails for all indices but
         // zero (which is tested elsewhere)
-        if index != BitmapIndex::ZERO {
+        let zero = BitmapIndex::ZERO;
+        if index != zero {
             assert_debug_panics(|| index * large_other, wrapped);
             assert_debug_panics(|| large_other * index, wrapped);
             assert_debug_panics(|| &index * large_other, wrapped);
@@ -4075,7 +4103,61 @@ mod tests {
             );
         }
 
-        // TODO: div, rem, bitshift + test bidirectional ops
+        // Division by an in-range nonzero usize passes through
+        if other != 0 {
+            let expected = index / small_other_index;
+            assert_eq!(index / small_other, expected);
+            assert_eq!(&index / small_other, expected);
+            assert_eq!(index / &small_other, expected);
+            assert_eq!(&index / &small_other, expected);
+            tmp = index;
+            tmp /= small_other;
+            assert_eq!(tmp, expected);
+            tmp = index;
+            tmp /= &small_other;
+            assert_eq!(tmp, expected);
+        }
+
+        // Division by an out-of-range usize always returns zero
+        assert_eq!(index / large_other, zero);
+        assert_eq!(&index / large_other, zero);
+        assert_eq!(index / &large_other, zero);
+        assert_eq!(&index / &large_other, zero);
+        tmp = index;
+        tmp /= large_other;
+        assert_eq!(tmp, zero);
+        tmp = index;
+        tmp /= &large_other;
+        assert_eq!(tmp, zero);
+
+        // Remainder from an in-range nonzero usize passes through
+        if other != 0 {
+            let expected = index % small_other_index;
+            assert_eq!(index % small_other, expected);
+            assert_eq!(&index % small_other, expected);
+            assert_eq!(index % &small_other, expected);
+            assert_eq!(&index % &small_other, expected);
+            tmp = index;
+            tmp %= small_other;
+            assert_eq!(tmp, expected);
+            tmp = index;
+            tmp %= &small_other;
+            assert_eq!(tmp, expected);
+        }
+
+        // Remainder from an out-of-range usize is identity
+        assert_eq!(index % large_other, index);
+        assert_eq!(&index % large_other, index);
+        assert_eq!(index % &large_other, index);
+        assert_eq!(&index % &large_other, index);
+        tmp = index;
+        tmp %= large_other;
+        assert_eq!(tmp, index);
+        tmp = index;
+        tmp %= &large_other;
+        assert_eq!(tmp, index);
+
+        // TODO: bitshift + test bidirectional ops
     }
 
     /* /// Test index-isize binary operations
