@@ -4157,7 +4157,78 @@ mod tests {
         tmp %= &large_other;
         assert_eq!(tmp, index);
 
-        // TODO: bitshift + test bidirectional ops
+        // Non-overflowing left shift must keep high-order bit cleared
+        let effective_bits = BitmapIndex::EFFECTIVE_BITS as usize;
+        let wrapped_shift = other % effective_bits;
+        let wrapped_shl = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
+        assert_eq!(index << wrapped_shift, wrapped_shl);
+        assert_eq!(&index << wrapped_shift, wrapped_shl);
+        assert_eq!(index << (&wrapped_shift), wrapped_shl);
+        assert_eq!(&index << (&wrapped_shift), wrapped_shl);
+        tmp = index;
+        tmp <<= wrapped_shift;
+        assert_eq!(tmp, wrapped_shl);
+        tmp = index;
+        tmp <<= &wrapped_shift;
+        assert_eq!(tmp, wrapped_shl);
+
+        // Overflowing left shift should panic or wraparound
+        let overflown_shift = other.saturating_add(effective_bits);
+        assert_debug_panics(|| index << overflown_shift, wrapped_shl);
+        assert_debug_panics(|| &index << overflown_shift, wrapped_shl);
+        assert_debug_panics(|| index << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(|| &index << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp <<= overflown_shift;
+                tmp
+            },
+            wrapped_shl,
+        );
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp <<= &overflown_shift;
+                tmp
+            },
+            wrapped_shl,
+        );
+
+        // Non-overflowing right shift can pass through
+        let wrapped_shr = BitmapIndex(index.0 >> wrapped_shift);
+        assert_eq!(index >> wrapped_shift, wrapped_shr);
+        assert_eq!(&index >> wrapped_shift, wrapped_shr);
+        assert_eq!(index >> (&wrapped_shift), wrapped_shr);
+        assert_eq!(&index >> (&wrapped_shift), wrapped_shr);
+        tmp = index;
+        tmp >>= wrapped_shift;
+        assert_eq!(tmp, wrapped_shr);
+        tmp = index;
+        tmp >>= &wrapped_shift;
+        assert_eq!(tmp, wrapped_shr);
+
+        // Overflowing right shift should panic or wraparound
+        assert_debug_panics(|| index >> overflown_shift, wrapped_shr);
+        assert_debug_panics(|| &index >> overflown_shift, wrapped_shr);
+        assert_debug_panics(|| index >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp >>= overflown_shift;
+                tmp
+            },
+            wrapped_shr,
+        );
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp >>= &overflown_shift;
+                tmp
+            },
+            wrapped_shr,
+        );
     }
 
     /* /// Test index-isize binary operations
