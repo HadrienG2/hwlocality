@@ -4231,12 +4231,98 @@ mod tests {
         );
     }
 
-    /* /// Test index-isize binary operations
+    /// Test index-isize binary operations
     #[allow(clippy::op_ref)]
     #[quickcheck]
     fn index_op_isize(index: BitmapIndex, other: isize) {
-        // TODO: checked/overflowing/saturating/wrapping/ops add/sub, bitshift + test bidirectional ops
-    } */
+        // Addition
+        let (expected_wrapped, expected_overflow) =
+            predict_overflowing_result(index, other, usize::overflowing_add_signed);
+        let (wrapped, overflow) = test_overflowing(
+            index,
+            other,
+            BitmapIndex::checked_add_signed,
+            BitmapIndex::overflowing_add_signed,
+            BitmapIndex::wrapping_add_signed,
+            [
+                Box::new(|index, other| index + other),
+                Box::new(|index, other| other + index),
+                Box::new(|index, other| &index + other),
+                Box::new(|index, other| other + &index),
+                Box::new(|index, other| index + &other),
+                Box::new(|index, other| &other + index),
+                Box::new(|index, other| &index + &other),
+                Box::new(|index, other| &other + &index),
+                Box::new(|mut index, other| {
+                    index += other;
+                    index
+                }),
+                Box::new(|mut index, other| {
+                    index += &other;
+                    index
+                }),
+            ],
+        );
+        assert_eq!(wrapped, expected_wrapped);
+        assert_eq!(overflow, expected_overflow);
+        if overflow {
+            if other > 0 {
+                assert_eq!(index.saturating_add_signed(other), BitmapIndex::MAX);
+            } else {
+                assert_eq!(index.saturating_add_signed(other), BitmapIndex::MIN);
+            }
+        } else {
+            assert_eq!(index.saturating_add_signed(other), wrapped);
+        }
+
+        // Subtraction
+        let (wrapped, overflow) = if other != isize::MIN {
+            predict_overflowing_result(index, -other, usize::overflowing_add_signed)
+        } else {
+            predict_overflowing_result(
+                index,
+                // iN::MIN is -(1 << (iN::BITS - 1)
+                // e.g. i8::MIN is -(1 << (8 - 1)) = -(1 << 7).
+                1usize << (isize::BITS - 1),
+                usize::overflowing_sub,
+            )
+        };
+        if overflow {
+            assert_debug_panics(|| index - other, wrapped);
+            assert_debug_panics(|| &index - other, wrapped);
+            assert_debug_panics(|| index - &other, wrapped);
+            assert_debug_panics(|| &index - &other, wrapped);
+            assert_debug_panics(
+                || {
+                    let mut tmp = index;
+                    tmp -= other;
+                    tmp
+                },
+                wrapped,
+            );
+            assert_debug_panics(
+                || {
+                    let mut tmp = index;
+                    tmp -= &other;
+                    tmp
+                },
+                wrapped,
+            );
+        } else {
+            assert_eq!(index - other, wrapped);
+            assert_eq!(&index - other, wrapped);
+            assert_eq!(index - &other, wrapped);
+            assert_eq!(&index - &other, wrapped);
+            let mut tmp = index;
+            tmp -= other;
+            assert_eq!(tmp, wrapped);
+            tmp = index;
+            tmp -= &other;
+            assert_eq!(tmp, wrapped);
+        }
+
+        // TODO: bitshift
+    }
 
     /// Test iterator reductions
     #[quickcheck]
