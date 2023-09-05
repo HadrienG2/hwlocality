@@ -3829,19 +3829,25 @@ mod tests {
         assert_eq!(wrapped, expected_wrapped);
         assert!(overflow);
 
-        // TODO: rotate
+        // Rotate can be expressed in terms of shifts and binary ops
+        let expected_rol = (index << wrapped_shift)
+            | index.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - wrapped_shift);
+        assert_eq!(index.rotate_left(rhs), expected_rol);
+        let expected_ror = (index >> wrapped_shift)
+            | index.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - wrapped_shift);
+        assert_eq!(index.rotate_right(rhs), expected_ror);
     }
 
     /* /// Test index-usize binary operations
     #[quickcheck]
     fn index_op_usize(index: BitmapIndex, other: usize) {
-        // TODO: Add more, including bitshift, div, mul, rem, eq, ord
+        // TODO: bitshift, and/or/xor, div, mul, rem, eq, ord
     }
 
     /// Test index-isize binary operations
     #[quickcheck]
     fn index_op_isize(index: BitmapIndex, other: isize) {
-        // TODO: Add more, including bitshift, add, sub
+        // TODO: bitshift, checked/overflowing/saturating/wrapping add/sub
     } */
 
     /// Test iterator reductions
