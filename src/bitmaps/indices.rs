@@ -3394,6 +3394,21 @@ mod tests {
         overflowing_result
     }
 
+    /// Predict the result of an overflowing BitmapIndex operation from the
+    /// result of the equivalent overflowing usize operation.
+    fn predict_overflowing_result<IndexRhs, UsizeRhs: From<IndexRhs>>(
+        i1: BitmapIndex,
+        i2: IndexRhs,
+        usize_op: fn(usize, UsizeRhs) -> (usize, bool),
+    ) -> (BitmapIndex, bool) {
+        let used_bits_usize = (1usize << BitmapIndex::EFFECTIVE_BITS) - 1;
+        let max_usize = usize::from(BitmapIndex::MAX);
+        let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), UsizeRhs::from(i2));
+        let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
+        let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
+        (expected_wrapped, expected_overflow)
+    }
+
     /// Test index-index binary operations
     #[allow(clippy::op_ref)]
     #[quickcheck]
@@ -3440,20 +3455,6 @@ mod tests {
         tmp = i1;
         tmp ^= &i2;
         assert_eq!(tmp, expected_xor);
-
-        // We'll use overflowing usize arithmetic as a source of truth
-        fn predict_overflowing_result(
-            i1: BitmapIndex,
-            i2: BitmapIndex,
-            usize_op: fn(usize, usize) -> (usize, bool),
-        ) -> (BitmapIndex, bool) {
-            let used_bits_usize = (1usize << BitmapIndex::EFFECTIVE_BITS) - 1;
-            let max_usize = usize::from(BitmapIndex::MAX);
-            let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), usize::from(i2));
-            let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
-            let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
-            (expected_wrapped, expected_overflow)
-        }
 
         // Addition
         let (expected_wrapped, expected_overflow) =
@@ -3726,20 +3727,6 @@ mod tests {
     #[allow(clippy::op_ref)]
     #[quickcheck]
     fn index_op_u32(index: BitmapIndex, rhs: u32) {
-        // We'll use overflowing usize arithmetic as a source of truth
-        fn predict_overflowing_result(
-            index: BitmapIndex,
-            rhs: u32,
-            usize_op: fn(usize, u32) -> (usize, bool),
-        ) -> (BitmapIndex, bool) {
-            let used_bits_usize = (1usize << BitmapIndex::EFFECTIVE_BITS) - 1;
-            let max_usize = usize::from(BitmapIndex::MAX);
-            let (wrapped_usize, overflow_usize) = usize_op(usize::from(index), rhs);
-            let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
-            let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
-            (expected_wrapped, expected_overflow)
-        }
-
         // Elevation to an integer power
         let (expected_wrapped, expected_overflow) =
             predict_overflowing_result(index, rhs, usize::overflowing_pow);
