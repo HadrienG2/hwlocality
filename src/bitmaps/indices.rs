@@ -36,8 +36,30 @@ use std::{
 /// supported by Rust, it is at least 32767 (2^15-1), and outside of exotic
 /// 16-bit hardware, it will usually be greater than 2147483647 (2^31-1).
 ///
-/// An alternate way to view BitmapIndex is as the intersection of integer
+/// An alternate way to view `BitmapIndex` is as the intersection of integer
 /// values permitted by C's int and unsigned int types.
+///
+/// # Operator overloads
+///
+/// All binary operators have an overload with exactly one of isize or usize
+/// (depending on whether a negative operand makes sense) in order to allow
+/// them to be used with integer literals without the type inference errors that
+/// implementations for multiple integer types would bring.
+///
+/// The exception is left and right shifts: following the example of primitive
+/// integer types, we overload these for all integer types and references
+/// thereof.
+///
+/// Like primitive integer types, we overload all arithmetic operators for
+/// references and values of each operand type for convenience. This convenience
+/// does not extend to other operations like type conversions or comparisons.
+///
+/// Assuming a binary operator `A op B` is defined for two different types A and
+/// B, we also define `B op A` if both operands play a symmetric role. We do
+/// not generally do so otherwise as the result may be surprising (e.g. it
+/// seems fair to expect `BitmapIndex << usize` to be a `BitmapIndex`, but by
+/// the same logic `usize << BitmapIndex` should be an `usize`, not a
+/// `BitmapIndex`).
 #[derive(
     Binary,
     Clone,
@@ -2547,7 +2569,9 @@ where
 
 // NOTE: Guaranteed to succeed because C mandates that int is >=16 bits
 //       u16 would not work because it allows u16::MAX > i16::MAX.
-//       Not implementing From<u8> to avoid messing with integer type inference.
+//       From<u8> would also be safe to implement, but would break integer type
+//       inference when an integer literal is passed to a function that expects
+//       T with BitmapIndex: TryFrom<T>.
 impl From<bool> for BitmapIndex {
     fn from(x: bool) -> Self {
         Self(x.into())
@@ -2701,9 +2725,21 @@ impl PartialEq<usize> for BitmapIndex {
     }
 }
 
+impl PartialEq<BitmapIndex> for usize {
+    fn eq(&self, other: &BitmapIndex) -> bool {
+        *self == usize::from(*other)
+    }
+}
+
 impl PartialOrd<usize> for BitmapIndex {
     fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
         usize::from(*self).partial_cmp(other)
+    }
+}
+
+impl PartialOrd<BitmapIndex> for usize {
+    fn partial_cmp(&self, other: &BitmapIndex) -> Option<Ordering> {
+        self.partial_cmp(&usize::from(*other))
     }
 }
 
