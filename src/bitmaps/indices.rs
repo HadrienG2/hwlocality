@@ -39,24 +39,25 @@ use std::{
 /// An alternate way to view `BitmapIndex` is as the intersection of integer
 /// values permitted by C's int and unsigned int types.
 ///
-/// # Operator overloads
+/// # External operators
 ///
-/// All binary operators have an overload with exactly one of isize or usize
-/// (depending on whether a negative operand makes sense) in order to allow
-/// them to be used with integer literals without the type inference errors that
-/// implementations for multiple integer types would bring.
+/// Almost all binary operators have an overload with exactly one of isize or
+/// usize(depending on whether a negative operand makes sense) in order to
+/// allow them to be used with integer literals without the type inference
+/// errors that implementations for multiple integer types would bring.
 ///
 /// The exception is left and right shifts: following the example of primitive
 /// integer types, we overload these for all integer types and references
 /// thereof.
 ///
 /// Like primitive integer types, we overload all arithmetic operators for
-/// references and values of each operand type for convenience. This convenience
-/// does not extend to other operations like type conversions or comparisons.
+/// references and values of each operand type for convenience. This
+/// convenience does not extend to non-arithmetic operations like type
+/// conversions and comparisons.
 ///
 /// Assuming a binary operator `A op B` is defined for two different types A and
 /// B, we also define `B op A` if both operands play a symmetric role. We do
-/// not generally do so otherwise as the result may be surprising (e.g. it
+/// not generally do so otherwise as the result could be confusing (e.g. it
 /// seems fair to expect `BitmapIndex << usize` to be a `BitmapIndex`, but by
 /// the same logic `usize << BitmapIndex` should be an `usize`, not a
 /// `BitmapIndex`).
