@@ -2335,7 +2335,7 @@ impl BitOr<usize> for BitmapIndex {
         // This is only ok if rhs is in range because OR can set bits which are
         // unset in self. We go the usual debug-panic/release-truncate way.
         if cfg!(debug_assertions) {
-            assert!(rhs > usize::from(Self::MAX), "RHS out of range");
+            assert!(rhs <= usize::from(Self::MAX), "RHS out of range");
         }
         Self(self.0 | ((rhs as c_uint) & Self::MAX.0))
     }
@@ -2429,7 +2429,7 @@ impl BitXor<usize> for BitmapIndex {
         // This is only ok if rhs is in range because XOR can set bits which are
         // unset in self. We go the usual debug-panic/release-truncate way.
         if cfg!(debug_assertions) {
-            assert!(rhs > usize::from(Self::MAX), "RHS out of range");
+            assert!(rhs <= usize::from(Self::MAX), "RHS out of range");
         }
         Self(self.0 ^ ((rhs as c_uint) & Self::MAX.0))
     }
@@ -3861,16 +3861,133 @@ mod tests {
         assert_eq!(index.rotate_right(rhs), expected_ror);
     }
 
-    /* /// Test index-usize binary operations
+    /// Test index-usize binary operations
     #[quickcheck]
     fn index_op_usize(index: BitmapIndex, other: usize) {
-        // TODO: bitshift, and/or/xor, div, mul, rem, eq, ord + test bidirectional ops
+        // Ordering passes through
+        assert_eq!(index == other, usize::from(index) == other);
+        assert_eq!(
+            index.partial_cmp(&other),
+            usize::from(index).partial_cmp(&other)
+        );
+        assert_eq!(other == usize::from(index), other == usize::from(index));
+        assert_eq!(
+            other.partial_cmp(&usize::from(index)),
+            other.partial_cmp(&usize::from(index))
+        );
+
+        // Bitwise AND passes through (no risk of setting high-order bit)
+        let expected_and = BitmapIndex(index.0 & (other as c_uint));
+        assert_eq!(index & other, expected_and);
+        assert_eq!(other & index, expected_and);
+        assert_eq!(&index & other, expected_and);
+        assert_eq!(&other & index, expected_and);
+        assert_eq!(index & (&other), expected_and);
+        assert_eq!(other & (&index), expected_and);
+        assert_eq!(&index & (&other), expected_and);
+        assert_eq!(&other & (&index), expected_and);
+        let mut tmp = index;
+        tmp &= other;
+        assert_eq!(tmp, expected_and);
+        tmp = index;
+        tmp &= &other;
+        assert_eq!(tmp, expected_and);
+
+        // Non-overflowing bitwise OR
+        let small_other = other & usize::from(BitmapIndex::MAX);
+        let expected_or = BitmapIndex(index.0 | (small_other as c_uint));
+        assert_eq!(index | small_other, expected_or);
+        assert_eq!(small_other | index, expected_or);
+        assert_eq!(&index | small_other, expected_or);
+        assert_eq!(small_other | &index, expected_or);
+        assert_eq!(index | &small_other, expected_or);
+        assert_eq!(&small_other | index, expected_or);
+        assert_eq!(&index | &small_other, expected_or);
+        assert_eq!(&small_other | &index, expected_or);
+        let mut tmp = index;
+        tmp |= small_other;
+        assert_eq!(tmp, expected_or);
+        tmp = index;
+        tmp |= &small_other;
+        assert_eq!(tmp, expected_or);
+
+        // Overflowing bitwise OR
+        let large_other = other.max(1usize << BitmapIndex::EFFECTIVE_BITS);
+        assert_debug_panics(|| index | large_other, expected_or);
+        assert_debug_panics(|| large_other | index, expected_or);
+        assert_debug_panics(|| &index | large_other, expected_or);
+        assert_debug_panics(|| large_other | &index, expected_or);
+        assert_debug_panics(|| index | &large_other, expected_or);
+        assert_debug_panics(|| &large_other | index, expected_or);
+        assert_debug_panics(|| &index | &large_other, expected_or);
+        assert_debug_panics(|| &large_other | &index, expected_or);
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp |= large_other;
+                tmp
+            },
+            expected_or,
+        );
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp |= &large_other;
+                tmp
+            },
+            expected_or,
+        );
+
+        // Non-overflowing bitwise XOR
+        let expected_xor = BitmapIndex(index.0 ^ (small_other as c_uint));
+        assert_eq!(index ^ small_other, expected_xor);
+        assert_eq!(small_other ^ index, expected_xor);
+        assert_eq!(&index ^ small_other, expected_xor);
+        assert_eq!(small_other ^ &index, expected_xor);
+        assert_eq!(index ^ &small_other, expected_xor);
+        assert_eq!(&small_other ^ index, expected_xor);
+        assert_eq!(&index ^ &small_other, expected_xor);
+        assert_eq!(&small_other ^ &index, expected_xor);
+        let mut tmp = index;
+        tmp ^= small_other;
+        assert_eq!(tmp, expected_xor);
+        tmp = index;
+        tmp ^= &small_other;
+        assert_eq!(tmp, expected_xor);
+
+        // Overflowing bitwise XOR
+        assert_debug_panics(|| index ^ large_other, expected_xor);
+        assert_debug_panics(|| large_other ^ index, expected_xor);
+        assert_debug_panics(|| &index ^ large_other, expected_xor);
+        assert_debug_panics(|| large_other ^ &index, expected_xor);
+        assert_debug_panics(|| index ^ &large_other, expected_xor);
+        assert_debug_panics(|| &large_other ^ index, expected_xor);
+        assert_debug_panics(|| &index ^ &large_other, expected_xor);
+        assert_debug_panics(|| &large_other ^ &index, expected_xor);
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp ^= large_other;
+                tmp
+            },
+            expected_xor,
+        );
+        assert_debug_panics(
+            || {
+                let mut tmp = index;
+                tmp ^= &large_other;
+                tmp
+            },
+            expected_xor,
+        );
+
+        // TODO: mul, div, rem, bitshift + test bidirectional ops
     }
 
-    /// Test index-isize binary operations
+    /* /// Test index-isize binary operations
     #[quickcheck]
     fn index_op_isize(index: BitmapIndex, other: isize) {
-        // TODO: bitshift, checked/overflowing/saturating/wrapping/ops add/sub + test bidirectional ops
+        // TODO: checked/overflowing/saturating/wrapping/ops add/sub, bitshift + test bidirectional ops
     } */
 
     /// Test iterator reductions
