@@ -3841,13 +3841,13 @@ mod tests {
     /* /// Test index-usize binary operations
     #[quickcheck]
     fn index_op_usize(index: BitmapIndex, other: usize) {
-        // TODO: bitshift, and/or/xor, div, mul, rem, eq, ord
+        // TODO: bitshift, and/or/xor, div, mul, rem, eq, ord + test bidirectional ops
     }
 
     /// Test index-isize binary operations
     #[quickcheck]
     fn index_op_isize(index: BitmapIndex, other: isize) {
-        // TODO: bitshift, checked/overflowing/saturating/wrapping add/sub
+        // TODO: bitshift, checked/overflowing/saturating/wrapping/ops add/sub + test bidirectional ops
     } */
 
     /// Test iterator reductions
