@@ -2334,9 +2334,7 @@ impl BitOr<usize> for BitmapIndex {
     fn bitor(self, rhs: usize) -> Self {
         // This is only ok if rhs is in range because OR can set bits which are
         // unset in self. We go the usual debug-panic/release-truncate way.
-        if cfg!(debug_assertions) {
-            assert!(rhs <= usize::from(Self::MAX), "RHS out of range");
-        }
+        debug_assert!(rhs <= usize::from(Self::MAX), "RHS out of range");
         Self(self.0 | ((rhs as c_uint) & Self::MAX.0))
     }
 }
@@ -2428,9 +2426,7 @@ impl BitXor<usize> for BitmapIndex {
     fn bitxor(self, rhs: usize) -> Self {
         // This is only ok if rhs is in range because XOR can set bits which are
         // unset in self. We go the usual debug-panic/release-truncate way.
-        if cfg!(debug_assertions) {
-            assert!(rhs <= usize::from(Self::MAX), "RHS out of range");
-        }
+        debug_assert!(rhs <= usize::from(Self::MAX), "RHS out of range");
         Self(self.0 ^ ((rhs as c_uint) & Self::MAX.0))
     }
 }
@@ -2618,10 +2614,14 @@ impl Mul<usize> for BitmapIndex {
 
     fn mul(self, rhs: usize) -> Self {
         if cfg!(debug_assertions) {
-            Self::try_from(rhs)
-                .ok()
-                .and_then(|rhs| self.checked_mul(rhs))
-                .expect("Attempted to multiply with overflow")
+            if self != Self::ZERO {
+                Self::try_from(rhs)
+                    .ok()
+                    .and_then(|rhs| self.checked_mul(rhs))
+                    .expect("Attempted to multiply with overflow")
+            } else {
+                Self::ZERO
+            }
         } else {
             let usize_result = usize::from(self) * rhs;
             let truncated = usize_result & (Self::MAX.0 as usize);
@@ -3315,13 +3315,32 @@ mod tests {
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
     }
 
-    /// Test usize -> BitmapIndex conversion
+    /// Test usize -> BitmapIndex conversion and special index-usize ops
+    #[allow(clippy::op_ref)]
     #[quickcheck]
-    fn from_usize(x: usize) {
+    fn unary_usize(x: usize) {
+        // usize -> BitmapIndex conversion
         assert_eq!(
             BitmapIndex::try_from(x),
             c_int::try_from(x).map(|i| BitmapIndex(i as c_uint))
         );
+
+        // Multiplying ZERO by any usize works
+        let zero = BitmapIndex::ZERO;
+        assert_eq!(zero * x, zero);
+        assert_eq!(x * zero, zero);
+        assert_eq!(&zero * x, zero);
+        assert_eq!(x * (&zero), zero);
+        assert_eq!(zero * (&x), zero);
+        assert_eq!(&x * zero, zero);
+        assert_eq!(&zero * (&x), zero);
+        assert_eq!(&x * (&zero), zero);
+        let mut tmp = zero;
+        tmp *= x;
+        assert_eq!(tmp, zero);
+        tmp = zero;
+        tmp *= &x;
+        assert_eq!(tmp, zero);
     }
 
     /// Test str -> BitmapIndex conversion (common harness)
@@ -3862,6 +3881,7 @@ mod tests {
     }
 
     /// Test index-usize binary operations
+    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn index_op_usize(index: BitmapIndex, other: usize) {
         // Ordering passes through
@@ -3904,7 +3924,7 @@ mod tests {
         assert_eq!(&small_other | index, expected_or);
         assert_eq!(&index | &small_other, expected_or);
         assert_eq!(&small_other | &index, expected_or);
-        let mut tmp = index;
+        tmp = index;
         tmp |= small_other;
         assert_eq!(tmp, expected_or);
         tmp = index;
@@ -3948,7 +3968,7 @@ mod tests {
         assert_eq!(&small_other ^ index, expected_xor);
         assert_eq!(&index ^ &small_other, expected_xor);
         assert_eq!(&small_other ^ &index, expected_xor);
-        let mut tmp = index;
+        tmp = index;
         tmp ^= small_other;
         assert_eq!(tmp, expected_xor);
         tmp = index;
@@ -3981,10 +4001,85 @@ mod tests {
             expected_xor,
         );
 
-        // TODO: mul, div, rem, bitshift + test bidirectional ops
+        // Multiplication by an usize in BitmapIndex range works as usual
+        let small_other_index = BitmapIndex::try_from(small_other).unwrap();
+        let (wrapped, overflow) = index.overflowing_mul(small_other_index);
+        if overflow {
+            assert_debug_panics(|| index * small_other, wrapped);
+            assert_debug_panics(|| small_other * index, wrapped);
+            assert_debug_panics(|| &index * small_other, wrapped);
+            assert_debug_panics(|| small_other * (&index), wrapped);
+            assert_debug_panics(|| index * (&small_other), wrapped);
+            assert_debug_panics(|| &small_other * index, wrapped);
+            assert_debug_panics(|| &index * (&small_other), wrapped);
+            assert_debug_panics(|| &small_other * (&index), wrapped);
+            assert_debug_panics(
+                || {
+                    let mut tmp = index;
+                    tmp *= small_other;
+                    tmp
+                },
+                wrapped,
+            );
+            assert_debug_panics(
+                || {
+                    let mut tmp = index;
+                    tmp *= &small_other;
+                    tmp
+                },
+                wrapped,
+            );
+        } else {
+            assert_eq!(index * small_other, wrapped);
+            assert_eq!(small_other * index, wrapped);
+            assert_eq!(&index * small_other, wrapped);
+            assert_eq!(small_other * (&index), wrapped);
+            assert_eq!(index * (&small_other), wrapped);
+            assert_eq!(&small_other * index, wrapped);
+            assert_eq!(&index * (&small_other), wrapped);
+            assert_eq!(&small_other * (&index), wrapped);
+            tmp = index;
+            tmp *= small_other;
+            assert_eq!(tmp, wrapped);
+            tmp = index;
+            tmp *= &small_other;
+            assert_eq!(tmp, wrapped);
+        }
+
+        // Multiplication by an out-of-range usize fails for all indices but
+        // zero (which is tested elsewhere)
+        if index != BitmapIndex::ZERO {
+            assert_debug_panics(|| index * large_other, wrapped);
+            assert_debug_panics(|| large_other * index, wrapped);
+            assert_debug_panics(|| &index * large_other, wrapped);
+            assert_debug_panics(|| large_other * (&index), wrapped);
+            assert_debug_panics(|| index * (&large_other), wrapped);
+            assert_debug_panics(|| &large_other * index, wrapped);
+            assert_debug_panics(|| &index * (&large_other), wrapped);
+            assert_debug_panics(|| &large_other * (&index), wrapped);
+            assert_debug_panics(
+                || {
+                    let mut tmp = index;
+                    tmp *= large_other;
+                    tmp
+                },
+                wrapped,
+            );
+            assert_debug_panics(
+                || {
+                    let mut tmp = index;
+                    tmp *= &large_other;
+                    tmp
+                },
+                wrapped,
+            );
+        }
+
+        // TODO: div, rem, bitshift + test bidirectional ops
     }
 
     /* /// Test index-isize binary operations
+    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn index_op_isize(index: BitmapIndex, other: isize) {
         // TODO: checked/overflowing/saturating/wrapping/ops add/sub, bitshift + test bidirectional ops
