@@ -71,7 +71,7 @@ impl Depth {
 impl fmt::Display for Depth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Normal(d) => <usize as fmt::Display>::fmt(&d, f),
+            Self::Normal(d) => <usize as fmt::Display>::fmt(d, f),
             abnormal => {
                 let s = format!("<{abnormal:?}>");
                 f.pad(&s)

@@ -56,11 +56,11 @@ fn main() -> anyhow::Result<()> {
         .map(|(binding, pid_list)| {
             let binding_name = if binding.is_full() {
                 "Query failed".to_string()
-            } else if binding == &topology.complete_cpuset() {
+            } else if binding == topology.complete_cpuset() {
                 "All online CPUs".to_string()
-            } else if binding == &topology.allowed_cpuset() {
+            } else if binding == topology.allowed_cpuset() {
                 "All allowed CPUs".to_string()
-            } else if binding == &topology.cpuset() {
+            } else if binding == topology.cpuset() {
                 "All visible CPUs".to_string()
             } else {
                 binding.to_string()

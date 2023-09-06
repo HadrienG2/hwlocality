@@ -20,7 +20,7 @@ use derive_more::Display;
 use libc::{EINVAL, ENOMEM};
 use std::{
     ffi::c_ulong,
-    fmt,
+    fmt::{self, Write},
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr,
 };
@@ -482,9 +482,9 @@ impl fmt::Display for AllowSet<'_> {
                     write!(s, "{nodeset}")?;
                 }
                 s.push(')');
-                f.pad(s)
+                f.pad(&s)
             }
-            other => <Self as fmt::Debug>::fmt(self, f),
+            other => <Self as fmt::Debug>::fmt(other, f),
         }
     }
 }
