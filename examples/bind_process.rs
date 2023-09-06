@@ -18,6 +18,7 @@ fn main() -> anyhow::Result<()> {
         println!("This example needs support for querying and setting process CPU bindings");
         return Ok(());
     }
+
     // FIXME: get_proc_cpu_binding fails on Windows CI for unknown reasons
     //        May want to try again once this upsteam issue is resolved:
     //        https://github.com/open-mpi/hwloc/issues/78
@@ -28,9 +29,8 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // load the current pid through libc
+    // Determine the active process' PID
     let pid = get_pid();
-
     println!("Binding Process with PID {pid:?}");
 
     // Grab last PU and extract its CpuSet
@@ -73,12 +73,7 @@ fn last_pu(topology: &Topology) -> anyhow::Result<&TopologyObject> {
         .context("System should have at least once PU")
 }
 
-#[cfg(target_os = "windows")]
+/// Query the current process' PID
 fn get_pid() -> ProcessId {
-    unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn get_pid() -> ProcessId {
-    unsafe { libc::getpid() }
+    usize::from(sysinfo::get_current_pid().expect("Failed to query PID")) as _
 }
