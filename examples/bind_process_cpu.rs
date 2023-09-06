@@ -24,8 +24,8 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // FIXME: get_proc_cpu_binding fails on Windows CI for unknown reasons
-    //        May want to try again once this upsteam issue is resolved:
+    // FIXME: hwloc's get_proc_cpu_binding() mysteriously fails on Windows CI.
+    //        May want to try again once this upstream issue is resolved:
     //        https://github.com/open-mpi/hwloc/issues/78
     if cfg!(target_os = "windows") {
         println!(
