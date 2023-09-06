@@ -4,6 +4,7 @@ use hwlocality::{
     objects::{types::ObjectType, TopologyObject},
     ProcessId, Topology,
 };
+use sysinfo::SystemExt;
 
 /// Example which binds an arbitrary process (in this example this very same one)
 /// to the last processing unit (core or hyperthread).
@@ -16,6 +17,10 @@ fn main() -> anyhow::Result<()> {
     };
     if !(support.get_process() && support.set_process()) {
         println!("This example needs support for querying and setting process CPU bindings");
+        return Ok(());
+    }
+    if !sysinfo::System::IS_SUPPORTED {
+        println!("This example needs support for querying current PID");
         return Ok(());
     }
 
