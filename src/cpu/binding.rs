@@ -579,7 +579,7 @@ impl Display for CpuBoundObject {
             Self::Thread => "the target thread",
             Self::ThisProgram => "the current process/thread",
         };
-        write!(f, "{display}")
+        f.pad(display)
     }
 }
 //

@@ -1958,13 +1958,15 @@ macro_rules! impl_bitmap_newtype {
 
         impl std::fmt::Debug for $newtype {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}({:?})", stringify!($newtype), &self.0)
+                let text = format!("{}({:?})", stringify!($newtype), &self.0);
+                f.pad(&text)
             }
         }
 
         impl std::fmt::Display for $newtype {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}({})", stringify!($newtype), &self.0)
+                let text = format!("{}({})", stringify!($newtype), &self.0);
+                f.pad(&text)
             }
         }
 

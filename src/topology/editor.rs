@@ -471,19 +471,20 @@ impl fmt::Display for AllowSet<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AllowSet::Custom { cpuset, nodeset } => {
-                write!(f, "Custom(")?;
+                let mut s = String::from("Custom(");
                 if let Some(cpuset) = cpuset {
-                    write!(f, "{cpuset}")?;
+                    write!(s, "{cpuset}")?;
                     if nodeset.is_some() {
-                        write!(f, ", ")?;
+                        s.push_str(", ");
                     }
                 }
                 if let Some(nodeset) = nodeset {
-                    write!(f, "{nodeset}")?;
+                    write!(s, "{nodeset}")?;
                 }
-                write!(f, ")")
+                s.push(')');
+                f.pad(s)
             }
-            other => write!(f, "{other:?}"),
+            other => <Self as fmt::Debug>::fmt(self, f),
         }
     }
 }

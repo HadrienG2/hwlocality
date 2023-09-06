@@ -91,12 +91,9 @@ pub(crate) fn write_snprintf(
     f: &mut fmt::Formatter,
     snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> fmt::Result {
-    let chars = call_snprintf(snprintf);
-    write!(
-        f,
-        "{}",
-        unsafe { CStr::from_ptr(chars.as_ptr()) }.to_string_lossy()
-    )
+    let text = call_snprintf(snprintf);
+    let text = unsafe { CStr::from_ptr(text.as_ptr()) }.to_string_lossy();
+    f.pad(&text)
 }
 
 /// Less error-prone CString alternative

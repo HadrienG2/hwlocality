@@ -994,7 +994,7 @@ impl Display for MemoryBoundObject {
             Self::Area => "the target location",
             Self::ThisProgram => "the current process/thread",
         };
-        write!(f, "{display}")
+        f.pad(display)
     }
 }
 //

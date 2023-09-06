@@ -1732,11 +1732,13 @@ impl TopologyObject {
             let type_str = CStr::from_ptr(type_chars.as_ptr()).to_string_lossy();
             let attr_str = CStr::from_ptr(attr_chars.as_ptr()).to_string_lossy();
             if attr_str.is_empty() {
-                write!(f, "{type_str}")
+                f.pad(&type_str)
             } else if f.alternate() {
-                write!(f, "{type_str} (\n  {attr_str}\n)")
+                let s = format!("{type_str} (\n  {attr_str}\n)");
+                f.pad(&s)
             } else {
-                write!(f, "{type_str} ({attr_str})")
+                let s = format!("{type_str} ({attr_str})");
+                f.pad(&s)
             }
         }
     }
