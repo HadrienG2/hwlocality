@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
     // the end of the block is reached.
     let core_depth = topology.depth_or_below_for_type(ObjectType::Core)?;
     let cores = topology.objects_at_depth(core_depth).collect::<Vec<_>>();
-    println!("Found {} cores", cores.len());
+    println!("Found {} cores, will bind one thread per core", cores.len());
 
     // Spawn one thread for each and pass the topology down into scope.
     std::thread::scope(|scope| {
@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
                 let after = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
 
                 // Report what was done
-                println!("Thread {idx}: Binding went from {before:?} to {after:?}");
+                println!("- Thread {idx} binding: {before:?} -> {after:?}");
 
                 Ok(())
             });

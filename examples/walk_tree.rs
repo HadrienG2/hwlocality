@@ -4,7 +4,7 @@ use hwlocality::{objects::TopologyObject, Topology};
 fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
 
-    println!("*** Printing overall tree");
+    println!("*** Topology tree");
     print_children(topology.root_object(), 0)?;
 
     Ok(())
