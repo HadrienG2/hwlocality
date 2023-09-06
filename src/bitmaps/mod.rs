@@ -1220,7 +1220,7 @@ impl<B: Borrow<Bitmap>> SubAssign<B> for Bitmap {
 unsafe impl Sync for Bitmap {}
 
 #[allow(clippy::missing_safety_doc)]
-/// [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
+/// A [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
 ///
 /// This type cannot be implemented outside of this crate as it relies on
 /// binding implementation details.
@@ -1531,8 +1531,7 @@ where
     }
 }
 
-/// Trait for manipulating specialized bitmaps ([`CpuSet`], [`NodeSet`]) and
-/// [`BitmapRef`]s thereof in a homogeneous way
+/// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
 pub trait SpecializedBitmap: AsRef<Bitmap> {
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;
@@ -1547,11 +1546,11 @@ pub trait SpecializedBitmap: AsRef<Bitmap> {
     fn to_owned(&self) -> Self::Owned;
 }
 
-/// Trait for manipulating owned specialized bitmaps ([`CpuSet`], [`NodeSet`])
+/// An owned specialized bitmaps ([`CpuSet`], [`NodeSet`])
 ///
 /// This is a little bit more than an alias for `OwnedBitmap +
 /// SpecializedBitmap` because if `Self` is owned, we know that `Self::Owned`
-/// is `Self`.
+/// will be `Self` and can use this to hint type inference and golf bounds.
 pub trait OwnedSpecializedBitmap: OwnedBitmap + SpecializedBitmap<Owned = Self> {}
 //
 impl<B: OwnedBitmap + SpecializedBitmap<Owned = Self>> OwnedSpecializedBitmap for B {}
