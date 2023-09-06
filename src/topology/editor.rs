@@ -169,7 +169,7 @@ impl TopologyEditor<'_> {
         &mut self,
         set: &Set,
         mut flags: RestrictFlags,
-    ) -> Result<(), ParameterError<Set>> {
+    ) -> Result<(), ParameterError<Set::Owned>> {
         // Configure restrict flags correctly depending on the node set type
         match Set::BITMAP_KIND {
             BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
@@ -199,7 +199,7 @@ impl TopologyEditor<'_> {
                     errno: Some(errno),
                 },
             ) => match errno.0 {
-                EINVAL => Err(ParameterError::from(set.clone())),
+                EINVAL => Err(ParameterError::from(set.to_owned())),
                 ENOMEM => {
                     eprintln!("Topology stuck in an invalid state, must abort");
                     std::process::abort()

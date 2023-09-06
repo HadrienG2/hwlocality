@@ -1,7 +1,7 @@
 //! Memory binding
 
 use crate::{
-    bitmaps::{Bitmap, BitmapKind, RawBitmap, SpecializedBitmap},
+    bitmaps::{Bitmap, BitmapKind, OwnedSpecializedBitmap, RawBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},
     ffi,
     memory::{self, nodesets::NodeSet},
@@ -88,15 +88,15 @@ impl Topology {
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc")]
     pub fn allocate_memory(&self, len: usize) -> Result<Bytes, MemoryAllocationError<NodeSet>> {
-        self.allocate_memory_impl(len)
+        self.allocate_memory_impl::<NodeSet>(len)
     }
 
     /// Like allocate_memory, but polymorphic on Set
     fn allocate_memory_impl<Set: SpecializedBitmap>(
         &self,
         len: usize,
-    ) -> Result<Bytes, MemoryAllocationError<Set>> {
-        memory::binding::call_hwloc_allocate("hwloc_alloc", None, || unsafe {
+    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
+        memory::binding::call_hwloc_allocate::<Set>("hwloc_alloc", None, || unsafe {
             ffi::hwloc_alloc(self.as_ptr(), len)
         })
         .map(|base| unsafe { Bytes::wrap(self, base, len) })
@@ -141,7 +141,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         mut flags: MemoryBindingFlags,
-    ) -> Result<Bytes, MemoryAllocationError<Set>> {
+    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
         Self::adjust_flags_for::<Set>(&mut flags);
         if !flags.is_valid(MemoryBoundObject::Area, MemoryBindingOperation::Allocate) {
             return Err(MemoryAllocationError::BadFlags(flags.into()));
@@ -199,7 +199,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<Bytes, MemoryAllocationError<Set>> {
+    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
         // Try allocate_bound_memory first
         if let Ok(bytes) = self.allocate_bound_memory(len, set, policy, flags) {
             return Ok(bytes);
@@ -209,7 +209,7 @@ impl Topology {
         self.bind_memory(set, policy, flags)?;
 
         // If that succeeds, try allocating more memory
-        let mut bytes = self.allocate_memory_impl(len)?;
+        let mut bytes = self.allocate_memory_impl::<Set>(len)?;
 
         // Depending on policy, we may or may not need to touch the memory to
         // enforce the binding
@@ -256,7 +256,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<Set>> {
+    ) -> Result<(), MemoryBindingError<Set::Owned>> {
         self.bind_memory_impl(
             "hwloc_set_membind",
             set,
@@ -359,7 +359,7 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_membind")]
-    pub fn memory_binding<Set: SpecializedBitmap>(
+    pub fn memory_binding<Set: OwnedSpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
@@ -399,7 +399,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<Set>> {
+    ) -> Result<(), MemoryBindingError<Set::Owned>> {
         self.bind_memory_impl(
             "hwloc_set_proc_membind",
             set,
@@ -471,7 +471,7 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_proc_membind")]
-    pub fn process_memory_binding<Set: SpecializedBitmap>(
+    pub fn process_memory_binding<Set: OwnedSpecializedBitmap>(
         &self,
         pid: ProcessId,
         flags: MemoryBindingFlags,
@@ -524,7 +524,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<Set>> {
+    ) -> Result<(), MemoryBindingError<Set::Owned>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
             return Err(MemoryBindingError::BadTarget);
@@ -647,7 +647,7 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_area_membind")]
-    pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
+    pub fn area_memory_binding<Target: ?Sized, Set: OwnedSpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
@@ -714,7 +714,7 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_area_memlocation")]
-    pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
+    pub fn area_memory_location<Target: ?Sized, Set: OwnedSpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
@@ -765,7 +765,7 @@ impl Topology {
             RawMemoryBindingPolicy,
             c_int,
         ) -> c_int,
-    ) -> Result<(), MemoryBindingError<Set>> {
+    ) -> Result<(), MemoryBindingError<Set::Owned>> {
         let operation = MemoryBindingOperation::Bind;
         Self::adjust_flags_for::<Set>(&mut flags);
         if !flags.is_valid(target, operation) {
@@ -798,13 +798,13 @@ impl Topology {
         if !flags.is_valid(target, operation) {
             return Err(MemoryBindingError::BadFlags(flags.into()));
         }
-        memory::binding::call_hwloc_int(api, target, operation, None, || {
+        memory::binding::call_hwloc_int::<NodeSet>(api, target, operation, None, || {
             set_membind_like(self.as_ptr(), ptr::null(), 0, flags.bits())
         })
     }
 
     /// Call an hwloc memory binding query function
-    fn memory_binding_impl<Set: SpecializedBitmap>(
+    fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
         &self,
         api: &'static str,
         mut flags: MemoryBindingFlags,
@@ -823,7 +823,7 @@ impl Topology {
         }
         let mut set = Bitmap::new();
         let mut raw_policy = 0;
-        memory::binding::call_hwloc_int(api, target, operation, None, || {
+        memory::binding::call_hwloc_int::<Set>(api, target, operation, None, || {
             get_membind_like(
                 self.as_ptr(),
                 set.as_mut_ptr(),
@@ -1152,7 +1152,7 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
     operation: MemoryBindingOperation,
     set: Option<&Set>,
     ffi: impl FnOnce() -> c_int,
-) -> Result<(), MemoryBindingError<Set>> {
+) -> Result<(), MemoryBindingError<Set::Owned>> {
     match errors::call_hwloc_int_normal(api, ffi) {
         Ok(_) => Ok(()),
         Err(RawHwlocError { errno, .. }) => Err(decode_errno(
@@ -1177,7 +1177,7 @@ pub(crate) fn call_hwloc_allocate<Set: SpecializedBitmap>(
     api: &'static str,
     set: Option<&Set>,
     ffi: impl FnOnce() -> *mut c_void,
-) -> Result<NonNull<c_void>, MemoryAllocationError<Set>> {
+) -> Result<NonNull<c_void>, MemoryAllocationError<Set::Owned>> {
     errors::call_hwloc_ptr_mut(api, ffi).map_err(|raw_err| {
         decode_errno(
             MemoryBoundObject::Area,
@@ -1195,7 +1195,7 @@ fn decode_errno<Set: SpecializedBitmap>(
     operation: MemoryBindingOperation,
     set: Option<&Set>,
     errno: Errno,
-) -> Option<MemoryBindingError<Set>> {
+) -> Option<MemoryBindingError<Set::Owned>> {
     match errno.0 {
         ENOSYS => Some(MemoryBindingError::Unsupported),
         EXDEV => match operation {
@@ -1203,7 +1203,7 @@ fn decode_errno<Set: SpecializedBitmap>(
                 Some(MemoryBindingError::BadSet(
                     object,
                     set.expect("This error should only be observed on commands that set bindings")
-                        .clone(),
+                        .to_owned(),
                 ))
             }
             MemoryBindingOperation::GetBinding | MemoryBindingOperation::GetLastLocation => {

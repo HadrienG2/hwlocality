@@ -19,7 +19,7 @@ use crate::{
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, BorrowMut},
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
@@ -1219,21 +1219,34 @@ impl<B: Borrow<Bitmap>> SubAssign<B> for Bitmap {
 
 unsafe impl Sync for Bitmap {}
 
-/// Bitmap or a specialized form thereof
+#[allow(clippy::missing_safety_doc)]
+/// [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
 ///
-/// # Safety
-///
-/// Implementations of this type must effectively be a `repr(transparent)`
-/// wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
-#[doc(hidden)]
-pub unsafe trait BitmapLike: Sealed {
+/// This type cannot be implemented outside of this crate as it relies on
+/// binding implementation details.
+//
+// # Safety
+//
+// Implementations of this type must effectively be a `repr(transparent)`
+// wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
+pub unsafe trait OwnedBitmap:
+    Borrow<Bitmap>
+    + BorrowMut<Bitmap>
+    + Debug
+    + Display
+    + From<Bitmap>
+    + Into<Bitmap>
+    + Sealed
+    + 'static
+{
     /// Access the inner `NonNull<RawBitmap>`
+    #[doc(hidden)]
     fn as_raw(&self) -> NonNull<RawBitmap>;
 }
 //
 impl Sealed for Bitmap {}
 //
-unsafe impl BitmapLike for Bitmap {
+unsafe impl OwnedBitmap for Bitmap {
     fn as_raw(&self) -> NonNull<RawBitmap> {
         self.0
     }
@@ -1247,14 +1260,14 @@ unsafe impl BitmapLike for Bitmap {
 #[repr(transparent)]
 pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
 
-impl<'target, Target: BitmapLike> BitmapRef<'target, Target> {
+impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
     /// Cast to another bitmap newtype
-    pub fn cast<Other: BitmapLike>(self) -> BitmapRef<'target, Other> {
+    pub fn cast<Other: OwnedBitmap>(self) -> BitmapRef<'target, Other> {
         BitmapRef(self.0, PhantomData)
     }
 }
 
-impl<'target, Target: BitmapLike> AsRef<Target> for BitmapRef<'target, Target> {
+impl<'target, Target: OwnedBitmap> AsRef<Target> for BitmapRef<'target, Target> {
     fn as_ref(&self) -> &Target {
         // This is safe because...
         // - Both Target and BitmapRef are effectively repr(transparent)
@@ -1270,7 +1283,7 @@ impl<'target, Target: BitmapLike> AsRef<Target> for BitmapRef<'target, Target> {
 
 impl<Target, Rhs> BitAnd<Rhs> for &BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: BitAnd<&'b Target, Output = Target>,
 {
@@ -1283,7 +1296,7 @@ where
 
 impl<Target, Rhs> BitAnd<Rhs> for BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: BitAnd<&'b Target, Output = Target>,
 {
@@ -1296,7 +1309,7 @@ where
 
 impl<Target, Rhs> BitOr<Rhs> for &BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: BitOr<&'b Target, Output = Target>,
 {
@@ -1309,7 +1322,7 @@ where
 
 impl<Target, Rhs> BitOr<Rhs> for BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: BitOr<&'b Target, Output = Target>,
 {
@@ -1322,7 +1335,7 @@ where
 
 impl<Target, Rhs> BitXor<Rhs> for &BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: BitXor<&'b Target, Output = Target>,
 {
@@ -1335,7 +1348,7 @@ where
 
 impl<Target, Rhs> BitXor<Rhs> for BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: BitXor<&'b Target, Output = Target>,
 {
@@ -1346,14 +1359,15 @@ where
     }
 }
 
-// NOTE: Needed to have impls of BitXyz<&BitmapRef> for Target
-impl<Target: BitmapLike> Borrow<Target> for &BitmapRef<'_, Target> {
+// NOTE: This seemingly useless impl is needed in order to have impls of
+//       BitXyz<&BitmapRef> for Target
+impl<Target: OwnedBitmap> Borrow<Target> for &BitmapRef<'_, Target> {
     fn borrow(&self) -> &Target {
         self.as_ref()
     }
 }
 
-impl<Target: BitmapLike> Borrow<Target> for BitmapRef<'_, Target> {
+impl<Target: OwnedBitmap> Borrow<Target> for BitmapRef<'_, Target> {
     fn borrow(&self) -> &Target {
         self.as_ref()
     }
@@ -1374,13 +1388,13 @@ impl<'target> Borrow<BitmapRef<'target, Bitmap>> for Bitmap {
 
 // SAFETY: Do not implement Clone, or the Borrow impl above will open the door to UB.
 
-impl<Target: BitmapLike + Debug> Debug for BitmapRef<'_, Target> {
+impl<Target: OwnedBitmap + Debug> Debug for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Target as Debug>::fmt(self.as_ref(), f)
     }
 }
 
-impl<Target: BitmapLike> Deref for BitmapRef<'_, Target> {
+impl<Target: OwnedBitmap> Deref for BitmapRef<'_, Target> {
     type Target = Target;
 
     fn deref(&self) -> &Target {
@@ -1388,15 +1402,15 @@ impl<Target: BitmapLike> Deref for BitmapRef<'_, Target> {
     }
 }
 
-impl<Target: BitmapLike + Display> Display for BitmapRef<'_, Target> {
+impl<Target: OwnedBitmap + Display> Display for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Target as Display>::fmt(self.as_ref(), f)
     }
 }
 
-impl<Target: BitmapLike + Eq + PartialEq<Self>> Eq for BitmapRef<'_, Target> {}
+impl<Target: OwnedBitmap + Eq + PartialEq<Self>> Eq for BitmapRef<'_, Target> {}
 
-impl<'target, Target: BitmapLike> From<&'target Target> for BitmapRef<'target, Target> {
+impl<'target, Target: OwnedBitmap> From<&'target Target> for BitmapRef<'target, Target> {
     fn from(input: &'target Target) -> Self {
         Self(input.as_raw(), PhantomData)
     }
@@ -1405,7 +1419,7 @@ impl<'target, Target: BitmapLike> From<&'target Target> for BitmapRef<'target, T
 impl<'target, 'self_, Target> IntoIterator for &'self_ BitmapRef<'target, Target>
 where
     'target: 'self_,
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     &'self_ Target: Borrow<Bitmap>,
 {
     type Item = BitmapIndex;
@@ -1418,7 +1432,7 @@ where
 
 impl<'target, Target> IntoIterator for BitmapRef<'target, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
 {
     type Item = BitmapIndex;
     type IntoIter = BitmapIterator<BitmapRef<'target, Bitmap>>;
@@ -1430,7 +1444,7 @@ where
 
 impl<Target> Not for &BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     for<'target> &'target Target: Not<Output = Target>,
 {
     type Output = Target;
@@ -1442,7 +1456,7 @@ where
 
 impl<Target> Not for BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     for<'target> &'target Target: Not<Output = Target>,
 {
     type Output = Target;
@@ -1454,7 +1468,7 @@ where
 
 impl<Target, Rhs> PartialEq<Rhs> for BitmapRef<'_, Target>
 where
-    Target: BitmapLike + PartialEq<Rhs>,
+    Target: OwnedBitmap + PartialEq<Rhs>,
 {
     fn eq(&self, other: &Rhs) -> bool {
         self.as_ref() == other
@@ -1463,24 +1477,24 @@ where
 
 impl<Target, Rhs> PartialOrd<Rhs> for BitmapRef<'_, Target>
 where
-    Target: BitmapLike + PartialOrd<Rhs>,
+    Target: OwnedBitmap + PartialOrd<Rhs>,
 {
     fn partial_cmp(&self, other: &Rhs) -> Option<Ordering> {
         self.as_ref().partial_cmp(other)
     }
 }
 
-impl<Target: BitmapLike + Ord + PartialOrd<Self>> Ord for BitmapRef<'_, Target> {
+impl<Target: OwnedBitmap + Ord + PartialOrd<Self>> Ord for BitmapRef<'_, Target> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_ref().cmp(other.as_ref())
     }
 }
 
-unsafe impl<Target: BitmapLike + Send> Send for BitmapRef<'_, Target> {}
+unsafe impl<Target: OwnedBitmap + Send> Send for BitmapRef<'_, Target> {}
 
 impl<Target, Rhs> Sub<Rhs> for &BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: Sub<&'b Target, Output = Target>,
 {
@@ -1493,7 +1507,7 @@ where
 
 impl<Target, Rhs> Sub<Rhs> for BitmapRef<'_, Target>
 where
-    Target: BitmapLike,
+    Target: OwnedBitmap,
     Rhs: Borrow<Target>,
     for<'a, 'b> &'a Target: Sub<&'b Target, Output = Target>,
 {
@@ -1504,11 +1518,11 @@ where
     }
 }
 
-unsafe impl<Target: BitmapLike + Sync> Sync for BitmapRef<'_, Target> {}
+unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 
 impl<'target, Target> ToOwned for BitmapRef<'target, Target>
 where
-    Target: BitmapLike + Borrow<BitmapRef<'target, Target>> + Clone,
+    Target: OwnedBitmap + Borrow<BitmapRef<'target, Target>> + Clone,
 {
     type Owned = Target;
 
@@ -1517,21 +1531,30 @@ where
     }
 }
 
-/// Trait for manipulating specialized bitmaps (CpuSet, NodeSet) in a homogeneous way
-pub trait SpecializedBitmap:
-    AsRef<Bitmap>
-    + AsMut<Bitmap>
-    + BitmapLike
-    + Clone
-    + Debug
-    + Display
-    + From<Bitmap>
-    + Into<Bitmap>
-    + 'static
-{
+/// Trait for manipulating specialized bitmaps ([`CpuSet`], [`NodeSet`]) and
+/// [`BitmapRef`]s thereof in a homogeneous way
+pub trait SpecializedBitmap: AsRef<Bitmap> {
     /// What kind of bitmap is this?
     const BITMAP_KIND: BitmapKind;
+
+    /// What is the owned form of this type?
+    type Owned: OwnedSpecializedBitmap;
+
+    /// How to get an owned copy of `&self`?
+    ///
+    /// Dispatches to either `Clone` or `ToOwned` depending on if `Self` is
+    /// owned or not.
+    fn to_owned(&self) -> Self::Owned;
 }
+
+/// Trait for manipulating owned specialized bitmaps ([`CpuSet`], [`NodeSet`])
+///
+/// This is a little bit more than an alias for `OwnedBitmap +
+/// SpecializedBitmap` because if `Self` is owned, we know that `Self::Owned`
+/// is `Self`.
+pub trait OwnedSpecializedBitmap: OwnedBitmap + SpecializedBitmap<Owned = Self> {}
+//
+impl<B: OwnedBitmap + SpecializedBitmap<Owned = Self>> OwnedSpecializedBitmap for B {}
 
 /// Kind of specialized bitmap
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -1567,16 +1590,26 @@ macro_rules! impl_bitmap_newtype {
         #[repr(transparent)]
         pub struct $newtype($crate::bitmaps::Bitmap);
 
-        impl AsRef<$newtype> for $crate::bitmaps::Bitmap {
-            fn as_ref(&self) -> &$newtype {
-                // Safe because $newtype is repr(transparent)
-                unsafe { std::mem::transmute(self) }
-            }
-        }
-
         impl $crate::bitmaps::SpecializedBitmap for $newtype {
             const BITMAP_KIND: $crate::bitmaps::BitmapKind =
                 $crate::bitmaps::BitmapKind::$newtype;
+
+            type Owned = Self;
+
+            fn to_owned(&self) -> Self {
+                self.clone()
+            }
+        }
+
+        impl $crate::bitmaps::SpecializedBitmap for $crate::bitmaps::BitmapRef<'_, $newtype> {
+            const BITMAP_KIND: $crate::bitmaps::BitmapKind =
+                $crate::bitmaps::BitmapKind::$newtype;
+
+            type Owned = $newtype;
+
+            fn to_owned(&self) -> $newtype {
+                <Self as ToOwned>::to_owned(self)
+            }
         }
 
         /// # Re-export of the Bitmap API
@@ -1871,9 +1904,10 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        unsafe impl $crate::bitmaps::BitmapLike for $newtype {
-            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmaps::RawBitmap> {
-                self.0.as_raw()
+        impl<'target> AsRef<$crate::bitmaps::Bitmap> for $crate::bitmaps::BitmapRef<'_, $newtype> {
+            fn as_ref(&self) -> &$crate::bitmaps::Bitmap {
+                let newtype: &$newtype = self.as_ref();
+                newtype.as_ref()
             }
         }
 
@@ -1943,6 +1977,18 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        impl<'target> std::borrow::Borrow<$crate::bitmaps::Bitmap> for $newtype {
+            fn borrow(&self) -> &$crate::bitmaps::Bitmap {
+                self.as_ref()
+            }
+        }
+
+        impl<'target> std::borrow::Borrow<$crate::bitmaps::Bitmap> for $crate::bitmaps::BitmapRef<'_, $newtype> {
+            fn borrow(&self) -> &$crate::bitmaps::Bitmap {
+                self.as_ref()
+            }
+        }
+
         impl<'target> std::borrow::Borrow<$crate::bitmaps::BitmapRef<'target, $newtype>> for $newtype {
             fn borrow(&self) -> &$crate::bitmaps::BitmapRef<'target, $newtype> {
                 // This is safe because...
@@ -1953,6 +1999,12 @@ macro_rules! impl_bitmap_newtype {
                 // - BitmapRef does not implement Clone, so it is not possible to create
                 //   another BitmapRef that isn't covered by the above guarantee.
                 unsafe { std::mem::transmute::<&$newtype, &$crate::bitmaps::BitmapRef<'target, $newtype>>(self) }
+            }
+        }
+
+        impl<'target> std::borrow::BorrowMut<$crate::bitmaps::Bitmap> for $newtype {
+            fn borrow_mut(&mut self) -> &mut $crate::bitmaps::Bitmap {
+                self.as_mut()
             }
         }
 
@@ -2002,6 +2054,12 @@ macro_rules! impl_bitmap_newtype {
 
             fn not(self) -> $newtype {
                 $newtype(!&self.0)
+            }
+        }
+
+        unsafe impl $crate::bitmaps::OwnedBitmap for $newtype {
+            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmaps::RawBitmap> {
+                self.0.as_raw()
             }
         }
 

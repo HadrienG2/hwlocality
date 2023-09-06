@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Grab last core and exctract its CpuSet
+    // Find the last core on the system and extract its CpuSet
     let cpuset = last_core(&topology)?
         .cpuset()
         .context("Cores should have CPUsets")?;
@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Find the last core
+/// Find the last core on the system
 fn last_core(topology: &Topology) -> anyhow::Result<&TopologyObject> {
     let core_depth = topology.depth_or_below_for_type(ObjectType::Core)?;
     let mut all_cores = topology.objects_at_depth(core_depth);
