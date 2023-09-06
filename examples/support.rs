@@ -7,40 +7,62 @@ use hwlocality::{
 fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
 
-    // Check if Process Binding for CPUs is supported
+    // Check if processes can be bound to cpusets
+    println!("CPU binding support:");
     let cpu_binding_support = |check_feature: fn(&CpuBindingSupport) -> bool| {
         topology.supports(FeatureSupport::cpu_binding, check_feature)
     };
     println!(
-        "CPU Binding (current process) supported: {}",
+        "- Current process: {}",
         cpu_binding_support(CpuBindingSupport::set_current_process)
     );
     println!(
-        "CPU Binding (any process) supported: {}",
+        "- Any process: {}",
         cpu_binding_support(CpuBindingSupport::set_process)
     );
 
-    // Check if Thread Binding for CPUs is supported
+    // Check if threads can be bound to cpusets
     println!(
-        "CPU Binding (current thread) supported: {}",
+        "- Current thread: {}",
         cpu_binding_support(CpuBindingSupport::set_current_thread)
     );
     println!(
-        "CPU Binding (any thread) supported: {}",
+        "- Any thread: {}",
         cpu_binding_support(CpuBindingSupport::set_thread)
     );
 
-    // Check if Memory Binding is supported
+    // Check if processes can be bound to NUMA nodes
+    println!("\nMemory binding support:");
+    let memory_binding_support = |check_feature: fn(&MemoryBindingSupport) -> bool| {
+        topology.supports(FeatureSupport::memory_binding, check_feature)
+    };
     println!(
-        "Memory Binding supported: {}",
-        topology.supports(
-            FeatureSupport::memory_binding,
-            MemoryBindingSupport::set_current_process
-        )
+        "- Current process: {}",
+        memory_binding_support(MemoryBindingSupport::set_current_process)
+    );
+    println!(
+        "- Any process: {}",
+        memory_binding_support(MemoryBindingSupport::set_process)
+    );
+
+    // Check if threads can be bound to NUMA nodes
+    println!(
+        "- Current thread: {}",
+        memory_binding_support(MemoryBindingSupport::set_current_thread)
+    );
+
+    // Check if memory allocations can be bound to NUMA nodes
+    println!(
+        "- New allocation: {}",
+        memory_binding_support(MemoryBindingSupport::alloc)
+    );
+    println!(
+        "- Pre-existing allocation: {}",
+        memory_binding_support(MemoryBindingSupport::set_area)
     );
 
     // Debug Print all the Support Flags
-    println!("All Flags:\n{:#?}", topology.feature_support());
+    println!("\nRaw support flags: {:#?}", topology.feature_support());
 
     Ok(())
 }

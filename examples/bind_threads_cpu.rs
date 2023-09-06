@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
 
     // Spawn one thread for each and pass the topology down into scope.
     std::thread::scope(|scope| {
-        for core in cores {
+        for (idx, core) in cores.into_iter().enumerate() {
             let topology = &topology;
             scope.spawn(move || -> anyhow::Result<()> {
                 // Get the current thread id and lock the topology to use.
@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
                 let after = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
 
                 // Report what was done
-                println!("Thread {core}: Binding went from {before:?} to {after:?}");
+                println!("Thread {idx}: Binding went from {before:?} to {after:?}");
 
                 Ok(())
             });
