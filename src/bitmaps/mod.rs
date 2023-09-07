@@ -1521,7 +1521,7 @@ impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
     }
 }
 
-unsafe impl<Target: OwnedBitmap + Send> Send for BitmapRef<'_, Target> {}
+unsafe impl<Target: OwnedBitmap + Sync> Send for BitmapRef<'_, Target> {}
 
 impl<Target, Rhs> Sub<Rhs> for &BitmapRef<'_, Target>
 where

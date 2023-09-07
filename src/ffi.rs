@@ -163,6 +163,9 @@ impl Drop for LibcString {
         unsafe { libc::free(self.0.as_ptr().cast::<c_void>()) }
     }
 }
+//
+unsafe impl Send for LibcString {}
+unsafe impl Sync for LibcString {}
 
 /// Rust model of a C incomplete type (struct declaration without a definition)
 /// From https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs

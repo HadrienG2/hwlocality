@@ -96,6 +96,9 @@ impl PartialEq for FeatureSupport {
 }
 //
 impl Eq for FeatureSupport {}
+//
+unsafe impl Send for FeatureSupport {}
+unsafe impl Sync for FeatureSupport {}
 
 /// Support for discovering information about the topology
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]

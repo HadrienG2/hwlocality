@@ -834,6 +834,9 @@ impl IndexMut<(usize, usize)> for Distances<'_> {
         unsafe { self.distances_mut().get_unchecked_mut(idx) }
     }
 }
+//
+unsafe impl Send for Distances<'_> {}
+unsafe impl Sync for Distances<'_> {}
 
 bitflags! {
     /// Kinds of distance matrices

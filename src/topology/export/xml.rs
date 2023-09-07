@@ -228,6 +228,14 @@ impl Display for XML<'_> {
     }
 }
 
+impl Drop for XML<'_> {
+    #[doc(alias = "hwloc_free_xmlbuffer")]
+    fn drop(&mut self) {
+        let addr = self.data.as_ptr().cast::<c_char>();
+        unsafe { ffi::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
+    }
+}
+
 impl Eq for XML<'_> {}
 
 impl Hash for XML<'_> {
@@ -274,10 +282,5 @@ impl PartialOrd for XML<'_> {
     }
 }
 
-impl Drop for XML<'_> {
-    #[doc(alias = "hwloc_free_xmlbuffer")]
-    fn drop(&mut self) {
-        let addr = self.data.as_ptr().cast::<c_char>();
-        unsafe { ffi::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
-    }
-}
+unsafe impl Send for XML<'_> {}
+unsafe impl Sync for XML<'_> {}

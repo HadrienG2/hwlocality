@@ -802,3 +802,6 @@ impl Drop for TopologyBuilder {
         unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
+
+unsafe impl Send for TopologyBuilder {}
+unsafe impl Sync for TopologyBuilder {}
