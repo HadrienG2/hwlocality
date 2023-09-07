@@ -36,7 +36,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     // List processes and group them by CPU binding.
-    // Use the full CpuSet as an error sentinel.
+    // Use the empty CpuSet as an error sentinel, which is okay since a
+    // process cannot be bound to no CPU (otherwise it couldn't make progress)
     let mut binding_to_pids = BTreeMap::<CpuSet, BTreeSet<ProcessId>>::new();
     let sys =
         System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()));
@@ -44,7 +45,7 @@ fn main() -> anyhow::Result<()> {
         let pid = usize::from(pid) as ProcessId;
         let binding = topology
             .process_cpu_binding(pid, CpuBindingFlags::PROCESS)
-            .unwrap_or(CpuSet::full());
+            .unwrap_or(CpuSet::new());
         assert!(binding_to_pids.entry(binding).or_default().insert(pid));
     }
 
@@ -54,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     let displays = binding_to_pids
         .into_iter()
         .map(|(binding, pid_list)| {
-            let binding_name = if binding.is_full() {
+            let binding_name = if binding.is_empty() {
                 "Query failed".to_string()
             } else if binding == topology.complete_cpuset() {
                 "All online CPUs".to_string()
