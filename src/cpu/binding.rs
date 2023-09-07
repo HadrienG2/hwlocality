@@ -1,7 +1,7 @@
 //! CPU binding
 
 #[cfg(doc)]
-use crate::{bitmaps::Bitmap, topology::support::CpuBindingSupport};
+use crate::{bitmaps::Bitmap, objects::types::ObjectType, topology::support::CpuBindingSupport};
 use crate::{
     bitmaps::RawBitmap,
     cpu::cpusets::CpuSet,
@@ -21,8 +21,8 @@ use thiserror::Error;
 /// Some operating systems do not provide all hwloc-supported mechanisms to bind
 /// processes, threads, etc. [`Topology::feature_support()`] may be used to
 /// query about the actual CPU binding support in the currently used operating
-/// system. Individual CPU binding functions will clarify which support flags
-/// they require.
+/// system. The documentation of individual CPU binding functions will clarify
+/// which support flags they require.
 ///
 /// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`THREAD`] and
 /// [`PROCESS`] flags (listed in order of decreasing portability) when using any
@@ -44,12 +44,12 @@ impl Topology {
     /// Binds the current process or thread on given CPUs
     ///
     /// Some operating systems only support binding threads or processes to a
-    /// single PU. Others allow binding to larger sets such as entire Cores or
-    /// Packages or even random sets of individual PUs. In such operating
-    /// systems, the scheduler is free to run the task on one of these PU, then
-    /// migrate it to another PU, etc. It is often useful to call [`singlify()`]
-    /// on the target CPU set before passing it to the binding function to avoid
-    /// these expensive migrations.
+    /// single [`PU`]. Others allow binding to larger sets such as entire
+    /// [`Core`]s or [`Package`]s or even random sets of individual [`PU`]s. In
+    /// such operating systems, the scheduler is free to run the task on one of
+    /// these PU, then migrate it to another [`PU`], etc. It is often useful to
+    /// call [`singlify()`] on the target CPU set before passing it to the
+    /// binding function to avoid these expensive migrations.
     ///
     /// To unbind, just call the binding function with either a full cpuset or a
     /// cpuset equal to the system cpuset.
@@ -77,8 +77,11 @@ impl Topology {
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(ThisProgram)`]: CpuBindingError::BadObject
+    /// [`Core`]: ObjectType::Core
     /// [`NO_MEMORY_BINDING`]: CpuBindingFlags::NO_MEMORY_BINDING
+    /// [`Package`]: ObjectType::Package
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
+    /// [`PU`]: ObjectType::PU
     /// [`singlify()`]: Bitmap::singlify()
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_set_cpubind")]
@@ -607,8 +610,8 @@ pub enum CpuBindingError {
     ///
     /// Not all CPU binding flag combinations make sense, either in isolation or
     /// in the context of a particular binding function. Please cross-check the
-    /// documentation of [`CpuBindingFlags`] and the function you were trying to
-    /// call for more information.
+    /// documentation of [`CpuBindingFlags`] as well as that of the function
+    /// you were trying to call for more information.
     #[error(transparent)]
     BadFlags(#[from] FlagsError<CpuBindingFlags>),
 

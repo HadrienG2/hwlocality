@@ -1556,6 +1556,7 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 //       wrong as outlined above.
 
 /// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
+#[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 pub trait SpecializedBitmap: AsRef<Bitmap> {
     /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;

@@ -1041,7 +1041,15 @@ pub enum MemoryBindingPolicy {
 
     /// Allocate memory on the specified nodes (most portable option)
     ///
+    /// The actual behavior may slightly vary between operating systems,
+    /// especially when (some of) the requested nodes are full. On Linux, by
+    /// default, the `MPOL_PREFERRED_MANY` (or `MPOL_PREFERRED`) policy is used.
+    /// However, if the [`STRICT`] flag is also given, the Linux `MPOL_BIND`
+    /// policy is rather used.
+    ///
     /// Requires [`MemoryBindingSupport::bind()`].
+    ///
+    /// [`STRICT`]: MemoryBindingFlags::STRICT
     #[default]
     #[doc(alias = "HWLOC_MEMBIND_BIND")]
     Bind = 2,
@@ -1304,3 +1312,6 @@ impl Drop for Bytes<'_> {
         );
     }
 }
+
+unsafe impl Send for Bytes<'_> {}
+unsafe impl Sync for Bytes<'_> {}
