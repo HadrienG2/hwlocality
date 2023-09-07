@@ -104,10 +104,10 @@ impl TryFrom<RawDepth> for Depth {
     fn try_from(value: RawDepth) -> Result<Self, DepthError> {
         match value {
             d if d >= 0 => {
-                let d = c_uint::try_from(d).expect("int >= 0 -> uint can't fail");
+                let d = c_uint::try_from(d).expect("int >= 0 -> uint conversion can't fail");
                 Ok(Self::Normal(ffi::expect_usize(d)))
             }
-            -1 => Err(DepthError::None),
+            -1 => Err(DepthError::Nonexistent),
             -2 => Err(DepthError::Multiple),
             -3 => Ok(Self::NUMANode),
             -4 => Ok(Self::Bridge),
@@ -116,7 +116,7 @@ impl TryFrom<RawDepth> for Depth {
             -7 => Ok(Self::Misc),
             #[cfg(feature = "hwloc-2_1_0")]
             -8 => Ok(Self::MemCache),
-            other => Err(DepthError::Unknown(other)),
+            other => Err(DepthError::Unexpected(other)),
         }
     }
 }
@@ -142,7 +142,7 @@ pub enum DepthError {
     /// No object of the requested type exists in the topology
     #[doc(alias = "HWLOC_TYPE_DEPTH_UNKNOWN")]
     #[error("no object of given type exists in the topology")]
-    None,
+    Nonexistent,
 
     /// Objects of the requested type exist at different depths in the topology
     #[doc(alias = "HWLOC_TYPE_DEPTH_MULTIPLE")]
@@ -160,7 +160,7 @@ pub enum DepthError {
     ///   value to indicate that, but this negative value is not documented so
     ///   the Rust bindings couldn't figure out what's not going on.
     #[error("unexpected special depth value or hwloc error: {0}")]
-    Unknown(c_int),
+    Unexpected(c_int),
 }
 
 /// Result from an hwloc depth query

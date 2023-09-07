@@ -100,7 +100,7 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::None`] if no object of this type is present or
+    /// - [`DepthError::Nonexistent`] if no object of this type is present or
     ///   if the OS doesn't provide this kind of information. If a similar type
     ///   is acceptable, consider using [depth_or_below_for_type()] or
     ///   [depth_or_above_for_type()] instead.
@@ -143,6 +143,8 @@ impl Topology {
     ///
     /// # Errors
     ///
+    /// - [`DepthError::Nonexistent`] if no object typically found inside
+    ///   `object_type` is present.
     /// - [`DepthError::Multiple`] if objects of this type exist at multiple
     ///   depths (can happen when `object_type` is [`Group`]).
     ///
@@ -170,7 +172,7 @@ impl Topology {
         );
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
-            Err(DepthError::None) => {
+            Err(DepthError::Nonexistent) => {
                 let pu_depth = self
                     .depth_for_type(ObjectType::PU)
                     .expect("PU objects should be present")
@@ -184,7 +186,7 @@ impl Topology {
                         return Ok((depth + 1).into());
                     }
                 }
-                Err(DepthError::None)
+                Err(DepthError::Nonexistent)
             }
             other_err => other_err,
         }
@@ -202,6 +204,8 @@ impl Topology {
     ///
     /// # Errors
     ///
+    /// - [`DepthError::Nonexistent`] if no object typically containing
+    ///   `object_type` is present.
     /// - [`DepthError::Multiple`] if objects of this type exist at multiple
     ///   depths (can happen when `object_type` is [`Group`]).
     ///
@@ -229,7 +233,7 @@ impl Topology {
         );
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
-            Err(DepthError::None) => {
+            Err(DepthError::Nonexistent) => {
                 for depth in (0..self.depth()).rev() {
                     if self
                         .type_at_depth(depth)
@@ -239,7 +243,7 @@ impl Topology {
                         return Ok((depth - 1).into());
                     }
                 }
-                Err(DepthError::None)
+                Err(DepthError::Nonexistent)
             }
             other_err => other_err,
         }
@@ -267,7 +271,7 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::None`] if no cache level matches
+    /// - [`DepthError::Nonexistent`] if no cache level matches
     /// - [`DepthError::Multiple`] if multiple cache depths match (this can only
     ///   happen if `cache_type` is `None`).
     ///
@@ -288,7 +292,7 @@ impl Topology {
         cache_level: usize,
         cache_type: Option<CacheType>,
     ) -> DepthResult {
-        let mut result = Err(DepthError::None);
+        let mut result = Err(DepthError::Nonexistent);
         for depth in 0..self.depth() {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
@@ -315,14 +319,14 @@ impl Topology {
                         // Without a cache type check, multiple matches may
                         // occur, so we need to check all other depths.
                         match result {
-                            Err(DepthError::None) => result = Ok(depth.into()),
+                            Err(DepthError::Nonexistent) => result = Ok(depth.into()),
                             Ok(_) => {
                                 return Err(DepthError::Multiple);
                             }
                             Err(DepthError::Multiple) => {
                                 unreachable!("Setting this value triggers a loop break")
                             }
-                            Err(DepthError::Unknown(_)) => {
+                            Err(DepthError::Unexpected(_)) => {
                                 unreachable!("This value is never set")
                             }
                         }
