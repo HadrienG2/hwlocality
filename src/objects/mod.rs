@@ -1749,16 +1749,35 @@ impl TopologyObject {
 }
 
 impl fmt::Display for TopologyObject {
-    /// The Display output is a less verbose version of the Debug output:
+    /// Display of the type and attributes that is more concise than `Debug`:
     ///
-    /// - Shorter type names are used, e.g. "L1Cache" becomes "L1".
-    /// - Only the major object attributes are printed.
+    /// - Shorter type names are used, e.g. "L1Cache" becomes "L1"
+    /// - Only the major object attributes are printed
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!("Root object: {}", topology.root_object());
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display(f, false)
     }
 }
 
 impl fmt::Debug for TopologyObject {
+    /// Verbose display of the object's type and attributes
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!("Root object: {:#?}", topology.root_object());
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     #[doc(alias = "hwloc_obj_attr_snprintf")]
     #[doc(alias = "hwloc_obj_type_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
