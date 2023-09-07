@@ -1060,6 +1060,10 @@ impl TopologyObject {
     /// [`os_index()`]) and persistent across topology changes (contrary to
     /// [`logical_index()`]).
     ///
+    /// All this means you can safely use this index as a cheap key representing
+    /// the object in a Set or a Map, as long as that Set or Map only refers to
+    /// [`TopologyObject`]s originating from a single [`Topology`].
+    ///
     /// [`logical_index()`]: TopologyObject::logical_index()
     /// [`os_index()`]: TopologyObject::os_index()
     #[doc(alias = "hwloc_obj::gp_index")]
@@ -1749,7 +1753,7 @@ impl TopologyObject {
 }
 
 impl fmt::Display for TopologyObject {
-    /// Display of the type and attributes that is more concise than `Debug`:
+    /// Display of the type and attributes that is more concise than `Debug`
     ///
     /// - Shorter type names are used, e.g. "L1Cache" becomes "L1"
     /// - Only the major object attributes are printed
@@ -1769,6 +1773,8 @@ impl fmt::Display for TopologyObject {
 
 impl fmt::Debug for TopologyObject {
     /// Verbose display of the object's type and attributes
+    ///
+    /// See the `Display` implementation if you want a more concise display.
     ///
     /// # Example
     ///
