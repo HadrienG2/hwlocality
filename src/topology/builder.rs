@@ -98,8 +98,8 @@ impl TopologyBuilder {
 /// had been called. Setting `HWLOC_SYNTHETIC` enforces a synthetic topology as
 /// if [`from_synthetic()`] had been called.
 ///
-/// Finally, `HWLOC_THISSYSTEM` forces [`Topology::is_this_system()`] to return
-/// true.
+/// Finally, the return value of [`Topology::is_this_system()`] can be enforced
+/// by setting `HWLOC_THISSYSTEM`.
 ///
 /// [`from_xml_file()`]: TopologyBuilder::from_xml_file()
 /// [`from_synthetic()`]: TopologyBuilder::from_synthetic()
@@ -135,13 +135,13 @@ impl TopologyBuilder {
     /// Read the topology from a synthetic textual description
     ///
     /// Instead of being probed from the host system, topology information will
-    /// be read from the given
-    /// [textual description](https://hwloc.readthedocs.io/en/v2.9/synthetic.html).
+    /// be read from the given [textual
+    /// description](https://hwloc.readthedocs.io/en/v2.9/synthetic.html).
     ///
     /// Setting the environment variable `HWLOC_SYNTHETIC` may also result in
     /// this behavior.
     ///
-    /// CPU and memory binding operations will be ineffective with this backend.
+    /// CPU and memory binding operations will not do anything with this backend.
     ///
     /// # Errors
     ///
@@ -173,7 +173,7 @@ impl TopologyBuilder {
     /// be read from the given
     /// [XML description](https://hwloc.readthedocs.io/en/v2.9/xml.html).
     ///
-    /// CPU and memory binding operations will be ineffective with this backend,
+    /// CPU and memory binding operations will not to anything with this backend,
     /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
     /// loaded XML file truly matches the underlying system.
     ///
@@ -211,9 +211,10 @@ impl TopologyBuilder {
     ///
     /// This works a lot like [`TopologyBuilder::from_xml()`], but takes a file
     /// name as a parameter instead of an XML string. The same effect can be
-    /// achieved by setting the `HWLOC_XMLFILE` environment variable. The file
-    /// may have been generated earlier with [`Topology::export_xml()`] or
-    /// `lstopo file.xml`.
+    /// achieved by setting the `HWLOC_XMLFILE` environment variable.
+    ///
+    /// The file may have been generated earlier with
+    /// [`Topology::export_xml()`] or `lstopo file.xml`.
     ///
     /// # Errors
     ///
