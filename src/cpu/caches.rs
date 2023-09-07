@@ -21,6 +21,7 @@ impl Topology {
     /// ```
     /// # let topology = hwlocality::Topology::test_instance();
     /// let stats = topology.cpu_cache_stats();
+    ///
     /// println!(
     ///     "Minimal data cache sizes: {:?}",
     ///     stats.smallest_data_cache_sizes()
@@ -33,6 +34,19 @@ impl Topology {
     ///     "Total data cache sizes: {:?}",
     ///     stats.total_data_cache_sizes()
     /// );
+    ///
+    /// assert_eq!(stats.smallest_data_cache_sizes().len(),
+    ///            stats.smallest_data_cache_sizes_per_thread().len());
+    /// assert_eq!(stats.smallest_data_cache_sizes().len(),
+    ///            stats.total_data_cache_sizes().len());
+    /// for ((smallest, smallest_per_thread), total) in
+    ///     stats.smallest_data_cache_sizes().iter()
+    ///         .zip(stats.smallest_data_cache_sizes_per_thread())
+    ///         .zip(stats.total_data_cache_sizes())
+    /// {
+    ///     assert!(smallest_per_thread <= smallest);
+    ///     assert!(smallest <= total);
+    /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn cpu_cache_stats(&self) -> CpuCacheStats {
@@ -116,8 +130,9 @@ impl CpuCacheStats {
     /// hierarchy on this system, and what is the minimal
     /// cache capacity at each level.
     ///
-    /// You should tune sequential algorithms such that they fit in the first
-    /// cache level, if not possible in the second cache level, and so on.
+    /// You should tune sequential algorithms such that their working set is
+    /// smaller than the first reported cache capacity, if not such that it is
+    /// smaller than the second reported cache capacity, and so on.
     pub fn smallest_data_cache_sizes(&self) -> &[u64] {
         &self.smallest_data_cache_sizes[..]
     }
@@ -131,8 +146,7 @@ impl CpuCacheStats {
     ///
     /// In parallel algorithms where the fact that threads share cache cannot be
     /// leveraged, you should tune the sequential tasks processed by each
-    /// thread such that they fit in the first cache level, if not possible in
-    /// the second cache level, and so on.
+    /// thread such that they fit in the reported cache capacities.
     pub fn smallest_data_cache_sizes_per_thread(&self) -> &[u64] {
         &self.smallest_data_cache_sizes_per_thread[..]
     }
@@ -144,8 +158,8 @@ impl CpuCacheStats {
     /// level.
     ///
     /// You should tune parallel algorithms such that the total working set
-    /// (summed across all threads) fits into the first cache level, if not
-    /// possible in the second cache level, and so on.
+    /// (summed across all threads without double-counting shared resources)
+    /// fits in the reported aggregated cache capacities.
     ///
     /// Beware that this is only a minimal requirement for cache locality, and
     /// programs honoring this criterion might still not achieve good cache
