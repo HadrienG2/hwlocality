@@ -1406,6 +1406,13 @@ impl<Target: OwnedBitmap> Borrow<Target> for BitmapRef<'_, Target> {
     }
 }
 
+// NOTE: `Target` cannot implement `Borrow<BitmapRef<'target, Target>>` because
+//       it would have to do so for all `'target` which is not correct: you
+//       should not be able to create, say, a `BitmapRef<'static, Bitmap>` from
+//       a `&'a Bitmap` of finite lifetime, as otherwise you would be able
+//       to clone this `BitmapRef`, drop the original `Bitmap`, and then you
+//       would have a dangling `BitmapRef`, resulting in UB.
+
 impl<Target: OwnedBitmap + Debug> Debug for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Target as Debug>::fmt(self.as_ref(), f)
@@ -1543,6 +1550,10 @@ where
 }
 
 unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
+
+// NOTE: `BitmapRef` cannot implement `ToOwned` because it would require
+//       `Target` to implement `Borrow<BitmapRef<'target, Target>>`, which is
+//       wrong as outlined above.
 
 /// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
 pub trait SpecializedBitmap: AsRef<Bitmap> {
