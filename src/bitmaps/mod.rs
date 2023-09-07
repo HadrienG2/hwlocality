@@ -1232,6 +1232,7 @@ unsafe impl Sync for Bitmap {}
 pub unsafe trait OwnedBitmap:
     Borrow<Bitmap>
     + BorrowMut<Bitmap>
+    + Clone
     + Debug
     + Display
     + From<Bitmap>
@@ -1257,12 +1258,44 @@ unsafe impl OwnedBitmap for Bitmap {
 /// For most intents and purposes, you can think of this as an
 /// `&'target Target` and use it as such. But it cannot literally be an
 /// `&'target Target` due to annoying hwloc API technicalities...
+//
+// # Implementation details
+//
+// The reason why `BitmapRef` needs to be a thing is that...
+//
+// - In the underlying hwloc API, everything is done using `hwloc_bitmap_t`,
+//   which is actually a pointer to `hwloc_bitmap_s`, that is itself an opaque
+//   incomplete type that is modeled on the Rust side via `RawBitmap`.
+// - We can't directly expose `RawBitmap` to user code because if they move it
+//   around it won't do what they want (and if you have an `&mut` or an owned
+//   value you can always move in Rust). Therefore, hwlocality functions that
+//   return bitmaps like hwloc would return an `hwloc_bitmap_t` cannot return
+//   standard Rust pointers/refs like `&RawBitmap`, `&mut RawBitmap`,
+//   `Box<RawBitmap>`, they must instead return some kind of
+//   `NonNull<RawBitmap>` wrapper that implements the bitmap API.
+// - We need two such wrappers because sometimes we need to return an owned
+//   bitmap that must be liberated, and sometimes we need to return a borrowed
+//   bitmap that must not outlive its parent.
+//
+// Technically, we could also have a `BitmapMut` that models `&mut RawBitmap`,
+// but so far the need for this has not arised.
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
 
 impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
+    /// Make a copy of the target bitmap
+    ///
+    /// Rust references are special in that `ref.clone()` calls the `Clone`
+    /// implementation of the pointee, and not that of the reference.
+    /// `BitmapRef` does not enjoy this magic so we need to explicitly expose
+    /// target clones.
+    pub fn clone_target(&self) -> Target {
+        self.as_ref().clone()
+    }
+
     /// Cast to another bitmap newtype
-    pub fn cast<Other: OwnedBitmap>(self) -> BitmapRef<'target, Other> {
+    pub(crate) fn cast<Other: OwnedBitmap>(self) -> BitmapRef<'target, Other> {
         BitmapRef(self.0, PhantomData)
     }
 }
@@ -1373,21 +1406,6 @@ impl<Target: OwnedBitmap> Borrow<Target> for BitmapRef<'_, Target> {
     }
 }
 
-impl<'target> Borrow<BitmapRef<'target, Bitmap>> for Bitmap {
-    fn borrow(&self) -> &BitmapRef<'target, Bitmap> {
-        // This is safe because...
-        // - Bitmap and BitmapRef are effectively both repr(transparent)
-        //   wrappers of NonNull<RawBitmap>, so they are layout-compatible.
-        // - The borrow checker will not let us free the source Bitmap as long
-        //   as the &BitmapRef emitted by this function exists.
-        // - BitmapRef does not implement Clone, so it is not possible to create
-        //   another BitmapRef that isn't covered by the above guarantee.
-        unsafe { std::mem::transmute::<&Bitmap, &BitmapRef<'target, Bitmap>>(self) }
-    }
-}
-
-// SAFETY: Do not implement Clone, or the Borrow impl above will open the door to UB.
-
 impl<Target: OwnedBitmap + Debug> Debug for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Target as Debug>::fmt(self.as_ref(), f)
@@ -1466,6 +1484,12 @@ where
     }
 }
 
+impl<Target: OwnedBitmap + Ord + PartialOrd<Self>> Ord for BitmapRef<'_, Target> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_ref().cmp(other.as_ref())
+    }
+}
+
 impl<Target, Rhs> PartialEq<Rhs> for BitmapRef<'_, Target>
 where
     Target: OwnedBitmap + PartialEq<Rhs>,
@@ -1484,9 +1508,9 @@ where
     }
 }
 
-impl<Target: OwnedBitmap + Ord + PartialOrd<Self>> Ord for BitmapRef<'_, Target> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.as_ref().cmp(other.as_ref())
+impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <NonNull<RawBitmap> as fmt::Pointer>::fmt(&self.0, f)
     }
 }
 
@@ -1520,29 +1544,17 @@ where
 
 unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 
-impl<'target, Target> ToOwned for BitmapRef<'target, Target>
-where
-    Target: OwnedBitmap + Borrow<BitmapRef<'target, Target>> + Clone,
-{
-    type Owned = Target;
-
-    fn to_owned(&self) -> Target {
-        self.as_ref().clone()
-    }
-}
-
 /// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
 pub trait SpecializedBitmap: AsRef<Bitmap> {
-    /// What kind of bitmap is this?
+    /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;
 
-    /// What is the owned form of this type?
+    /// Owned form of this specialized bitmap
     type Owned: OwnedSpecializedBitmap;
 
-    /// How to get an owned copy of `&self`?
+    /// Construct an owned specialized bitmap from a borrowed one
     ///
-    /// Dispatches to either `Clone` or `ToOwned` depending on if `Self` is
-    /// owned or not.
+    /// This is a generalization of `Clone` that also works for `BitmapRef`.
     fn to_owned(&self) -> Self::Owned;
 }
 
@@ -1607,7 +1619,7 @@ macro_rules! impl_bitmap_newtype {
             type Owned = $newtype;
 
             fn to_owned(&self) -> $newtype {
-                <Self as ToOwned>::to_owned(self)
+                self.clone_target()
             }
         }
 
@@ -1985,19 +1997,6 @@ macro_rules! impl_bitmap_newtype {
         impl<'target> std::borrow::Borrow<$crate::bitmaps::Bitmap> for $crate::bitmaps::BitmapRef<'_, $newtype> {
             fn borrow(&self) -> &$crate::bitmaps::Bitmap {
                 self.as_ref()
-            }
-        }
-
-        impl<'target> std::borrow::Borrow<$crate::bitmaps::BitmapRef<'target, $newtype>> for $newtype {
-            fn borrow(&self) -> &$crate::bitmaps::BitmapRef<'target, $newtype> {
-                // This is safe because...
-                // - $newtype and BitmapRef are effectively both repr(transparent)
-                //   wrappers of NonNull<RawBitmap>, so they are layout-compatible.
-                // - The borrow checker will not let us free the source $newtype as long
-                //   as the &BitmapRef emitted by this function exists.
-                // - BitmapRef does not implement Clone, so it is not possible to create
-                //   another BitmapRef that isn't covered by the above guarantee.
-                unsafe { std::mem::transmute::<&$newtype, &$crate::bitmaps::BitmapRef<'target, $newtype>>(self) }
             }
         }
 

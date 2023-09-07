@@ -66,7 +66,7 @@ impl Topology {
         if !root_cpuset.includes(set) {
             return Err(CoarsestPartitionError {
                 query: set.clone(),
-                root: root_cpuset.clone(),
+                root: root_cpuset.clone_target(),
             });
         }
 

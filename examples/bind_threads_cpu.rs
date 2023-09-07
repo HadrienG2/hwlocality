@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
                 let mut bind_to = core
                     .cpuset()
                     .context("CPU cores should have CpuSets")?
-                    .clone();
+                    .clone_target();
 
                 // Get only one logical processor (in case the core is SMT/hyper-threaded).
                 bind_to.singlify();

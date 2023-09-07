@@ -460,7 +460,7 @@ impl Topology {
                 } else if my_items > 0 {
                     // All items attributed to this root get this root's cpuset
                     for _ in 0..my_items {
-                        result.push(cpuset.clone());
+                        result.push(cpuset.clone_target());
                     }
                 } else {
                     // No item attributed to this root, merge cpuset with
