@@ -374,16 +374,16 @@ impl Topology {
     /// ```
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
-    /// let num_roots = topology.size_at_depth(0);
+    /// let num_roots = topology.num_objects_at_depth(0);
     /// assert_eq!(num_roots, 1);
     ///
-    /// let num_root_children = topology.size_at_depth(1);
+    /// let num_root_children = topology.num_objects_at_depth(1);
     /// assert!(num_root_children > 0);
     /// #
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
-    pub fn size_at_depth(&self, depth: impl Into<Depth>) -> usize {
+    pub fn num_objects_at_depth(&self, depth: impl Into<Depth>) -> usize {
         ffi::expect_usize(unsafe {
             ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
         })
@@ -422,7 +422,7 @@ impl Topology {
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
     {
         let depth = depth.into();
-        let size = self.size_at_depth(depth);
+        let size = self.num_objects_at_depth(depth);
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
             let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
@@ -511,7 +511,7 @@ impl Topology {
             });
         let size = depth_iter
             .clone()
-            .map(move |depth| self.size_at_depth(depth))
+            .map(move |depth| self.num_objects_at_depth(depth))
             .sum();
         ObjectsWithType {
             size,
