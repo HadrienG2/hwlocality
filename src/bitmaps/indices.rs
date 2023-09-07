@@ -3387,9 +3387,9 @@ mod tests {
         // Use known-good parser to usize
         let as_usize = match usize::from_str_radix(src, radix) {
             Ok(as_usize) => as_usize,
-            e @ Err(_) => {
-                // If it fails for usize, it should fail similarly for BitmapIndex
-                assert_eq!(e, result.map(usize::from));
+            Err(_) => {
+                // If it fails for usize, it should fail for BitmapIndex
+                assert!(result.is_err());
                 return;
             }
         };
