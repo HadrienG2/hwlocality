@@ -150,6 +150,10 @@ impl TopologyEditor<'_> {
     /// included (or partially included) in the specified CPU or NUMANode set.
     /// All objects CPU and node sets are restricted accordingly.
     ///
+    /// Restricting the topology removes some locality information, hence the
+    /// remaining objects may get reordered (including PUs and NUMA nodes), and
+    /// their logical indices may change.
+    ///
     /// This call may not be reverted by restricting back to a larger set. Once
     /// dropped during restriction, objects may not be brought back, except by
     /// loading another topology with [`Topology::new()`] or [`TopologyBuilder`].
