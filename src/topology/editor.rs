@@ -222,8 +222,13 @@ impl TopologyEditor<'_> {
     ///
     /// Removing objects from a topology should rather be performed with
     /// [`TopologyEditor::restrict()`].
+    ///
+    /// # Errors
+    ///
+    /// - [`BadAllowSet`] if an `AllowSet` with neither a `cpuset` nor a
+    ///   `nodeset` is passed in.
     #[doc(alias = "hwloc_topology_allow")]
-    pub fn allow(&mut self, allow_set: AllowSet) -> Result<(), RawHwlocError> {
+    pub fn allow(&mut self, allow_set: AllowSet) -> Result<(), HybridError<BadAllowSet>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
             AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
@@ -233,7 +238,9 @@ impl TopologyEditor<'_> {
                 let nodeset = nodeset
                     .map(|nodeset| nodeset.as_ptr())
                     .unwrap_or(ptr::null());
-                assert!(!(cpuset.is_null() && nodeset.is_null()));
+                if cpuset.is_null() && nodeset.is_null() {
+                    return Err(BadAllowSet.into());
+                }
                 (cpuset, nodeset, 1 << 2)
             }
         };
@@ -243,6 +250,7 @@ impl TopologyEditor<'_> {
             ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
         })
         .map(std::mem::drop)
+        .map_err(HybridError::Hwloc)
     }
 
     /// Add more structure to the topology by adding an intermediate [`Group`]
@@ -339,8 +347,8 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// None will be returned if an error occurs or if Misc objects are
-    /// filtered out of the topology via [`TypeFilter::KeepNone`].
+    /// This method will fail with an unspecified hwloc error if Misc objects
+    /// are filtered out of the topology via [`TypeFilter::KeepNone`].
     ///
     /// [`Misc`]: ObjectType::Misc
     #[doc(alias = "hwloc_topology_insert_misc_object")]
@@ -488,6 +496,11 @@ impl fmt::Display for AllowSet<'_> {
         }
     }
 }
+
+/// Attempted to change the allowed set of PUs and NUMA nodes without saying how
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("AllowSet::Custom cannot have both empty cpuset AND nodeset members")]
+pub struct BadAllowSet;
 
 /// Control merging of newly inserted groups with existing objects
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]

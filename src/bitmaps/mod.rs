@@ -1556,7 +1556,12 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 //       wrong as outlined above.
 
 /// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
+///
+/// `hwlocality` avoids the need for error-prone `hwloc`-style `BYNODESET` flags
+/// by making `CpuSet` and `NodeSet` full-blown types and making functions which
+/// accept either of those deduce which one they got from the input type.
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
+#[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]
 pub trait SpecializedBitmap: AsRef<Bitmap> {
     /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;
