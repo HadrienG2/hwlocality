@@ -3,10 +3,10 @@
 #[cfg(feature = "hwloc-2_2_0")]
 use crate::errors;
 #[cfg(doc)]
-use crate::{bitmaps::Bitmap, topology::support::DiscoverySupport};
+use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
 use crate::{
     impl_bitmap_newtype,
-    memory::nodesets::NodeSet,
+    memory::nodeset::NodeSet,
     objects::{depth::Depth, types::ObjectType, TopologyObject},
     topology::Topology,
 };

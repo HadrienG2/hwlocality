@@ -5,7 +5,7 @@ use crate::{errors::NulError, topology::builder::TopologyBuilder};
 use crate::{
     errors::{self, HybridError, RawHwlocError},
     ffi,
-    paths::{self, PathError},
+    path::{self, PathError},
     topology::Topology,
 };
 use bitflags::bitflags;
@@ -54,9 +54,9 @@ impl Topology {
         flags: XMLExportFlags,
     ) -> Result<(), HybridError<PathError>> {
         let path = if let Some(path) = path {
-            paths::make_hwloc_path(path.as_ref())?
+            path::make_hwloc_path(path.as_ref())?
         } else {
-            paths::make_hwloc_path(Path::new("-")).expect("Known to be valid")
+            path::make_hwloc_path(Path::new("-")).expect("Known to be valid")
         };
         errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
             ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())

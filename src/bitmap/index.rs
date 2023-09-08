@@ -3,8 +3,8 @@
 use crate::ffi::{self};
 #[cfg(doc)]
 use crate::{
-    cpu::cpusets::CpuSet,
-    memory::nodesets::NodeSet,
+    cpu::cpuset::CpuSet,
+    memory::nodeset::NodeSet,
     objects::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
@@ -120,7 +120,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::from_str_radix("0", 16), Ok(BitmapIndex::ZERO));
     /// ```
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, ParseIntError> {
@@ -135,7 +135,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::ZERO.count_ones(), 0);
     /// assert_eq!(BitmapIndex::ONE.count_ones(), 1);
     /// assert_eq!(BitmapIndex::MAX.count_ones(), BitmapIndex::EFFECTIVE_BITS);
@@ -151,7 +151,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::ZERO.count_zeros(), BitmapIndex::EFFECTIVE_BITS);
     /// assert_eq!(BitmapIndex::ONE.count_zeros(), BitmapIndex::EFFECTIVE_BITS - 1);
     /// assert_eq!(BitmapIndex::MAX.count_zeros(), 0);
@@ -172,7 +172,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::ZERO.leading_zeros(), BitmapIndex::EFFECTIVE_BITS);
     /// assert_eq!(BitmapIndex::ONE.leading_zeros(), BitmapIndex::EFFECTIVE_BITS - 1);
     /// assert_eq!(BitmapIndex::MAX.leading_zeros(), 0);
@@ -189,7 +189,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::ZERO.trailing_zeros(), BitmapIndex::EFFECTIVE_BITS);
     /// assert_eq!(BitmapIndex::ONE.trailing_zeros(), 0);
     /// assert_eq!(BitmapIndex::MAX.trailing_zeros(), 0);
@@ -210,7 +210,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::ZERO.leading_ones(), 0);
     /// assert_eq!(BitmapIndex::ONE.leading_ones(), 0);
     /// assert_eq!(BitmapIndex::MAX.leading_ones(), BitmapIndex::EFFECTIVE_BITS);
@@ -227,7 +227,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(BitmapIndex::ZERO.trailing_ones(), 0);
     /// assert_eq!(BitmapIndex::ONE.trailing_ones(), 1);
     /// assert_eq!(BitmapIndex::MAX.trailing_ones(), BitmapIndex::EFFECTIVE_BITS);
@@ -246,7 +246,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.rotate_left(129),
     ///     BitmapIndex::ZERO
@@ -274,7 +274,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.rotate_right(129),
     ///     BitmapIndex::ZERO
@@ -331,7 +331,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.reverse_bits(),
     ///     BitmapIndex::ZERO
@@ -360,7 +360,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_add(BitmapIndex::ZERO),
     ///     Some(BitmapIndex::ZERO)
@@ -401,7 +401,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_add_signed(0),
     ///     Some(BitmapIndex::ZERO)
@@ -452,7 +452,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_sub(BitmapIndex::ZERO),
     ///     Some(BitmapIndex::ZERO)
@@ -486,7 +486,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_mul(BitmapIndex::ONE),
     ///     Some(BitmapIndex::ZERO)
@@ -527,7 +527,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_div(BitmapIndex::ZERO),
     ///     None
@@ -561,7 +561,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_div_euclid(BitmapIndex::ZERO),
     ///     None
@@ -591,7 +591,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_rem(BitmapIndex::ZERO),
     ///     None
@@ -625,7 +625,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_rem_euclid(BitmapIndex::ZERO),
     ///     None
@@ -661,7 +661,7 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.ilog(BitmapIndex::MAX),
     ///     0
@@ -684,7 +684,7 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.ilog2(),
     ///     0
@@ -707,7 +707,7 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.ilog10(),
     ///     0
@@ -733,7 +733,7 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_ilog(BitmapIndex::ONE),
     ///     None
@@ -762,7 +762,7 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_ilog2(),
     ///     None
@@ -787,7 +787,7 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_ilog10(),
     ///     None
@@ -814,7 +814,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_neg(),
     ///     Some(BitmapIndex::ZERO)
@@ -844,7 +844,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_shl(1),
     ///     Some(BitmapIndex::ZERO)
@@ -886,7 +886,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_shr(1),
     ///     Some(BitmapIndex::ZERO)
@@ -928,7 +928,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_pow(0),
     ///     Some(BitmapIndex::ONE)
@@ -961,7 +961,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.saturating_add(BitmapIndex::ZERO),
     ///     BitmapIndex::MIN
@@ -992,7 +992,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.saturating_add_signed(0),
     ///     BitmapIndex::MIN
@@ -1030,7 +1030,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::ZERO),
     ///     BitmapIndex::MIN
@@ -1060,7 +1060,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.saturating_mul(BitmapIndex::ZERO),
     ///     BitmapIndex::ZERO
@@ -1091,7 +1091,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.saturating_div(BitmapIndex::MAX),
     ///     BitmapIndex::ZERO
@@ -1113,7 +1113,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.saturating_pow(0),
     ///     BitmapIndex::ONE
@@ -1157,7 +1157,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.wrapping_add(BitmapIndex::ZERO),
     ///     BitmapIndex::ZERO
@@ -1191,7 +1191,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.wrapping_add_signed(0),
     ///     BitmapIndex::MIN
@@ -1221,7 +1221,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::ZERO),
     ///     BitmapIndex::MIN
@@ -1255,7 +1255,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.wrapping_mul(BitmapIndex::ZERO),
     ///     BitmapIndex::ZERO
@@ -1287,7 +1287,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.wrapping_div(BitmapIndex::MAX),
     ///     BitmapIndex::ZERO
@@ -1313,7 +1313,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.wrapping_div_euclid(BitmapIndex::MAX),
     ///     BitmapIndex::ZERO
@@ -1338,7 +1338,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.wrapping_rem(BitmapIndex::MAX),
     ///     BitmapIndex::ONE
@@ -1364,7 +1364,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.wrapping_rem_euclid(BitmapIndex::MAX),
     ///     BitmapIndex::ONE
@@ -1393,7 +1393,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.wrapping_neg(),
     ///     BitmapIndex::ZERO
@@ -1425,7 +1425,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - 1),
     ///     BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1)
@@ -1458,7 +1458,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - 1),
     ///     BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1)
@@ -1484,7 +1484,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.wrapping_pow(0),
     ///     BitmapIndex::ONE
@@ -1517,7 +1517,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.overflowing_add(BitmapIndex::ZERO),
     ///     (BitmapIndex::MIN, false)
@@ -1551,7 +1551,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.overflowing_add_signed(0),
     ///     (BitmapIndex::MIN, false)
@@ -1585,7 +1585,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MIN.overflowing_sub(BitmapIndex::ZERO),
     ///     (BitmapIndex::MIN, false)
@@ -1614,7 +1614,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// let big = BitmapIndex::MAX;
     /// let small = BitmapIndex::ONE;
     /// assert_eq!(
@@ -1641,7 +1641,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.overflowing_mul(BitmapIndex::ZERO),
     ///     (BitmapIndex::ZERO, false)
@@ -1676,7 +1676,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.overflowing_div(BitmapIndex::MAX),
     ///     (BitmapIndex::ZERO, false)
@@ -1703,7 +1703,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.overflowing_div_euclid(BitmapIndex::MAX),
     ///     (BitmapIndex::ZERO, false)
@@ -1728,7 +1728,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.overflowing_rem(BitmapIndex::MAX),
     ///     (BitmapIndex::ONE, false)
@@ -1756,7 +1756,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.overflowing_rem_euclid(BitmapIndex::MAX),
     ///     (BitmapIndex::ONE, false)
@@ -1782,7 +1782,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.overflowing_neg(),
     ///     (BitmapIndex::ZERO, false)
@@ -1813,7 +1813,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS - 1),
     ///     (BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1), false)
@@ -1844,7 +1844,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS - 1),
     ///     (BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1), false)
@@ -1872,7 +1872,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.overflowing_pow(0),
     ///     (BitmapIndex::ONE, false)
@@ -1903,7 +1903,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.pow(0),
     ///     BitmapIndex::ONE
@@ -1942,7 +1942,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.div_euclid(BitmapIndex::MAX),
     ///     BitmapIndex::ZERO
@@ -1970,7 +1970,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ONE.rem_euclid(BitmapIndex::MAX),
     ///     BitmapIndex::ONE
@@ -1991,7 +1991,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert!(!BitmapIndex::ZERO.is_power_of_two());
     /// assert!(BitmapIndex::ONE.is_power_of_two());
     /// assert!(!BitmapIndex::MAX.is_power_of_two());
@@ -2012,7 +2012,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.next_power_of_two(),
     ///     BitmapIndex::ONE
@@ -2042,7 +2042,7 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmaps::BitmapIndex;
+    /// # use hwlocality::bitmap::BitmapIndex;
     /// assert_eq!(
     ///     BitmapIndex::ZERO.checked_next_power_of_two(),
     ///     Some(BitmapIndex::ONE)

@@ -1,15 +1,15 @@
 //! Memory binding
 
 use crate::{
-    bitmaps::{Bitmap, BitmapKind, OwnedSpecializedBitmap, RawBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, RawBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},
     ffi,
-    memory::{self, nodesets::NodeSet},
+    memory::{self, nodeset::NodeSet},
     topology::{RawTopology, Topology},
     ProcessId,
 };
 #[cfg(doc)]
-use crate::{cpu::cpusets::CpuSet, topology::support::MemoryBindingSupport};
+use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};

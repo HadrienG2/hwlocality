@@ -13,7 +13,7 @@ use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError, UnsupportedError},
     ffi::{self, LibcString},
     objects::types::ObjectType,
-    paths::{self, PathError},
+    path::{self, PathError},
     ProcessId,
 };
 use bitflags::bitflags;
@@ -229,7 +229,7 @@ impl TopologyBuilder {
     /// [`Invalid`]: XMLFileInputError::Invalid
     #[doc(alias = "hwloc_topology_set_xml")]
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
-        let path = paths::make_hwloc_path(path)?;
+        let path = path::make_hwloc_path(path)?;
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
             ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow())
         });

@@ -3,8 +3,8 @@
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
-    bitmaps::{BitmapRef, RawBitmap},
-    cpu::cpusets::CpuSet,
+    bitmap::{BitmapRef, RawBitmap},
+    cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     objects::TopologyObject,

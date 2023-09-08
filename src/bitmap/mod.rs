@@ -2,12 +2,12 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
-mod indices;
+mod index;
 
 #[cfg(doc)]
 use crate::{
-    cpu::cpusets::CpuSet,
-    memory::nodesets::NodeSet,
+    cpu::cpuset::CpuSet,
+    memory::nodeset::NodeSet,
     objects::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
@@ -36,7 +36,7 @@ use std::{
 
 // Re-export BitmapIndex, the fact that it's in a separate module is an
 // implementation detail / valiant attempt to fight source file growth
-pub use indices::BitmapIndex;
+pub use index::BitmapIndex;
 
 /// Opaque bitmap struct
 ///
@@ -67,7 +67,7 @@ pub struct RawBitmap(IncompleteType);
 /// ```
 /// # use anyhow::Context;
 /// # use hwlocality::{
-/// #     cpu::{binding::CpuBindingFlags, cpusets::CpuSet},
+/// #     cpu::{binding::CpuBindingFlags, cpuset::CpuSet},
 /// #     objects::{types::ObjectType},
 /// #     topology::support::{CpuBindingSupport, FeatureSupport},
 /// # };
@@ -105,8 +105,8 @@ pub struct RawBitmap(IncompleteType);
 /// failure mode should be running out of memory. And panicking is the normal
 /// way to handle this in Rust.
 ///
-/// [`CpuSet`]: crate::cpu::cpusets::CpuSet
-/// [`NodeSet`]: crate::memory::nodesets::NodeSet
+/// [`CpuSet`]: crate::cpu::cpuset::CpuSet
+/// [`NodeSet`]: crate::memory::nodeset::NodeSet
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
@@ -193,7 +193,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let empty = Bitmap::new();
     /// assert!(empty.is_empty());
@@ -213,7 +213,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let full = Bitmap::full();
     /// assert!(full.is_full());
@@ -234,7 +234,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(12..=34);
     /// assert_eq!(format!("{bitmap}"), "12-34");
@@ -261,7 +261,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(12..=34);
     /// let mut bitmap2 = Bitmap::new();
@@ -281,7 +281,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.clear();
@@ -297,7 +297,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.fill();
@@ -313,7 +313,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.set_only(42);
@@ -342,7 +342,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.set_all_but(42);
@@ -371,7 +371,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.set(42);
@@ -400,7 +400,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=56);
     /// bitmap.set_range(34..=78);
@@ -437,7 +437,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.unset(24);
@@ -466,7 +466,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.unset_range(14..=18);
@@ -517,7 +517,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.singlify();
@@ -536,7 +536,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// assert!((0..12).all(|idx| !bitmap.is_set(idx)));
@@ -566,7 +566,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// assert!(Bitmap::new().is_empty());
     /// assert!(!Bitmap::from_range(12..=34).is_empty());
@@ -585,7 +585,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// assert!(!Bitmap::new().is_full());
     /// assert!(!Bitmap::from_range(12..=34).is_full());
@@ -606,7 +606,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let first_set_usize = |b: Bitmap| b.first_set().map(usize::from);
     /// assert_eq!(Bitmap::new().first_set(), None);
@@ -628,7 +628,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(12..=21);
     /// let indices = bitmap.iter_set().map(usize::from).collect::<Vec<_>>();
@@ -646,7 +646,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let last_set_usize = |b: Bitmap| b.last_set().map(usize::from);
     /// assert_eq!(Bitmap::new().last_set(), None);
@@ -670,7 +670,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// assert_eq!(Bitmap::new().weight(), Some(0));
     /// assert_eq!(Bitmap::from_range(12..34).weight(), Some(34-12));
@@ -693,7 +693,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let first_unset_usize = |b: Bitmap| b.first_unset().map(usize::from);
     /// assert_eq!(first_unset_usize(Bitmap::new()), Some(0));
@@ -715,7 +715,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let bitmap = Bitmap::from_range(12..);
     /// let indices = bitmap.iter_unset().map(usize::from).collect::<Vec<_>>();
@@ -731,7 +731,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let last_unset_usize = |b: Bitmap| b.last_unset().map(usize::from);
     /// assert_eq!(Bitmap::new().last_unset(), None);
@@ -753,7 +753,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let mut bitmap = Bitmap::from_range(12..=34);
     /// bitmap.invert();
@@ -771,7 +771,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let bitmap1 = Bitmap::from_range(12..=34);
     /// let bitmap2 = Bitmap::from_range(56..=78);
@@ -796,7 +796,7 @@ impl Bitmap {
     /// # Examples
     ///
     /// ```
-    /// use hwlocality::bitmaps::Bitmap;
+    /// use hwlocality::bitmap::Bitmap;
     ///
     /// let bitmap1 = Bitmap::from_range(12..=78);
     /// let bitmap2 = Bitmap::from_range(34..=56);
@@ -1616,11 +1616,11 @@ macro_rules! impl_bitmap_newtype {
             Ord,
         )]
         #[repr(transparent)]
-        pub struct $newtype($crate::bitmaps::Bitmap);
+        pub struct $newtype($crate::bitmap::Bitmap);
 
-        impl $crate::bitmaps::SpecializedBitmap for $newtype {
-            const BITMAP_KIND: $crate::bitmaps::BitmapKind =
-                $crate::bitmaps::BitmapKind::$newtype;
+        impl $crate::bitmap::SpecializedBitmap for $newtype {
+            const BITMAP_KIND: $crate::bitmap::BitmapKind =
+                $crate::bitmap::BitmapKind::$newtype;
 
             type Owned = Self;
 
@@ -1629,9 +1629,9 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl $crate::bitmaps::SpecializedBitmap for $crate::bitmaps::BitmapRef<'_, $newtype> {
-            const BITMAP_KIND: $crate::bitmaps::BitmapKind =
-                $crate::bitmaps::BitmapKind::$newtype;
+        impl $crate::bitmap::SpecializedBitmap for $crate::bitmap::BitmapRef<'_, $newtype> {
+            const BITMAP_KIND: $crate::bitmap::BitmapKind =
+                $crate::bitmap::BitmapKind::$newtype;
 
             type Owned = $newtype;
 
@@ -1647,293 +1647,293 @@ macro_rules! impl_bitmap_newtype {
         impl $newtype {
             /// Wraps an owned hwloc_bitmap_t
             ///
-            /// See [`Bitmap::from_owned_raw_mut`](crate::bitmaps::Bitmap::from_owned_raw_mut).
+            /// See [`Bitmap::from_owned_raw_mut`](crate::bitmap::Bitmap::from_owned_raw_mut).
             #[allow(unused)]
             pub(crate) unsafe fn from_owned_raw_mut(
-                bitmap: *mut $crate::bitmaps::RawBitmap
+                bitmap: *mut $crate::bitmap::RawBitmap
             ) -> Option<Self> {
-                $crate::bitmaps::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
+                $crate::bitmap::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
             }
 
             /// Wraps an owned hwloc bitmap
             ///
-            /// See [`Bitmap::from_owned_nonnull`](crate::bitmaps::Bitmap::from_owned_nonnull).
+            /// See [`Bitmap::from_owned_nonnull`](crate::bitmap::Bitmap::from_owned_nonnull).
             #[allow(unused)]
             pub(crate) unsafe fn from_owned_nonnull(
-                bitmap: std::ptr::NonNull<$crate::bitmaps::RawBitmap>
+                bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
             ) -> Self {
-                Self::from($crate::bitmaps::Bitmap::from_owned_nonnull(bitmap))
+                Self::from($crate::bitmap::Bitmap::from_owned_nonnull(bitmap))
             }
 
             /// Wraps a borrowed hwloc_const_bitmap_t
             ///
-            /// See [`Bitmap::borrow_from_raw`](crate::bitmaps::Bitmap::borrow_from_raw).
+            /// See [`Bitmap::borrow_from_raw`](crate::bitmap::Bitmap::borrow_from_raw).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw<'target>(
-                bitmap: *const $crate::bitmaps::RawBitmap
-            ) -> Option<$crate::bitmaps::BitmapRef<'target, Self>> {
-                $crate::bitmaps::Bitmap::borrow_from_raw(bitmap)
+                bitmap: *const $crate::bitmap::RawBitmap
+            ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
+                $crate::bitmap::Bitmap::borrow_from_raw(bitmap)
                     .map(|bitmap_ref| bitmap_ref.cast())
             }
 
             /// Wraps a borrowed hwloc_bitmap_t
             ///
-            /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmaps::Bitmap::borrow_from_raw_mut).
+            /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmap::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw_mut<'target>(
-                bitmap: *mut $crate::bitmaps::RawBitmap
-            ) -> Option<$crate::bitmaps::BitmapRef<'target, Self>> {
-                $crate::bitmaps::Bitmap::borrow_from_raw_mut(bitmap)
+                bitmap: *mut $crate::bitmap::RawBitmap
+            ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
+                $crate::bitmap::Bitmap::borrow_from_raw_mut(bitmap)
                     .map(|bitmap_ref| bitmap_ref.cast())
             }
 
             /// Wraps a borrowed hwloc bitmap
             ///
-            /// See [`Bitmap::borrow_from_nonnull`](crate::bitmaps::Bitmap::borrow_from_nonnull).
+            /// See [`Bitmap::borrow_from_nonnull`](crate::bitmap::Bitmap::borrow_from_nonnull).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_nonnull<'target>(
-                bitmap: std::ptr::NonNull<$crate::bitmaps::RawBitmap>
-            ) -> $crate::bitmaps::BitmapRef<'target, Self> {
-                $crate::bitmaps::Bitmap::borrow_from_nonnull(bitmap).cast()
+                bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
+            ) -> $crate::bitmap::BitmapRef<'target, Self> {
+                $crate::bitmap::Bitmap::borrow_from_nonnull(bitmap).cast()
             }
 
             /// Contained bitmap pointer (for interaction with hwloc)
             ///
-            /// See [`Bitmap::as_ptr`](crate::bitmaps::Bitmap::as_ptr).
+            /// See [`Bitmap::as_ptr`](crate::bitmap::Bitmap::as_ptr).
             #[allow(unused)]
-            pub(crate) fn as_ptr(&self) -> *const $crate::bitmaps::RawBitmap {
+            pub(crate) fn as_ptr(&self) -> *const $crate::bitmap::RawBitmap {
                 self.0.as_ptr()
             }
 
             /// Contained mutable bitmap pointer (for interaction with hwloc)
             ///
-            /// See [`Bitmap::as_mut_ptr`](crate::bitmaps::Bitmap::as_mut_ptr).
+            /// See [`Bitmap::as_mut_ptr`](crate::bitmap::Bitmap::as_mut_ptr).
             #[allow(unused)]
-            pub(crate) fn as_mut_ptr(&mut self) -> *mut $crate::bitmaps::RawBitmap {
+            pub(crate) fn as_mut_ptr(&mut self) -> *mut $crate::bitmap::RawBitmap {
                 self.0.as_mut_ptr()
             }
 
             /// Create an empty bitmap
             ///
-            /// See [`Bitmap::new`](crate::bitmaps::Bitmap::new).
+            /// See [`Bitmap::new`](crate::bitmap::Bitmap::new).
             pub fn new() -> Self {
-                Self::from($crate::bitmaps::Bitmap::new())
+                Self::from($crate::bitmap::Bitmap::new())
             }
 
             /// Create a full bitmap
             ///
-            /// See [`Bitmap::full`](crate::bitmaps::Bitmap::full).
+            /// See [`Bitmap::full`](crate::bitmap::Bitmap::full).
             pub fn full() -> Self {
-                Self::from($crate::bitmaps::Bitmap::full())
+                Self::from($crate::bitmap::Bitmap::full())
             }
 
             /// Creates a new bitmap with the given range of indices set
             ///
-            /// See [`Bitmap::from_range`](crate::bitmaps::Bitmap::from_range).
+            /// See [`Bitmap::from_range`](crate::bitmap::Bitmap::from_range).
             pub fn from_range<Idx>(range: impl std::ops::RangeBounds<Idx>) -> Self
             where
-                Idx: Copy + PartialEq + TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: Copy + PartialEq + TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
-                Self::from($crate::bitmaps::Bitmap::from_range(range))
+                Self::from($crate::bitmap::Bitmap::from_range(range))
             }
 
             /// Turn this bitmap into a copy of another bitmap
             ///
-            /// See [`Bitmap::copy_from`](crate::bitmaps::Bitmap::copy_from).
+            /// See [`Bitmap::copy_from`](crate::bitmap::Bitmap::copy_from).
             pub fn copy_from(&mut self, other: &Self) {
                 self.0.copy_from(&other.0)
             }
 
             /// Clear all indices
             ///
-            /// See [`Bitmap::clear`](crate::bitmaps::Bitmap::clear).
+            /// See [`Bitmap::clear`](crate::bitmap::Bitmap::clear).
             pub fn clear(&mut self) {
                 self.0.clear()
             }
 
             /// Set all indices
             ///
-            /// See [`Bitmap::fill`](crate::bitmaps::Bitmap::fill).
+            /// See [`Bitmap::fill`](crate::bitmap::Bitmap::fill).
             pub fn fill(&mut self) {
                 self.0.fill()
             }
 
             /// Clear all indices except for `idx`, which is set
             ///
-            /// See [`Bitmap::set_only`](crate::bitmaps::Bitmap::set_only).
+            /// See [`Bitmap::set_only`](crate::bitmap::Bitmap::set_only).
             pub fn set_only<Idx>(&mut self, idx: Idx)
             where
-                Idx: TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.set_only(idx)
             }
 
             /// Set all indices except for `idx`, which is cleared
             ///
-            /// See [`Bitmap::set_all_but`](crate::bitmaps::Bitmap::set_all_but).
+            /// See [`Bitmap::set_all_but`](crate::bitmap::Bitmap::set_all_but).
             pub fn set_all_but<Idx>(&mut self, idx: Idx)
             where
-                Idx: TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.set_all_but(idx)
             }
 
             /// Set index `idx`
             ///
-            /// See [`Bitmap::set`](crate::bitmaps::Bitmap::set).
+            /// See [`Bitmap::set`](crate::bitmap::Bitmap::set).
             pub fn set<Idx>(&mut self, idx: Idx)
             where
-                Idx: TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.set(idx)
             }
 
             /// Set indices covered by `range`
             ///
-            /// See [`Bitmap::set_range`](crate::bitmaps::Bitmap::set_range).
+            /// See [`Bitmap::set_range`](crate::bitmap::Bitmap::set_range).
             pub fn set_range<Idx>(&mut self, range: impl std::ops::RangeBounds<Idx>)
             where
-                Idx: Copy + PartialEq + TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: Copy + PartialEq + TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.set_range(range)
             }
 
             /// Clear index `idx`
             ///
-            /// See [`Bitmap::unset`](crate::bitmaps::Bitmap::unset).
+            /// See [`Bitmap::unset`](crate::bitmap::Bitmap::unset).
             pub fn unset<Idx>(&mut self, idx: Idx)
             where
-                Idx: TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.unset(idx)
             }
 
             /// Clear indices covered by `range`
             ///
-            /// See [`Bitmap::unset_range`](crate::bitmaps::Bitmap::unset_range).
+            /// See [`Bitmap::unset_range`](crate::bitmap::Bitmap::unset_range).
             pub fn unset_range<Idx>(&mut self, range: impl std::ops::RangeBounds<Idx>)
             where
-                Idx: Copy + PartialEq + TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: Copy + PartialEq + TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.unset_range(range)
             }
 
             /// Keep a single index among those set in the bitmap
             ///
-            /// See [`Bitmap::singlify`](crate::bitmaps::Bitmap::singlify).
+            /// See [`Bitmap::singlify`](crate::bitmap::Bitmap::singlify).
             pub fn singlify(&mut self) {
                 self.0.singlify()
             }
 
             /// Check if index `idx` is set
             ///
-            /// See [`Bitmap::is_set`](crate::bitmaps::Bitmap::is_set).
+            /// See [`Bitmap::is_set`](crate::bitmap::Bitmap::is_set).
             pub fn is_set<Idx>(&self, idx: Idx) -> bool
             where
-                Idx: TryInto<$crate::bitmaps::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmaps::BitmapIndex>>::Error: std::fmt::Debug,
+                Idx: TryInto<$crate::bitmap::BitmapIndex>,
+                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.is_set(idx)
             }
 
             /// Check if all indices are unset
             ///
-            /// See [`Bitmap::is_empty`](crate::bitmaps::Bitmap::is_empty).
+            /// See [`Bitmap::is_empty`](crate::bitmap::Bitmap::is_empty).
             pub fn is_empty(&self) -> bool {
                 self.0.is_empty()
             }
 
             /// Check if all indices are set
             ///
-            /// See [`Bitmap::is_full`](crate::bitmaps::Bitmap::is_full).
+            /// See [`Bitmap::is_full`](crate::bitmap::Bitmap::is_full).
             pub fn is_full(&self) -> bool {
                 self.0.is_full()
             }
 
             /// Check the first set index, if any
             ///
-            /// See [`Bitmap::first_set`](crate::bitmaps::Bitmap::first_set).
-            pub fn first_set(&self) -> Option<$crate::bitmaps::BitmapIndex> {
+            /// See [`Bitmap::first_set`](crate::bitmap::Bitmap::first_set).
+            pub fn first_set(&self) -> Option<$crate::bitmap::BitmapIndex> {
                 self.0.first_set()
             }
 
             /// Iterate over set indices
             ///
-            /// See [`Bitmap::iter_set`](crate::bitmaps::Bitmap::iter_set).
+            /// See [`Bitmap::iter_set`](crate::bitmap::Bitmap::iter_set).
             pub fn iter_set(
                 &self
-            ) -> $crate::bitmaps::BitmapIterator<&$crate::bitmaps::Bitmap> {
+            ) -> $crate::bitmap::BitmapIterator<&$crate::bitmap::Bitmap> {
                 self.0.iter_set()
             }
 
             /// Check the last set index, if any
             ///
-            /// See [`Bitmap::last_set`](crate::bitmaps::Bitmap::last_set).
-            pub fn last_set(&self) -> Option<$crate::bitmaps::BitmapIndex> {
+            /// See [`Bitmap::last_set`](crate::bitmap::Bitmap::last_set).
+            pub fn last_set(&self) -> Option<$crate::bitmap::BitmapIndex> {
                 self.0.last_set()
             }
 
             /// The number of indices that are set in the bitmap.
             ///
-            /// See [`Bitmap::weight`](crate::bitmaps::Bitmap::weight).
+            /// See [`Bitmap::weight`](crate::bitmap::Bitmap::weight).
             pub fn weight(&self) -> Option<usize> {
                 self.0.weight()
             }
 
             /// Check the first unset index, if any
             ///
-            /// See [`Bitmap::first_unset`](crate::bitmaps::Bitmap::first_unset).
-            pub fn first_unset(&self) -> Option<$crate::bitmaps::BitmapIndex> {
+            /// See [`Bitmap::first_unset`](crate::bitmap::Bitmap::first_unset).
+            pub fn first_unset(&self) -> Option<$crate::bitmap::BitmapIndex> {
                 self.0.first_unset()
             }
 
             /// Iterate over unset indices
             ///
-            /// See [`Bitmap::iter_unset`](crate::bitmaps::Bitmap::iter_unset).
+            /// See [`Bitmap::iter_unset`](crate::bitmap::Bitmap::iter_unset).
             pub fn iter_unset(
                 &self
-            ) -> $crate::bitmaps::BitmapIterator<&$crate::bitmaps::Bitmap> {
+            ) -> $crate::bitmap::BitmapIterator<&$crate::bitmap::Bitmap> {
                 self.0.iter_unset()
             }
 
             /// Check the last unset index, if any
             ///
-            /// See [`Bitmap::last_unset`](crate::bitmaps::Bitmap::last_unset).
-            pub fn last_unset(&self) -> Option<$crate::bitmaps::BitmapIndex> {
+            /// See [`Bitmap::last_unset`](crate::bitmap::Bitmap::last_unset).
+            pub fn last_unset(&self) -> Option<$crate::bitmap::BitmapIndex> {
                 self.0.last_unset()
             }
 
             /// Inverts the current `Bitmap`.
             ///
-            /// See [`Bitmap::invert`](crate::bitmaps::Bitmap::invert).
+            /// See [`Bitmap::invert`](crate::bitmap::Bitmap::invert).
             pub fn invert(&mut self) {
                 self.0.invert()
             }
 
             /// Truth that `self` and `rhs` have some set indices in common
             ///
-            /// See [`Bitmap::intersects`](crate::bitmaps::Bitmap::intersects).
+            /// See [`Bitmap::intersects`](crate::bitmap::Bitmap::intersects).
             pub fn intersects(&self, rhs: &Self) -> bool {
                 self.0.intersects(&rhs.0)
             }
 
             /// Truth that the indices set in `inner` are a subset of those set in `self`
             ///
-            /// See [`Bitmap::includes`](crate::bitmaps::Bitmap::includes).
+            /// See [`Bitmap::includes`](crate::bitmap::Bitmap::includes).
             pub fn includes(&self, inner: &Self) -> bool {
                 self.0.includes(&inner.0)
             }
         }
 
-        impl<'target> AsRef<$crate::bitmaps::Bitmap> for $crate::bitmaps::BitmapRef<'_, $newtype> {
-            fn as_ref(&self) -> &$crate::bitmaps::Bitmap {
+        impl<'target> AsRef<$crate::bitmap::Bitmap> for $crate::bitmap::BitmapRef<'_, $newtype> {
+            fn as_ref(&self) -> &$crate::bitmap::Bitmap {
                 let newtype: &$newtype = self.as_ref();
                 newtype.as_ref()
             }
@@ -2005,20 +2005,20 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl<'target> std::borrow::Borrow<$crate::bitmaps::Bitmap> for $newtype {
-            fn borrow(&self) -> &$crate::bitmaps::Bitmap {
+        impl<'target> std::borrow::Borrow<$crate::bitmap::Bitmap> for $newtype {
+            fn borrow(&self) -> &$crate::bitmap::Bitmap {
                 self.as_ref()
             }
         }
 
-        impl<'target> std::borrow::Borrow<$crate::bitmaps::Bitmap> for $crate::bitmaps::BitmapRef<'_, $newtype> {
-            fn borrow(&self) -> &$crate::bitmaps::Bitmap {
+        impl<'target> std::borrow::Borrow<$crate::bitmap::Bitmap> for $crate::bitmap::BitmapRef<'_, $newtype> {
+            fn borrow(&self) -> &$crate::bitmap::Bitmap {
                 self.as_ref()
             }
         }
 
-        impl<'target> std::borrow::BorrowMut<$crate::bitmaps::Bitmap> for $newtype {
-            fn borrow_mut(&mut self) -> &mut $crate::bitmaps::Bitmap {
+        impl<'target> std::borrow::BorrowMut<$crate::bitmap::Bitmap> for $newtype {
+            fn borrow_mut(&mut self) -> &mut $crate::bitmap::Bitmap {
                 self.as_mut()
             }
         }
@@ -2037,27 +2037,27 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl<BI: std::borrow::Borrow<$crate::bitmaps::BitmapIndex>> Extend<BI> for $newtype {
+        impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> Extend<BI> for $newtype {
             fn extend<T: IntoIterator<Item = BI>>(&mut self, iter: T) {
                 self.0.extend(iter)
             }
         }
 
-        impl<BI: std::borrow::Borrow<$crate::bitmaps::BitmapIndex>> From<BI> for $newtype {
+        impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> From<BI> for $newtype {
             fn from(value: BI) -> Self {
                 Self(value.into())
             }
         }
 
-        impl<BI: std::borrow::Borrow<$crate::bitmaps::BitmapIndex>> FromIterator<BI> for $newtype {
+        impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> FromIterator<BI> for $newtype {
             fn from_iter<I: IntoIterator<Item = BI>>(iter: I) -> Self {
-                Self($crate::bitmaps::Bitmap::from_iter(iter))
+                Self($crate::bitmap::Bitmap::from_iter(iter))
             }
         }
 
         impl<'newtype> IntoIterator for &'newtype $newtype {
-            type Item = $crate::bitmaps::BitmapIndex;
-            type IntoIter = $crate::bitmaps::BitmapIterator<&'newtype $crate::bitmaps::Bitmap>;
+            type Item = $crate::bitmap::BitmapIndex;
+            type IntoIter = $crate::bitmap::BitmapIterator<&'newtype $crate::bitmap::Bitmap>;
 
             fn into_iter(self) -> Self::IntoIter {
                 (&self.0).into_iter()
@@ -2072,8 +2072,8 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        unsafe impl $crate::bitmaps::OwnedBitmap for $newtype {
-            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmaps::RawBitmap> {
+        unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
+            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
                 self.0.as_raw()
             }
         }

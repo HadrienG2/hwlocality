@@ -1,10 +1,10 @@
 //! CPU binding
 
 #[cfg(doc)]
-use crate::{bitmaps::Bitmap, objects::types::ObjectType, topology::support::CpuBindingSupport};
+use crate::{bitmap::Bitmap, objects::types::ObjectType, topology::support::CpuBindingSupport};
 use crate::{
-    bitmaps::RawBitmap,
-    cpu::cpusets::CpuSet,
+    bitmap::RawBitmap,
+    cpu::cpuset::CpuSet,
     errors::{self, FlagsError, HybridError, RawHwlocError},
     ffi,
     topology::{RawTopology, Topology},

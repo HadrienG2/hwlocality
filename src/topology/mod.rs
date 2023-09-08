@@ -13,11 +13,11 @@ use self::{
 #[cfg(all(feature = "hwloc-2_3_0", doc))]
 use crate::topology::support::MiscSupport;
 use crate::{
-    bitmaps::{Bitmap, BitmapRef, OwnedSpecializedBitmap, RawBitmap},
-    cpu::cpusets::CpuSet,
+    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap, RawBitmap},
+    cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
     ffi::{self, IncompleteType},
-    memory::nodesets::NodeSet,
+    memory::nodeset::NodeSet,
     objects::{types::ObjectType, TopologyObject},
 };
 use bitflags::bitflags;

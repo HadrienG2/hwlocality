@@ -3,10 +3,10 @@
 #[cfg(doc)]
 use crate::cpu::binding::CpuBindingFlags;
 use crate::{
-    cpu::cpusets::CpuSet,
+    cpu::cpuset::CpuSet,
     errors::{self, HybridError, RawHwlocError},
     ffi,
-    paths::{self, PathError},
+    path::{self, PathError},
     topology::Topology,
 };
 use std::path::Path;
@@ -96,7 +96,7 @@ impl Topology {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<CpuSet, HybridError<PathError>> {
-        let path = paths::make_hwloc_path(path)?;
+        let path = path::make_hwloc_path(path)?;
         let mut set = CpuSet::new();
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             ffi::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())

@@ -13,12 +13,12 @@ use self::{
 #[cfg(doc)]
 use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
-    bitmaps::{BitmapRef, RawBitmap},
-    cpu::cpusets::CpuSet,
+    bitmap::{BitmapRef, RawBitmap},
+    cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
     ffi::{self, LibcString},
     info::TextualInfo,
-    memory::nodesets::NodeSet,
+    memory::nodeset::NodeSet,
     topology::Topology,
 };
 use num_enum::TryFromPrimitiveError;

@@ -2,11 +2,11 @@
 
 use super::RawTopology;
 use crate::{
-    bitmaps::{BitmapKind, SpecializedBitmap},
-    cpu::cpusets::CpuSet,
+    bitmap::{BitmapKind, SpecializedBitmap},
+    cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{self, LibcString},
-    memory::nodesets::NodeSet,
+    memory::nodeset::NodeSet,
     objects::TopologyObject,
     topology::Topology,
 };
@@ -24,6 +24,7 @@ use std::{
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr,
 };
+use thiserror::Error;
 
 /// # Modifying a loaded `Topology`
 //

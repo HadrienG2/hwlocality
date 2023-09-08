@@ -3,7 +3,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(doc)))]
 
-pub mod bitmaps;
+pub mod bitmap;
 pub mod cpu;
 pub mod errors;
 pub(crate) mod ffi;
@@ -12,7 +12,7 @@ pub mod info;
 mod linux;
 pub mod memory;
 pub mod objects;
-pub mod paths;
+pub mod path;
 pub mod topology;
 #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
 mod windows;

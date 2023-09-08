@@ -5,7 +5,7 @@ use crate::memory::attributes::{MemoryAttributeID, RawLocation};
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::objects::distances::{DistancesAddHandle, RawDistancesTransform};
 use crate::{
-    bitmaps::RawBitmap,
+    bitmap::RawBitmap,
     errors::NulError,
     memory::binding::RawMemoryBindingPolicy,
     objects::{depth::RawDepth, distances::RawDistances, types::RawObjectType, TopologyObject},

@@ -1,7 +1,7 @@
 //! Windows-specific helpers
 
 use crate::{
-    cpu::cpusets::CpuSet,
+    cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
     ffi,
     topology::Topology,

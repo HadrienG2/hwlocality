@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use hwlocality::{
-    cpu::{binding::CpuBindingFlags, cpusets::CpuSet},
+    cpu::{binding::CpuBindingFlags, cpuset::CpuSet},
     topology::{
         builder::BuildFlags,
         support::{CpuBindingSupport, FeatureSupport},
