@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
                 bind_to.singlify();
 
                 // Set the binding.
-                topology.bind_thread_cpu(tid, &bind_to, CpuBindingFlags::THREAD)?;
+                topology.bind_thread_cpu(tid, bind_to, CpuBindingFlags::THREAD)?;
 
                 // Thread binding after explicit set.
                 let after = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;

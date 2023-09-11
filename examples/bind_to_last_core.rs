@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
     print_binding_location("before explicit binding")?;
 
     // Try to bind all threads of the current (possibly multithreaded) process.
-    topology.bind_cpu(&cpuset, CpuBindingFlags::ASSUME_SINGLE_THREAD)?;
+    topology.bind_cpu(cpuset, CpuBindingFlags::ASSUME_SINGLE_THREAD)?;
     println!("Correctly bound to last core");
 
     // Check binding and location before binding

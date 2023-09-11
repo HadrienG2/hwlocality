@@ -42,7 +42,7 @@ use std::{
 /// # External operators
 ///
 /// Almost all binary operators have an overload with exactly one of isize or
-/// usize(depending on whether a negative operand makes sense) in order to
+/// usize (depending on whether a negative operand makes sense) in order to
 /// allow them to be used with integer literals without the type inference
 /// errors that implementations for multiple integer types would bring.
 ///
