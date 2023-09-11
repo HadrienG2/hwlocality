@@ -13,7 +13,7 @@ use crate::{
 use bitflags::bitflags;
 use derive_more::Display;
 use libc::{ENOSYS, EXDEV};
-use std::{ffi::c_int, fmt::Display};
+use std::{borrow::Borrow, ffi::c_int, fmt::Display};
 use thiserror::Error;
 
 /// # CPU binding
@@ -87,11 +87,11 @@ impl Topology {
     #[doc(alias = "hwloc_set_cpubind")]
     pub fn bind_cpu(
         &self,
-        set: &CpuSet,
+        set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
         self.bind_cpu_impl(
-            set,
+            set.borrow(),
             flags,
             CpuBoundObject::ThisProgram,
             "hwloc_set_cpubind",
@@ -164,11 +164,11 @@ impl Topology {
     pub fn bind_process_cpu(
         &self,
         pid: ProcessId,
-        set: &CpuSet,
+        set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
         self.bind_cpu_impl(
-            set,
+            set.borrow(),
             flags,
             CpuBoundObject::ProcessOrThread,
             "hwloc_set_proc_cpubind",
@@ -243,11 +243,11 @@ impl Topology {
     pub fn bind_thread_cpu(
         &self,
         tid: ThreadId,
-        set: &CpuSet,
+        set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
         self.bind_cpu_impl(
-            set,
+            set.borrow(),
             flags,
             CpuBoundObject::Thread,
             "hwloc_set_thread_cpubind",

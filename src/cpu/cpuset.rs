@@ -58,11 +58,12 @@ impl Topology {
     #[doc(alias = "hwloc_get_largest_objs_inside_cpuset")]
     pub fn coarsest_cpuset_partition(
         &self,
-        set: &CpuSet,
+        set: impl Borrow<CpuSet>,
     ) -> Result<Vec<&TopologyObject>, CoarsestPartitionError> {
         // Make sure each set index actually maps into a hardware PU
         let root = self.root_object();
         let root_cpuset = root.cpuset().expect("Root should have a CPU set");
+        let set = set.borrow();
         if !root_cpuset.includes(set) {
             return Err(CoarsestPartitionError {
                 query: set.clone(),
@@ -123,12 +124,11 @@ impl Topology {
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
     pub fn objects_inside_cpuset_at_depth<'result>(
         &'result self,
-        set: &'result CpuSet,
+        set: impl Borrow<CpuSet> + 'result,
         depth: impl Into<Depth>,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
-        let depth = depth.into();
-        self.objects_at_depth(depth)
-            .filter(|object| object.is_inside_cpuset(set))
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
+        self.objects_at_depth(depth.into())
+            .filter(move |object| object.is_inside_cpuset(set.borrow()))
     }
 
     /// Logical index among the objects included in CPU set `set`
@@ -145,7 +145,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
     pub fn object_index_inside_cpuset<'result>(
         &'result self,
-        set: &'result CpuSet,
+        set: impl Borrow<CpuSet> + 'result,
         obj: &TopologyObject,
     ) -> Option<usize> {
         self.objects_inside_cpuset_at_depth(set, obj.depth())
@@ -187,10 +187,14 @@ impl Topology {
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set).
-    fn first_largest_object_inside_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+    fn first_largest_object_inside_cpuset(
+        &self,
+        set: impl Borrow<CpuSet>,
+    ) -> Option<&TopologyObject> {
         // If root object doesn't intersect this CPU set then no child will
         let root = self.root_object();
         let root_cpuset = root.cpuset().expect("Root should have a CPU set");
+        let set = set.borrow();
         if !root_cpuset.intersects(set) {
             return None;
         }
@@ -271,8 +275,12 @@ impl Topology {
     /// request will always return None, as if a set going outside of the root
     /// cpuset were passed as input.
     #[doc(alias = "hwloc_get_obj_covering_cpuset")]
-    pub fn smallest_object_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+    pub fn smallest_object_covering_cpuset(
+        &self,
+        set: impl Borrow<CpuSet>,
+    ) -> Option<&TopologyObject> {
         let root = self.root_object();
+        let set = set.borrow();
         if !root.covers_cpuset(set) || set.is_empty() {
             return None;
         }
@@ -285,7 +293,7 @@ impl Topology {
 
     /// Get the first data (or unified) cache covering the given cpuset
     #[doc(alias = "hwloc_get_cache_covering_cpuset")]
-    pub fn first_cache_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+    pub fn first_cache_covering_cpuset(&self, set: impl Borrow<CpuSet>) -> Option<&TopologyObject> {
         let first_obj = self.smallest_object_covering_cpuset(set)?;
         std::iter::once(first_obj)
             .chain(first_obj.ancestors())
@@ -300,12 +308,11 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
     pub fn objects_covering_cpuset_at_depth<'result>(
         &'result self,
-        set: &'result CpuSet,
+        set: impl Borrow<CpuSet> + 'result,
         depth: impl Into<Depth>,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
-        let depth = depth.into();
-        self.objects_at_depth(depth)
-            .filter(|object| object.covers_cpuset(set))
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
+        self.objects_at_depth(depth.into())
+            .filter(move |object| object.covers_cpuset(set.borrow()))
     }
 
     /// Get objects covering the given cpuset `set` with a certain type
@@ -316,11 +323,11 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_type")]
     pub fn objects_covering_cpuset_with_type<'result>(
         &'result self,
-        set: &'result CpuSet,
+        set: impl Borrow<CpuSet> + 'result,
         object_type: ObjectType,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
         self.objects_with_type(object_type)
-            .filter(|object| object.covers_cpuset(set))
+            .filter(move |object| object.covers_cpuset(set.borrow()))
     }
 }
 
@@ -370,8 +377,9 @@ impl CpuSet {
     /// [`Topology::nodeset()`], would be converted by this function into the
     /// set of all CPUs that have some local NUMA nodes.
     #[doc(alias = "hwloc_cpuset_from_nodeset")]
-    pub fn from_nodeset(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
+    pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> CpuSet {
         let mut cpuset = CpuSet::new();
+        let nodeset = nodeset.borrow();
         for obj in topology.objects_at_depth(Depth::NUMANode) {
             if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
                 cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");

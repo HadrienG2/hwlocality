@@ -9,7 +9,7 @@ use crate::{
     path::{self, PathError},
     topology::Topology,
 };
-use std::path::Path;
+use std::{borrow::Borrow, path::Path};
 
 // This file is rustdoc-visible so we must provide a substitute for
 // linux-specific libc entities when people run rustdoc on Windows.
@@ -38,9 +38,9 @@ impl Topology {
     /// [`bind_process_cpu()`]: Topology::bind_process_cpu()
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
-    pub fn bind_tid_cpu(&self, tid: pid_t, set: &CpuSet) -> Result<(), RawHwlocError> {
+    pub fn bind_tid_cpu(&self, tid: pid_t, set: impl Borrow<CpuSet>) -> Result<(), RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
-            ffi::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.as_ptr())
+            ffi::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.borrow().as_ptr())
         })
         .map(std::mem::drop)
     }

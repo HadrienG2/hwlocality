@@ -23,6 +23,7 @@ use crate::{
 };
 use num_enum::TryFromPrimitiveError;
 use std::{
+    borrow::Borrow,
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
     iter::FusedIterator,
@@ -592,10 +593,10 @@ impl Topology {
     /// This functionality is specific to the Rust bindings.
     pub fn pus_from_cpuset<'result>(
         &'result self,
-        cpuset: &'result CpuSet,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
+        cpuset: impl Borrow<CpuSet> + 'result,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::PU)
-            .filter_map(|(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
+            .filter_map(move |(pu, os_index)| cpuset.borrow().is_set(os_index).then_some(pu))
     }
 
     /// Get the object of type [`ObjectType::NUMANode`] with the specified OS index
@@ -619,10 +620,10 @@ impl Topology {
     /// This functionality is specific to the Rust bindings.
     pub fn nodes_from_nodeset<'result>(
         &'result self,
-        nodeset: &'result NodeSet,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
+        nodeset: impl Borrow<NodeSet> + 'result,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::NUMANode)
-            .filter_map(|(node, os_index)| nodeset.is_set(os_index).then_some(node))
+            .filter_map(move |(node, os_index)| nodeset.borrow().is_set(os_index).then_some(node))
     }
 
     /// Get a list of `(&TopologyObject, OS index)` tuples for an `ObjectType`
@@ -1381,9 +1382,12 @@ impl TopologyObject {
     /// this TopologyObject doesn't have a cpuset (I/O or Misc objects), as no
     /// object is considered to cover the empty cpuset.
     #[doc(alias = "hwloc_get_child_covering_cpuset")]
-    pub fn normal_child_covering_cpuset(&self, set: &CpuSet) -> Option<&TopologyObject> {
+    pub fn normal_child_covering_cpuset(
+        &self,
+        set: impl Borrow<CpuSet>,
+    ) -> Option<&TopologyObject> {
         self.normal_children()
-            .find(|child| child.covers_cpuset(set))
+            .find(|child| child.covers_cpuset(set.borrow()))
     }
 
     /// Number of memory children
@@ -1527,21 +1531,22 @@ impl TopologyObject {
     ///
     /// Objects are considered to be inside `set` if they have a non-empty
     /// cpuset which verifies `set.includes(object_cpuset)`.
-    pub fn is_inside_cpuset(&self, set: &CpuSet) -> bool {
+    pub fn is_inside_cpuset(&self, set: impl Borrow<CpuSet>) -> bool {
         let Some(object_cpuset) = self.cpuset() else {
             return false;
         };
-        set.includes(&object_cpuset) && !object_cpuset.is_empty()
+        set.borrow().includes(&object_cpuset) && !object_cpuset.is_empty()
     }
 
     /// Truth that this object covers the given cpuset `set`
     ///
     /// Objects are considered to cover `set` if it is non-empty and the object
     /// has a cpuset which verifies `object_cpuset.includes(set)`.
-    pub fn covers_cpuset(&self, set: &CpuSet) -> bool {
+    pub fn covers_cpuset(&self, set: impl Borrow<CpuSet>) -> bool {
         let Some(object_cpuset) = self.cpuset() else {
             return false;
         };
+        let set = set.borrow();
         object_cpuset.includes(set) && !set.is_empty()
     }
 

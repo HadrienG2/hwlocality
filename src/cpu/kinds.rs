@@ -163,10 +163,10 @@ impl Topology {
     #[doc(alias = "hwloc_cpukinds_get_by_cpuset")]
     pub fn cpu_kind_from_set(
         &self,
-        set: &CpuSet,
+        set: impl Borrow<CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
         let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
-            ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.as_ptr(), 0)
+            ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
         let kind_index = match result {
             Ok(idx) => ffi::expect_usize(idx),
@@ -223,7 +223,7 @@ impl<'topology> TopologyEditor<'topology> {
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
         &mut self,
-        cpuset: &CpuSet,
+        cpuset: impl Borrow<CpuSet>,
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
     ) -> Result<(), HybridError<CpuKindRegisterError>> {
@@ -251,7 +251,7 @@ impl<'topology> TopologyEditor<'topology> {
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
             ffi::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),
-                cpuset.as_ptr(),
+                cpuset.borrow().as_ptr(),
                 forced_efficiency,
                 num_infos,
                 infos_ptrs.as_ptr(),
