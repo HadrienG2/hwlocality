@@ -1,5 +1,15 @@
-//! Bitmap API
-
+//! Facilities for manipulating bitmaps
+//!
+//! hwloc extensively uses bitmaps to model the concept of sets of CPU cores
+//! that threads and processes can be bound to, and that of sets of NUMA nodes
+//! that memory can be bound to.
+//!
+//! In this module, we re-export this API as the [`Bitmap`] type. However, most
+//! APIs that would accept or emit a bitmap in hwloc instead accept one of the
+//! more specialized [`CpuSet`] and [`NodeSet`] types in hwlocality. These
+//! types are just thin wrappers around [`Bitmap`] with improved type safety,
+//! and have basically the same API as [`Bitmap`].
+//
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 mod index;
@@ -663,7 +673,7 @@ impl Bitmap {
         BitmapIndex::try_from_c_int(result).ok()
     }
 
-    /// The number of indices that are set in the bitmap.
+    /// The number of indices that are set in the bitmap
     ///
     /// None means that an infinite number of indices are set.
     ///
@@ -748,7 +758,7 @@ impl Bitmap {
         BitmapIndex::try_from_c_int(result).ok()
     }
 
-    /// Inverts the current `Bitmap`.
+    /// Optimized version of `*self = !self`
     ///
     /// # Examples
     ///
@@ -789,7 +799,7 @@ impl Bitmap {
         .expect("Should not involve faillible syscalls")
     }
 
-    /// Truth that the indices set in `inner` are a subset of those set in `self`.
+    /// Truth that the indices set in `inner` are a subset of those set in `self`
     ///
     /// The empty bitmap is considered included in any other bitmap.
     ///
@@ -1272,13 +1282,14 @@ unsafe impl OwnedBitmap for Bitmap {
 //   return bitmaps like hwloc would return an `hwloc_bitmap_t` cannot return
 //   standard Rust pointers/refs like `&RawBitmap`, `&mut RawBitmap`,
 //   `Box<RawBitmap>`, they must instead return some kind of
-//   `NonNull<RawBitmap>` wrapper that implements the bitmap API.
+//   `NonNull<RawBitmap>` wrapper that implements the bitmap API without
+//   exposing the inner RawBitmap.
 // - We need two such wrappers because sometimes we need to return an owned
 //   bitmap that must be liberated, and sometimes we need to return a borrowed
 //   bitmap that must not outlive its parent.
 //
 // Technically, we could also have a `BitmapMut` that models `&mut RawBitmap`,
-// but so far the need for this has not arised.
+// but so far the need for this has not materialized.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
@@ -1587,10 +1598,10 @@ impl<B: OwnedBitmap + SpecializedBitmap<Owned = Self>> OwnedSpecializedBitmap fo
 /// Kind of specialized bitmap
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BitmapKind {
-    /// [`CpuSet`]
+    /// This bitmap is a [`CpuSet`]
     CpuSet,
 
-    /// [`NodeSet`]
+    /// This bitmap is a [`NodeSet`]
     NodeSet,
 }
 
@@ -1880,7 +1891,7 @@ macro_rules! impl_bitmap_newtype {
                 self.0.last_set()
             }
 
-            /// The number of indices that are set in the bitmap.
+            /// The number of indices that are set in the bitmap
             ///
             /// See [`Bitmap::weight`](crate::bitmap::Bitmap::weight).
             pub fn weight(&self) -> Option<usize> {
@@ -1910,7 +1921,7 @@ macro_rules! impl_bitmap_newtype {
                 self.0.last_unset()
             }
 
-            /// Inverts the current `Bitmap`.
+            /// Optimized version of `*self = !self`
             ///
             /// See [`Bitmap::invert`](crate::bitmap::Bitmap::invert).
             pub fn invert(&mut self) {

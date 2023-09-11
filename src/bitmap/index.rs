@@ -1,4 +1,23 @@
 //! Facilities for indexing bitmaps
+//!
+//! hwloc bitmap methods that take indices as parameters mostly accept and emit
+//! positive [`c_int`] values. They do not accept values in the full [`c_uint`]
+//! range because they occasionally need the sentinel `-1 as c_int` value to
+//! express special semantics like "no such index" or "infinite index".
+//!
+//! In Rust, these concepts are expressed using type wrappers such as
+//! [`Range`] and [`Option`]. Therefore, we are free to use a specially crafted
+//! [`BitmapIndex`] type that models only the range of normal bitmap index
+//! values and nothing else, improving type safety by eradicating the
+//! possibility or exchanging forbidden index values like `-2` with hwloc.
+//!
+//! Alas, integer newtypes cannot match the ergonomics of built-in integer types
+//! in Rust, so great care had to be taken in order to ensure that integer
+//! literals can be used in almost every place where [`BitmapIndex`] can be used.
+//!
+//! [`c_int`]: std::ffi::c_int
+//! [`c_uint`]: std::ffi::c_uint
+//! [`Range`]: std::ops::Range
 
 use crate::ffi::{self};
 #[cfg(doc)]
