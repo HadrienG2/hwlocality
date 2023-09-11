@@ -1,3 +1,9 @@
+//! Raw access to the hwloc C API
+//!
+//! In addition to hwloc entry points, this module contains a bunch of small
+//! utilities that proved convenient when interacting with said entry points,
+//! but do not clearly belong in any other module.
+
 #[cfg(feature = "hwloc-2_4_0")]
 use crate::info::TextualInfo;
 #[cfg(feature = "hwloc-2_3_0")]
