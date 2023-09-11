@@ -1,7 +1,7 @@
 use anyhow::Context;
 use hwlocality::{
     memory::binding::{MemoryBindingFlags, MemoryBindingPolicy},
-    objects::{depth::Depth, TopologyObject},
+    object::{depth::Depth, TopologyObject},
     Topology,
 };
 

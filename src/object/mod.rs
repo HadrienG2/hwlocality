@@ -1,8 +1,8 @@
-//! Topology objects
+//! Objects within a hardware topology
 
 pub mod attributes;
 pub mod depth;
-pub mod distances;
+pub mod distance;
 pub mod types;
 
 use self::{
@@ -52,7 +52,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::{objects::types::ObjectType, Topology};
+    /// # use hwlocality::{object::types::ObjectType, Topology};
     /// # let topology = hwlocality::Topology::test_instance();
     /// let depth = topology.depth();
     /// assert!(depth >= 2, "Machine and PU are always present");
@@ -79,7 +79,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::TopologyObject;
+    /// # use hwlocality::object::TopologyObject;
     /// # let topology = hwlocality::Topology::test_instance();
     /// if let Ok(depth) = topology.memory_parents_depth() {
     ///     let num_memory_objects =
@@ -113,7 +113,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::types::ObjectType;
+    /// # use hwlocality::object::types::ObjectType;
     /// #
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
@@ -154,7 +154,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::{objects::types::ObjectType};
+    /// # use hwlocality::{object::types::ObjectType};
     /// #
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
@@ -215,7 +215,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::types::ObjectType;
+    /// # use hwlocality::object::types::ObjectType;
     /// #
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
@@ -281,7 +281,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::types::CacheType;
+    /// # use hwlocality::object::types::CacheType;
     /// # let topology = hwlocality::Topology::test_instance();
     /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
     /// assert!(l1d_depth.is_ok());
@@ -345,7 +345,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::{depth::Depth, types::ObjectType};
+    /// # use hwlocality::object::{depth::Depth, types::ObjectType};
     /// # let topology = hwlocality::Topology::test_instance();
     /// let numa_type = topology.type_at_depth(Depth::NUMANode);
     /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
@@ -397,7 +397,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::{depth::Depth, types::ObjectType};
+    /// # use hwlocality::object::{depth::Depth, types::ObjectType};
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// use anyhow::Context;
@@ -445,7 +445,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::{depth::Depth, types::ObjectType};
+    /// # use hwlocality::object::{depth::Depth, types::ObjectType};
     /// # let topology = hwlocality::Topology::test_instance();
     /// let root = topology.root_object();
     ///
@@ -474,7 +474,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::objects::types::ObjectType;
+    /// # use hwlocality::object::types::ObjectType;
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
     /// use anyhow::Context;

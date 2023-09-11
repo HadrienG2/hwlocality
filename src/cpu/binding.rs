@@ -1,7 +1,7 @@
 //! CPU binding
 
 #[cfg(doc)]
-use crate::{bitmap::Bitmap, objects::types::ObjectType, topology::support::CpuBindingSupport};
+use crate::{bitmap::Bitmap, object::types::ObjectType, topology::support::CpuBindingSupport};
 use crate::{
     bitmap::RawBitmap,
     cpu::cpuset::CpuSet,

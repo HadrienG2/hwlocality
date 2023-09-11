@@ -1,4 +1,4 @@
-//! Linux-specific helpers
+//! Linux-specific functionality
 
 #[cfg(doc)]
 use crate::cpu::binding::CpuBindingFlags;

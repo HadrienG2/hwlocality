@@ -7,7 +7,7 @@ use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
 use crate::{
     impl_bitmap_newtype,
     memory::nodeset::NodeSet,
-    objects::{depth::Depth, types::ObjectType, TopologyObject},
+    object::{depth::Depth, types::ObjectType, TopologyObject},
     topology::Topology,
 };
 #[cfg(feature = "hwloc-2_2_0")]

@@ -1,4 +1,4 @@
-use hwlocality::{objects::TopologyObject, Topology};
+use hwlocality::{object::TopologyObject, Topology};
 
 /// Walk the topologylogy in a tree-style and print it.
 fn main() -> anyhow::Result<()> {

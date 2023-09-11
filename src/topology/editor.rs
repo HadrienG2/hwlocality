@@ -7,12 +7,12 @@ use crate::{
     errors::{self, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{self, LibcString},
     memory::nodeset::NodeSet,
-    objects::TopologyObject,
+    object::TopologyObject,
     topology::Topology,
 };
 #[cfg(doc)]
 use crate::{
-    objects::types::ObjectType,
+    object::types::ObjectType,
     topology::builder::{BuildFlags, TopologyBuilder, TypeFilter},
 };
 use bitflags::bitflags;

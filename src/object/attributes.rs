@@ -7,7 +7,7 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     ffi,
-    objects::types::{
+    object::types::{
         BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
         RawOSDeviceType,
     },

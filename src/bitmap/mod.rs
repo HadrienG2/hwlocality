@@ -1,14 +1,51 @@
 //! Facilities for manipulating bitmaps
 //!
-//! hwloc extensively uses bitmaps to model the concept of sets of CPU cores
-//! that threads and processes can be bound to, and that of sets of NUMA nodes
-//! that memory can be bound to.
+//! # Bitmaps
 //!
-//! In this module, we re-export this API as the [`Bitmap`] type. However, most
-//! APIs that would accept or emit a bitmap in hwloc instead accept one of the
-//! more specialized [`CpuSet`] and [`NodeSet`] types in hwlocality. These
-//! types are just thin wrappers around [`Bitmap`] with improved type safety,
-//! and have basically the same API as [`Bitmap`].
+//! The hwloc library extensively uses bitmaps to model the concept of sets of
+//! CPU cores that threads and processes can be bound to, and that of sets of
+//! NUMA nodes that memory allocations can be bound to.
+//!
+//! In this module, we directly re-export this API via the [`Bitmap`] type.
+//! However, other methods of the hwlocality binding do not directly accept or
+//! emit bitmaps, as they do in the underlying hwloc C library. Instead they
+//! use specialized variants of [`Bitmap`] called [`CpuSet`] and [`NodeSet`].
+//!
+//! These types are trivial wrappers around [`Bitmap`] that have basically the
+//! same API, but provide improved type safety (you cannot use a
+//! [`NodeSet`] where a [`CpuSet`] is expected, nor can you mistakenly mix CPU
+//! indices with NUMA node indices). They also make the few APIs that accept
+//! either cpusets or nodesets easier to use with respect to upstream hwloc, as
+//! you don't need to remember to set or clear flags depending on which one of
+//! these you are passing to the function.
+//!
+//! # Bitmap indices
+//!
+//! The range of indices that can be set or cleared in an hwloc bitmap
+//! unfortunately does not neatly map into any machine integer type. It is
+//! therefore modeled via the dedicated [`BitmapIndex`] integer type, which you
+//! can use for optimal type safety, at the expense of facing some awkward API
+//! ergonomics since user-defined integer types unfortunately cannot perfectly
+//! match the ergonomics of machine types in Rust (for one thing, they don't
+//! have literals).
+//!
+//! If this proves to be too cumbersome for you, an escape hatch is provided so
+//! that you can easily use [`usize`] in almost every place where
+//! [`BitmapIndex`] is expected, at the cost of risking a panic if the
+//! provided [`usize`] is out of the [`BitmapIndex`] range. This design puts you
+//! in control of the underlying compromise between type safety and ergonomics,
+//! letting you choose what works best for you depending on your requirements.
+//!
+//! # Bitmap references and polymorphism
+//!
+//! For obscure implementation reasons, references to bitmaps that are owned by
+//! hwloc cannot be provided as simple `&'target Target` references. Instead, a
+//! dedicated [`BitmapRef`] type which behaves analogously must be used.
+//!
+//! For convenience, many hwlocality methods achieve genericity with respect to
+//! [`BitmapRef`] and the specialized [`CpuSet`] and [`NodeSet`] bitmap types
+//! by leveraging the [`OwnedBitmap`] and [`SpecializedBitmap`] traits, along
+//! with their [`OwnedSpecializedBitmap`] combination.
 //
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
@@ -18,7 +55,7 @@ mod index;
 use crate::{
     cpu::cpuset::CpuSet,
     memory::nodeset::NodeSet,
-    objects::TopologyObject,
+    object::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
 use crate::{
@@ -28,6 +65,8 @@ use crate::{
 };
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
+#[cfg(doc)]
+use std::collections::BTreeSet;
 use std::{
     borrow::{Borrow, BorrowMut},
     clone::Clone,
@@ -78,7 +117,7 @@ pub struct RawBitmap(IncompleteType);
 /// # use anyhow::Context;
 /// # use hwlocality::{
 /// #     cpu::{binding::CpuBindingFlags, cpuset::CpuSet},
-/// #     objects::{types::ObjectType},
+/// #     object::{types::ObjectType},
 /// #     topology::support::{CpuBindingSupport, FeatureSupport},
 /// # };
 /// #
@@ -1233,7 +1272,9 @@ unsafe impl Sync for Bitmap {}
 /// A [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
 ///
 /// This type cannot be implemented outside of this crate as it relies on
-/// binding implementation details.
+/// hwlocality implementation details. It is only meant to be used in the
+/// signature of generic methods that accept the aforementioned set of types
+/// and then go on to process them homogeneously.
 //
 // # Safety
 //
@@ -1267,7 +1308,7 @@ unsafe impl OwnedBitmap for Bitmap {
 ///
 /// For most intents and purposes, you can think of this as an
 /// `&'target Target` and use it as such. But it cannot literally be an
-/// `&'target Target` due to annoying hwloc API technicalities...
+/// `&'target Target` due to annoying details of the underlying C API.
 //
 // # Implementation details
 //
@@ -1297,10 +1338,10 @@ pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target T
 impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
     /// Make a copy of the target bitmap
     ///
-    /// Rust references are special in that `ref.clone()` calls the `Clone`
+    /// Rust references are special in that `ref.clone()` calls the [`Clone`]
     /// implementation of the pointee, and not that of the reference.
-    /// `BitmapRef` does not enjoy this magic so we need to explicitly expose
-    /// target clones.
+    /// [`BitmapRef`] does not enjoy this magic, and thus needs to expose target
+    /// cloning via a dedicated method.
     pub fn clone_target(&self) -> Target {
         self.as_ref().clone()
     }
@@ -1568,9 +1609,11 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 
 /// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
 ///
-/// `hwlocality` avoids the need for error-prone `hwloc`-style `BYNODESET` flags
-/// by making `CpuSet` and `NodeSet` full-blown types and making functions which
-/// accept either of those deduce which one they got from the input type.
+/// hwlocality avoids the need for error-prone hwloc-style `BYNODESET` flags by
+/// making [`CpuSet`] and [`NodeSet`] full-blown types, not typedefs. Functions
+/// which accept either of these specialized bitmap types can be made generic
+/// over this[`SpecializedBitmap`] trait, which can be used to query which
+/// specialized bitmap type was passed in.
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 #[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]
 pub trait SpecializedBitmap: AsRef<Bitmap> {
@@ -1582,7 +1625,7 @@ pub trait SpecializedBitmap: AsRef<Bitmap> {
 
     /// Construct an owned specialized bitmap from a borrowed one
     ///
-    /// This is a generalization of `Clone` that also works for `BitmapRef`.
+    /// This is a generalization of [`Clone`] that also works for [`BitmapRef`].
     fn to_owned(&self) -> Self::Owned;
 }
 
@@ -1590,7 +1633,8 @@ pub trait SpecializedBitmap: AsRef<Bitmap> {
 ///
 /// This is a little bit more than an alias for `OwnedBitmap +
 /// SpecializedBitmap` because if `Self` is owned, we know that `Self::Owned`
-/// will be `Self` and can use this to hint type inference and golf bounds.
+/// will be `Self` and can use this to hint type inference and simplify method
+/// signatures.
 pub trait OwnedSpecializedBitmap: OwnedBitmap + SpecializedBitmap<Owned = Self> {}
 //
 impl<B: OwnedBitmap + SpecializedBitmap<Owned = Self>> OwnedSpecializedBitmap for B {}

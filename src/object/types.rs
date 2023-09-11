@@ -6,7 +6,7 @@
 use crate::{errors, ffi};
 #[cfg(doc)]
 use crate::{
-    objects::TopologyObject,
+    object::TopologyObject,
     topology::{
         builder::{TopologyBuilder, TypeFilter},
         support::DiscoverySupport,
@@ -110,7 +110,7 @@ pub enum ObjectType {
     #[doc(alias = "HWLOC_OBJ_L3ICACHE")]
     L3ICache,
 
-    /// Group objects
+    /// Group object
     ///
     /// Objects which do not fit in the above but are detected by hwloc and
     /// are useful to take into account for affinity. For instance, some
@@ -178,7 +178,7 @@ pub enum ObjectType {
     #[doc(alias = "HWLOC_OBJ_OS_DEVICE")]
     OSDevice,
 
-    /// Miscellaneous objects (filtered out by default)
+    /// Miscellaneous object (filtered out by default)
     ///
     /// Objects without particular meaning, that can e.g. be added by the
     /// application for its own use, or by hwloc for miscellaneous objects such

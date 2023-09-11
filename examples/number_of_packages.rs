@@ -1,5 +1,5 @@
 use hwlocality::{
-    objects::{depth::DepthError, types::ObjectType},
+    object::{depth::DepthError, types::ObjectType},
     Topology,
 };
 

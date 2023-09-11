@@ -1,14 +1,14 @@
 #[cfg(feature = "hwloc-2_4_0")]
 use crate::info::TextualInfo;
 #[cfg(feature = "hwloc-2_3_0")]
-use crate::memory::attributes::{MemoryAttributeID, RawLocation};
+use crate::memory::attribute::{MemoryAttributeID, RawLocation};
 #[cfg(feature = "hwloc-2_5_0")]
-use crate::objects::distances::{DistancesAddHandle, RawDistancesTransform};
+use crate::object::distance::{DistancesAddHandle, RawDistancesTransform};
 use crate::{
     bitmap::RawBitmap,
     errors::NulError,
     memory::binding::RawMemoryBindingPolicy,
-    objects::{depth::RawDepth, distances::RawDistances, types::RawObjectType, TopologyObject},
+    object::{depth::RawDepth, distance::RawDistances, types::RawObjectType, TopologyObject},
     topology::{builder::RawTypeFilter, support::FeatureSupport, RawTopology},
     ProcessId, ThreadId,
 };

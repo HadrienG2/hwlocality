@@ -4,7 +4,7 @@
 
 use crate::ffi;
 #[cfg(doc)]
-use crate::objects::types::ObjectType;
+use crate::object::types::ObjectType;
 use std::{
     ffi::{c_int, c_uint},
     fmt,

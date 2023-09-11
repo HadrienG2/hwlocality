@@ -1,4 +1,4 @@
-//! Shared error handling
+//! Common error handling infrastructure
 
 use errno::Errno;
 use std::{

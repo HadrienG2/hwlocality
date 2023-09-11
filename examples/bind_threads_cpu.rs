@@ -1,7 +1,7 @@
 use anyhow::Context;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
-    objects::types::ObjectType,
+    object::types::ObjectType,
     topology::support::{DiscoverySupport, FeatureSupport},
     ThreadId, Topology,
 };

@@ -18,7 +18,7 @@ use crate::{
     errors::{self, RawHwlocError},
     ffi::{self, IncompleteType},
     memory::nodeset::NodeSet,
-    objects::{types::ObjectType, TopologyObject},
+    object::{types::ObjectType, TopologyObject},
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -293,7 +293,7 @@ impl Topology {
     ///
     /// ```
     /// # use hwlocality::{
-    /// #     objects::types::ObjectType,
+    /// #     object::types::ObjectType,
     /// #     topology::builder::TypeFilter
     /// # };
     /// # let topology = hwlocality::Topology::test_instance();

@@ -5,7 +5,7 @@ use crate::topology::editor::TopologyEditor;
 use crate::{
     errors::{self, RawHwlocError},
     ffi,
-    objects::{depth::Depth, types::ObjectType, TopologyObject},
+    object::{depth::Depth, types::ObjectType, TopologyObject},
     topology::{RawTopology, Topology},
 };
 #[cfg(feature = "hwloc-2_1_0")]

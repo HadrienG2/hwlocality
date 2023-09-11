@@ -1,9 +1,10 @@
 //! Facilities for indexing bitmaps
 //!
-//! hwloc bitmap methods that take indices as parameters mostly accept and emit
-//! positive [`c_int`] values. They do not accept values in the full [`c_uint`]
-//! range because they occasionally need the sentinel `-1 as c_int` value to
-//! express special semantics like "no such index" or "infinite index".
+//! In the hwloc C API, bitmap methods that take indices as parameters mostly
+//! accept and emit positive [`c_int`] values. They do not accept values in the
+//! full [`c_uint`] range because they occasionally need the sentinel `-1 as
+//! c_int` value to express special semantics like "no such index" or "infinite
+//! index".
 //!
 //! In Rust, these concepts are expressed using type wrappers such as
 //! [`Range`] and [`Option`]. Therefore, we are free to use a specially crafted
@@ -12,8 +13,8 @@
 //! possibility or exchanging forbidden index values like `-2` with hwloc.
 //!
 //! Alas, integer newtypes cannot match the ergonomics of built-in integer types
-//! in Rust, so great care had to be taken in order to ensure that integer
-//! literals can be used in almost every place where [`BitmapIndex`] can be used.
+//! in Rust, so great care was taken in order to ensure that integer literals
+//! can be used in almost every place where [`BitmapIndex`] can be used.
 //!
 //! [`c_int`]: std::ffi::c_int
 //! [`c_uint`]: std::ffi::c_uint
@@ -24,7 +25,7 @@ use crate::ffi::{self};
 use crate::{
     cpu::cpuset::CpuSet,
     memory::nodeset::NodeSet,
-    objects::TopologyObject,
+    object::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
 use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex};
@@ -116,8 +117,8 @@ impl BitmapIndex {
     /// Effective size of this integer type in bits
     ///
     /// The actual storage uses more bits for hardware reasons, which is why
-    /// this is not called BITS like the other integer::BITS as that could be
-    /// misinterpreted by careless users.
+    /// this is not called `BITS` like the other `integer::BITS` as such naming
+    /// could be misinterpreted by careless users.
     pub const EFFECTIVE_BITS: u32 = c_uint::BITS - 1;
 
     /// Converts a string slice in a given base to an integer

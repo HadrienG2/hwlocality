@@ -2,7 +2,7 @@
 
 use super::{RawTopology, Topology};
 #[cfg(all(doc, feature = "hwloc-2_8_0"))]
-use crate::objects::TopologyObject;
+use crate::object::TopologyObject;
 #[cfg(all(doc, feature = "hwloc-2_5_0"))]
 use crate::topology::editor::TopologyEditor;
 #[cfg(doc)]
@@ -12,7 +12,7 @@ use crate::topology::support::MiscSupport;
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError, UnsupportedError},
     ffi::{self, LibcString},
-    objects::types::ObjectType,
+    object::types::ObjectType,
     path::{self, PathError},
     ProcessId,
 };

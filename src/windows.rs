@@ -1,4 +1,4 @@
-//! Windows-specific helpers
+//! Windows-specific functionality
 
 use crate::{
     cpu::cpuset::CpuSet,

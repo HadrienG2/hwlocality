@@ -7,7 +7,7 @@ use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
-    objects::TopologyObject,
+    object::TopologyObject,
     topology::{editor::TopologyEditor, RawTopology, Topology},
 };
 use bitflags::bitflags;

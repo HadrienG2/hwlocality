@@ -1,6 +1,6 @@
 use anyhow::Context;
 use hwlocality::{
-    objects::{attributes::ObjectAttributes, types::ObjectType},
+    object::{attributes::ObjectAttributes, types::ObjectType},
     Topology,
 };
 

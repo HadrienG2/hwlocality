@@ -1,7 +1,7 @@
 //! CPU cache statistics
 
 use crate::{
-    objects::{attributes::ObjectAttributes, types::ObjectType},
+    object::{attributes::ObjectAttributes, types::ObjectType},
     topology::Topology,
 };
 use arrayvec::ArrayVec;
