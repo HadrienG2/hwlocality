@@ -40,6 +40,8 @@ use thiserror::Error;
 /// asymmetric topology where one package has fewer caches than its peers.
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
+// Also includes https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html,
+// which had to be reimplemented because it's static.
 impl Topology {
     /// Depth of the hierarchical tree of objects
     ///
@@ -576,10 +578,12 @@ impl Topology {
     /// Get the object of type [`ObjectType::PU`] with the specified OS index
     ///
     /// If you want to convert an entire CPU set into the PU objects it
-    /// contains, using `pus_from_cpuset` will be more efficient than repeatedly
-    /// calling this function with every OS index from the CpuSet.
+    /// contains, using [`pus_from_cpuset()`] will be more efficient than
+    /// repeatedly calling this function with every OS index from the CpuSet.
     ///
     /// Requires [`DiscoverySupport::pu_count()`].
+    ///
+    /// [`pus_from_cpuset()`]: Topology::pus_from_cpuset()
     #[doc(alias = "hwloc_get_pu_obj_by_os_index")]
     pub fn pu_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::PU)
@@ -602,10 +606,12 @@ impl Topology {
     /// Get the object of type [`ObjectType::NUMANode`] with the specified OS index
     ///
     /// If you want to convert an entire NodeSet into the NUMANode objects it
-    /// contains, using `nodes_from_cpuset` will be more efficient than repeatedly
-    /// calling this function with every OS index from the NodeSet.
+    /// contains, using [`nodes_from_nodeset()`] will be more efficient than
+    /// repeatedly calling this function with every OS index from the NodeSet.
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
+    ///
+    /// [`nodes_from_nodeset()`]: Topology::nodes_from_nodeset()
     #[doc(alias = "hwloc_get_numanode_obj_by_os_index")]
     pub fn node_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::NUMANode)
@@ -666,7 +672,7 @@ impl Topology {
     ///
     /// - [`MissingCpuSetError`] if `obj` does not have a cpuset.
     #[doc(alias = "hwloc_get_closest_objs")]
-    pub fn closest_objects<'result>(
+    pub fn objects_closest_to<'result>(
         &'result self,
         obj: &'result TopologyObject,
     ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, MissingCpuSetError> {
@@ -1127,8 +1133,13 @@ impl TopologyObject {
 
     /// Search for the first ancestor with a certain type in ascending order
     ///
+    /// If multiple matching ancestors exist (which can happen with [`Group`]
+    /// ancestors), the lowest ancestor is returned.
+    ///
     /// Will return `None` if the requested type appears deeper than the
     /// current object or doesn't appear in the topology.
+    ///
+    /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_ancestor_obj_by_type")]
     pub fn first_ancestor_with_type(&self, ty: ObjectType) -> Option<&TopologyObject> {
         self.ancestors()

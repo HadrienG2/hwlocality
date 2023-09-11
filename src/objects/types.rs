@@ -219,6 +219,12 @@ impl ObjectType {
         unsafe { self.type_predicate("hwloc_obj_type_is_normal", ffi::hwloc_obj_type_is_normal) }
     }
 
+    /// Truth that this object type is a leaf of the normal hierarchy and
+    /// cannot have non-Misc children
+    pub fn is_normal_leaf(&self) -> bool {
+        *self == Self::PU || *self == Self::NUMANode
+    }
+
     /// Truth that this is a CPU-side cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_cache")]
     pub fn is_cpu_cache(&self) -> bool {
@@ -256,50 +262,6 @@ impl ObjectType {
     #[doc(alias = "hwloc_obj_type_is_io")]
     pub fn is_io(&self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_io", ffi::hwloc_obj_type_is_io) }
-    }
-
-    /// Truth that this object type is a leaf of the normal hierarchy and
-    /// cannot have non-Misc children
-    pub fn is_leaf(&self) -> bool {
-        match self {
-            Self::PU | Self::NUMANode => true,
-            #[cfg(feature = "hwloc-2_1_0")]
-            Self::Machine
-            | Self::Package
-            | Self::Core
-            | Self::L1ICache
-            | Self::L2ICache
-            | Self::L3ICache
-            | Self::L1Cache
-            | Self::L2Cache
-            | Self::L3Cache
-            | Self::L4Cache
-            | Self::L5Cache
-            | Self::Group
-            | Self::Bridge
-            | Self::PCIDevice
-            | Self::OSDevice
-            | Self::Misc
-            | Self::MemCache
-            | Self::Die => false,
-            #[cfg(not(feature = "hwloc-2_1_0"))]
-            Self::Machine
-            | Self::Package
-            | Self::Core
-            | Self::L1ICache
-            | Self::L2ICache
-            | Self::L3ICache
-            | Self::L1Cache
-            | Self::L2Cache
-            | Self::L3Cache
-            | Self::L4Cache
-            | Self::L5Cache
-            | Self::Group
-            | Self::Bridge
-            | Self::PCIDevice
-            | Self::OSDevice
-            | Self::Misc => false,
-        }
     }
 
     /// Convert to the internal representation used by hwloc

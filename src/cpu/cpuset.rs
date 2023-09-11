@@ -267,6 +267,7 @@ pub struct CoarsestPartitionError {
 //
 // This is inspired by the upstream functionality described at
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
+// and https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html
 // but the code had to be ported to Rust because it's inline
 impl Topology {
     /// Get the lowest object covering at least the given cpuset `set`, if any
@@ -303,8 +304,8 @@ impl Topology {
     /// Enumerate objects covering the given cpuset `set` at a certain depth
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
-    /// of all objects would be returned). Therefore, an empty iterator will
-    /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    /// of all objects would be returned). An empty iterator will always be
+    /// returned for I/O or Misc depths as those objects have no cpusets.
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
     pub fn objects_covering_cpuset_at_depth<'result>(
         &'result self,
@@ -318,8 +319,8 @@ impl Topology {
     /// Get objects covering the given cpuset `set` with a certain type
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
-    /// of all objects would be returned). Therefore, an empty iterator will
-    /// always be returned for I/O or Misc depths as those objects have no cpusets.
+    /// of all objects would be returned). An empty iterator will always be
+    /// returned for I/O or Misc depths as those objects have no cpusets.
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_type")]
     pub fn objects_covering_cpuset_with_type<'result>(
         &'result self,

@@ -11,6 +11,7 @@ use crate::{
 };
 use libc::{EINVAL, ENOENT, EXDEV};
 use std::{
+    borrow::Borrow,
     ffi::{c_int, c_uint},
     iter::FusedIterator,
     num::NonZeroUsize,
