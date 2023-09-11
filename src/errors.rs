@@ -1,4 +1,11 @@
-//! Common error handling infrastructure
+//! Generic error handling primitives
+//!
+//! While we do not shy away from using context-specific error types that
+//! provide higher-quality error messages, for some common patterns we do emit
+//! generic error types, which are implemented in this module.
+//
+// At the implementation level, this is also the place where all the low-level
+// handling of hwloc errors is implemented.
 
 use errno::Errno;
 use std::{
@@ -49,12 +56,12 @@ fn check_errno<R>(callback: impl FnOnce() -> (R, bool)) -> (R, Option<Errno>) {
 /// assume they are the only errors that can occur, translate them into a
 /// higher-level Rust errors and panic if another errno value is observed.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-#[error("hwloc API {api} errored out with errno {errno:?}")]
+#[error("hwloc API {api} failed with errno {errno:?}")]
 pub struct RawHwlocError {
     /// Hwloc entry point that failed
     pub api: &'static str,
 
-    /// Observed errno value, if non-zero
+    /// Observed errno value, if errno was set
     pub errno: Option<Errno>,
 }
 
@@ -122,7 +129,7 @@ pub(crate) fn call_hwloc_bool(
 /// extension of [`RawHwlocError`] that allows you to catch and process those
 /// negative return values.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-#[error("hwloc API {api} errored out with result {result} and errno {errno:?}")]
+#[error("hwloc API {api} failed with result {result} and errno {errno:?}")]
 pub(crate) struct RawNegIntError {
     /// Hwloc entry point that failed
     pub api: &'static str,
@@ -130,7 +137,7 @@ pub(crate) struct RawNegIntError {
     /// Return value (may not be positive)
     pub result: c_int,
 
-    /// Observed errno value, if non-zero
+    /// Observed errno value, if errno was set
     pub errno: Option<Errno>,
 }
 //
@@ -167,19 +174,30 @@ pub enum HybridError<RustError: Error> {
     // #[from] RawHwlocError as rustc rightly complains that nothing prevents
     // RustError to be RawHwlocError at the type system level.
     //
-    // I choose to implement for RustError because that type has unbounded
+    // I choose to implement From for RustError because that type has unbounded
     // complexity and thus benefits the most from it.
     Hwloc(RawHwlocError),
 }
 
 /// Requested string contains the NUL char
 ///
-/// hwloc, like most C APIs, cannot handle strings with inner NULs.
+/// hwloc, like most C APIs, cannot handle strings with inner NULs, so you
+/// should not pass a string containing such characters as a parameter to an
+/// hwloc API.
+///
+/// This generic error type is only used when the only error that can occur is
+/// that the input string is invalid. Otherwise, a more complex error type that
+/// accounts for the possibility of NUL errors among others will be emitted.
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("string cannot be used by hwloc, it contains the NUL char")]
 pub struct NulError;
 
 /// A method was passed an invalid parameter
+///
+/// This generic error type is only used when there is only a single way a
+/// function parameter can be invalid, and the fact that it is invalid does
+/// not depend on the value of another parameter. Otherwise, a more descriptive
+/// dedicated error type will be used.
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("parameter {0:?} is not valid for this operation")]
 pub struct ParameterError<Parameter: Debug>(pub Parameter);
@@ -195,13 +213,8 @@ impl<Parameter: Debug> From<Parameter> for ParameterError<Parameter> {
 /// Many hwloc APIs only accept particular combinations of flags. You may want
 /// to cross-check the documentation of the flags type and that of the function
 /// you were trying to call for more information.
-pub type FlagsError<Flags> = ParameterError<Flags>;
-
-/// Error returned when the platform does not support the requested operation
 ///
-/// This can be a general statement, or it may be contextual to a particular set
-/// of parameters (e.g. you cannot query a specific ProcessID because you don't
-/// have permission to do so).
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("platform does not support this operation")]
-pub struct UnsupportedError;
+/// This generic error type is only used when the validity of flags does not
+/// depend on the value of other function parameters. Otherwise, a more
+/// descriptive dedicated error type will be used.
+pub type FlagsError<Flags> = ParameterError<Flags>;

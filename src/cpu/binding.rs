@@ -388,7 +388,7 @@ impl Topology {
         ffi: impl FnOnce(*const RawTopology, *const RawBitmap, c_int) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
         if !flags.is_valid(target, CpuBindingOperation::SetBinding) {
-            return Err(CpuBindingError::BadFlags(flags.into()).into());
+            return Err(CpuBindingError::from(flags).into());
         }
         call_hwloc(api, target, Some(set), || {
             ffi(
@@ -437,7 +437,7 @@ impl Topology {
         ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         if !flags.is_valid(target, operation) {
-            return Err(CpuBindingError::BadFlags(flags.into()).into());
+            return Err(CpuBindingError::from(flags).into());
         }
         let mut cpuset = CpuSet::new();
         call_hwloc(api, target, None, || {
@@ -628,6 +628,12 @@ pub enum CpuBindingError {
     /// the requested operation is not exactly supported.
     #[error("cannot bind {0} to {1}")]
     BadCpuSet(CpuBoundObject, CpuSet),
+}
+//
+impl From<CpuBindingFlags> for CpuBindingError {
+    fn from(value: CpuBindingFlags) -> Self {
+        Self::BadFlags(value.into())
+    }
 }
 
 /// Call an hwloc API that is about getting or setting CPU bindings, translate

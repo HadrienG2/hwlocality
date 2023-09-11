@@ -10,7 +10,7 @@ use crate::topology::support::DiscoverySupport;
 #[cfg(all(doc, feature = "hwloc-2_3_0"))]
 use crate::topology::support::MiscSupport;
 use crate::{
-    errors::{self, FlagsError, HybridError, NulError, RawHwlocError, UnsupportedError},
+    errors::{self, FlagsError, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     object::types::ObjectType,
     path::{self, PathError},
@@ -115,10 +115,10 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`UnsupportedError`] if hwloc does not support this feature (on this
-    ///   system, for this process).
+    /// - [`ProcessIDError`] if the topology cannot be configured from this
+    ///   process.
     #[doc(alias = "hwloc_topology_set_pid")]
-    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, UnsupportedError> {
+    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, ProcessIDError> {
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_pid", || unsafe {
             ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
         });
@@ -127,7 +127,7 @@ impl TopologyBuilder {
             Err(RawHwlocError {
                 api: _,
                 errno: Some(Errno(ENOSYS)),
-            }) => Err(UnsupportedError),
+            }) => Err(ProcessIDError(pid)),
             Err(other_err) => unreachable!("{other_err}"),
         }
     }
@@ -273,6 +273,17 @@ impl TopologyBuilder {
         })
         .map_err(HybridError::Hwloc)?;
         Ok(self)
+    }
+}
+
+/// Attempted to configure the topology from an invalid process ID
+#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[error("topology cannot be configured from process {0}")]
+pub struct ProcessIDError(ProcessId);
+//
+impl From<ProcessId> for ProcessIDError {
+    fn from(id: ProcessId) -> Self {
+        Self(id)
     }
 }
 
