@@ -20,7 +20,7 @@
 //! [`c_uint`]: std::ffi::c_uint
 //! [`Range`]: std::ops::Range
 
-use crate::ffi::{self};
+use crate::ffi;
 #[cfg(doc)]
 use crate::{
     cpu::cpuset::CpuSet,
