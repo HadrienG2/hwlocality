@@ -559,7 +559,7 @@ bitflags! {
 }
 //
 // NOTE: No Default because user must consciously think about the need for
-//       PROCESS vs ASSUME_SINGLE_THREADED.
+//       PROCESS vs ASSUME_SINGLE_THREAD.
 //
 impl CpuBindingFlags {
     /// Check that these flags are in a valid state, emit validated flags free
