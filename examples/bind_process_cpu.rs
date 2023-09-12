@@ -47,12 +47,12 @@ fn main() -> anyhow::Result<()> {
     let print_binding_location = |situation: &str| -> anyhow::Result<()> {
         println!(
             "Cpu Binding {situation}: {:?}",
-            topology.process_cpu_binding(pid, CpuBindingFlags::PROCESS)?
+            topology.process_cpu_binding(pid, CpuBindingFlags::empty())?
         );
         if support.get_process_last_cpu_location() {
             println!(
                 "Cpu Location {situation}: {:?}",
-                topology.last_process_cpu_location(pid, CpuBindingFlags::PROCESS)?
+                topology.last_process_cpu_location(pid, CpuBindingFlags::empty())?
             )
         }
         Ok(())
@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
     print_binding_location("before binding")?;
 
     // Bind to one core.
-    topology.bind_process_cpu(pid, cpuset, CpuBindingFlags::PROCESS)?;
+    topology.bind_process_cpu(pid, cpuset, CpuBindingFlags::empty())?;
 
     // Query binding and CPU location after binding
     print_binding_location("after binding")?;

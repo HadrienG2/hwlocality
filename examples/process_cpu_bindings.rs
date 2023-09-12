@@ -44,7 +44,7 @@ fn main() -> anyhow::Result<()> {
     for pid in sys.processes().keys().copied() {
         let pid = usize::from(pid) as ProcessId;
         let binding = topology
-            .process_cpu_binding(pid, CpuBindingFlags::PROCESS)
+            .process_cpu_binding(pid, CpuBindingFlags::empty())
             .unwrap_or(CpuSet::new());
         assert!(binding_to_pids.entry(binding).or_default().insert(pid));
     }

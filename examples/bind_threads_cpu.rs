@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
                 let tid = get_thread_id();
 
                 // Thread binding before explicit set.
-                let before = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
+                let before = topology.thread_cpu_binding(tid, CpuBindingFlags::empty())?;
 
                 // load the cpuset for the given core index.
                 let mut bind_to = core
@@ -58,10 +58,10 @@ fn main() -> anyhow::Result<()> {
                 bind_to.singlify();
 
                 // Set the binding.
-                topology.bind_thread_cpu(tid, bind_to, CpuBindingFlags::THREAD)?;
+                topology.bind_thread_cpu(tid, bind_to, CpuBindingFlags::empty())?;
 
                 // Thread binding after explicit set.
-                let after = topology.thread_cpu_binding(tid, CpuBindingFlags::THREAD)?;
+                let after = topology.thread_cpu_binding(tid, CpuBindingFlags::empty())?;
 
                 // Report what was done
                 println!("- Thread {idx} binding: {before:?} -> {after:?}");
