@@ -544,12 +544,12 @@ bitflags! {
         /// Avoid any effect on memory binding
         ///
         /// On some operating systems, some CPU binding function would also bind
-        /// the memory on the corresponding NUMA node. It is often not a problem
-        /// for the application, but if it is, setting this flag will make hwloc
-        /// avoid using OS functions that would also bind memory. This will
-        /// however reduce the support of CPU bindings, i.e. potentially
-        /// result in the binding function erroring out with
-        /// [`CpuBindingError::Unsupported`].
+        /// the memory on the corresponding NUMA node. It is often not a
+        /// problem for the application, but if it is, setting this flag will
+        /// make hwloc avoid using OS functions that would also bind memory.
+        /// This will however reduce the support of CPU bindings, i.e.
+        /// potentially result in the binding function erroring out with a
+        /// [`CpuBindingError`].
         ///
         /// This flag should only be used with functions that set the CPU
         /// binding.
@@ -558,7 +558,8 @@ bitflags! {
     }
 }
 //
-// NOTE: No Default because user must consciously think about the need for PROCESS
+// NOTE: No Default because user must consciously think about the need for
+//       PROCESS vs ASSUME_SINGLE_THREADED.
 //
 impl CpuBindingFlags {
     /// Check that these flags are in a valid state, emit validated flags free
