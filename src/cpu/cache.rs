@@ -1,4 +1,11 @@
 //! CPU cache statistics
+//!
+//! These statistics, which can be queried via
+//! the [`Topology::cpu_cache_stats()`] method, can be used to perform simple
+//! cache locality optimizations when your performance requirements do not call
+//! for full locality-aware scheduling with manual task and memory pinning.
+//!
+//! This functionality is an hwlocality-specific extension to the hwloc API.
 
 use crate::{
     object::{attributes::ObjectAttributes, types::ObjectType},
@@ -8,13 +15,13 @@ use arrayvec::ArrayVec;
 
 /// # CPU cache statistics
 impl Topology {
-    /// Compute high-level CPU cache statistics
+    /// Compute CPU cache statistics
     ///
-    /// These statistics can be used in scenarios where you're not yet ready for
-    /// full locality-aware scheduling but just want to make sure that your code
-    /// will use CPU caches sensibly no matter which CPU core it's running on.
+    /// These statistics can be used to perform simple cache locality
+    /// optimizations when your performance requirements do not call for full
+    /// locality-aware scheduling with manual task and memory pinning.
     ///
-    /// This functionality is unique to the Rust hwloc bindings.
+    /// This functionality is an hwlocality-specific extension to the hwloc API.
     ///
     /// # Examples
     ///
@@ -65,9 +72,9 @@ const DATA_CACHE_LEVELS: &[ObjectType] = &[
 
 /// CPU cache statistics
 ///
-/// These statistics can be used in scenarios where you're not yet ready for
-/// full locality-aware scheduling but just want to make sure that your code
-/// will use CPU caches sensibly no matter which CPU core it's running on.
+/// These statistics can be used to perform simple cache locality optimizations
+/// when your performance requirements do not call for full locality-aware
+/// scheduling with manual task and memory pinning.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CpuCacheStats {
     /// Size of the smallest caches of each type
