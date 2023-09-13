@@ -59,7 +59,7 @@ impl Default for FeatureSupport {
 }
 //
 impl fmt::Debug for FeatureSupport {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("FeatureSupport");
         debug
             .field("discovery", &self.discovery())

@@ -87,7 +87,7 @@ impl Topology {
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc")]
-    pub fn allocate_memory(&self, len: usize) -> Result<Bytes, MemoryAllocationError<NodeSet>> {
+    pub fn allocate_memory(&self, len: usize) -> Result<Bytes<'_>, MemoryAllocationError<NodeSet>> {
         self.allocate_memory_impl::<NodeSet>(len)
     }
 
@@ -95,7 +95,7 @@ impl Topology {
     fn allocate_memory_impl<Set: SpecializedBitmap>(
         &self,
         len: usize,
-    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
+    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
         memory::binding::call_hwloc_allocate::<Set>("hwloc_alloc", None, || unsafe {
             ffi::hwloc_alloc(self.as_ptr(), len)
         })
@@ -141,7 +141,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         mut flags: MemoryBindingFlags,
-    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
+    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
         Self::adjust_flags_for::<Set>(&mut flags);
         if !flags.is_valid(MemoryBoundObject::Area, MemoryBindingOperation::Allocate) {
             return Err(MemoryAllocationError::BadFlags(flags.into()));
@@ -199,7 +199,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
+    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
         // Try allocate_bound_memory first
         if let Ok(bytes) = self.allocate_bound_memory(len, set, policy, flags) {
             return Ok(bytes);
@@ -1240,16 +1240,21 @@ pub struct Bytes<'topology> {
 
 impl<'topology> Bytes<'topology> {
     /// Wrap an hwloc allocation
+    ///
+    /// # Safety
+    ///
+    /// `base` must originate from an hwloc memory allocation function that
+    /// was called for `size` bytes.
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
         base: NonNull<c_void>,
-        len: usize,
+        size: usize,
     ) -> Self {
         let base = base.as_ptr().cast::<MaybeUninit<u8>>();
-        let data = std::ptr::slice_from_raw_parts_mut(base, len);
+        let data = std::ptr::slice_from_raw_parts_mut(base, size);
         Self {
             topology,
-            data: NonNull::new_unchecked(data),
+            data: unsafe { NonNull::new_unchecked(data) },
         }
     }
 }

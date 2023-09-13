@@ -81,6 +81,7 @@ use std::{
 /// seems fair to expect `BitmapIndex << usize` to be a `BitmapIndex`, but by
 /// the same logic `usize << BitmapIndex` should be an `usize`, not a
 /// `BitmapIndex`).
+#[allow(clippy::module_name_repetitions)]
 #[derive(
     Binary,
     Clone,
@@ -134,6 +135,11 @@ impl BitmapIndex {
     /// # Panics
     ///
     /// This function panics if `radix` is not in the range from 2 to 36.
+    ///
+    /// # Errors
+    ///
+    /// [`ParseIntError`] if `src` is not a base-`radix` number smaller than
+    /// `BitmapIndex::MAX`.
     ///
     /// # Examples
     ///
@@ -2864,6 +2870,7 @@ macro_rules! shl_with_int {
         impl Shl<$int> for BitmapIndex {
             type Output = Self;
 
+            #[allow(trivial_numeric_casts)]
             fn shl(self, mut rhs: $int) -> Self {
                 if cfg!(debug_assertions) {
                     // Debug mode checks if the shift is in range
@@ -2953,6 +2960,7 @@ macro_rules! shr_with_int {
         impl Shr<$int> for BitmapIndex {
             type Output = Self;
 
+            #[allow(trivial_numeric_casts)]
             fn shr(self, mut rhs: $int) -> Self {
                 if cfg!(debug_assertions) {
                     // Debug mode checks if the shift is in range
@@ -3753,6 +3761,7 @@ mod tests {
         }
 
         // Non-overflowing left shift must keep high-order bit cleared
+        #[allow(trivial_numeric_casts)]
         let effective_bits = BitmapIndex(BitmapIndex::EFFECTIVE_BITS as _);
         let wrapped_shift = i2 % effective_bits;
         let wrapped_shl = BitmapIndex((i1.0 << wrapped_shift.0) & BitmapIndex::MAX.0);
@@ -4427,8 +4436,8 @@ mod tests {
             indices: &[BitmapIndex],
             neutral: BitmapIndex,
             overflowing_op: impl Fn(BitmapIndex, BitmapIndex) -> (BitmapIndex, bool),
-            reduce_by_ref: impl Fn(IndexRefIter) -> BitmapIndex + RefUnwindSafe,
-            reduce_by_value: impl Fn(Copied<IndexRefIter>) -> BitmapIndex + RefUnwindSafe,
+            reduce_by_ref: impl Fn(IndexRefIter<'_>) -> BitmapIndex + RefUnwindSafe,
+            reduce_by_value: impl Fn(Copied<IndexRefIter<'_>>) -> BitmapIndex + RefUnwindSafe,
         ) {
             // Perform reduction using the overflowing operator
             let (wrapping_result, overflow) = indices.iter().copied().fold(

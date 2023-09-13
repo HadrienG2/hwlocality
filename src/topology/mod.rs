@@ -177,8 +177,8 @@ impl Topology {
         match result {
             Ok(_) => true,
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => false,
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -382,7 +382,7 @@ impl Topology {
         // extract this information, and return it as an Option that is None if
         // the object has access to no CPUs.
         type ObjSetWeightDepth<'a> = (&'a TopologyObject, BitmapRef<'a, CpuSet>, usize, usize);
-        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth> {
+        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
             debug_assert!(obj.object_type().is_normal());
             let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
             let weight = cpuset
@@ -394,6 +394,7 @@ impl Topology {
         }
 
         // Inner recursive algorithm
+        #[allow(single_use_lifetimes)]
         fn recurse<'a>(
             roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'a>> + Clone,
             num_items: usize,
@@ -417,7 +418,7 @@ impl Topology {
             let mut given_items = 0;
 
             // What to do with each root
-            let process_root = |(root, cpuset, weight, depth): ObjSetWeightDepth| {
+            let process_root = |(root, cpuset, weight, depth): ObjSetWeightDepth<'_>| {
                 // Give this root a chunk of the work-items proportional to its
                 // weight, with a bias towards giving more CPUs to first roots
                 let weight_to_items = |given_weight: usize| -> usize {
@@ -547,7 +548,7 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_cpuset")]
-    pub fn cpuset(&self) -> BitmapRef<CpuSet> {
+    pub fn cpuset(&self) -> BitmapRef<'_, CpuSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_cpuset",
@@ -573,7 +574,7 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_cpuset")]
-    pub fn complete_cpuset(&self) -> BitmapRef<CpuSet> {
+    pub fn complete_cpuset(&self) -> BitmapRef<'_, CpuSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_cpuset",
@@ -604,7 +605,7 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
-    pub fn allowed_cpuset(&self) -> BitmapRef<CpuSet> {
+    pub fn allowed_cpuset(&self) -> BitmapRef<'_, CpuSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_cpuset",
@@ -627,7 +628,7 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_nodeset")]
-    pub fn nodeset(&self) -> BitmapRef<NodeSet> {
+    pub fn nodeset(&self) -> BitmapRef<'_, NodeSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_nodeset",
@@ -653,7 +654,7 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_nodeset")]
-    pub fn complete_nodeset(&self) -> BitmapRef<NodeSet> {
+    pub fn complete_nodeset(&self) -> BitmapRef<'_, NodeSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_nodeset",
@@ -684,7 +685,7 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
-    pub fn allowed_nodeset(&self) -> BitmapRef<NodeSet> {
+    pub fn allowed_nodeset(&self) -> BitmapRef<'_, NodeSet> {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_nodeset",

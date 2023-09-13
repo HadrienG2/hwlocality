@@ -132,13 +132,13 @@ pub(crate) fn call_hwloc_bool(
 #[error("hwloc API {api} failed with result {result} and errno {errno:?}")]
 pub(crate) struct RawNegIntError {
     /// Hwloc entry point that failed
-    pub api: &'static str,
+    pub(crate) api: &'static str,
 
     /// Return value (may not be positive)
-    pub result: c_int,
+    pub(crate) result: c_int,
 
     /// Observed errno value, if errno was set
-    pub errno: Option<Errno>,
+    pub(crate) errno: Option<Errno>,
 }
 //
 /// Call an hwloc entry point that returns int and post-process its result
@@ -157,11 +157,12 @@ pub(crate) fn call_hwloc_int_raw(
 ///
 /// This is typically used for functions which have known failure modes on the
 /// Rust side (e.g. takes a string input that must not contain NUL chars), but
-/// whose hwloc-side error reporting policy is undocumented.
+/// whose hwloc-side error reporting policy is undocumented or only partially
+/// documented.
 ///
-/// If the hwloc documentation contains a list of failure modes which sounds
-/// exhaustive, we normally assume it to be exhaustive and return a pure Rust
-/// error type, panicking if another hwloc error is observed.
+/// If the hwloc documentation contains an exhaustive list of failure modes, we
+/// trust it and return a pure Rust error type, panicking if another hwloc
+/// error is observed.
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum HybridError<RustError: Error> {
     /// An error was caught on the Rust side

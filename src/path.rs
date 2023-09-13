@@ -1,4 +1,8 @@
 //! File path handling
+//!
+//! Several hwloc methods ingest file paths. Conversion from Rust file paths to
+//! C file paths can fail in several way, and this module is concerned with the
+//! associated error detection and reporting.
 
 use crate::{errors::NulError, ffi::LibcString};
 use std::path::Path;

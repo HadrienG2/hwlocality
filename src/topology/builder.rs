@@ -125,8 +125,8 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(ENOSYS)),
+                ..
             }) => Err(ProcessIDError(pid).into()),
             Err(other_err) => Err(HybridError::Hwloc(other_err)),
         }
@@ -160,8 +160,8 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(TextInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
@@ -200,8 +200,8 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(TextInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
@@ -236,8 +236,8 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(XMLFileInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }

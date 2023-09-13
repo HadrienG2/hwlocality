@@ -40,12 +40,12 @@ impl Topology {
     ///
     /// In general, the hwlocality binding optimizes the ergonomics and
     /// performance of reading and using topologies at the expense of making
-    /// them harder and slower to edit. If there were a strong need for more
-    /// efficient topology editing, the right thing to do would be to set up an
-    /// alternate hwloc Rust binding optimized for that, with some code sharing
-    /// with respect to hwlocality.
+    /// them harder and slower to edit. If a strong need for easier or more
+    /// efficient topology editing emerged, the right thing to do would
+    /// probably be to set up an alternate hwloc Rust binding optimized for
+    /// that, sharing as much code as possible with hwlocality.
     #[doc(alias = "hwloc_topology_refresh")]
-    pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor) -> R) -> R {
+    pub fn edit<R>(&mut self, edit: impl UnwindSafe + FnOnce(&mut TopologyEditor<'_>) -> R) -> R {
         // Set up topology editing
         let mut editor = TopologyEditor::new(self);
         let mut editor = AssertUnwindSafe(&mut editor);
@@ -144,7 +144,7 @@ impl<'topology> TopologyEditor<'topology> {
 /// # Basic modifications
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
-impl TopologyEditor<'_> {
+impl<'topology> TopologyEditor<'topology> {
     /// Restrict the topology to the given CPU set or nodeset
     ///
     /// The topology is modified so as to remove all objects that are not
@@ -200,8 +200,7 @@ impl TopologyEditor<'_> {
             Ok(_) => Ok(()),
             Err(
                 raw_err @ RawHwlocError {
-                    api: _,
-                    errno: Some(errno),
+                    errno: Some(errno), ..
                 },
             ) => match errno.0 {
                 EINVAL => Err(ParameterError::from(set.to_owned())),
@@ -233,7 +232,7 @@ impl TopologyEditor<'_> {
     /// - [`BadAllowSet`] if an `AllowSet` with neither a `cpuset` nor a
     ///   `nodeset` is passed in.
     #[doc(alias = "hwloc_topology_allow")]
-    pub fn allow(&mut self, allow_set: AllowSet) -> Result<(), HybridError<BadAllowSet>> {
+    pub fn allow(&mut self, allow_set: AllowSet<'_>) -> Result<(), HybridError<BadAllowSet>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
             AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
@@ -287,7 +286,7 @@ impl TopologyEditor<'_> {
         &mut self,
         merge: Option<GroupMerge>,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> GroupInsertResult {
+    ) -> GroupInsertResult<'topology> {
         // Allocate group object
         let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
             ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
@@ -361,7 +360,7 @@ impl TopologyEditor<'_> {
         &mut self,
         name: &str,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
-    ) -> Result<&mut TopologyObject, HybridError<NulError>> {
+    ) -> Result<&'topology mut TopologyObject, HybridError<NulError>> {
         // This is on the edge of violating Rust's aliasing rules, but I think
         // it should work out because...
         //
@@ -472,10 +471,13 @@ pub enum AllowSet<'set> {
 
     /// Allow a custom set of objects
     ///
-    /// You should provide at least one of `cpuset` and `memset`.
+    /// You should provide at least one of `cpuset` and `nodeset`.
     #[doc(alias = "HWLOC_ALLOW_FLAG_CUSTOM")]
     Custom {
+        /// New value of [`Topology::allowed_cpuset()`]
         cpuset: Option<&'set CpuSet>,
+
+        /// New value of [`Topology::allowed_nodeset()`]
         nodeset: Option<&'set NodeSet>,
     },
 }

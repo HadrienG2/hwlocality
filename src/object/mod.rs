@@ -1039,7 +1039,7 @@ impl TopologyObject {
 
     /// Object type-specific attributes (if any)
     #[doc(alias = "hwloc_obj::attr")]
-    pub fn attributes(&self) -> Option<ObjectAttributes> {
+    pub fn attributes(&self) -> Option<ObjectAttributes<'_>> {
         unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
     }
 
@@ -1534,7 +1534,7 @@ impl TopologyObject {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_obj::cpuset")]
-    pub fn cpuset(&self) -> Option<BitmapRef<CpuSet>> {
+    pub fn cpuset(&self) -> Option<BitmapRef<'_, CpuSet>> {
         unsafe { CpuSet::borrow_from_raw_mut(self.cpuset) }
     }
 
@@ -1586,7 +1586,7 @@ impl TopologyObject {
     ///
     /// [`cpuset()`]: TopologyObject::cpuset()
     #[doc(alias = "hwloc_obj::complete_cpuset")]
-    pub fn complete_cpuset(&self) -> Option<BitmapRef<CpuSet>> {
+    pub fn complete_cpuset(&self) -> Option<BitmapRef<'_, CpuSet>> {
         unsafe { CpuSet::borrow_from_raw_mut(self.complete_cpuset) }
     }
 }
@@ -1630,7 +1630,7 @@ impl TopologyObject {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_obj::nodeset")]
-    pub fn nodeset(&self) -> Option<BitmapRef<NodeSet>> {
+    pub fn nodeset(&self) -> Option<BitmapRef<'_, NodeSet>> {
         unsafe { NodeSet::borrow_from_raw_mut(self.nodeset) }
     }
 
@@ -1662,7 +1662,7 @@ impl TopologyObject {
     ///
     /// [`nodeset()`]: TopologyObject::nodeset()
     #[doc(alias = "hwloc_obj::complete_nodeset")]
-    pub fn complete_nodeset(&self) -> Option<BitmapRef<NodeSet>> {
+    pub fn complete_nodeset(&self) -> Option<BitmapRef<'_, NodeSet>> {
         unsafe { NodeSet::borrow_from_raw_mut(self.complete_nodeset) }
     }
 }
@@ -1675,7 +1675,7 @@ impl TopologyObject {
     /// associated semantics](https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info).
     ///
     /// Beware that hwloc allows multiple informations with the same key to
-    /// exist, although no sane programs should leverage this possibility.
+    /// exist, although sane users should not leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
         if self.children.is_null() {
@@ -1737,7 +1737,7 @@ impl TopologyObject {
 // # Internal utilities
 impl TopologyObject {
     /// Display the TopologyObject's type and attributes
-    fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
+    fn display(&self, f: &mut fmt::Formatter<'_>, verbose: bool) -> fmt::Result {
         let type_chars = ffi::call_snprintf(|buf, len| unsafe {
             ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
         });
@@ -1782,7 +1782,7 @@ impl fmt::Display for TopologyObject {
     /// println!("Root object: {}", topology.root_object());
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, false)
     }
 }
@@ -1802,7 +1802,7 @@ impl fmt::Debug for TopologyObject {
     /// ```
     #[doc(alias = "hwloc_obj_attr_snprintf")]
     #[doc(alias = "hwloc_obj_type_snprintf")]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, true)
     }
 }

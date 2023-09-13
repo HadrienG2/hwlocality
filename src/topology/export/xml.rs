@@ -85,7 +85,7 @@ impl Topology {
     /// other character, especially any non-ASCII character, will be silently
     /// dropped.
     #[doc(alias = "hwloc_topology_export_xmlbuffer")]
-    pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML, RawHwlocError> {
+    pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML<'_>, RawHwlocError> {
         let mut xmlbuffer = ptr::null_mut();
         let mut buflen = 0;
         errors::call_hwloc_int_normal("hwloc_topology_export_xmlbuffer", || unsafe {

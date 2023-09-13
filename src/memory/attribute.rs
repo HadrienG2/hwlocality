@@ -69,7 +69,10 @@ impl Topology {
     ///
     /// - [`NulError`] if `name` contains NUL chars.
     #[doc(alias = "hwloc_memattr_get_by_name")]
-    pub fn memory_attribute_named(&self, name: &str) -> Result<Option<MemoryAttribute>, NulError> {
+    pub fn memory_attribute_named(
+        &self,
+        name: &str,
+    ) -> Result<Option<MemoryAttribute<'_>>, NulError> {
         let name = LibcString::new(name)?;
         let mut id = MaybeUninit::uninit();
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
@@ -80,8 +83,8 @@ impl Topology {
                 id.assume_init()
             }))),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Ok(None),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -161,9 +164,9 @@ impl<'topology> TopologyEditor<'topology> {
     /// [`NameContainsNul`]: MemoryAttributeRegisterError::NameContainsNul
     /// [`NameTaken`]: MemoryAttributeRegisterError::NameTaken
     #[doc(alias = "hwloc_memattr_register")]
-    pub fn register_memory_attribute<'name>(
+    pub fn register_memory_attribute(
         &mut self,
-        name: &'name str,
+        name: &str,
         flags: MemoryAttributeFlags,
     ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError> {
         if !flags.is_valid() {
@@ -186,8 +189,8 @@ impl<'topology> TopologyEditor<'topology> {
                 id,
             }),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EBUSY)),
+                ..
             }) => Err(MemoryAttributeRegisterError::NameTaken),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -223,6 +226,7 @@ impl From<NulError> for MemoryAttributeRegisterError {
 }
 
 /// Mechanism to configure a memory attribute
+#[derive(Debug)]
 pub struct MemoryAttributeBuilder<'editor, 'topology> {
     editor: &'editor mut TopologyEditor<'topology>,
     flags: MemoryAttributeFlags,
@@ -255,7 +259,7 @@ impl MemoryAttributeBuilder<'_, '_> {
         find_values: impl FnOnce(
             &Topology,
         ) -> (
-            Option<Vec<MemoryAttributeLocation>>,
+            Option<Vec<MemoryAttributeLocation<'_>>>,
             Vec<(&TopologyObject, u64)>,
         ),
     ) -> Result<(), HybridError<InitiatorsError>> {
@@ -486,8 +490,8 @@ impl<'topology> MemoryAttribute<'topology> {
         match res {
             Ok(_positive) => {}
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => return Err(MemoryAttributeQueryError::UnknownAttribute),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -531,8 +535,8 @@ impl<'topology> MemoryAttribute<'topology> {
         match res {
             Ok(_positive) => Ok(MemoryAttributeFlags::from_bits_truncate(flags)),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(MemoryAttributeQueryError::UnknownAttribute),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -577,8 +581,8 @@ impl<'topology> MemoryAttribute<'topology> {
         match res {
             Ok(_positive) => Ok(value),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(MemoryAttributeQueryError::UnknownAttribute),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -736,7 +740,7 @@ impl<'topology> MemoryAttribute<'topology> {
     pub fn initiators(
         &self,
         target_node: &TopologyObject,
-    ) -> Result<(Vec<MemoryAttributeLocation>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
+    ) -> Result<(Vec<MemoryAttributeLocation<'_>>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
     {
         // Validate the query
         if !self.flags()?.contains(MemoryAttributeFlags::NEED_INITIATOR) {
@@ -823,13 +827,13 @@ impl<'topology> MemoryAttribute<'topology> {
         }) {
             Ok(_positive) => Ok(Some(value)),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(ENOENT)),
+                ..
             }) => Ok(None),
             // All cases other than "no such attribute" should be handled by the caller
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(MemoryAttributeQueryError::UnknownAttribute),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -867,7 +871,7 @@ impl<'topology> MemoryAttribute<'topology> {
     /// if the memory attribute has flag [`MemoryAttributeFlags::NEED_INITIATOR`].
     fn checked_initiator(
         &self,
-        initiator: Option<MemoryAttributeLocation>,
+        initiator: Option<MemoryAttributeLocation<'_>>,
         is_optional: bool,
     ) -> Result<RawLocation, MemoryAttributeQueryError> {
         let flags = self.flags()?;
@@ -1023,10 +1027,10 @@ pub(crate) struct RawLocationType(c_int);
 //
 impl RawLocationType {
     /// Location is given as a cpuset, in the [`Location.cpuset`] union field
-    pub const CPUSET: Self = Self(1);
+    pub(crate) const CPUSET: Self = Self(1);
 
     /// Location is given as an object, in the [`Location.object`] union field
-    pub const OBJECT: Self = Self(0);
+    pub(crate) const OBJECT: Self = Self(0);
 }
 
 /// Actual location
@@ -1072,6 +1076,7 @@ bitflags! {
 }
 
 /// Target NUMA nodes
+#[derive(Debug)]
 pub enum TargetNumaNodes<'topology> {
     /// Nodes local to some object
     Local {

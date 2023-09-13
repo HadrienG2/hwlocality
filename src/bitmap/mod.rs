@@ -95,6 +95,12 @@ pub use index::BitmapIndex;
 #[doc(hidden)]
 #[repr(C)]
 pub struct RawBitmap(IncompleteType);
+//
+impl Debug for RawBitmap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <str as Debug>::fmt("RawBitmap", f)
+    }
+}
 
 /// A generic bitmap, understood by hwloc
 ///
@@ -1077,7 +1083,7 @@ impl Clone for Bitmap {
 }
 
 impl Debug for Bitmap {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Self as Display>::fmt(self, f)
     }
 }
@@ -1090,7 +1096,7 @@ impl Default for Bitmap {
 
 impl Display for Bitmap {
     #[doc(alias = "hwloc_bitmap_list_snprintf")]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         ffi::write_snprintf(f, |buf, len| unsafe {
             ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
         })
@@ -1129,7 +1135,7 @@ impl<BI: Borrow<BitmapIndex>> FromIterator<BI> for Bitmap {
 }
 
 /// Iterator over set or unset [`Bitmap`] indices
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct BitmapIterator<B> {
     /// Bitmap over which we're iterating
     bitmap: B,
@@ -1707,7 +1713,10 @@ macro_rules! impl_bitmap_newtype {
             pub(crate) unsafe fn from_owned_raw_mut(
                 bitmap: *mut $crate::bitmap::RawBitmap
             ) -> Option<Self> {
-                $crate::bitmap::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
+                // SAFETY: Safety contract inherited from identical Bitmap method
+                unsafe {
+                    $crate::bitmap::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
+                }
             }
 
             /// Wraps an owned hwloc bitmap
@@ -1717,7 +1726,10 @@ macro_rules! impl_bitmap_newtype {
             pub(crate) unsafe fn from_owned_nonnull(
                 bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
             ) -> Self {
-                Self::from($crate::bitmap::Bitmap::from_owned_nonnull(bitmap))
+                // SAFETY: Safety contract inherited from identical Bitmap method
+                unsafe {
+                    Self::from($crate::bitmap::Bitmap::from_owned_nonnull(bitmap))
+                }
             }
 
             /// Wraps a borrowed hwloc_const_bitmap_t
@@ -1727,8 +1739,11 @@ macro_rules! impl_bitmap_newtype {
             pub(crate) unsafe fn borrow_from_raw<'target>(
                 bitmap: *const $crate::bitmap::RawBitmap
             ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
-                $crate::bitmap::Bitmap::borrow_from_raw(bitmap)
-                    .map(|bitmap_ref| bitmap_ref.cast())
+                // SAFETY: Safety contract inherited from identical Bitmap method
+                unsafe {
+                    $crate::bitmap::Bitmap::borrow_from_raw(bitmap)
+                        .map(|bitmap_ref| bitmap_ref.cast())
+                }
             }
 
             /// Wraps a borrowed hwloc_bitmap_t
@@ -1738,8 +1753,11 @@ macro_rules! impl_bitmap_newtype {
             pub(crate) unsafe fn borrow_from_raw_mut<'target>(
                 bitmap: *mut $crate::bitmap::RawBitmap
             ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
-                $crate::bitmap::Bitmap::borrow_from_raw_mut(bitmap)
-                    .map(|bitmap_ref| bitmap_ref.cast())
+                // SAFETY: Safety contract inherited from identical Bitmap method
+                unsafe {
+                    $crate::bitmap::Bitmap::borrow_from_raw_mut(bitmap)
+                        .map(|bitmap_ref| bitmap_ref.cast())
+                }
             }
 
             /// Wraps a borrowed hwloc bitmap
@@ -1749,7 +1767,10 @@ macro_rules! impl_bitmap_newtype {
             pub(crate) unsafe fn borrow_from_nonnull<'target>(
                 bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
             ) -> $crate::bitmap::BitmapRef<'target, Self> {
-                $crate::bitmap::Bitmap::borrow_from_nonnull(bitmap).cast()
+                // SAFETY: Safety contract inherited from identical Bitmap method
+                unsafe {
+                    $crate::bitmap::Bitmap::borrow_from_nonnull(bitmap).cast()
+                }
             }
 
             /// Contained bitmap pointer (for interaction with hwloc)
@@ -2079,14 +2100,14 @@ macro_rules! impl_bitmap_newtype {
         }
 
         impl std::fmt::Debug for $newtype {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let text = format!("{}({:?})", stringify!($newtype), &self.0);
                 f.pad(&text)
             }
         }
 
         impl std::fmt::Display for $newtype {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let text = format!("{}({})", stringify!($newtype), &self.0);
                 f.pad(&text)
             }

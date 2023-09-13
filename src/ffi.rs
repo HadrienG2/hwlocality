@@ -94,7 +94,7 @@ pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, usize) -> i32)
 
 /// Send the output of an snprintf-like function to a standard Rust formatter
 pub(crate) fn write_snprintf(
-    f: &mut fmt::Formatter,
+    f: &mut fmt::Formatter<'_>,
     snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> fmt::Result {
     let text = call_snprintf(snprintf);
@@ -116,7 +116,7 @@ impl LibcString {
     ///
     /// Returns `None` if the Rust string cannot be converted to a C
     /// representation because it contains null chars.
-    pub fn new(s: impl AsRef<str>) -> Result<Self, NulError> {
+    pub(crate) fn new(s: impl AsRef<str>) -> Result<Self, NulError> {
         // Check input string for inner null chars
         let s = s.as_ref();
         if s.find('\0').is_some() {
@@ -141,7 +141,7 @@ impl LibcString {
     }
 
     /// Check the length of the string, including NUL terminator
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
 
@@ -149,7 +149,7 @@ impl LibcString {
     ///
     /// Make sure the C API does not retain any pointer to the string after
     /// this LibcString is deallocated!
-    pub fn borrow(&self) -> *const c_char {
+    pub(crate) fn borrow(&self) -> *const c_char {
         self.0.as_ptr().cast::<c_char>()
     }
 
@@ -157,7 +157,7 @@ impl LibcString {
     ///
     /// Unlike with regular CString, it is safe to pass this string to a C API
     /// that may later free it using `libc::free()`.
-    pub fn into_raw(self) -> *mut c_char {
+    pub(crate) fn into_raw(self) -> *mut c_char {
         let ptr = self.0.as_ptr().cast::<c_char>();
         std::mem::forget(self);
         ptr

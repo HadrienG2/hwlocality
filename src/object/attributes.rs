@@ -84,16 +84,21 @@ impl<'attr> ObjectAttributes<'attr> {
         if attr.is_null() {
             return None;
         }
+
+        // SAFETY: Safe due to input precondition
         let attr: &RawObjectAttributes = unsafe { &**attr };
 
-        match ty {
-            ObjectType::NUMANode => Some(Self::NUMANode(&attr.numa)),
-            ObjectType::Group => Some(Self::Group(&attr.group)),
-            ObjectType::PCIDevice => Some(Self::PCIDevice(&attr.pcidev)),
-            ObjectType::Bridge => Some(Self::Bridge(&attr.bridge)),
-            ObjectType::OSDevice => Some(Self::OSDevice(&attr.osdev)),
-            _ if ty.is_cpu_cache() => Some(Self::Cache(&attr.cache)),
-            _ => None,
+        // SAFETY: Safe because we checked for union field access validity
+        unsafe {
+            match ty {
+                ObjectType::NUMANode => Some(Self::NUMANode(&attr.numa)),
+                ObjectType::Group => Some(Self::Group(&attr.group)),
+                ObjectType::PCIDevice => Some(Self::PCIDevice(&attr.pcidev)),
+                ObjectType::Bridge => Some(Self::Bridge(&attr.bridge)),
+                ObjectType::OSDevice => Some(Self::OSDevice(&attr.osdev)),
+                _ if ty.is_cpu_cache() => Some(Self::Cache(&attr.cache)),
+                _ => None,
+            }
         }
     }
 }
@@ -394,36 +399,42 @@ impl PCIDeviceAttributes {
         self.func
     }
 
+    /// PCI class id
     #[doc(alias = "hwloc_pcidev_attr_s::class_id")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s::class_id")]
     pub fn class_id(&self) -> u16 {
         self.class_id
     }
 
+    /// PCI vendor id
     #[doc(alias = "hwloc_pcidev_attr_s::vendor_id")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s::vendor_id")]
     pub fn vendor_id(&self) -> u16 {
         self.vendor_id
     }
 
+    /// PCI device id
     #[doc(alias = "hwloc_pcidev_attr_s::device_id")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s::device_id")]
     pub fn device_id(&self) -> u16 {
         self.device_id
     }
 
+    /// PCI subvendor id
     #[doc(alias = "hwloc_pcidev_attr_s::subvendor_id")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s::subvendor_id")]
     pub fn subvendor_id(&self) -> u16 {
         self.subvendor_id
     }
 
+    /// PCI subdevice id
     #[doc(alias = "hwloc_pcidev_attr_s::subdevice_id")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s::subdevice_id")]
     pub fn subdevice_id(&self) -> u16 {
         self.subdevice_id
     }
 
+    /// PCI revision
     #[doc(alias = "hwloc_pcidev_attr_s::revision")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s::revision")]
     pub fn revision(&self) -> u8 {
@@ -466,7 +477,7 @@ impl BridgeAttributes {
     /// Upstream attributes
     #[doc(alias = "hwloc_bridge_attr_s::upstream")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::upstream")]
-    pub fn upstream_attributes(&self) -> Option<UpstreamAttributes> {
+    pub fn upstream_attributes(&self) -> Option<UpstreamAttributes<'_>> {
         unsafe { UpstreamAttributes::new(self.upstream_type(), &self.upstream) }
     }
 
@@ -482,7 +493,7 @@ impl BridgeAttributes {
     /// Downstream attributes
     #[doc(alias = "hwloc_bridge_attr_s::downstream")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::downstream")]
-    pub fn downstream_attributes(&self) -> Option<DownstreamAttributes> {
+    pub fn downstream_attributes(&self) -> Option<DownstreamAttributes<'_>> {
         unsafe { DownstreamAttributes::new(self.downstream_type(), &self.downstream) }
     }
 
@@ -555,14 +566,17 @@ pub struct DownstreamPCIAttributes {
 }
 //
 impl DownstreamPCIAttributes {
+    /// PCI domain
     pub fn domain(&self) -> PCIDomain {
         self.domain
     }
 
+    /// PCI secondary bus
     pub fn secondary_bus(&self) -> u8 {
         self.secondary_bus
     }
 
+    /// PCI subordinate bus
     pub fn subordinate_bus(&self) -> u8 {
         self.subordinate_bus
     }

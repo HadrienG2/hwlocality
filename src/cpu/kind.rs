@@ -185,8 +185,7 @@ impl Topology {
             Ok(idx) => ffi::expect_usize(idx),
             Err(
                 raw_error @ RawHwlocError {
-                    api: _,
-                    errno: Some(errno),
+                    errno: Some(errno), ..
                 },
             ) => match errno.0 {
                 EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
@@ -203,7 +202,7 @@ impl Topology {
 /// # Kinds of CPU cores
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
-impl<'topology> TopologyEditor<'topology> {
+impl TopologyEditor<'_> {
     /// Register a kind of CPU in the topology.
     ///
     /// Mark the PUs listed in `cpuset` as being of the same kind with respect
