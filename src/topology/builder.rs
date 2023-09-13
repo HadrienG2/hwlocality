@@ -118,7 +118,7 @@ impl TopologyBuilder {
     /// - [`ProcessIDError`] if the topology cannot be configured from this
     ///   process.
     #[doc(alias = "hwloc_topology_set_pid")]
-    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, ProcessIDError> {
+    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, HybridError<ProcessIDError>> {
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_pid", || unsafe {
             ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
         });
@@ -127,8 +127,8 @@ impl TopologyBuilder {
             Err(RawHwlocError {
                 api: _,
                 errno: Some(Errno(ENOSYS)),
-            }) => Err(ProcessIDError(pid)),
-            Err(other_err) => unreachable!("{other_err}"),
+            }) => Err(ProcessIDError(pid).into()),
+            Err(other_err) => Err(HybridError::Hwloc(other_err)),
         }
     }
 
@@ -163,7 +163,7 @@ impl TopologyBuilder {
                 api: _,
                 errno: Some(Errno(EINVAL)),
             }) => Err(TextInputError::Invalid),
-            Err(other_err) => unreachable!("{other_err}"),
+            Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
 
@@ -203,7 +203,7 @@ impl TopologyBuilder {
                 api: _,
                 errno: Some(Errno(EINVAL)),
             }) => Err(TextInputError::Invalid),
-            Err(other_err) => unreachable!("{other_err}"),
+            Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
 
@@ -239,7 +239,7 @@ impl TopologyBuilder {
                 api: _,
                 errno: Some(Errno(EINVAL)),
             }) => Err(XMLFileInputError::Invalid),
-            Err(other_err) => unreachable!("{other_err}"),
+            Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
 

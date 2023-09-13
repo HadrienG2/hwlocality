@@ -58,9 +58,8 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`CoarsestPartitionError`] if `set` is larger than the topology's root
-    ///   cpuset (in which case it is impossible to find topology objects
-    ///   covering all of if)
+    /// - [`CoarsestPartitionError`] if `set` covers more indices than the
+    ///   topology's root cpuset
     #[doc(alias = "hwloc_get_largest_objs_inside_cpuset")]
     pub fn coarsest_cpuset_partition(
         &self,
@@ -257,10 +256,13 @@ impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
 //
 impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
 
-/// Error returned by [`Topology::coarsest_cpuset_partition()`] when the input
-/// cpuset is not a subset of the root (topology-wide) cpuset
+/// [`Topology::coarsest_cpuset_partition()`] was called for an invalid `cpuset`
+///
+/// This error is returned when the input `cpuset` is not a subset of the root
+/// (topology-wide) cpuset. In that case, it is impossible to find topology
+/// objects covering all of the input cpuset.
 #[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("input cpuset {query} is not a subset of the root cpuset {root}")]
+#[error("input cpuset {query} is not a subset of root cpuset {root}")]
 pub struct CoarsestPartitionError {
     /// Requested cpuset
     pub query: CpuSet,
@@ -351,7 +353,7 @@ impl CpuSet {
     /// `which` specifies which PU will be kept, in physical index order. If it
     /// is set to 0, for each core, the function keeps the first PU that was
     /// originally set in `cpuset`. If it is larger than the number of PUs in a
-    /// core there were originally set in `cpuset`, no PU is kept for that core.
+    /// core that were originally set in `cpuset`, no PU is kept for that core.
     ///
     /// PUs that are not below a [`Core`] object (for instance if the topology
     /// does not contain any [`Core`] object) are kept in the cpuset.
@@ -359,17 +361,15 @@ impl CpuSet {
     /// [`Core`]: ObjectType::Core
     #[cfg(feature = "hwloc-2_2_0")]
     #[doc(alias = "hwloc_bitmap_singlify_per_core")]
-    pub fn singlify_per_core(
-        &mut self,
-        topology: &Topology,
-        which: usize,
-    ) -> Result<(), BadPUIndex> {
-        let which = c_uint::try_from(which).map_err(|_| BadPUIndex(which))?;
+    pub fn singlify_per_core(&mut self, topology: &Topology, which: usize) {
+        let Ok(which) = c_uint::try_from(which) else {
+            self.clear();
+            return;
+        };
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
         })
         .expect("Per hwloc documentation, this function should not fail");
-        Ok(())
     }
 
     /// Convert a NUMA node set into a CPU set
@@ -396,16 +396,14 @@ impl CpuSet {
     }
 }
 
-#[cfg(feature = "hwloc-2_2_0")]
-#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
-#[error("{0} is not a valid hwloc PU index")]
-/// This error is emitted when [`CpuSet::singlify_per_core()`] is passed an
-/// invalid input `which` index that is larger than what hwloc can handle.
-pub struct BadPUIndex(usize);
-
 impl_bitmap_newtype!(
-    /// A `CpuSet` is a [`Bitmap`] whose bits are set according to CPU physical
-    /// OS indexes
+    /// [`Bitmap`] whose bits are set according to CPU physical OS indexes
+    ///
+    /// A `CpuSet` represents a set of logical CPU cores, as exposed by the
+    /// underlying operating system. These logical cores may map into either
+    /// complete hardware CPU cores or SMT threads thereof
+    /// (aka "hyper-threads") depending on the underlying hardware and OS
+    /// configuration.
     ///
     /// Each bit may be converted into a PU object using
     /// [`Topology::pu_with_os_index()`].

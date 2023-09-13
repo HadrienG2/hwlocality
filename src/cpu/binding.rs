@@ -94,14 +94,19 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
-    ) -> Result<(), HybridError<CpuBindingError>> {
-        self.bind_cpu_impl(
+    ) -> Result<(), CpuBindingError> {
+        let res = self.bind_cpu_impl(
             set.borrow(),
             flags,
             CpuBoundObject::ThisProgram,
             "hwloc_set_cpubind",
             |topology, cpuset, flags| unsafe { ffi::hwloc_set_cpubind(topology, cpuset, flags) },
-        )
+        );
+        match res {
+            Ok(()) => Ok(()),
+            Err(HybridError::Rust(e)) => Err(e),
+            Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error: {e}"),
+        }
     }
 
     /// Get the current process or thread CPU binding
@@ -469,7 +474,7 @@ impl Topology {
 }
 
 bitflags! {
-    /// Process/Thread binding flags.
+    /// Process/Thread binding flags
     ///
     /// These bit flags can be used to refine the binding policy. All flags can
     /// be OR'ed together with the exception of the binding targets flags
@@ -638,8 +643,13 @@ impl Display for CpuBoundObject {
 /// Operation on that object's CPU binding
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub(crate) enum CpuBindingOperation {
+    /// `hwloc_get_cpubind()`-like operation
     GetBinding,
+
+    /// `hwloc_set_cpubind()`-like operation
     SetBinding,
+
+    /// `hwloc_get_last_cpu_location()`-like operation
     GetLastLocation,
 }
 

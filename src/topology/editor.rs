@@ -209,9 +209,9 @@ impl TopologyEditor<'_> {
                     eprintln!("Topology stuck in an invalid state, must abort");
                     std::process::abort()
                 }
-                _ => unreachable!("{raw_err}"),
+                _ => unreachable!("Unexpected hwloc error: {raw_err}"),
             },
-            Err(raw_err) => unreachable!("{raw_err}"),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
 

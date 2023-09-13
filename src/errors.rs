@@ -104,7 +104,7 @@ pub(crate) fn call_hwloc_int_normal(
             result: -1,
             errno,
         }) => Err(RawHwlocError { api, errno }),
-        Err(other_err) => unreachable!("{other_err}"),
+        Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
     }
 }
 
@@ -159,9 +159,9 @@ pub(crate) fn call_hwloc_int_raw(
 /// Rust side (e.g. takes a string input that must not contain NUL chars), but
 /// whose hwloc-side error reporting policy is undocumented.
 ///
-/// If the hwloc documentation contains a list of failure modes, we normally
-/// assume that list to be exhaustive and return a pure Rust error type,
-/// panicking if another hwloc error is observed.
+/// If the hwloc documentation contains a list of failure modes which sounds
+/// exhaustive, we normally assume it to be exhaustive and return a pure Rust
+/// error type, panicking if another hwloc error is observed.
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum HybridError<RustError: Error> {
     /// An error was caught on the Rust side

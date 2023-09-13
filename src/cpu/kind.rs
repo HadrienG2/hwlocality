@@ -1,4 +1,16 @@
 //! Kinds of CPU cores
+//!
+//! This module lets you handle platforms with heterogeneous CPU cores, such as
+//! [ARM big.LITTLE](https://fr.wikipedia.org/wiki/Big.LITTLE) and [Intel Adler
+//! Lake](https://fr.wikipedia.org/wiki/Alder_Lake).
+//!
+//! Using it, you can query how many different kinds of CPUs are present on the
+//! platform, which kind maps into which OS-exposed logical CPUs, and how these
+//! CPU kinds differ from each other (power efficiency, clock speed, etc).
+//!
+//! Most of this module's functionality is exposed via [methods of the Topology
+//! struct](../../topology/struct.Topology.html#kinds-of-cpu-cores). The module
+//! itself only hosts type definitions that are related to this functionality.
 
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
@@ -57,7 +69,7 @@ use thiserror::Error;
 ///
 /// If hwloc fails to rank any kind, for instance because the operating system
 /// does not expose efficiencies and core frequencies, all kinds will have an
-/// unknown efficiency (None), and they are not ordered in any specific way.
+/// unknown efficiency (`None`), and they are not ordered in any specific way.
 ///
 /// The kind that describes a given CPU set (if any, and not partially) may also
 /// be queried with [`cpu_kind_from_set()`].
@@ -182,7 +194,7 @@ impl Topology {
                 EINVAL => return Err(CpuKindFromSetError::InvalidSet),
                 _ => unreachable!("Unexpected hwloc error: {raw_error}"),
             },
-            Err(raw_error) => unreachable!("{raw_error}"),
+            Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
         };
         Ok(self.cpu_kind(kind_index))
     }
@@ -282,18 +294,18 @@ pub struct CpuKindsUnknown;
 pub enum CpuKindFromSetError {
     /// CPU set is only partially included in some kind
     ///
-    /// i.e. some CPUs in the set belong to a kind, others to other kind(s)
+    /// i.e. some CPUs in the set belong to one kind, other CPUs belong to one
+    /// or more other kinds.
     #[error("CPU set is only partially included in some kind")]
     PartiallyIncluded,
 
     /// CPU set is not included in any kind, even partially
     ///
-    /// i.e. CPU kind info isn't known or CPU set does not cover real CPUs
+    /// i.e. CPU kind info isn't known or this CPU set does not cover real CPUs.
     #[error("CPU set is not included in any kind, even partially")]
     NotIncluded,
 
-    /// CPU set is considered invalid by hwloc (most likely it contains
-    /// non-existent CPUs)
+    /// CPU set is considered invalid by hwloc for another reason
     #[error("CPU set is invalid")]
     InvalidSet,
 }

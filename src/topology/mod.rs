@@ -180,7 +180,7 @@ impl Topology {
                 api: _,
                 errno: Some(Errno(EINVAL)),
             }) => false,
-            Err(raw_err) => unreachable!("{raw_err}"),
+            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
 
