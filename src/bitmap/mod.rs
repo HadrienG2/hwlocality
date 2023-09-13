@@ -1612,7 +1612,7 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 /// hwlocality avoids the need for error-prone hwloc-style `BYNODESET` flags by
 /// making [`CpuSet`] and [`NodeSet`] full-blown types, not typedefs. Functions
 /// which accept either of these specialized bitmap types can be made generic
-/// over this[`SpecializedBitmap`] trait, which can be used to query which
+/// over this [`SpecializedBitmap`] trait, which can be used to query which
 /// specialized bitmap type was passed in.
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 #[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]

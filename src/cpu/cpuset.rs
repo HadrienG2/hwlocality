@@ -257,7 +257,7 @@ impl<'topology> Iterator for LargestObjectsInsideCpuSet<'topology> {
 //
 impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
 
-/// Error returned by `Topology::coarsest_cpuset_partition` when the input
+/// Error returned by [`Topology::coarsest_cpuset_partition()`] when the input
 /// cpuset is not a subset of the root (topology-wide) cpuset
 #[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
 #[error("input cpuset {query} is not a subset of the root cpuset {root}")]
@@ -399,6 +399,8 @@ impl CpuSet {
 #[cfg(feature = "hwloc-2_2_0")]
 #[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("{0} is not a valid hwloc PU index")]
+/// This error is emitted when [`CpuSet::singlify_per_core()`] is passed an
+/// invalid input `which` index that is larger than what hwloc can handle.
 pub struct BadPUIndex(usize);
 
 impl_bitmap_newtype!(
