@@ -1,4 +1,10 @@
 //! CPU sets
+//!
+//! These specialized bitmaps represent sets of logical CPU cores, as exposed by
+//! the underlying operating system. The logical cores may map into either
+//! full-blown hardware CPU cores or SMT threads thereof
+//! (aka "hyper-threads") depending on the underlying hardware and OS
+//! configuration.
 
 #[cfg(feature = "hwloc-2_2_0")]
 use crate::errors;
