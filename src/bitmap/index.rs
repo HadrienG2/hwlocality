@@ -461,8 +461,7 @@ impl BitmapIndex {
     /// Try to convert from [`isize`] to [`c_int`]
     ///
     /// Will be dropped once [`TryFrom`]/[`TryInto`] is usable in const fn
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::if_then_some_else_none)]
+    #[allow(clippy::cast_possible_truncation, clippy::if_then_some_else_none)]
     const fn try_c_int_from_isize(x: isize) -> Option<c_int> {
         if x >= c_int::MIN as isize && x <= c_int::MAX as isize {
             Some(x as c_int)
@@ -1046,8 +1045,10 @@ impl BitmapIndex {
     ///     BitmapIndex::MAX
     /// );
     /// ```
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::missing_docs_in_private_items)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::missing_docs_in_private_items
+    )]
     pub const fn saturating_add_signed(self, rhs: isize) -> Self {
         const C_INT_MIN: isize = c_int::MIN as isize;
         const C_INT_MAX: isize = c_int::MAX as isize;
