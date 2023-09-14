@@ -238,10 +238,8 @@ impl<'topology> TopologyEditor<'topology> {
             AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
             AllowSet::LocalRestrictions => (ptr::null(), ptr::null(), 1 << 1),
             AllowSet::Custom { cpuset, nodeset } => {
-                let cpuset = cpuset.map(|cpuset| cpuset.as_ptr()).unwrap_or(ptr::null());
-                let nodeset = nodeset
-                    .map(|nodeset| nodeset.as_ptr())
-                    .unwrap_or(ptr::null());
+                let cpuset = cpuset.map(CpuSet::as_ptr).unwrap_or(ptr::null());
+                let nodeset = nodeset.map(NodeSet::as_ptr).unwrap_or(ptr::null());
                 if cpuset.is_null() && nodeset.is_null() {
                     return Err(BadAllowSet.into());
                 }

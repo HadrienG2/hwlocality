@@ -587,7 +587,7 @@ impl CpuBindingFlags {
         let num_target_flags = (self & (Self::PROCESS | Self::THREAD | Self::ASSUME_SINGLE_THREAD))
             .bits()
             .count_ones();
-        if (num_target_flags != (target == CpuBoundObject::ThisProgram) as u32)
+        if (num_target_flags != u32::from(target == CpuBoundObject::ThisProgram))
             && !(num_target_flags == 1 && is_linux_thread_special_case)
         {
             return None;

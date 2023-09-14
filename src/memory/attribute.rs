@@ -104,6 +104,7 @@ impl Topology {
     /// when `flags` contains both [`LocalNUMANodeFlags::LARGER_LOCALITY`] and
     /// [`LocalNUMANodeFlags::SMALLER_LOCALITY`], the returned array corresponds
     /// to the nodeset of that object.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
     pub fn local_numa_nodes<'topology>(
         &'topology self,

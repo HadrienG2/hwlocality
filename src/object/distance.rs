@@ -35,6 +35,7 @@ impl Topology {
     /// may be applied using the `kind` parameter: if it contains some
     /// [`DistancesKind`]`::FROM_xyz` options, only distance matrices matching
     /// one of them is returned. The same applies for `MEANS_xyz` options.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
     pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         unsafe {
@@ -49,6 +50,7 @@ impl Topology {
     /// Identical to [`distances()`] with the additional `depth` filter.
     ///
     /// [`distances()`]: Topology::distances()
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_depth")]
     pub fn distances_at_depth(
         &self,
@@ -78,6 +80,7 @@ impl Topology {
     /// Identical to [`distances()`] with the additional `ty` filter.
     ///
     /// [`distances()`]: Topology::distances()
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(
         &self,
@@ -137,6 +140,7 @@ impl Topology {
     /// # Safety
     ///
     /// `getter` must perform a correct call to a `hwloc_distances_get` API
+    #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
         getter_name: &'static str,
@@ -370,6 +374,7 @@ impl TopologyEditor<'_> {
     ///
     /// The distances matrix to be removed can be selected using the
     /// `find_distances` callback.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_release_remove")]
     pub fn remove_distances(
         &mut self,
@@ -386,6 +391,7 @@ impl TopologyEditor<'_> {
     ///
     /// If these distances were used to group objects, these additional Group
     /// objects are not removed from the topology.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove")]
     pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
@@ -400,6 +406,7 @@ impl TopologyEditor<'_> {
     /// of the topology.
     ///
     /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_depth")]
     pub fn remove_distances_at_depth(
         &mut self,
@@ -417,6 +424,7 @@ impl TopologyEditor<'_> {
     /// of the topology.
     ///
     /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_type")]
     pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawHwlocError> {
         let topology = self.topology();
@@ -639,11 +647,7 @@ impl<'topology> Distances<'topology> {
     /// Convert Option<&'topology TopologyObject> to a *const TopologyObject for
     /// storage in objects_mut().
     fn obj_to_ptr(obj: Option<&'topology TopologyObject>) -> *const TopologyObject {
-        if let Some(obj) = obj {
-            obj
-        } else {
-            std::ptr::null()
-        }
+        obj.map_or(std::ptr::null(), |obj| obj)
     }
 
     /// Replace the object at index `idx` with another

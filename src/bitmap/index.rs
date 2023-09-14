@@ -81,7 +81,6 @@ use std::{
 /// seems fair to expect `BitmapIndex << usize` to be a `BitmapIndex`, but by
 /// the same logic `usize << BitmapIndex` should be an `usize`, not a
 /// `BitmapIndex`).
-#[allow(clippy::module_name_repetitions)]
 #[derive(
     Binary,
     Clone,
@@ -221,10 +220,10 @@ impl BitmapIndex {
     /// assert_eq!(BitmapIndex::MAX.trailing_zeros(), 0);
     /// ```
     pub const fn trailing_zeros(self) -> u32 {
-        if self.0 != 0 {
-            self.0.trailing_zeros()
-        } else {
+        if self.0 == 0 {
             Self::EFFECTIVE_BITS
+        } else {
+            self.0.trailing_zeros()
         }
     }
 
@@ -319,7 +318,7 @@ impl BitmapIndex {
         self.rotate_impl(n, false)
     }
 
-    // Common preparation of rotate_xyz operations
+    /// Common preparation of `rotate_xyz` operations
     #[inline]
     const fn rotate_impl(self, n: u32, left: bool) -> Self {
         // We model a rotation as the boolean OR of two bitshifts going in
@@ -459,9 +458,11 @@ impl BitmapIndex {
         Self::const_try_from_c_uint(inner)
     }
 
-    /// Try to convert from isize to c_int
+    /// Try to convert from [`isize`] to [`c_int`]
     ///
-    /// Will be dropped once TryFrom/TryInto is usable in const fn
+    /// Will be dropped once [`TryFrom`]/[`TryInto`] is usable in const fn
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::if_then_some_else_none)]
     const fn try_c_int_from_isize(x: isize) -> Option<c_int> {
         if x >= c_int::MIN as isize && x <= c_int::MAX as isize {
             Some(x as c_int)
@@ -496,6 +497,7 @@ impl BitmapIndex {
     ///     Some(BitmapIndex::ZERO)
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_sub(self, rhs: Self) -> Option<Self> {
         if let Some(inner) = self.0.checked_sub(rhs.0) {
             Some(Self(inner))
@@ -539,10 +541,11 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let Some(inner) = self.0.checked_mul(rhs.0) else {
-            return None;
-        };
-        Self::const_try_from_c_uint(inner)
+        if let Some(inner) = self.0.checked_mul(rhs.0) {
+            Self::const_try_from_c_uint(inner)
+        } else {
+            None
+        }
     }
 
     /// Checked integer division. Computes `self / rhs`, returning `None`
@@ -571,6 +574,7 @@ impl BitmapIndex {
     ///     Some(BitmapIndex::ONE)
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_div(self, rhs: Self) -> Option<Self> {
         if let Some(inner) = self.0.checked_div(rhs.0) {
             Some(Self(inner))
@@ -635,6 +639,7 @@ impl BitmapIndex {
     ///     Some(BitmapIndex::ZERO)
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_rem(self, rhs: Self) -> Option<Self> {
         if let Some(inner) = self.0.checked_rem(rhs.0) {
             Some(Self(inner))
@@ -854,6 +859,7 @@ impl BitmapIndex {
     ///     None
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_neg(self) -> Option<Self> {
         if self.0 == 0 {
             Some(Self(0))
@@ -896,6 +902,7 @@ impl BitmapIndex {
     ///     None
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_shl(self, rhs: u32) -> Option<Self> {
         if rhs < Self::EFFECTIVE_BITS {
             Some(Self((self.0 << rhs) & Self::MAX.0))
@@ -938,6 +945,7 @@ impl BitmapIndex {
     ///     None
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_shr(self, rhs: u32) -> Option<Self> {
         if rhs < Self::EFFECTIVE_BITS {
             Some(Self(self.0 >> rhs))
@@ -972,11 +980,13 @@ impl BitmapIndex {
     ///     None
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_pow(self, exp: u32) -> Option<Self> {
-        let Some(inner) = self.0.checked_pow(exp) else {
-            return None;
-        };
-        Self::const_try_from_c_uint(inner)
+        if let Some(inner) = self.0.checked_pow(exp) {
+            Self::const_try_from_c_uint(inner)
+        } else {
+            None
+        }
     }
 
     /// Saturating integer addition. Computes `self + rhs`, saturating at the
@@ -1036,6 +1046,8 @@ impl BitmapIndex {
     ///     BitmapIndex::MAX
     /// );
     /// ```
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::missing_docs_in_private_items)]
     pub const fn saturating_add_signed(self, rhs: isize) -> Self {
         const C_INT_MIN: isize = c_int::MIN as isize;
         const C_INT_MAX: isize = c_int::MAX as isize;
@@ -1166,7 +1178,7 @@ impl BitmapIndex {
         Self::const_sat_from_c_uint(inner)
     }
 
-    /// Saturating version of const_try_from_c_uint
+    /// Saturating version of [`const_try_from_c_uint()`]
     const fn const_sat_from_c_uint(inner: c_uint) -> Self {
         if inner <= Self::MAX.0 {
             Self(inner)
@@ -1235,8 +1247,9 @@ impl BitmapIndex {
     ///     BitmapIndex::MIN
     /// );
     /// ```
+    #[allow(clippy::cast_possible_truncation)]
     pub const fn wrapping_add_signed(self, rhs: isize) -> Self {
-        Self(self.0.wrapping_add_signed(rhs as _) & Self::MAX.0)
+        Self(self.0.wrapping_add_signed(rhs as c_int) & Self::MAX.0)
     }
 
     /// Wrapping (modular) subtraction. Computes `self - rhs`, wrapping around
@@ -1595,6 +1608,7 @@ impl BitmapIndex {
     ///     (BitmapIndex::MIN, true)
     /// );
     /// ```
+    #[allow(clippy::cast_possible_wrap)]
     pub const fn overflowing_add_signed(self, rhs: isize) -> (Self, bool) {
         let overflow = (rhs > (Self::MAX.0 - self.0) as isize) || (rhs < -(self.0 as isize));
         (self.wrapping_add_signed(rhs), overflow)
@@ -1796,7 +1810,7 @@ impl BitmapIndex {
         (Self(self.0 % rhs.0), false)
     }
 
-    /// Negates `self in an overflowing fashion.
+    /// Negates `self` in an overflowing fashion.
     ///
     /// Returns `!self + BitmapIndex::ONE` using wrapping operations to return
     /// the value that represents the negation of this unsigned value. Note
@@ -1945,9 +1959,10 @@ impl BitmapIndex {
     /// ```
     pub const fn pow(self, exp: u32) -> Self {
         if cfg!(debug_assertions) {
-            match self.checked_pow(exp) {
-                Some(res) => res,
-                None => panic!("Attempted to call BitmapIndex::pow() with overflow"),
+            if let Some(res) = self.checked_pow(exp) {
+                res
+            } else {
+                panic!("Attempted to call BitmapIndex::pow() with overflow")
             }
         } else {
             self.wrapping_pow(exp)
@@ -2050,9 +2065,10 @@ impl BitmapIndex {
     /// ```
     pub const fn next_power_of_two(self) -> Self {
         if cfg!(debug_assertions) {
-            match self.checked_next_power_of_two() {
-                Some(res) => res,
-                None => panic!("Attempted to compute next power of two with overflow"),
+            if let Some(res) = self.checked_next_power_of_two() {
+                res
+            } else {
+                panic!("Attempted to compute next power of two with overflow")
             }
         } else {
             Self(self.0.next_power_of_two() % Self::MAX.0)
@@ -2082,6 +2098,7 @@ impl BitmapIndex {
     ///     None
     /// );
     /// ```
+    #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_next_power_of_two(self) -> Option<Self> {
         let Some(inner) = self.0.checked_next_power_of_two() else {
             return None;
@@ -2096,28 +2113,29 @@ impl BitmapIndex {
     // NOTE: No (from|to)_(be|le)_bytes, the modeled integer is not made of an
     //       integral number of bytes so these operations do not make sense.
 
-    /// Convert from an hwloc-originated c_int
+    /// Convert from an hwloc-originated [`c_int`]
     ///
-    /// This is not a TryFrom implementation because that would make Bitmap
+    /// This is not a [`TryFrom`] implementation because that would make bitmap
     /// indexing accept negative indexing without a compile-time error.
     pub(crate) fn try_from_c_int(x: c_int) -> Result<Self, TryFromIntError> {
         x.try_into().map(Self)
     }
 
-    /// Convert from an hwloc-originated c_uint
+    /// Convert from an hwloc-originated [`c_uint`]
     ///
-    /// This is not a TryFrom implementation because it would lead integer
-    /// type inference to fall back to i32 in bitmap indexing, which is
+    /// This is not a [`TryFrom`] implementation because it would lead integer
+    /// type inference to fall back to [`i32`] in bitmap indexing, which is
     /// undesirable. Also, I'd rather avoid having an implementation-specific
-    /// type in a public API like TryFrom...
+    /// type in a public API like [`TryFrom`]...
     #[allow(unused)]
     fn try_from_c_uint(x: c_uint) -> Result<Self, TryFromIntError> {
         Self::try_from_c_int(x.try_into()?)
     }
 
-    /// Const version of `try_from_c_uint`
+    /// Const version of [`try_from_c_uint()`]
     ///
-    /// Will be dropped once TryFrom/TryInto is usable in const fn
+    /// Will be dropped once [`TryFrom`]/[`TryInto`] is usable in `const fn`
+    #[allow(clippy::if_then_some_else_none)]
     const fn const_try_from_c_uint(x: c_uint) -> Option<Self> {
         if x <= Self::MAX.0 {
             Some(Self(x))
@@ -2126,18 +2144,19 @@ impl BitmapIndex {
         }
     }
 
-    /// Convert into a c_int (okay by construction)
-    pub(crate) fn into_c_int(self) -> c_int {
-        self.0 as _
+    /// Convert into a [`c_int`] (okay by construction)
+    #[allow(clippy::cast_possible_wrap)]
+    pub(crate) const fn into_c_int(self) -> c_int {
+        self.0 as c_int
     }
 
-    /// Convert into a c_uint (okay by construction)
-    pub(crate) fn into_c_uint(self) -> c_uint {
+    /// Convert into a [`c_uint`] (okay by construction)
+    pub(crate) const fn into_c_uint(self) -> c_uint {
         self.0
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Add<B> for BitmapIndex {
+impl<B: Borrow<Self>> Add<B> for BitmapIndex {
     type Output = Self;
 
     fn add(self, rhs: B) -> Self {
@@ -2257,7 +2276,7 @@ impl Arbitrary for BitmapIndex {
     }
 }
 
-impl<B: Borrow<BitmapIndex>> BitAnd<B> for BitmapIndex {
+impl<B: Borrow<Self>> BitAnd<B> for BitmapIndex {
     type Output = Self;
 
     fn bitand(self, rhs: B) -> Self {
@@ -2268,6 +2287,7 @@ impl<B: Borrow<BitmapIndex>> BitAnd<B> for BitmapIndex {
 impl BitAnd<usize> for BitmapIndex {
     type Output = Self;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn bitand(self, rhs: usize) -> Self {
         // This is ok because AND cannot set bits which are unset in self
         Self(self.0 & (rhs as c_uint))
@@ -2347,7 +2367,7 @@ where
     }
 }
 
-impl<B: Borrow<BitmapIndex>> BitOr<B> for BitmapIndex {
+impl<B: Borrow<Self>> BitOr<B> for BitmapIndex {
     type Output = Self;
 
     fn bitor(self, rhs: B) -> Self {
@@ -2358,6 +2378,7 @@ impl<B: Borrow<BitmapIndex>> BitOr<B> for BitmapIndex {
 impl BitOr<usize> for BitmapIndex {
     type Output = Self;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn bitor(self, rhs: usize) -> Self {
         // This is only ok if rhs is in range because OR can set bits which are
         // unset in self. We go the usual debug-panic/release-truncate way.
@@ -2439,7 +2460,7 @@ where
     }
 }
 
-impl<B: Borrow<BitmapIndex>> BitXor<B> for BitmapIndex {
+impl<B: Borrow<Self>> BitXor<B> for BitmapIndex {
     type Output = Self;
 
     fn bitxor(self, rhs: B) -> Self {
@@ -2450,6 +2471,7 @@ impl<B: Borrow<BitmapIndex>> BitXor<B> for BitmapIndex {
 impl BitXor<usize> for BitmapIndex {
     type Output = Self;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn bitxor(self, rhs: usize) -> Self {
         // This is only ok if rhs is in range because XOR can set bits which are
         // unset in self. We go the usual debug-panic/release-truncate way.
@@ -2531,7 +2553,7 @@ where
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Div<B> for BitmapIndex {
+impl<B: Borrow<Self>> Div<B> for BitmapIndex {
     type Output = Self;
 
     fn div(self, rhs: B) -> Self {
@@ -2543,9 +2565,7 @@ impl Div<usize> for BitmapIndex {
     type Output = Self;
 
     fn div(self, rhs: usize) -> Self {
-        Self::try_from(rhs)
-            .map(|rhs| self / rhs)
-            .unwrap_or(Self::ZERO)
+        Self::try_from(rhs).map_or(Self::ZERO, |rhs| self / rhs)
     }
 }
 
@@ -2604,14 +2624,14 @@ impl From<bool> for BitmapIndex {
 // NOTE: Assumed to work, otherwise the whole premise of allowing users to use
 //       usize/isize instead of c_u?int for indexing falls flat.
 impl From<BitmapIndex> for isize {
-    fn from(x: BitmapIndex) -> isize {
-        ffi::expect_isize(x.0 as c_int)
+    fn from(x: BitmapIndex) -> Self {
+        ffi::expect_isize(x.into_c_int())
     }
 }
 //
 impl From<BitmapIndex> for usize {
-    fn from(x: BitmapIndex) -> usize {
-        ffi::expect_usize(x.0)
+    fn from(x: BitmapIndex) -> Self {
+        ffi::expect_usize(x.into_c_uint())
     }
 }
 
@@ -2623,7 +2643,7 @@ impl FromStr for BitmapIndex {
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Mul<B> for BitmapIndex {
+impl<B: Borrow<Self>> Mul<B> for BitmapIndex {
     type Output = Self;
 
     fn mul(self, rhs: B) -> Self {
@@ -2639,20 +2659,21 @@ impl<B: Borrow<BitmapIndex>> Mul<B> for BitmapIndex {
 impl Mul<usize> for BitmapIndex {
     type Output = Self;
 
+    #[allow(clippy::cast_possible_truncation)]
     fn mul(self, rhs: usize) -> Self {
         if cfg!(debug_assertions) {
-            if self != Self::ZERO {
+            if self == Self::ZERO {
+                Self::ZERO
+            } else {
                 Self::try_from(rhs)
                     .ok()
                     .and_then(|rhs| self.checked_mul(rhs))
                     .expect("Attempted to multiply with overflow")
-            } else {
-                Self::ZERO
             }
         } else {
             let usize_result = usize::from(self) * rhs;
             let truncated = usize_result & (Self::MAX.0 as usize);
-            Self(truncated as _)
+            Self(truncated as c_uint)
         }
     }
 }
@@ -2753,6 +2774,7 @@ impl PartialEq<usize> for BitmapIndex {
 }
 
 impl PartialEq<BitmapIndex> for usize {
+    #[allow(clippy::use_self)]
     fn eq(&self, other: &BitmapIndex) -> bool {
         *self == usize::from(*other)
     }
@@ -2765,18 +2787,19 @@ impl PartialOrd<usize> for BitmapIndex {
 }
 
 impl PartialOrd<BitmapIndex> for usize {
+    #[allow(clippy::use_self)]
     fn partial_cmp(&self, other: &BitmapIndex) -> Option<Ordering> {
         self.partial_cmp(&usize::from(*other))
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Product<B> for BitmapIndex {
+impl<B: Borrow<Self>> Product<B> for BitmapIndex {
     fn product<I: Iterator<Item = B>>(iter: I) -> Self {
-        iter.fold(BitmapIndex::ONE, |acc, contrib| acc * contrib.borrow())
+        iter.fold(Self::ONE, |acc, contrib| acc * contrib.borrow())
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Rem<B> for BitmapIndex {
+impl<B: Borrow<Self>> Rem<B> for BitmapIndex {
     type Output = Self;
 
     fn rem(self, rhs: B) -> Self {
@@ -2833,7 +2856,7 @@ where
     }
 }
 
-impl Shl<BitmapIndex> for BitmapIndex {
+impl Shl<Self> for BitmapIndex {
     type Output = Self;
 
     fn shl(self, rhs: Self) -> Self {
@@ -2841,7 +2864,7 @@ impl Shl<BitmapIndex> for BitmapIndex {
     }
 }
 
-impl Shl<&BitmapIndex> for BitmapIndex {
+impl Shl<&Self> for BitmapIndex {
     type Output = Self;
 
     fn shl(self, rhs: &Self) -> Self {
@@ -2857,6 +2880,7 @@ impl Shl<BitmapIndex> for &BitmapIndex {
     }
 }
 
+#[allow(clippy::use_self)]
 impl Shl<&BitmapIndex> for &BitmapIndex {
     type Output = BitmapIndex;
 
@@ -2865,6 +2889,7 @@ impl Shl<&BitmapIndex> for &BitmapIndex {
     }
 }
 
+/// Generate heterogeneous `index << machine_integer` ops
 macro_rules! shl_with_int {
     ( $( $int:ty ),* ) => { $(
         impl Shl<$int> for BitmapIndex {
@@ -2923,7 +2948,7 @@ where
     }
 }
 
-impl Shr<BitmapIndex> for BitmapIndex {
+impl Shr<Self> for BitmapIndex {
     type Output = Self;
 
     fn shr(self, rhs: Self) -> Self {
@@ -2931,7 +2956,7 @@ impl Shr<BitmapIndex> for BitmapIndex {
     }
 }
 
-impl Shr<&BitmapIndex> for BitmapIndex {
+impl Shr<&Self> for BitmapIndex {
     type Output = Self;
 
     fn shr(self, rhs: &Self) -> Self {
@@ -2947,6 +2972,7 @@ impl Shr<BitmapIndex> for &BitmapIndex {
     }
 }
 
+#[allow(clippy::use_self)]
 impl Shr<&BitmapIndex> for &BitmapIndex {
     type Output = BitmapIndex;
 
@@ -2955,6 +2981,7 @@ impl Shr<&BitmapIndex> for &BitmapIndex {
     }
 }
 
+/// Generate heterogeneous `index >> machine_integer` ops
 macro_rules! shr_with_int {
     ( $( $int:ty ),* ) => { $(
         impl Shr<$int> for BitmapIndex {
@@ -3013,7 +3040,7 @@ where
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Sub<B> for BitmapIndex {
+impl<B: Borrow<Self>> Sub<B> for BitmapIndex {
     type Output = Self;
 
     fn sub(self, rhs: B) -> Self {
@@ -3089,9 +3116,9 @@ where
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Sum<B> for BitmapIndex {
+impl<B: Borrow<Self>> Sum<B> for BitmapIndex {
     fn sum<I: Iterator<Item = B>>(iter: I) -> Self {
-        iter.fold(BitmapIndex::ZERO, |acc, contrib| acc + contrib.borrow())
+        iter.fold(Self::ZERO, |acc, contrib| acc + contrib.borrow())
     }
 }
 
@@ -3105,6 +3132,7 @@ impl TryFrom<usize> for BitmapIndex {
     }
 }
 
+/// Implement conversions from machine integer types to index
 macro_rules! try_into {
     ( $( $int:ty ),* ) => { $(
         impl TryFrom<BitmapIndex> for $int {

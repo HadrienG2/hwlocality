@@ -37,6 +37,7 @@ impl Topology {
     ///
     /// [`bind_process_cpu()`]: Topology::bind_process_cpu()
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
     pub fn bind_tid_cpu(&self, tid: pid_t, set: impl Borrow<CpuSet>) -> Result<(), RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
@@ -57,6 +58,7 @@ impl Topology {
     ///
     /// [`process_cpu_binding()`]: Topology::process_cpu_binding()
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_get_tid_cpubind")]
     pub fn tid_cpu_binding(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
@@ -75,6 +77,7 @@ impl Topology {
     ///
     /// [`last_process_cpu_location()`]: Topology::last_process_cpu_location()
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_get_tid_last_cpu_location")]
     pub fn tid_last_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();

@@ -70,6 +70,7 @@ impl TopologyBuilder {
     /// assert_eq!(topology.build_flags(), flags);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_load")]
     pub fn build(mut self) -> Result<Topology, RawHwlocError> {
         // Finalize the topology building
@@ -425,6 +426,7 @@ impl TopologyBuilder {
     /// Set the filtering for all object types
     ///
     /// If some types do not support this filtering, they are silently ignored.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_all_types_filter")]
     pub fn with_common_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_topology_set_all_types_filter", || unsafe {
@@ -436,6 +438,7 @@ impl TopologyBuilder {
     /// Set the filtering for all CPU cache object types
     ///
     /// Memory-side caches are not involved since they are not CPU caches.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_cache_types_filter")]
     pub fn with_cpu_cache_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_topology_set_cache_types_filter", || unsafe {
@@ -447,6 +450,7 @@ impl TopologyBuilder {
     /// Set the filtering for all CPU instruction cache object types
     ///
     /// Memory-side caches are not involved since they are not CPU caches.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_icache_types_filter")]
     pub fn with_cpu_icache_type_filter(
         mut self,
@@ -483,6 +487,7 @@ impl TopologyBuilder {
     }
 
     /// Current filtering for the given object type
+    #[allow(clippy::missing_errors_doc)]
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = RawTypeFilter::MAX;
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {

@@ -66,6 +66,10 @@ pub struct RawHwlocError {
 }
 
 /// Call an hwloc entry point that returns a `*mut T` that should not be null
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
 pub(crate) fn call_hwloc_ptr_mut<T>(
     api: &'static str,
     call: impl FnOnce() -> *mut T,
@@ -74,14 +78,14 @@ pub(crate) fn call_hwloc_ptr_mut<T>(
         let result = call();
         (result, result.is_null())
     });
-    if let Some(ptr) = NonNull::new(result) {
-        Ok(ptr)
-    } else {
-        Err(RawHwlocError { api, errno })
-    }
+    NonNull::new(result).map_or(Err(RawHwlocError { api, errno }), Ok)
 }
 
 /// Call an hwloc entry point that returns a `*const T` that should not be null
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
 pub(crate) fn call_hwloc_ptr<T>(
     api: &'static str,
     call: impl FnOnce() -> *const T,
@@ -93,6 +97,10 @@ pub(crate) fn call_hwloc_ptr<T>(
 ///
 /// This behavior is followed by almost every hwloc API, though unfortunately
 /// there are a couple of exception.
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
 pub(crate) fn call_hwloc_int_normal(
     api: &'static str,
     call: impl FnOnce() -> c_int,

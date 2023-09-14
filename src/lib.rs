@@ -80,12 +80,10 @@
     clippy::match_wildcard_for_single_variants,
     clippy::mismatching_type_param_order,
     clippy::missing_assert_message,
-    clippy::missing_const_for_fn,
     clippy::missing_docs_in_private_items,
     clippy::missing_errors_doc,
     clippy::missing_fields_in_debug,
     clippy::mixed_read_write_in_expression,
-    clippy::module_name_repetitions,
     clippy::mut_mut,
     clippy::mutex_atomic,
     clippy::mutex_integer,
@@ -118,11 +116,8 @@
     clippy::ref_option_ref,
     clippy::ref_patterns,
     clippy::rest_pat_in_fully_bound_structs,
-    clippy::return_self_not_must_use,
     clippy::same_functions_in_if_condition,
     clippy::self_named_module_files,
-    clippy::semicolon_outside_block,
-    clippy::shadow_unrelated,
     clippy::significant_drop_in_scrutinee,
     clippy::similar_names,
     clippy::single_match_else,
@@ -256,6 +251,7 @@ pub type ProcessId = libc::pid_t;
 /// Users may check for available features at build time using this number
 #[doc(alias = "hwloc_get_api_version")]
 pub fn get_api_version() -> usize {
+    // SAFETY: This hwloc entry point has no safety preconditions
     ffi::expect_usize(unsafe { ffi::hwloc_get_api_version() })
 }
 

@@ -898,7 +898,7 @@ bitflags! {
         ///
         /// This flag is only meaningful on operations that bind memory.
         ///
-        /// Requires [`MemoryBindingSupport::migrate()`].
+        /// Requires [`MemoryBindingSupport::migrate_flag()`].
         #[doc(alias = "HWLOC_MEMBIND_MIGRATE")]
         const MIGRATE = (1<<3);
 
@@ -1035,7 +1035,7 @@ pub enum MemoryBindingPolicy {
     /// On AIX, if the nodeset is smaller, pages are allocated locally (if the
     /// local node is in the nodeset) or from a random non-local node (otherwise).
     ///
-    /// Requires [`MemoryBindingSupport::first_touch()`].
+    /// Requires [`MemoryBindingSupport::first_touch_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_FIRSTTOUCH")]
     FirstTouch = 1,
 
@@ -1047,7 +1047,7 @@ pub enum MemoryBindingPolicy {
     /// However, if the [`STRICT`] flag is also given, the Linux `MPOL_BIND`
     /// policy is rather used.
     ///
-    /// Requires [`MemoryBindingSupport::bind()`].
+    /// Requires [`MemoryBindingSupport::bind_policy()`].
     ///
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     #[default]
@@ -1063,7 +1063,7 @@ pub enum MemoryBindingPolicy {
     /// NUMA nodes will all be accessing the whole memory range concurrently,
     /// since the interleave will then balance the memory references.
     ///
-    /// Requires [`MemoryBindingSupport::interleave()`].
+    /// Requires [`MemoryBindingSupport::interleave_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_INTERLEAVE")]
     Interleave = 3,
 
@@ -1074,7 +1074,7 @@ pub enum MemoryBindingPolicy {
     /// node of the thread where the memory reference occurred (if it needs to
     /// be moved at all).
     ///
-    /// Requires [`MemoryBindingSupport::next_touch()`].
+    /// Requires [`MemoryBindingSupport::next_touch_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = 4,
 }

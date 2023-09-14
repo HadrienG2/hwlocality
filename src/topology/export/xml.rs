@@ -84,6 +84,7 @@ impl Topology {
     /// Only printable characters may be exported to XML string attributes. Any
     /// other character, especially any non-ASCII character, will be silently
     /// dropped.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_export_xmlbuffer")]
     pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML<'_>, RawHwlocError> {
         let mut xmlbuffer = ptr::null_mut();
@@ -168,8 +169,8 @@ impl<'topology> XML<'topology> {
         NonNull::new(data).map(|data| Self { topology, data })
     }
 
-    /// Access the raw C string
-    pub fn as_raw(&self) -> &CStr {
+    /// Access the inner string as a raw C string
+    pub const fn as_raw(&self) -> &CStr {
         // Safe because all necesary checks are done in `wrap()`
         unsafe {
             let data = self.data.as_ptr() as *const [u8];
@@ -177,9 +178,10 @@ impl<'topology> XML<'topology> {
         }
     }
 
-    /// Shorthand for `<Self as AsRef<str>>::as_ref`
-    pub fn as_str(&self) -> &str {
-        self.as_ref()
+    /// Access the inner string as a Rust string
+    pub const fn as_str(&self) -> &str {
+        // SAFETY: All necessary checks are done in wrap()
+        unsafe { std::str::from_utf8_unchecked(self.as_raw().to_bytes()) }
     }
 }
 
@@ -191,8 +193,7 @@ impl AsRef<[u8]> for XML<'_> {
 
 impl AsRef<str> for XML<'_> {
     fn as_ref(&self) -> &str {
-        // Safe because all necesary checks are done in `wrap()`
-        unsafe { std::str::from_utf8_unchecked(self.as_raw().to_bytes()) }
+        self.as_str()
     }
 }
 

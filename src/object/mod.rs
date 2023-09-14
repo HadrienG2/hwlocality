@@ -506,11 +506,10 @@ impl Topology {
             .map(Depth::from)
             .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
             .filter(move |&depth| {
-                if let Ok(type_depth) = type_depth {
-                    depth == type_depth
-                } else {
-                    self.type_at_depth(depth).expect("Depth should exist") == object_type
-                }
+                type_depth.map_or_else(
+                    |_| self.type_at_depth(depth).expect("Depth should exist") == object_type,
+                    |type_depth| depth == type_depth,
+                )
             });
         let size = depth_iter
             .clone()
@@ -820,7 +819,7 @@ impl Topology {
         let subtype = subtype.map(LibcString::new).transpose()?;
         let name_prefix = name_prefix.map(LibcString::new).transpose()?;
         let borrow_pchar = |opt: &Option<LibcString>| -> *const c_char {
-            opt.as_ref().map(|s| s.borrow()).unwrap_or(ptr::null())
+            opt.as_ref().map(LibcString::borrow).unwrap_or(ptr::null())
         };
         let ptr = unsafe {
             ffi::hwloc_get_obj_with_same_locality(

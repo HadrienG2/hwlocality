@@ -12,9 +12,16 @@ use std::{ffi::c_uchar, fmt, hash::Hash, ptr};
 #[doc(alias = "hwloc_topology_support")]
 #[repr(C)]
 pub struct FeatureSupport {
+    /// Support for discovering information about the topology
     discovery: *const DiscoverySupport,
+
+    /// Support for getting and setting thread/process CPU bindings
     cpubind: *const CpuBindingSupport,
+
+    /// Support for getting and setting thread/process NUMA node bindings
     membind: *const MemoryBindingSupport,
+
+    /// Miscellaneous support information
     #[cfg(feature = "hwloc-2_3_0")]
     misc: *const MiscSupport,
 }
@@ -105,13 +112,28 @@ unsafe impl Sync for FeatureSupport {}
 #[doc(alias = "hwloc_topology_discovery_support")]
 #[repr(C)]
 pub struct DiscoverySupport {
+    /// Detecting the number of PU objects is supported
     pu: c_uchar,
+
+    /// Detecting the number of NUMA nodes is supported
     numa: c_uchar,
+
+    /// Detecting the amount of memory in NUMA nodes is supported
     numa_memory: c_uchar,
+
+    /// Detecting and identifying PU objects that are not available to the
+    /// current process is supported
     #[cfg(feature = "hwloc-2_1_0")]
     disallowed_pu: c_uchar,
+
+    /// Detecting and identifying NUMA nodes that are not available to the
+    /// current process is supported
     #[cfg(feature = "hwloc-2_1_0")]
     disallowed_numa: c_uchar,
+
+    /// Detecting the efficiency of CPU kinds is supported
+    ///
+    /// See also [Kinds of CPU cores](..s/struct.Topology.html#kinds-of-cpu-cores).
     #[cfg(feature = "hwloc-2_4_0")]
     cpukind_efficiency: c_uchar,
 }
@@ -169,16 +191,37 @@ impl DiscoverySupport {
 #[doc(alias = "hwloc_topology_cpubind_support")]
 #[repr(C)]
 pub struct CpuBindingSupport {
+    /// Binding the whole current process is supported
     set_thisproc_cpubind: c_uchar,
+
+    /// Getting the binding of the whole current process is supported
     get_thisproc_cpubind: c_uchar,
+
+    /// Binding a whole given process is supported
     set_proc_cpubind: c_uchar,
+
+    /// Getting the binding of a whole given process is supported
     get_proc_cpubind: c_uchar,
+
+    /// Binding the current thread only is supported
     set_thisthread_cpubind: c_uchar,
+
+    /// Getting the binding of the current thread only is supported
     get_thisthread_cpubind: c_uchar,
+
+    /// Binding a given thread only is supported
     set_thread_cpubind: c_uchar,
+
+    /// Getting the binding of a given thread only is supported
     get_thread_cpubind: c_uchar,
+
+    /// Getting the last processors where the whole current process ran is supported
     get_thisproc_last_cpu_location: c_uchar,
+
+    /// Getting the last processors where a whole process ran is supported
     get_proc_last_cpu_location: c_uchar,
+
+    /// Getting the last processors where the current thread ran is supported
     get_thisthread_last_cpu_location: c_uchar,
 }
 
@@ -258,20 +301,49 @@ impl CpuBindingSupport {
 #[doc(alias = "hwloc_topology_membind_support")]
 #[repr(C)]
 pub struct MemoryBindingSupport {
+    /// Binding the whole current process is supported
     set_thisproc_membind: c_uchar,
+
+    /// Getting the binding of the whole current process is supported
     get_thisproc_membind: c_uchar,
+
+    /// Binding a whole given process is supported
     set_proc_membind: c_uchar,
+
+    /// Getting the binding of a whole given process is supported
     get_proc_membind: c_uchar,
+
+    /// Binding the current thread only is supported
     set_thisthread_membind: c_uchar,
+
+    /// Getting the binding of the current thread only is supported
     get_thisthread_membind: c_uchar,
+
+    /// Binding a given memory area is supported
     set_area_membind: c_uchar,
+
+    /// Getting the binding of a given memory area is supported
     get_area_membind: c_uchar,
+
+    /// Allocating a bound memory area is supported
     alloc_membind: c_uchar,
+
+    /// First-touch policy is supported
     firsttouch_membind: c_uchar,
+
+    /// Bind policy is supported
     bind_membind: c_uchar,
+
+    /// Interleave policy is supported
     interleave_membind: c_uchar,
+
+    /// Next-touch policy is supported
     nexttouch_membind: c_uchar,
+
+    /// Migration flag is supported
     migrate_membind: c_uchar,
+
+    /// Getting the last NUMA nodes where a memory area was allocated is supported
     get_area_memlocation: c_uchar,
 }
 
@@ -338,31 +410,31 @@ impl MemoryBindingSupport {
 
     /// First-touch policy is supported
     #[doc(alias = "hwloc_topology_membind_support::firsttouch_membind")]
-    pub fn first_touch(&self) -> bool {
+    pub fn first_touch_policy(&self) -> bool {
         support_flag(self.firsttouch_membind)
     }
 
     /// Bind policy is supported
     #[doc(alias = "hwloc_topology_membind_support::bind_membind")]
-    pub fn bind(&self) -> bool {
+    pub fn bind_policy(&self) -> bool {
         support_flag(self.bind_membind)
     }
 
     /// Interleave policy is supported
     #[doc(alias = "hwloc_topology_membind_support::interleave_membind")]
-    pub fn interleave(&self) -> bool {
+    pub fn interleave_policy(&self) -> bool {
         support_flag(self.interleave_membind)
     }
 
     /// Next-touch migration policy is supported
     #[doc(alias = "hwloc_topology_membind_support::nexttouch_membind")]
-    pub fn next_touch(&self) -> bool {
+    pub fn next_touch_policy(&self) -> bool {
         support_flag(self.nexttouch_membind)
     }
 
-    /// Migration flags is supported
+    /// Migration flag is supported
     #[doc(alias = "hwloc_topology_membind_support::migrate_membind")]
-    pub fn migrate(&self) -> bool {
+    pub fn migrate_flag(&self) -> bool {
         support_flag(self.migrate_membind)
     }
 }
@@ -373,6 +445,7 @@ impl MemoryBindingSupport {
 #[doc(alias = "hwloc_topology_misc_support")]
 #[repr(C)]
 pub struct MiscSupport {
+    /// Support was imported when importing another topology
     imported_support: c_uchar,
 }
 

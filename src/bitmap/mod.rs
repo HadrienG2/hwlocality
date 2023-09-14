@@ -162,6 +162,9 @@ impl Debug for RawBitmap {
 ///
 /// [`CpuSet`]: crate::cpu::cpuset::CpuSet
 /// [`NodeSet`]: crate::memory::nodeset::NodeSet
+//
+// NOTE: As a safety invariant, bitmaps should always hold a pointer to a valid
+//       hwloc-allocated, non-deallocated bitmap.
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
@@ -172,13 +175,14 @@ pub struct Bitmap(NonNull<RawBitmap>);
 impl Bitmap {
     // === FFI interoperability ===
 
-    /// Wraps an owned hwloc_bitmap_t
+    /// Wraps an owned `hwloc_bitmap_t`
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a valid bitmap that we will acquire
     /// ownership of and automatically free on Drop.
     pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut RawBitmap) -> Option<Self> {
+        // SAFETY: Safe per function input precondition
         NonNull::new(bitmap).map(|ptr| unsafe { Self::from_owned_nonnull(ptr) })
     }
 
@@ -192,27 +196,31 @@ impl Bitmap {
         Self(bitmap)
     }
 
-    /// Wraps a borrowed hwloc_const_bitmap_t
+    /// Wraps a borrowed `hwloc_const_bitmap_t`
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a bitmap that is valid for 'target.
-    /// Unlike with from_raw, it will not be automatically freed on Drop.
+    /// Unlike with [`Bitmap::from_raw()`], it will not be automatically freed
+    /// on Drop.
     pub(crate) unsafe fn borrow_from_raw<'target>(
         bitmap: *const RawBitmap,
     ) -> Option<BitmapRef<'target, Self>> {
+        // SAFETY: Safe per function input precondition
         unsafe { Self::borrow_from_raw_mut(bitmap.cast_mut()) }
     }
 
-    /// Wraps a borrowed hwloc_bitmap_t
+    /// Wraps a borrowed `hwloc_bitmap_t`
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a bitmap that is valid for 'target.
-    /// Unlike with from_raw, it will not be automatically freed on Drop.
+    /// Unlike with [`Bitmap::from_raw()`], it will not be automatically freed
+    /// on Drop.
     pub(crate) unsafe fn borrow_from_raw_mut<'target>(
         bitmap: *mut RawBitmap,
     ) -> Option<BitmapRef<'target, Self>> {
+        // SAFETY: Safe per function input precondition
         NonNull::new(bitmap).map(|ptr| unsafe { Self::borrow_from_nonnull(ptr) })
     }
 
@@ -220,8 +228,8 @@ impl Bitmap {
     ///
     /// # Safety
     ///
-    /// The pointer must target a bitmap that is valid for 'target.
-    /// Unlike with from_raw, it will not be automatically freed on Drop.
+    /// The pointer must target a bitmap that is valid for 'target. Unlike with
+    /// [`Bitmap::from_raw()`], it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_nonnull<'target>(
         bitmap: NonNull<RawBitmap>,
     ) -> BitmapRef<'target, Self> {
@@ -255,6 +263,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_alloc")]
     pub fn new() -> Self {
+        // SAFETY: hwloc_bitmap_alloc should always be safe to call
         unsafe {
             let ptr =
                 errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || ffi::hwloc_bitmap_alloc())
@@ -275,6 +284,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_alloc_full")]
     pub fn full() -> Self {
+        // SAFETY: hwloc_bitmap_alloc_full should always be safe to call
         unsafe {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc_full", || {
                 ffi::hwloc_bitmap_alloc_full()
@@ -325,6 +335,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_copy")]
     pub fn copy_from(&mut self, other: &Self) {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
             ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
         })
@@ -344,6 +355,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_zero")]
     pub fn clear(&mut self) {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer
         unsafe { ffi::hwloc_bitmap_zero(self.as_mut_ptr()) }
     }
 
@@ -360,6 +372,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_fill")]
     pub fn fill(&mut self) {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer
         unsafe { ffi::hwloc_bitmap_fill(self.as_mut_ptr()) }
     }
 
@@ -386,6 +399,8 @@ impl Bitmap {
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and idx has been checked to be in range.
         errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
             ffi::hwloc_bitmap_only(self.as_mut_ptr(), idx.into_c_uint())
         })
@@ -415,6 +430,8 @@ impl Bitmap {
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and idx has been checked to be in range.
         errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
             ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.into_c_uint())
         })
@@ -444,6 +461,8 @@ impl Bitmap {
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and idx has been checked to be in range.
         errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
             ffi::hwloc_bitmap_set(self.as_mut_ptr(), idx.into_c_uint())
         })
@@ -481,6 +500,9 @@ impl Bitmap {
         }
 
         let (begin, end) = Self::hwloc_range(range);
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and hwloc_range is trusted to produce correct hwloc
+        //         range bounds.
         errors::call_hwloc_int_normal("hwloc_bitmap_set_range", || unsafe {
             ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end)
         })
@@ -510,6 +532,7 @@ impl Bitmap {
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
             ffi::hwloc_bitmap_clr(self.as_mut_ptr(), idx.into_c_uint())
         })
@@ -547,6 +570,9 @@ impl Bitmap {
         }
 
         let (begin, end) = Self::hwloc_range(range);
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and hwloc_range is trusted to produce correct hwloc
+        //         range bounds.
         errors::call_hwloc_int_normal("hwloc_bitmap_clr_range", || unsafe {
             ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end)
         })
@@ -580,6 +606,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_singlify")]
     pub fn singlify(&mut self) {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify", || unsafe {
             ffi::hwloc_bitmap_singlify(self.as_mut_ptr())
         })
@@ -610,6 +637,8 @@ impl Bitmap {
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and idx has been checked to be in range.
         errors::call_hwloc_bool("hwloc_bitmap_isset", || unsafe {
             ffi::hwloc_bitmap_isset(self.as_ptr(), idx.into_c_uint())
         })
@@ -629,6 +658,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_iszero")]
     pub fn is_empty(&self) -> bool {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         errors::call_hwloc_bool("hwloc_bitmap_iszero", || unsafe {
             ffi::hwloc_bitmap_iszero(self.as_ptr())
         })
@@ -648,6 +678,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_isfull")]
     pub fn is_full(&self) -> bool {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         errors::call_hwloc_bool("hwloc_bitmap_isfull", || unsafe {
             ffi::hwloc_bitmap_isfull(self.as_ptr())
         })
@@ -670,6 +701,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_first")]
     pub fn first_set(&self) -> Option<BitmapIndex> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         let result = unsafe { ffi::hwloc_bitmap_first(self.as_ptr()) };
         assert!(
             result >= -1,
@@ -692,8 +724,8 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_foreach_begin")]
     #[doc(alias = "hwloc_bitmap_foreach_end")]
     #[doc(alias = "hwloc_bitmap_next")]
-    pub fn iter_set(&self) -> BitmapIterator<&Bitmap> {
-        BitmapIterator::new(self, Bitmap::next_set)
+    pub fn iter_set(&self) -> Iter<&Self> {
+        Iter::new(self, Self::next_set)
     }
 
     /// Check the last set index, if any
@@ -710,6 +742,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_last")]
     pub fn last_set(&self) -> Option<BitmapIndex> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         let result = unsafe { ffi::hwloc_bitmap_last(self.as_ptr()) };
         assert!(
             result >= -1,
@@ -733,6 +766,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_weight")]
     pub fn weight(&self) -> Option<usize> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         let result = unsafe { ffi::hwloc_bitmap_weight(self.as_ptr()) };
         assert!(
             result >= -1,
@@ -757,6 +791,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_first_unset")]
     pub fn first_unset(&self) -> Option<BitmapIndex> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         let result = unsafe { ffi::hwloc_bitmap_first_unset(self.as_ptr()) };
         assert!(
             result >= -1,
@@ -777,8 +812,8 @@ impl Bitmap {
     /// assert_eq!(indices, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     /// ```
     #[doc(alias = "hwloc_bitmap_next_unset")]
-    pub fn iter_unset(&self) -> BitmapIterator<&Bitmap> {
-        BitmapIterator::new(self, Bitmap::next_unset)
+    pub fn iter_unset(&self) -> Iter<&Self> {
+        Iter::new(self, Self::next_unset)
     }
 
     /// Check the last unset index, if any
@@ -795,6 +830,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_last_unset")]
     pub fn last_unset(&self) -> Option<BitmapIndex> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         let result = unsafe { ffi::hwloc_bitmap_last_unset(self.as_ptr()) };
         assert!(
             result >= -1,
@@ -815,6 +851,7 @@ impl Bitmap {
     /// assert_eq!(format!("{bitmap}"), "0-11,35-");
     /// ```
     pub fn invert(&mut self) {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer.
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
         })
@@ -838,6 +875,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_intersects")]
     pub fn intersects(&self, rhs: &Self) -> bool {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_bool("hwloc_bitmap_intersects", || unsafe {
             ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr())
         })
@@ -860,6 +898,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_isincluded")]
     pub fn includes(&self, inner: &Self) -> bool {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_bool("hwloc_bitmap_isincluded", || unsafe {
             ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr())
         })
@@ -915,10 +954,7 @@ impl Bitmap {
         index: Option<BitmapIndex>,
         next_fn: impl FnOnce(*const RawBitmap, c_int) -> c_int,
     ) -> Option<BitmapIndex> {
-        let result = next_fn(
-            self.as_ptr(),
-            index.map(BitmapIndex::into_c_int).unwrap_or(-1),
-        );
+        let result = next_fn(self.as_ptr(), index.map_or(-1, BitmapIndex::into_c_int));
         assert!(
             result >= -1,
             "hwloc bitmap iterator returned error code {result}"
@@ -928,6 +964,8 @@ impl Bitmap {
 
     /// Set index iterator building block
     fn next_set(&self, index: Option<BitmapIndex>) -> Option<BitmapIndex> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and index has been checked to be in range.
         self.next(index, |bitmap, prev| unsafe {
             ffi::hwloc_bitmap_next(bitmap, prev)
         })
@@ -935,6 +973,8 @@ impl Bitmap {
 
     /// Unset index iterator building block
     fn next_unset(&self, index: Option<BitmapIndex>) -> Option<BitmapIndex> {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid
+        //         pointer and index has been checked to be in range.
         self.next(index, |bitmap, prev| unsafe {
             ffi::hwloc_bitmap_next_unset(bitmap, prev)
         })
@@ -979,6 +1019,7 @@ impl<B: Borrow<Bitmap>> BitAnd<B> for &Bitmap {
     #[doc(alias = "hwloc_bitmap_and")]
     fn bitand(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
+        // SAFETY: Safe because all bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
             ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -987,17 +1028,18 @@ impl<B: Borrow<Bitmap>> BitAnd<B> for &Bitmap {
     }
 }
 
-impl<B: Borrow<Bitmap>> BitAnd<B> for Bitmap {
-    type Output = Bitmap;
+impl<B: Borrow<Self>> BitAnd<B> for Bitmap {
+    type Output = Self;
 
-    fn bitand(mut self, rhs: B) -> Bitmap {
+    fn bitand(mut self, rhs: B) -> Self {
         self &= rhs.borrow();
         self
     }
 }
 
-impl<B: Borrow<Bitmap>> BitAndAssign<B> for Bitmap {
+impl<B: Borrow<Self>> BitAndAssign<B> for Bitmap {
     fn bitand_assign(&mut self, rhs: B) {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
             ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1011,6 +1053,7 @@ impl<B: Borrow<Bitmap>> BitOr<B> for &Bitmap {
     #[doc(alias = "hwloc_bitmap_or")]
     fn bitor(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
+        // SAFETY: Safe because all bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
             ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1019,17 +1062,18 @@ impl<B: Borrow<Bitmap>> BitOr<B> for &Bitmap {
     }
 }
 
-impl<B: Borrow<Bitmap>> BitOr<B> for Bitmap {
-    type Output = Bitmap;
+impl<B: Borrow<Self>> BitOr<B> for Bitmap {
+    type Output = Self;
 
-    fn bitor(mut self, rhs: B) -> Bitmap {
+    fn bitor(mut self, rhs: B) -> Self {
         self |= rhs.borrow();
         self
     }
 }
 
-impl<B: Borrow<Bitmap>> BitOrAssign<B> for Bitmap {
+impl<B: Borrow<Self>> BitOrAssign<B> for Bitmap {
     fn bitor_assign(&mut self, rhs: B) {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
             ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1043,6 +1087,7 @@ impl<B: Borrow<Bitmap>> BitXor<B> for &Bitmap {
     #[doc(alias = "hwloc_bitmap_xor")]
     fn bitxor(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
+        // SAFETY: Safe because all bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
             ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1051,17 +1096,18 @@ impl<B: Borrow<Bitmap>> BitXor<B> for &Bitmap {
     }
 }
 
-impl<B: Borrow<Bitmap>> BitXor<B> for Bitmap {
-    type Output = Bitmap;
+impl<B: Borrow<Self>> BitXor<B> for Bitmap {
+    type Output = Self;
 
-    fn bitxor(mut self, rhs: B) -> Bitmap {
+    fn bitxor(mut self, rhs: B) -> Self {
         self ^= rhs.borrow();
         self
     }
 }
 
-impl<B: Borrow<Bitmap>> BitXorAssign<B> for Bitmap {
+impl<B: Borrow<Self>> BitXorAssign<B> for Bitmap {
     fn bitxor_assign(&mut self, rhs: B) {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
             ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1071,7 +1117,8 @@ impl<B: Borrow<Bitmap>> BitXorAssign<B> for Bitmap {
 
 impl Clone for Bitmap {
     #[doc(alias = "hwloc_bitmap_dup")]
-    fn clone(&self) -> Bitmap {
+    fn clone(&self) -> Self {
+        // SAFETY: Safe because this bitmaps is trusted to contain a valid pointer
         unsafe {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_dup", || {
                 ffi::hwloc_bitmap_dup(self.as_ptr())
@@ -1097,6 +1144,7 @@ impl Default for Bitmap {
 impl Display for Bitmap {
     #[doc(alias = "hwloc_bitmap_list_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer
         ffi::write_snprintf(f, |buf, len| unsafe {
             ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
         })
@@ -1106,6 +1154,7 @@ impl Display for Bitmap {
 impl Drop for Bitmap {
     #[doc(alias = "hwloc_bitmap_free")]
     fn drop(&mut self) {
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer
         unsafe { ffi::hwloc_bitmap_free(self.as_mut_ptr()) }
     }
 }
@@ -1122,7 +1171,7 @@ impl<BI: Borrow<BitmapIndex>> Extend<BI> for Bitmap {
 
 impl<BI: Borrow<BitmapIndex>> From<BI> for Bitmap {
     fn from(value: BI) -> Self {
-        Self::from_iter(std::iter::once(value))
+        Self::from_range(*value.borrow()..=*value.borrow())
     }
 }
 
@@ -1136,7 +1185,7 @@ impl<BI: Borrow<BitmapIndex>> FromIterator<BI> for Bitmap {
 
 /// Iterator over set or unset [`Bitmap`] indices
 #[derive(Copy, Clone, Debug)]
-pub struct BitmapIterator<B> {
+pub struct Iter<B> {
     /// Bitmap over which we're iterating
     bitmap: B,
 
@@ -1147,7 +1196,8 @@ pub struct BitmapIterator<B> {
     next: fn(&Bitmap, Option<BitmapIndex>) -> Option<BitmapIndex>,
 }
 //
-impl<B> BitmapIterator<B> {
+impl<B> Iter<B> {
+    /// Set up a bitmap iterator
     fn new(bitmap: B, next: fn(&Bitmap, Option<BitmapIndex>) -> Option<BitmapIndex>) -> Self {
         Self {
             bitmap,
@@ -1157,7 +1207,7 @@ impl<B> BitmapIterator<B> {
     }
 }
 //
-impl<B: Borrow<Bitmap>> Iterator for BitmapIterator<B> {
+impl<B: Borrow<Bitmap>> Iterator for Iter<B> {
     type Item = BitmapIndex;
 
     fn next(&mut self) -> Option<BitmapIndex> {
@@ -1166,23 +1216,23 @@ impl<B: Borrow<Bitmap>> Iterator for BitmapIterator<B> {
     }
 }
 //
-impl<B: Borrow<Bitmap>> FusedIterator for BitmapIterator<B> {}
+impl<B: Borrow<Bitmap>> FusedIterator for Iter<B> {}
 //
 impl<'bitmap> IntoIterator for &'bitmap Bitmap {
     type Item = BitmapIndex;
-    type IntoIter = BitmapIterator<&'bitmap Bitmap>;
+    type IntoIter = Iter<Self>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BitmapIterator::new(self, Bitmap::next_set)
+        Iter::new(self, Bitmap::next_set)
     }
 }
 //
 impl IntoIterator for Bitmap {
     type Item = BitmapIndex;
-    type IntoIter = BitmapIterator<Bitmap>;
+    type IntoIter = Iter<Self>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BitmapIterator::new(self, Bitmap::next_set)
+        Iter::new(self, Self::next_set)
     }
 }
 
@@ -1192,6 +1242,7 @@ impl Not for &Bitmap {
     #[doc(alias = "hwloc_bitmap_not")]
     fn not(self) -> Bitmap {
         let mut result = Bitmap::new();
+        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
             ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr())
         })
@@ -1201,7 +1252,7 @@ impl Not for &Bitmap {
 }
 
 impl Not for Bitmap {
-    type Output = Bitmap;
+    type Output = Self;
 
     fn not(mut self) -> Self {
         self.invert();
@@ -1212,6 +1263,7 @@ impl Not for Bitmap {
 impl Ord for Bitmap {
     #[doc(alias = "hwloc_bitmap_compare")]
     fn cmp(&self, other: &Self) -> Ordering {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         let result = unsafe { ffi::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
         match result {
             -1 => Ordering::Less,
@@ -1222,9 +1274,10 @@ impl Ord for Bitmap {
     }
 }
 
-impl<B: Borrow<Bitmap>> PartialEq<B> for Bitmap {
+impl<B: Borrow<Self>> PartialEq<B> for Bitmap {
     #[doc(alias = "hwloc_bitmap_isequal")]
     fn eq(&self, other: &B) -> bool {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_bool("hwloc_bitmap_isequal", || unsafe {
             ffi::hwloc_bitmap_isequal(self.as_ptr(), other.borrow().as_ptr())
         })
@@ -1232,12 +1285,13 @@ impl<B: Borrow<Bitmap>> PartialEq<B> for Bitmap {
     }
 }
 
-impl<B: Borrow<Bitmap>> PartialOrd<B> for Bitmap {
+impl<B: Borrow<Self>> PartialOrd<B> for Bitmap {
     fn partial_cmp(&self, other: &B) -> Option<Ordering> {
         Some(self.cmp(other.borrow()))
     }
 }
 
+// SAFETY: Safe because Bitmap exposes no internal mutability
 unsafe impl Send for Bitmap {}
 
 impl<B: Borrow<Bitmap>> Sub<B> for &Bitmap {
@@ -1246,6 +1300,7 @@ impl<B: Borrow<Bitmap>> Sub<B> for &Bitmap {
     #[doc(alias = "hwloc_bitmap_andnot")]
     fn sub(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
+        // SAFETY: Safe because all bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
             ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1254,17 +1309,18 @@ impl<B: Borrow<Bitmap>> Sub<B> for &Bitmap {
     }
 }
 
-impl<B: Borrow<Bitmap>> Sub<B> for Bitmap {
-    type Output = Bitmap;
+impl<B: Borrow<Self>> Sub<B> for Bitmap {
+    type Output = Self;
 
-    fn sub(mut self, rhs: B) -> Bitmap {
+    fn sub(mut self, rhs: B) -> Self {
         self -= rhs.borrow();
         self
     }
 }
 
-impl<B: Borrow<Bitmap>> SubAssign<B> for Bitmap {
+impl<B: Borrow<Self>> SubAssign<B> for Bitmap {
     fn sub_assign(&mut self, rhs: B) {
+        // SAFETY: Safe because both bitmaps are trusted to contain a valid pointer
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
             ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
@@ -1272,9 +1328,9 @@ impl<B: Borrow<Bitmap>> SubAssign<B> for Bitmap {
     }
 }
 
+// SAFETY: Safe because Bitmap exposes no internal mutability
 unsafe impl Sync for Bitmap {}
 
-#[allow(clippy::missing_safety_doc)]
 /// A [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
 ///
 /// This type cannot be implemented outside of this crate as it relies on
@@ -1282,10 +1338,13 @@ unsafe impl Sync for Bitmap {}
 /// signature of generic methods that accept the aforementioned set of types
 /// and then go on to process them homogeneously.
 //
+// --- Internal docs ---
+//
 // # Safety
 //
 // Implementations of this type must effectively be a `repr(transparent)`
 // wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait OwnedBitmap:
     Borrow<Bitmap>
     + BorrowMut<Bitmap>
@@ -1304,6 +1363,7 @@ pub unsafe trait OwnedBitmap:
 //
 impl Sealed for Bitmap {}
 //
+// SAFETY: Bitmap is a repr(transparent) newtype of NonNull<RawBitmap>
 unsafe impl OwnedBitmap for Bitmap {
     fn as_raw(&self) -> NonNull<RawBitmap> {
         self.0
@@ -1360,15 +1420,17 @@ impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
 
 impl<'target, Target: OwnedBitmap> AsRef<Target> for BitmapRef<'target, Target> {
     fn as_ref(&self) -> &Target {
-        // This is safe because...
-        // - Both Target and BitmapRef are effectively repr(transparent)
-        //   newtypes of NonNull<RawBitmap>, so &Target and &BitmapRef are
-        //   effectively the same thing after compilation.
-        // - The borrow checker ensures that one cannot construct an
-        //   &'a BitmapRef<'target> which does not verify 'target: 'a, so one
-        //   cannot use this AsRef impl to build an excessively long-lived
-        //   &'a Target.
-        unsafe { std::mem::transmute::<&BitmapRef<'target, Target>, &Target>(self) }
+        // SAFETY: - Both Target and BitmapRef are effectively repr(transparent)
+        //           newtypes of NonNull<RawBitmap>, so &Target and &BitmapRef
+        //           are effectively the same thing after compilation.
+        //         - The borrow checker ensures that one cannot construct an
+        //           &'a BitmapRef<'target> which does not verify 'target: 'a,
+        //           so one cannot use this AsRef impl to build an excessively
+        //           long-lived &'a Target.
+        unsafe {
+            let ptr: *const Self = self;
+            &*ptr.cast::<Target>()
+        }
     }
 }
 
@@ -1506,10 +1568,10 @@ where
     &'self_ Target: Borrow<Bitmap>,
 {
     type Item = BitmapIndex;
-    type IntoIter = BitmapIterator<&'self_ Target>;
+    type IntoIter = Iter<&'self_ Target>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BitmapIterator::new(self.as_ref(), Bitmap::next_set)
+        Iter::new(self.as_ref(), Bitmap::next_set)
     }
 }
 
@@ -1518,10 +1580,10 @@ where
     Target: OwnedBitmap,
 {
     type Item = BitmapIndex;
-    type IntoIter = BitmapIterator<BitmapRef<'target, Bitmap>>;
+    type IntoIter = Iter<BitmapRef<'target, Bitmap>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BitmapIterator::new(self.cast(), Bitmap::next_set)
+        Iter::new(self.cast(), Bitmap::next_set)
     }
 }
 
@@ -1579,6 +1641,7 @@ impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
     }
 }
 
+// SAFETY: BitmapRef exposes no internal mutability
 unsafe impl<Target: OwnedBitmap + Sync> Send for BitmapRef<'_, Target> {}
 
 impl<Target, Rhs> Sub<Rhs> for &BitmapRef<'_, Target>
@@ -1607,6 +1670,7 @@ where
     }
 }
 
+// SAFETY: BitmapRef exposes no internal mutability
 unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 
 // NOTE: `BitmapRef` cannot implement `ToOwned` because it would require
@@ -1706,7 +1770,7 @@ macro_rules! impl_bitmap_newtype {
         /// Only documentation headers are repeated here, you will find most of
         /// the documentation attached to identically named `Bitmap` methods.
         impl $newtype {
-            /// Wraps an owned hwloc_bitmap_t
+            /// Wraps an owned `hwloc_bitmap_t`
             ///
             /// See [`Bitmap::from_owned_raw_mut`](crate::bitmap::Bitmap::from_owned_raw_mut).
             #[allow(unused)]
@@ -1746,7 +1810,7 @@ macro_rules! impl_bitmap_newtype {
                 }
             }
 
-            /// Wraps a borrowed hwloc_bitmap_t
+            /// Wraps a borrowed `hwloc_bitmap_t`
             ///
             /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmap::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
@@ -1945,7 +2009,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::iter_set`](crate::bitmap::Bitmap::iter_set).
             pub fn iter_set(
                 &self
-            ) -> $crate::bitmap::BitmapIterator<&$crate::bitmap::Bitmap> {
+            ) -> $crate::bitmap::Iter<&$crate::bitmap::Bitmap> {
                 self.0.iter_set()
             }
 
@@ -1975,7 +2039,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::iter_unset`](crate::bitmap::Bitmap::iter_unset).
             pub fn iter_unset(
                 &self
-            ) -> $crate::bitmap::BitmapIterator<&$crate::bitmap::Bitmap> {
+            ) -> $crate::bitmap::Iter<&$crate::bitmap::Bitmap> {
                 self.0.iter_unset()
             }
 
@@ -2023,15 +2087,15 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitAnd<B> for $newtype {
-            type Output = $newtype;
+        impl<B: std::borrow::Borrow<Self>> std::ops::BitAnd<B> for $newtype {
+            type Output = Self;
 
-            fn bitand(self, rhs: B) -> $newtype {
+            fn bitand(self, rhs: B) -> Self {
                 $newtype(self.0 & (&rhs.borrow().0))
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitAndAssign<B> for $newtype {
+        impl<B: std::borrow::Borrow<Self>> std::ops::BitAndAssign<B> for $newtype {
             fn bitand_assign(&mut self, rhs: B) {
                 self.0 &= (&rhs.borrow().0)
             }
@@ -2045,15 +2109,15 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitOr<B> for $newtype {
-            type Output = $newtype;
+        impl<B: std::borrow::Borrow<Self>> std::ops::BitOr<B> for $newtype {
+            type Output = Self;
 
-            fn bitor(self, rhs: B) -> $newtype {
+            fn bitor(self, rhs: B) -> Self {
                 $newtype(self.0 | &rhs.borrow().0)
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitOrAssign<B> for $newtype {
+        impl<B: std::borrow::Borrow<Self>> std::ops::BitOrAssign<B> for $newtype {
             fn bitor_assign(&mut self, rhs: B) {
                 self.0 |= &rhs.borrow().0
             }
@@ -2067,15 +2131,15 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitXor<B> for $newtype {
-            type Output = $newtype;
+        impl<B: std::borrow::Borrow<Self>> std::ops::BitXor<B> for $newtype {
+            type Output = Self;
 
-            fn bitxor(self, rhs: B) -> $newtype {
+            fn bitxor(self, rhs: B) -> Self {
                 $newtype(self.0 ^ &rhs.borrow().0)
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitXorAssign<B> for $newtype {
+        impl<B: std::borrow::Borrow<Self>> std::ops::BitXorAssign<B> for $newtype {
             fn bitxor_assign(&mut self, rhs: B) {
                 self.0 ^= &rhs.borrow().0
             }
@@ -2133,7 +2197,7 @@ macro_rules! impl_bitmap_newtype {
 
         impl<'newtype> IntoIterator for &'newtype $newtype {
             type Item = $crate::bitmap::BitmapIndex;
-            type IntoIter = $crate::bitmap::BitmapIterator<&'newtype $crate::bitmap::Bitmap>;
+            type IntoIter = $crate::bitmap::Iter<&'newtype $crate::bitmap::Bitmap>;
 
             fn into_iter(self) -> Self::IntoIter {
                 (&self.0).into_iter()
@@ -2148,19 +2212,21 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        // SAFETY: $newtype is a repr(transparent) newtype of Bitmap, which is
+        //         itself a repr(transparent) newtype of RawBitmap.
         unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
             fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
                 self.0.as_raw()
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> PartialEq<B> for $newtype {
+        impl<B: std::borrow::Borrow<Self>> PartialEq<B> for $newtype {
             fn eq(&self, other: &B) -> bool {
                 self.0 == other.borrow().0
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> PartialOrd<B> for $newtype {
+        impl<B: std::borrow::Borrow<Self>> PartialOrd<B> for $newtype {
             fn partial_cmp(&self, other: &B) -> Option<std::cmp::Ordering> {
                 self.0.partial_cmp(&other.borrow().0)
             }
@@ -2176,15 +2242,15 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::Sub<B> for $newtype {
-            type Output = $newtype;
+        impl<B: std::borrow::Borrow<Self>> std::ops::Sub<B> for $newtype {
+            type Output = Self;
 
-            fn sub(self, rhs: B) -> $newtype {
+            fn sub(self, rhs: B) -> Self {
                 $newtype(self.0 - &rhs.borrow().0)
             }
         }
 
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::SubAssign<B> for $newtype {
+        impl<B: std::borrow::Borrow<Self>> std::ops::SubAssign<B> for $newtype {
             fn sub_assign(&mut self, rhs: B) {
                 self.0 -= &rhs.borrow().0
             }
