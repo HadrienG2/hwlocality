@@ -1,0 +1,3 @@
+msrv = "1.67.1"
+semicolon-inside-block-ignore-singleline = true
+semicolon-outside-block-ignore-multiline = true
