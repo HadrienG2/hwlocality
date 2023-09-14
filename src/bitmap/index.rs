@@ -3529,43 +3529,43 @@ mod tests {
         assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
 
         // Bitwise AND passes through (no risk of setting high-order bit)
-        let expected_and = BitmapIndex(i1.0 & i2.0);
-        assert_eq!(i1 & i2, expected_and);
-        assert_eq!(&i1 & i2, expected_and);
-        assert_eq!(i1 & (&i2), expected_and);
-        assert_eq!(&i1 & (&i2), expected_and);
+        let expected = BitmapIndex(i1.0 & i2.0);
+        assert_eq!(i1 & i2, expected);
+        assert_eq!(&i1 & i2, expected);
+        assert_eq!(i1 & (&i2), expected);
+        assert_eq!(&i1 & (&i2), expected);
         let mut tmp = i1;
         tmp &= i2;
-        assert_eq!(tmp, expected_and);
+        assert_eq!(tmp, expected);
         tmp = i1;
         tmp &= &i2;
-        assert_eq!(tmp, expected_and);
+        assert_eq!(tmp, expected);
 
         // Bitwise OR passes through (no risk of setting high-order bit)
-        let expected_or = BitmapIndex(i1.0 | i2.0);
-        assert_eq!(i1 | i2, expected_or);
-        assert_eq!(&i1 | i2, expected_or);
-        assert_eq!(i1 | (&i2), expected_or);
-        assert_eq!(&i1 | (&i2), expected_or);
+        let expected = BitmapIndex(i1.0 | i2.0);
+        assert_eq!(i1 | i2, expected);
+        assert_eq!(&i1 | i2, expected);
+        assert_eq!(i1 | (&i2), expected);
+        assert_eq!(&i1 | (&i2), expected);
         tmp = i1;
         tmp |= i2;
-        assert_eq!(tmp, expected_or);
+        assert_eq!(tmp, expected);
         tmp = i1;
         tmp |= &i2;
-        assert_eq!(tmp, expected_or);
+        assert_eq!(tmp, expected);
 
         // Bitwise XOR passes through (no risk of setting high-order bit)
-        let expected_xor = BitmapIndex(i1.0 ^ i2.0);
-        assert_eq!(i1 ^ i2, expected_xor);
-        assert_eq!(&i1 ^ i2, expected_xor);
-        assert_eq!(i1 ^ (&i2), expected_xor);
-        assert_eq!(&i1 ^ (&i2), expected_xor);
+        let expected = BitmapIndex(i1.0 ^ i2.0);
+        assert_eq!(i1 ^ i2, expected);
+        assert_eq!(&i1 ^ i2, expected);
+        assert_eq!(i1 ^ (&i2), expected);
+        assert_eq!(&i1 ^ (&i2), expected);
         let mut tmp = i1;
         tmp ^= i2;
-        assert_eq!(tmp, expected_xor);
+        assert_eq!(tmp, expected);
         tmp = i1;
         tmp ^= &i2;
-        assert_eq!(tmp, expected_xor);
+        assert_eq!(tmp, expected);
 
         // Addition
         let (expected_wrapped, expected_overflow) =
@@ -3750,9 +3750,9 @@ mod tests {
             // Should succeed for a number >= 0 with a basis >= 2
             let number_above0 = i1.saturating_add(BitmapIndex::ONE);
             let base_above2 = i2.saturating_add(BitmapIndex(2));
-            let expected_ilog = number_above0.0.ilog(base_above2.0);
-            assert_eq!(number_above0.ilog(base_above2), expected_ilog);
-            assert_eq!(number_above0.checked_ilog(base_above2), Some(expected_ilog));
+            let expected = number_above0.0.ilog(base_above2.0);
+            assert_eq!(number_above0.ilog(base_above2), expected);
+            assert_eq!(number_above0.checked_ilog(base_above2), Some(expected));
 
             // Should fail if the basis is below 2
             let base_below2 = i2 % 2;
@@ -3764,31 +3764,31 @@ mod tests {
         #[allow(trivial_numeric_casts)]
         let effective_bits = BitmapIndex(BitmapIndex::EFFECTIVE_BITS as _);
         let wrapped_shift = i2 % effective_bits;
-        let wrapped_shl = BitmapIndex((i1.0 << wrapped_shift.0) & BitmapIndex::MAX.0);
-        assert_eq!(i1 << wrapped_shift, wrapped_shl);
-        assert_eq!(&i1 << wrapped_shift, wrapped_shl);
-        assert_eq!(i1 << (&wrapped_shift), wrapped_shl);
-        assert_eq!(&i1 << (&wrapped_shift), wrapped_shl);
+        let wrapped_result = BitmapIndex((i1.0 << wrapped_shift.0) & BitmapIndex::MAX.0);
+        assert_eq!(i1 << wrapped_shift, wrapped_result);
+        assert_eq!(&i1 << wrapped_shift, wrapped_result);
+        assert_eq!(i1 << (&wrapped_shift), wrapped_result);
+        assert_eq!(&i1 << (&wrapped_shift), wrapped_result);
         tmp = i1;
         tmp <<= wrapped_shift;
-        assert_eq!(tmp, wrapped_shl);
+        assert_eq!(tmp, wrapped_result);
         tmp = i1;
         tmp <<= &wrapped_shift;
-        assert_eq!(tmp, wrapped_shl);
+        assert_eq!(tmp, wrapped_result);
 
         // Overflowing left shift should panic or wraparound
         let overflown_shift = i2.saturating_add(effective_bits);
-        assert_debug_panics(|| i1 << overflown_shift, wrapped_shl);
-        assert_debug_panics(|| &i1 << overflown_shift, wrapped_shl);
-        assert_debug_panics(|| i1 << (&overflown_shift), wrapped_shl);
-        assert_debug_panics(|| &i1 << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(|| i1 << overflown_shift, wrapped_result);
+        assert_debug_panics(|| &i1 << overflown_shift, wrapped_result);
+        assert_debug_panics(|| i1 << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &i1 << (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
                 let mut tmp = i1;
                 tmp <<= overflown_shift;
                 tmp
             },
-            wrapped_shl,
+            wrapped_result,
         );
         assert_debug_panics(
             || {
@@ -3796,34 +3796,34 @@ mod tests {
                 tmp <<= &overflown_shift;
                 tmp
             },
-            wrapped_shl,
+            wrapped_result,
         );
 
         // Non-overflowing right shift can pass through
-        let wrapped_shr = BitmapIndex(i1.0 >> wrapped_shift.0);
-        assert_eq!(i1 >> wrapped_shift, wrapped_shr);
-        assert_eq!(&i1 >> wrapped_shift, wrapped_shr);
-        assert_eq!(i1 >> (&wrapped_shift), wrapped_shr);
-        assert_eq!(&i1 >> (&wrapped_shift), wrapped_shr);
+        let wrapped_result = BitmapIndex(i1.0 >> wrapped_shift.0);
+        assert_eq!(i1 >> wrapped_shift, wrapped_result);
+        assert_eq!(&i1 >> wrapped_shift, wrapped_result);
+        assert_eq!(i1 >> (&wrapped_shift), wrapped_result);
+        assert_eq!(&i1 >> (&wrapped_shift), wrapped_result);
         tmp = i1;
         tmp >>= wrapped_shift;
-        assert_eq!(tmp, wrapped_shr);
+        assert_eq!(tmp, wrapped_result);
         tmp = i1;
         tmp >>= &wrapped_shift;
-        assert_eq!(tmp, wrapped_shr);
+        assert_eq!(tmp, wrapped_result);
 
         // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| i1 >> overflown_shift, wrapped_shr);
-        assert_debug_panics(|| &i1 >> overflown_shift, wrapped_shr);
-        assert_debug_panics(|| i1 >> (&overflown_shift), wrapped_shr);
-        assert_debug_panics(|| &i1 >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(|| i1 >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| &i1 >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| i1 >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &i1 >> (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
                 let mut tmp = i1;
                 tmp >>= overflown_shift;
                 tmp
             },
-            wrapped_shr,
+            wrapped_result,
         );
         assert_debug_panics(
             || {
@@ -3831,7 +3831,7 @@ mod tests {
                 tmp >>= &overflown_shift;
                 tmp
             },
-            wrapped_shr,
+            wrapped_result,
         );
     }
 
@@ -3859,7 +3859,7 @@ mod tests {
         }
 
         // Non-overflowing left shift
-        let test_overflowing_shl = |rhs| {
+        let test_left_shift = |rhs| {
             test_overflowing(
                 index,
                 rhs,
@@ -3884,18 +3884,18 @@ mod tests {
         };
         let wrapped_shift = rhs % BitmapIndex::EFFECTIVE_BITS;
         let expected_wrapped = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
-        let (wrapped, overflow) = test_overflowing_shl(wrapped_shift);
+        let (wrapped, overflow) = test_left_shift(wrapped_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(!overflow);
 
         // Overflowing left shift
         let overflown_shift = rhs.saturating_add(BitmapIndex::EFFECTIVE_BITS);
-        let (wrapped, overflow) = test_overflowing_shl(overflown_shift);
+        let (wrapped, overflow) = test_left_shift(overflown_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(overflow);
 
         // Non-overflowing right shift
-        let test_overflowing_shr = |rhs| {
+        let test_right_shift = |rhs| {
             test_overflowing(
                 index,
                 rhs,
@@ -3919,22 +3919,26 @@ mod tests {
             )
         };
         let expected_wrapped = BitmapIndex(index.0 >> wrapped_shift);
-        let (wrapped, overflow) = test_overflowing_shr(wrapped_shift);
+        let (wrapped, overflow) = test_right_shift(wrapped_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(!overflow);
 
         // Overflowing right shift
-        let (wrapped, overflow) = test_overflowing_shr(overflown_shift);
+        let (wrapped, overflow) = test_right_shift(overflown_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(overflow);
 
         // Rotate can be expressed in terms of shifts and binary ops
-        let expected_rol = (index << wrapped_shift)
-            | index.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - wrapped_shift);
-        assert_eq!(index.rotate_left(rhs), expected_rol);
-        let expected_ror = (index >> wrapped_shift)
-            | index.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - wrapped_shift);
-        assert_eq!(index.rotate_right(rhs), expected_ror);
+        assert_eq!(
+            index.rotate_left(rhs),
+            (index << wrapped_shift)
+                | index.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - wrapped_shift)
+        );
+        assert_eq!(
+            index.rotate_right(rhs),
+            (index >> wrapped_shift)
+                | index.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - wrapped_shift)
+        );
     }
 
     /// Test index-usize binary operations
@@ -3954,57 +3958,57 @@ mod tests {
         );
 
         // Bitwise AND passes through (no risk of setting high-order bit)
-        let expected_and = BitmapIndex(index.0 & (other as c_uint));
-        assert_eq!(index & other, expected_and);
-        assert_eq!(other & index, expected_and);
-        assert_eq!(&index & other, expected_and);
-        assert_eq!(&other & index, expected_and);
-        assert_eq!(index & (&other), expected_and);
-        assert_eq!(other & (&index), expected_and);
-        assert_eq!(&index & (&other), expected_and);
-        assert_eq!(&other & (&index), expected_and);
+        let expected = BitmapIndex(index.0 & (other as c_uint));
+        assert_eq!(index & other, expected);
+        assert_eq!(other & index, expected);
+        assert_eq!(&index & other, expected);
+        assert_eq!(&other & index, expected);
+        assert_eq!(index & (&other), expected);
+        assert_eq!(other & (&index), expected);
+        assert_eq!(&index & (&other), expected);
+        assert_eq!(&other & (&index), expected);
         let mut tmp = index;
         tmp &= other;
-        assert_eq!(tmp, expected_and);
+        assert_eq!(tmp, expected);
         tmp = index;
         tmp &= &other;
-        assert_eq!(tmp, expected_and);
+        assert_eq!(tmp, expected);
 
         // Non-overflowing bitwise OR
         let small_other = other & usize::from(BitmapIndex::MAX);
-        let expected_or = BitmapIndex(index.0 | (small_other as c_uint));
-        assert_eq!(index | small_other, expected_or);
-        assert_eq!(small_other | index, expected_or);
-        assert_eq!(&index | small_other, expected_or);
-        assert_eq!(small_other | &index, expected_or);
-        assert_eq!(index | &small_other, expected_or);
-        assert_eq!(&small_other | index, expected_or);
-        assert_eq!(&index | &small_other, expected_or);
-        assert_eq!(&small_other | &index, expected_or);
+        let expected = BitmapIndex(index.0 | (small_other as c_uint));
+        assert_eq!(index | small_other, expected);
+        assert_eq!(small_other | index, expected);
+        assert_eq!(&index | small_other, expected);
+        assert_eq!(small_other | &index, expected);
+        assert_eq!(index | &small_other, expected);
+        assert_eq!(&small_other | index, expected);
+        assert_eq!(&index | &small_other, expected);
+        assert_eq!(&small_other | &index, expected);
         tmp = index;
         tmp |= small_other;
-        assert_eq!(tmp, expected_or);
+        assert_eq!(tmp, expected);
         tmp = index;
         tmp |= &small_other;
-        assert_eq!(tmp, expected_or);
+        assert_eq!(tmp, expected);
 
         // Overflowing bitwise OR
         let large_other = other.max(1usize << BitmapIndex::EFFECTIVE_BITS);
-        assert_debug_panics(|| index | large_other, expected_or);
-        assert_debug_panics(|| large_other | index, expected_or);
-        assert_debug_panics(|| &index | large_other, expected_or);
-        assert_debug_panics(|| large_other | &index, expected_or);
-        assert_debug_panics(|| index | &large_other, expected_or);
-        assert_debug_panics(|| &large_other | index, expected_or);
-        assert_debug_panics(|| &index | &large_other, expected_or);
-        assert_debug_panics(|| &large_other | &index, expected_or);
+        assert_debug_panics(|| index | large_other, expected);
+        assert_debug_panics(|| large_other | index, expected);
+        assert_debug_panics(|| &index | large_other, expected);
+        assert_debug_panics(|| large_other | &index, expected);
+        assert_debug_panics(|| index | &large_other, expected);
+        assert_debug_panics(|| &large_other | index, expected);
+        assert_debug_panics(|| &index | &large_other, expected);
+        assert_debug_panics(|| &large_other | &index, expected);
         assert_debug_panics(
             || {
                 let mut tmp = index;
                 tmp |= large_other;
                 tmp
             },
-            expected_or,
+            expected,
         );
         assert_debug_panics(
             || {
@@ -4012,42 +4016,42 @@ mod tests {
                 tmp |= &large_other;
                 tmp
             },
-            expected_or,
+            expected,
         );
 
         // Non-overflowing bitwise XOR
-        let expected_xor = BitmapIndex(index.0 ^ (small_other as c_uint));
-        assert_eq!(index ^ small_other, expected_xor);
-        assert_eq!(small_other ^ index, expected_xor);
-        assert_eq!(&index ^ small_other, expected_xor);
-        assert_eq!(small_other ^ &index, expected_xor);
-        assert_eq!(index ^ &small_other, expected_xor);
-        assert_eq!(&small_other ^ index, expected_xor);
-        assert_eq!(&index ^ &small_other, expected_xor);
-        assert_eq!(&small_other ^ &index, expected_xor);
+        let expected = BitmapIndex(index.0 ^ (small_other as c_uint));
+        assert_eq!(index ^ small_other, expected);
+        assert_eq!(small_other ^ index, expected);
+        assert_eq!(&index ^ small_other, expected);
+        assert_eq!(small_other ^ &index, expected);
+        assert_eq!(index ^ &small_other, expected);
+        assert_eq!(&small_other ^ index, expected);
+        assert_eq!(&index ^ &small_other, expected);
+        assert_eq!(&small_other ^ &index, expected);
         tmp = index;
         tmp ^= small_other;
-        assert_eq!(tmp, expected_xor);
+        assert_eq!(tmp, expected);
         tmp = index;
         tmp ^= &small_other;
-        assert_eq!(tmp, expected_xor);
+        assert_eq!(tmp, expected);
 
         // Overflowing bitwise XOR
-        assert_debug_panics(|| index ^ large_other, expected_xor);
-        assert_debug_panics(|| large_other ^ index, expected_xor);
-        assert_debug_panics(|| &index ^ large_other, expected_xor);
-        assert_debug_panics(|| large_other ^ &index, expected_xor);
-        assert_debug_panics(|| index ^ &large_other, expected_xor);
-        assert_debug_panics(|| &large_other ^ index, expected_xor);
-        assert_debug_panics(|| &index ^ &large_other, expected_xor);
-        assert_debug_panics(|| &large_other ^ &index, expected_xor);
+        assert_debug_panics(|| index ^ large_other, expected);
+        assert_debug_panics(|| large_other ^ index, expected);
+        assert_debug_panics(|| &index ^ large_other, expected);
+        assert_debug_panics(|| large_other ^ &index, expected);
+        assert_debug_panics(|| index ^ &large_other, expected);
+        assert_debug_panics(|| &large_other ^ index, expected);
+        assert_debug_panics(|| &index ^ &large_other, expected);
+        assert_debug_panics(|| &large_other ^ &index, expected);
         assert_debug_panics(
             || {
                 let mut tmp = index;
                 tmp ^= large_other;
                 tmp
             },
-            expected_xor,
+            expected,
         );
         assert_debug_panics(
             || {
@@ -4055,7 +4059,7 @@ mod tests {
                 tmp ^= &large_other;
                 tmp
             },
-            expected_xor,
+            expected,
         );
 
         // Multiplication by an usize in BitmapIndex range works as usual
@@ -4190,31 +4194,31 @@ mod tests {
         // Non-overflowing left shift must keep high-order bit cleared
         let effective_bits = BitmapIndex::EFFECTIVE_BITS as usize;
         let wrapped_shift = other % effective_bits;
-        let wrapped_shl = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
-        assert_eq!(index << wrapped_shift, wrapped_shl);
-        assert_eq!(&index << wrapped_shift, wrapped_shl);
-        assert_eq!(index << (&wrapped_shift), wrapped_shl);
-        assert_eq!(&index << (&wrapped_shift), wrapped_shl);
+        let wrapped_result = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
+        assert_eq!(index << wrapped_shift, wrapped_result);
+        assert_eq!(&index << wrapped_shift, wrapped_result);
+        assert_eq!(index << (&wrapped_shift), wrapped_result);
+        assert_eq!(&index << (&wrapped_shift), wrapped_result);
         tmp = index;
         tmp <<= wrapped_shift;
-        assert_eq!(tmp, wrapped_shl);
+        assert_eq!(tmp, wrapped_result);
         tmp = index;
         tmp <<= &wrapped_shift;
-        assert_eq!(tmp, wrapped_shl);
+        assert_eq!(tmp, wrapped_result);
 
         // Overflowing left shift should panic or wraparound
         let overflown_shift = other.saturating_add(effective_bits);
-        assert_debug_panics(|| index << overflown_shift, wrapped_shl);
-        assert_debug_panics(|| &index << overflown_shift, wrapped_shl);
-        assert_debug_panics(|| index << (&overflown_shift), wrapped_shl);
-        assert_debug_panics(|| &index << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(|| index << overflown_shift, wrapped_result);
+        assert_debug_panics(|| &index << overflown_shift, wrapped_result);
+        assert_debug_panics(|| index << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &index << (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
                 let mut tmp = index;
                 tmp <<= overflown_shift;
                 tmp
             },
-            wrapped_shl,
+            wrapped_result,
         );
         assert_debug_panics(
             || {
@@ -4222,34 +4226,34 @@ mod tests {
                 tmp <<= &overflown_shift;
                 tmp
             },
-            wrapped_shl,
+            wrapped_result,
         );
 
         // Non-overflowing right shift can pass through
-        let wrapped_shr = BitmapIndex(index.0 >> wrapped_shift);
-        assert_eq!(index >> wrapped_shift, wrapped_shr);
-        assert_eq!(&index >> wrapped_shift, wrapped_shr);
-        assert_eq!(index >> (&wrapped_shift), wrapped_shr);
-        assert_eq!(&index >> (&wrapped_shift), wrapped_shr);
+        let wrapped_result = BitmapIndex(index.0 >> wrapped_shift);
+        assert_eq!(index >> wrapped_shift, wrapped_result);
+        assert_eq!(&index >> wrapped_shift, wrapped_result);
+        assert_eq!(index >> (&wrapped_shift), wrapped_result);
+        assert_eq!(&index >> (&wrapped_shift), wrapped_result);
         tmp = index;
         tmp >>= wrapped_shift;
-        assert_eq!(tmp, wrapped_shr);
+        assert_eq!(tmp, wrapped_result);
         tmp = index;
         tmp >>= &wrapped_shift;
-        assert_eq!(tmp, wrapped_shr);
+        assert_eq!(tmp, wrapped_result);
 
         // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| index >> overflown_shift, wrapped_shr);
-        assert_debug_panics(|| &index >> overflown_shift, wrapped_shr);
-        assert_debug_panics(|| index >> (&overflown_shift), wrapped_shr);
-        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(|| index >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| &index >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| index >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
                 let mut tmp = index;
                 tmp >>= overflown_shift;
                 tmp
             },
-            wrapped_shr,
+            wrapped_result,
         );
         assert_debug_panics(
             || {
@@ -4257,7 +4261,7 @@ mod tests {
                 tmp >>= &overflown_shift;
                 tmp
             },
-            wrapped_shr,
+            wrapped_result,
         );
     }
 
@@ -4354,31 +4358,31 @@ mod tests {
         // Non-overflowing left shift must keep high-order bit cleared
         let effective_bits = BitmapIndex::EFFECTIVE_BITS as isize;
         let wrapped_shift = other.rem_euclid(effective_bits);
-        let wrapped_shl = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
-        assert_eq!(index << wrapped_shift, wrapped_shl);
-        assert_eq!(&index << wrapped_shift, wrapped_shl);
-        assert_eq!(index << (&wrapped_shift), wrapped_shl);
-        assert_eq!(&index << (&wrapped_shift), wrapped_shl);
+        let wrapped_result = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
+        assert_eq!(index << wrapped_shift, wrapped_result);
+        assert_eq!(&index << wrapped_shift, wrapped_result);
+        assert_eq!(index << (&wrapped_shift), wrapped_result);
+        assert_eq!(&index << (&wrapped_shift), wrapped_result);
         let mut tmp = index;
         tmp <<= wrapped_shift;
-        assert_eq!(tmp, wrapped_shl);
+        assert_eq!(tmp, wrapped_result);
         tmp = index;
         tmp <<= &wrapped_shift;
-        assert_eq!(tmp, wrapped_shl);
+        assert_eq!(tmp, wrapped_result);
 
         // Overflowing left shift should panic or wraparound
         let overflown_shift = other.saturating_add(effective_bits);
-        assert_debug_panics(|| index << overflown_shift, wrapped_shl);
-        assert_debug_panics(|| &index << overflown_shift, wrapped_shl);
-        assert_debug_panics(|| index << (&overflown_shift), wrapped_shl);
-        assert_debug_panics(|| &index << (&overflown_shift), wrapped_shl);
+        assert_debug_panics(|| index << overflown_shift, wrapped_result);
+        assert_debug_panics(|| &index << overflown_shift, wrapped_result);
+        assert_debug_panics(|| index << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &index << (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
                 let mut tmp = index;
                 tmp <<= overflown_shift;
                 tmp
             },
-            wrapped_shl,
+            wrapped_result,
         );
         assert_debug_panics(
             || {
@@ -4386,35 +4390,35 @@ mod tests {
                 tmp <<= &overflown_shift;
                 tmp
             },
-            wrapped_shl,
+            wrapped_result,
         );
 
         // Non-overflowing right shift must keep high-order bit cleared as well
         // (with signed operands, a shift of -EFFECTIVE_BITS is possible!)
-        let wrapped_shr = BitmapIndex((index.0 >> wrapped_shift) & BitmapIndex::MAX.0);
-        assert_eq!(index >> wrapped_shift, wrapped_shr);
-        assert_eq!(&index >> wrapped_shift, wrapped_shr);
-        assert_eq!(index >> (&wrapped_shift), wrapped_shr);
-        assert_eq!(&index >> (&wrapped_shift), wrapped_shr);
+        let wrapped_result = BitmapIndex((index.0 >> wrapped_shift) & BitmapIndex::MAX.0);
+        assert_eq!(index >> wrapped_shift, wrapped_result);
+        assert_eq!(&index >> wrapped_shift, wrapped_result);
+        assert_eq!(index >> (&wrapped_shift), wrapped_result);
+        assert_eq!(&index >> (&wrapped_shift), wrapped_result);
         tmp = index;
         tmp >>= wrapped_shift;
-        assert_eq!(tmp, wrapped_shr);
+        assert_eq!(tmp, wrapped_result);
         tmp = index;
         tmp >>= &wrapped_shift;
-        assert_eq!(tmp, wrapped_shr);
+        assert_eq!(tmp, wrapped_result);
 
         // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| index >> overflown_shift, wrapped_shr);
-        assert_debug_panics(|| &index >> overflown_shift, wrapped_shr);
-        assert_debug_panics(|| index >> (&overflown_shift), wrapped_shr);
-        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_shr);
+        assert_debug_panics(|| index >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| &index >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| index >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
                 let mut tmp = index;
                 tmp >>= overflown_shift;
                 tmp
             },
-            wrapped_shr,
+            wrapped_result,
         );
         assert_debug_panics(
             || {
@@ -4422,7 +4426,7 @@ mod tests {
                 tmp >>= &overflown_shift;
                 tmp
             },
-            wrapped_shr,
+            wrapped_result,
         );
     }
 

@@ -2631,6 +2631,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::similar_names)]
     #[quickcheck]
     fn from_range_op_bitmap(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
         let ranged_bitmap = Bitmap::from_range(range.clone());
@@ -2967,6 +2968,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::similar_names)]
     #[quickcheck]
     fn arbitrary_op_bitmap(bitmap: Bitmap, other: Bitmap) {
         let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
