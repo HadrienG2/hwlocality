@@ -112,7 +112,6 @@
     clippy::redundant_clone,
     clippy::redundant_closure_for_method_calls,
     clippy::redundant_feature_names,
-    clippy::redundant_pub_crate,
     clippy::ref_option_ref,
     clippy::ref_patterns,
     clippy::rest_pat_in_fully_bound_structs,
