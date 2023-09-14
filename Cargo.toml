@@ -7,10 +7,9 @@ categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memor
 keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
 description = "Rust bindings for the hwloc hardware locality library"
 repository = "https://github.com/HadrienG2/hwlocality"
-documentation = "http://docs.rs/hwlocality/"
-build = "build.rs"
 links = "hwloc"
-readme = "README.md"
+# TODO: Determine MSRV, set it here and in clippy.toml
+#       Drop oncecell dep once MSRV gets >= 1.70
 rust-version = "1.67.1"
 edition = "2021"
 
