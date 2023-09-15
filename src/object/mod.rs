@@ -1121,6 +1121,9 @@ impl TopologyObject {
     /// for a list of subtype strings that hwloc can emit.
     #[doc(alias = "hwloc_obj::subtype")]
     pub fn subtype(&self) -> Option<&CStr> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_str(&self.subtype) }
     }
 
@@ -1143,6 +1146,9 @@ impl TopologyObject {
     /// string is more useful than numerical indices.
     #[doc(alias = "hwloc_obj::name")]
     pub fn name(&self) -> Option<&CStr> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_str(&self.name) }
     }
 
