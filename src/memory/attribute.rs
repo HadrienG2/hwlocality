@@ -77,10 +77,14 @@ impl Topology {
     ) -> Result<Option<MemoryAttribute<'_>>, NulError> {
         let name = LibcString::new(name)?;
         let mut id = MaybeUninit::uninit();
+        // SAFETY: - Topology is assumed to be valid as an invariant
+        //         - name.borrow() is a C string by construction
+        //         - id is documented to be an out parameter
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
             ffi::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
         });
         match res {
+            // SAFETY: If hwloc indicates success, it should have initialized id
             Ok(_positive) => Ok(Some(MemoryAttribute::wrap(self, unsafe {
                 id.assume_init()
             }))),
@@ -108,12 +112,13 @@ impl Topology {
     /// to the nodeset of that object.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
-    pub fn local_numa_nodes<'topology>(
-        &'topology self,
-        target: impl Into<TargetNumaNodes<'topology>>,
+    pub fn local_numa_nodes<'target>(
+        &self,
+        target: impl Into<TargetNumaNodes<'target>>,
     ) -> Result<Vec<&TopologyObject>, RawHwlocError> {
         // Prepare to call hwloc
-        let (location, flags) = target.into().into_raw_params();
+        // SAFETY: Will only be used before returning from this function
+        let (location, flags) = unsafe { target.into().into_raw_params() };
         let mut nr = 0;
         let call_ffi = |nr_mut, out_ptr| {
             errors::call_hwloc_int_normal("hwloc_get_local_numanode_objs", || unsafe {
@@ -285,7 +290,8 @@ impl MemoryAttributeBuilder<'_, '_> {
         // Post-process results to fit hwloc and borrow checker expectations
         let initiators = initiators.map(|vec| {
             vec.into_iter()
-                .map(MemoryAttributeLocation::into_raw)
+                // SAFETY: Will only be used before returning from this function
+                .map(|initiator| unsafe { initiator.into_raw() })
                 .collect::<Vec<_>>()
         });
         let initiator_ptrs = initiators
@@ -487,7 +493,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_name")]
-    pub fn name(&self) -> Result<&CStr, MemoryAttributeQueryError> {
+    pub fn name(&self) -> Result<&'topology CStr, MemoryAttributeQueryError> {
         let mut name = ptr::null();
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
             ffi::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
@@ -566,12 +572,13 @@ impl<'topology> MemoryAttribute<'topology> {
     /// [`BadInitiator`]: MemoryAttributeQueryError::BadInitiator
     /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_value")]
-    pub fn value(
+    pub fn value<'initiator>(
         &self,
-        initiator: Option<impl Into<MemoryAttributeLocation<'topology>>>,
+        initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
         target_node: &TopologyObject,
     ) -> Result<u64, MemoryAttributeQueryError> {
-        let initiator = self.checked_initiator(initiator.map(Into::into), false)?;
+        // SAFETY: Will only be used before returning from this function
+        let initiator = unsafe { self.checked_initiator(initiator.map(Into::into), false)? };
         let mut value = u64::MAX;
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
             ffi::hwloc_memattr_get_value(
@@ -613,11 +620,12 @@ impl<'topology> MemoryAttribute<'topology> {
     /// [`BadInitiator`]: MemoryAttributeQueryError::BadInitiator
     /// [`UnknownAttribute`]: MemoryAttributeQueryError::UnknownAttribute
     #[doc(alias = "hwloc_memattr_get_best_target")]
-    pub fn best_target(
+    pub fn best_target<'initiator>(
         &self,
-        initiator: Option<impl Into<MemoryAttributeLocation<'topology>>>,
+        initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
     ) -> Result<Option<(&'topology TopologyObject, u64)>, MemoryAttributeQueryError> {
-        let initiator = self.checked_initiator(initiator.map(Into::into), false)?;
+        // SAFETY: Will only be used before returning from this function,
+        let initiator = unsafe { self.checked_initiator(initiator.map(Into::into), false)? };
         let mut best_target = ptr::null();
         let opt = self.get_best(
             "hwloc_memattr_get_best_target",
@@ -662,7 +670,8 @@ impl<'topology> MemoryAttribute<'topology> {
         }
 
         // Run it
-        let mut best_initiator = RawLocation::null();
+        // SAFETY: Input value will not be read by hwloc
+        let mut best_initiator = unsafe { RawLocation::null() };
         let opt = self.get_best(
             "hwloc_memattr_get_best_initiator",
             |topology, attribute, flags, value| unsafe {
@@ -703,13 +712,15 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// [`BadInitiator`]: MemoryAttributeQueryError::BadInitiator
     #[doc(alias = "hwloc_memattr_get_targets")]
-    pub fn targets(
+    pub fn targets<'initiator>(
         &self,
-        initiator: Option<impl Into<MemoryAttributeLocation<'topology>>>,
+        initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
     ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
     {
         // Check parameters and query target list + associated values
-        let initiator = self.checked_initiator(initiator.map(Into::into), true)?;
+        // SAFETY: - Will only be used before returning from this function,
+        //         - get_targets is documented to accept a NULL initiator
+        let initiator = unsafe { self.checked_initiator(initiator.map(Into::into), true)? };
         let (targets, values) = self.array_query(
             "hwloc_memattr_get_targets",
             ptr::null(),
@@ -745,8 +756,10 @@ impl<'topology> MemoryAttribute<'topology> {
     pub fn initiators(
         &self,
         target_node: &TopologyObject,
-    ) -> Result<(Vec<MemoryAttributeLocation<'_>>, Vec<u64>), HybridError<MemoryAttributeQueryError>>
-    {
+    ) -> Result<
+        (Vec<MemoryAttributeLocation<'topology>>, Vec<u64>),
+        HybridError<MemoryAttributeQueryError>,
+    > {
         // Validate the query
         if !self.flags()?.contains(MemoryAttributeFlags::NEED_INITIATOR) {
             return Err(MemoryAttributeQueryError::NoInitiator.into());
@@ -755,7 +768,8 @@ impl<'topology> MemoryAttribute<'topology> {
         // Run it
         let (initiators, values) = self.array_query(
             "hwloc_memattr_get_initiators",
-            RawLocation::null(),
+            // SAFETY: Input value will not be read by hwloc
+            unsafe { RawLocation::null() },
             |topology, attribute, flags, nr, initiators, values| unsafe {
                 ffi::hwloc_memattr_get_initiators(
                     topology,
@@ -874,9 +888,15 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// If `is_optional` is true, it is okay not to provide an initiator even
     /// if the memory attribute has flag [`MemoryAttributeFlags::NEED_INITIATOR`].
-    fn checked_initiator(
+    ///
+    /// # Safety
+    ///
+    /// - Do not use the output after the source lifetime has expired.
+    /// - is_optional should only be set to `true` for recipients that are
+    ///   documented to accept NULL initiators.
+    unsafe fn checked_initiator<'initiator>(
         &self,
-        initiator: Option<MemoryAttributeLocation<'_>>,
+        initiator: Option<MemoryAttributeLocation<'initiator>>,
         is_optional: bool,
     ) -> Result<RawLocation, MemoryAttributeQueryError> {
         let flags = self.flags()?;
@@ -888,8 +908,12 @@ impl<'topology> MemoryAttribute<'topology> {
         is_good
             .then(|| {
                 initiator
-                    .map(MemoryAttributeLocation::into_raw)
-                    .unwrap_or_else(RawLocation::null)
+                    // SAFETY: Per input precondition
+                    .map(|initiator| unsafe { initiator.into_raw() })
+                    // SAFETY: Per input precondition + check above that
+                    //         initiator can only be none if initiator is
+                    //         optional (and thus we'll only emit null then)
+                    .unwrap_or_else(|| unsafe { RawLocation::null() })
             })
             .ok_or(MemoryAttributeQueryError::BadInitiator)
     }
@@ -945,7 +969,11 @@ pub enum MemoryAttributeLocation<'target> {
 //
 impl<'target> MemoryAttributeLocation<'target> {
     /// Convert to the C representation
-    pub(crate) fn into_raw(self) -> RawLocation {
+    ///
+    /// # Safety
+    ///
+    /// Do not use the output after the source lifetime has expired
+    pub(crate) unsafe fn into_raw(self) -> RawLocation {
         match self {
             Self::CpuSet(cpuset) => RawLocation {
                 ty: RawLocationType::CPUSET,
@@ -969,26 +997,39 @@ impl<'target> MemoryAttributeLocation<'target> {
         _topology: &'target Topology,
         raw: RawLocation,
     ) -> Result<Self, UnknownLocationType> {
-        match raw.ty {
-            RawLocationType::CPUSET => unsafe {
-                let ptr = NonNull::new(raw.location.cpuset.cast_mut())
-                    .expect("Unexpected null CpuSet from hwloc");
-                let cpuset = CpuSet::borrow_from_nonnull(ptr);
-                Ok(MemoryAttributeLocation::CpuSet(cpuset))
-            },
-            RawLocationType::OBJECT => unsafe {
-                let ptr = NonNull::new(raw.location.object.cast_mut())
-                    .expect("Unexpected null TopologyObject from hwloc");
-                Ok(MemoryAttributeLocation::Object(ptr.as_ref()))
-            },
-            unknown => Err(UnknownLocationType(unknown.0)),
+        // SAFETY: - Location type information from hwloc is assumed to be
+        //           correct and tells us which union variant we should read.
+        //         - Pointer is assumed to point to a valid CpuSet or
+        //           TopologyObject that is owned by the active topology, and
+        //           thus has lifetime 'target.
+        unsafe {
+            match raw.ty {
+                RawLocationType::CPUSET => {
+                    let ptr = NonNull::new(raw.location.cpuset.cast_mut())
+                        .expect("Unexpected null CpuSet from hwloc");
+                    let cpuset = CpuSet::borrow_from_nonnull(ptr);
+                    Ok(MemoryAttributeLocation::CpuSet(cpuset))
+                }
+                RawLocationType::OBJECT => {
+                    let ptr = NonNull::new(raw.location.object.cast_mut())
+                        .expect("Unexpected null TopologyObject from hwloc");
+                    Ok(MemoryAttributeLocation::Object(ptr.as_ref()))
+                }
+                unknown => Err(UnknownLocationType(unknown.0)),
+            }
         }
+    }
+}
+//
+impl<'target> From<BitmapRef<'target, CpuSet>> for MemoryAttributeLocation<'target> {
+    fn from(cpuset: BitmapRef<'target, CpuSet>) -> Self {
+        Self::CpuSet(cpuset)
     }
 }
 //
 impl<'target> From<&'target CpuSet> for MemoryAttributeLocation<'target> {
     fn from(cpuset: &'target CpuSet) -> Self {
-        Self::CpuSet(cpuset.into())
+        BitmapRef::from(cpuset).into()
     }
 }
 //
@@ -1003,21 +1044,28 @@ impl<'target> From<&'target TopologyObject> for MemoryAttributeLocation<'target>
 #[error("hwloc provided a location of unknown type {0}")]
 struct UnknownLocationType(c_int);
 
-/// C version of Location
+/// C version of [`MemoryAttributeLocation`]
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub(crate) struct RawLocation {
+    /// Indicates which variant of `location` is valid
     ty: RawLocationType,
+
+    /// Holds the concrete location information
     location: RawLocationUnion,
 }
 //
 impl RawLocation {
-    /// Produce an invalid state, which hwloc is assumed not to observe
-    fn null() -> Self {
+    /// Produce an invalid state
+    ///
+    /// # Safety
+    ///
+    /// Do not expose this location to an hwloc function that actually reads it
+    unsafe fn null() -> Self {
         Self {
-            ty: RawLocationType(0),
+            ty: RawLocationType::OBJECT,
             location: RawLocationUnion {
-                cpuset: ptr::null(),
+                object: ptr::null(),
             },
         }
     }
@@ -1038,11 +1086,14 @@ impl RawLocationType {
     pub(crate) const OBJECT: Self = Self(0);
 }
 
-/// Actual location
+/// Concrete location information
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub(crate) union RawLocationUnion {
+    /// Described via a cpuset
     cpuset: *const RawBitmap,
+
+    /// Described via a topology object
     object: *const TopologyObject,
 }
 
@@ -1084,7 +1135,7 @@ bitflags! {
 
 /// Target NUMA nodes
 #[derive(Debug)]
-pub enum TargetNumaNodes<'topology> {
+pub enum TargetNumaNodes<'target> {
     /// Nodes local to some object
     Local {
         /// Initiator which NUMA nodes should be local to
@@ -1092,7 +1143,7 @@ pub enum TargetNumaNodes<'topology> {
         /// By default, the search only returns NUMA nodes whose locality is
         /// exactly the given `location`. More nodes can be selected using
         /// `flags`.
-        location: MemoryAttributeLocation<'topology>,
+        location: MemoryAttributeLocation<'target>,
 
         /// Flags for enlarging the NUMA node search
         flags: LocalNUMANodeFlags,
@@ -1105,17 +1156,22 @@ pub enum TargetNumaNodes<'topology> {
 //
 impl TargetNumaNodes<'_> {
     /// Convert to the inputs expected by `hwloc_get_local_numanode_objs`
-    pub(crate) fn into_raw_params(self) -> (RawLocation, LocalNUMANodeFlags) {
+    ///
+    /// # Safety
+    ///
+    /// Do not use the output after the source lifetime has expired
+    pub(crate) unsafe fn into_raw_params(self) -> (RawLocation, LocalNUMANodeFlags) {
         match self {
-            Self::Local { location, flags } => (location.into_raw(), flags),
-            Self::All => (RawLocation::null(), LocalNUMANodeFlags::ALL),
+            // SAFETY: Per function precondition
+            Self::Local { location, flags } => (unsafe { location.into_raw() }, flags),
+            // SAFETY: In presence of the ALL flag, the initiator is ignored,
+            //         so a null location is fine.
+            Self::All => (unsafe { RawLocation::null() }, LocalNUMANodeFlags::ALL),
         }
     }
 }
 //
-impl<'topology, T: Into<MemoryAttributeLocation<'topology>>> From<T>
-    for TargetNumaNodes<'topology>
-{
+impl<'target, T: Into<MemoryAttributeLocation<'target>>> From<T> for TargetNumaNodes<'target> {
     fn from(location: T) -> Self {
         Self::Local {
             location: location.into(),

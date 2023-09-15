@@ -462,7 +462,8 @@ impl TopologyEditor<'_> {
 // # Safety
 //
 // The pointers objs and values should not be replaced, reallocated, freed, etc
-// and thus nbobj should not be changed either.
+// and thus nbobj should not be changed either. As a type invariant, they are
+// assumed to be always valid and devoid of mutable aliases.
 #[repr(C)]
 pub(crate) struct RawDistances {
     /// Number of objects in the `objs` array
@@ -534,7 +535,14 @@ impl RawDistances {
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
 //
+// --- Implementation details
+//
 // Upstream inspiration: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
+//
+// # Safety
+//
+// As a type invariant, the inner pointer is assumed to always point to a valid,
+// non-aliased RawDistances struct.
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
     /// Pointer to a valid RawDistances struct that originates from `topology`

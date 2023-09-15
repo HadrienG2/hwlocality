@@ -1876,20 +1876,29 @@ impl TopologyObject {
 impl TopologyObject {
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter<'_>, verbose: bool) -> fmt::Result {
-        let type_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
-        });
+        // SAFETY: This is indeed an snprintf-like API, we are passing it a
+        //         TopologyObject pointer which is trusted to be valid, and
+        //         verbose translates nicely into a C-style boolean.
+        let (type_chars, attr_chars) = unsafe {
+            let type_chars = ffi::call_snprintf(|buf, len| {
+                ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
+            });
+            let separator = if f.alternate() {
+                b"\n  \0".as_ptr()
+            } else {
+                b"  \0".as_ptr()
+            }
+            .cast::<c_char>();
+            // SAFETY: separator is a valid C string
+            let attr_chars = ffi::call_snprintf(|buf, len| {
+                ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
+            });
+            (type_chars, attr_chars)
+        };
 
-        let separator = if f.alternate() {
-            b"\n  \0".as_ptr()
-        } else {
-            b"  \0".as_ptr()
-        }
-        .cast::<c_char>();
-        let attr_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
-        });
-
+        // SAFETY: The output of call_snprintf should be valid C strings and
+        //         we're not touching type_chars and attr_chars while type_str
+        //         and attr_str are live.
         unsafe {
             let type_str = CStr::from_ptr(type_chars.as_ptr()).to_string_lossy();
             let attr_str = CStr::from_ptr(attr_chars.as_ptr()).to_string_lossy();

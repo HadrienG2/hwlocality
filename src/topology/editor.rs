@@ -109,10 +109,12 @@ impl Topology {
     doc = "- [Kinds of CPU cores](#kinds-of-cpu-cores) (hwloc 2.4+)"
 )]
 //
-// NOTE: Not all of the TopologyEditor API is implemented in the core editor.rs
-//       module. Instead, functionality which is very strongly related to
-//       one other code module is implemented in that module, leaving the editor
-//       module focused on basic lifecycle and cross-cutting issues.
+// --- Implementation details
+//
+// Not all of the TopologyEditor API is implemented in the core editor.rs
+// module. Instead, functionality which is very strongly related to one other
+// code module is implemented in that module, leaving the editor module focused
+// on basic lifecycle and cross-cutting issues.
 #[derive(Debug)]
 pub struct TopologyEditor<'topology>(&'topology mut Topology);
 

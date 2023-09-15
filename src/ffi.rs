@@ -108,7 +108,19 @@ pub(crate) unsafe fn deref_str(p: &*mut c_char) -> Option<&CStr> {
 }
 
 /// Get text output from an snprintf-like function
-pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, usize) -> i32) -> Box<[c_char]> {
+///
+/// # Safety
+///
+/// `snprintf` must behave like the libc `snprintf()` function:
+///
+/// - If called with a null pointer and a zero length, it should return the
+///   length of the output string (without trailing zero).
+/// - If called with a pointer to a buffer and the length of that buffer, it
+///   should write text to the buffer (with a trailing zero) and not affect it
+///   in any other way.
+pub(crate) unsafe fn call_snprintf(
+    mut snprintf: impl FnMut(*mut c_char, usize) -> i32,
+) -> Box<[c_char]> {
     let len_i32 = snprintf(ptr::null_mut(), 0);
     let len =
         usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
@@ -118,26 +130,46 @@ pub(crate) fn call_snprintf(mut snprintf: impl FnMut(*mut c_char, usize) -> i32)
         len_i32,
         "Got inconsistent string length from an snprintf-like API"
     );
+    assert_eq!(
+        buf.last().copied(),
+        Some(0),
+        "Got non-NUL char at end of snprintf-like API output"
+    );
     buf.into()
 }
 
 /// Send the output of an snprintf-like function to a standard Rust formatter
+///
+/// # Safety
+///
+/// Same as [`call_snprintf()`].
 pub(crate) fn write_snprintf(
     f: &mut fmt::Formatter<'_>,
     snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> fmt::Result {
-    let text = call_snprintf(snprintf);
-    let text = unsafe { CStr::from_ptr(text.as_ptr()) }.to_string_lossy();
+    // SAFETY: Per input precondition
+    let buf = unsafe { call_snprintf(snprintf) };
+    // SAFETY: - The memory comes from a Box<[c_char]> ending with a
+    //           NUL terminator.
+    //         - The original buf is not modified or deallocated as long as the
+    //           text CStr pointing to it is live.
+    let text = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy();
     f.pad(&text)
 }
 
-/// Less error-prone CString alternative
+/// Less error-prone [`CString`] alternative
 ///
-/// This fulfills the same goal as CString (go from Rust &str to C *char)
-/// but with a less error-prone API and a libc-backed allocation whose ownership
-/// can safely be transferred to C libraries that manage memory using
+/// This fulfills the same goal as [`CString`] (go from Rust [`&str`] to C
+/// `*char`) but with a less error-prone API and a libc-backed allocation whose
+/// ownership can safely be transferred to C libraries that manage memory using
 /// malloc/free like hwloc.
-///
+//
+// --- Implementation details
+//
+// # Safety
+//
+// As a type invariant, the inner pointer is assumed to always point to a valid,
+// non-aliased C string.
 pub(crate) struct LibcString(NonNull<[c_char]>);
 //
 impl LibcString {
@@ -152,20 +184,35 @@ impl LibcString {
             return Err(NulError);
         }
 
-        // Allocate C string and wrap it in Self
+        // Make sure the output C string would follow Rust's rules
         let len = s.len() + 1;
-        let data = unsafe { libc::malloc(len) }.cast::<c_char>();
-        let data = NonNull::new(data).expect("Failed to allocate string buffer");
-        let buf = NonNull::from(unsafe { std::slice::from_raw_parts_mut(data.as_ptr(), len) });
+        assert!(
+            len < isize::MAX as usize,
+            "Cannot add a final NUL without breaking Rust's slice requirements"
+        );
+
+        // Allocate C string and wrap it in Self for auto-deallocation
+        // SAFETY: malloc is safe to call for any nonzero length
+        let buf = unsafe { libc::malloc(len) }.cast::<c_char>();
+        let buf = NonNull::new(buf).expect("Failed to allocate string buffer");
+        // Eventually using this slice pointer is safe because...
+        // - buf is valid for reads and writes for len bytes
+        // - Byte pointers are always aligned
+        // - buf will be initialized and unaliased by the time this pointer is
+        //   dereferenced
+        // - len was checked to fit Rust's slice size requirements
+        let buf = NonNull::slice_from_raw_parts(buf, len);
         let result = Self(buf);
 
         // Fill the string and return it
-        let bytes = unsafe { std::slice::from_raw_parts_mut(buf.as_ptr().cast::<u8>(), len) };
-        let (last, elements) = bytes
-            .split_last_mut()
-            .expect("Cannot happen, len >= 1 by construction");
-        elements.copy_from_slice(s.as_bytes());
-        *last = b'\0';
+        let start = buf.as_ptr().cast::<u8>();
+        // SAFETY: - By definition of a slice, the source range is correct
+        //         - It is OK to write s.len() bytes as buf is of len s.len() + 1
+        //         - Byte pointers are always aligned
+        //         - Overlap between unrelated memory allocations is impossible
+        unsafe { start.copy_from_nonoverlapping(s.as_ptr(), s.len()) };
+        // SAFETY: Index s.len() is in bounds in a buffer of length s.len() + 1
+        unsafe { start.add(s.len()).write(b'\0') };
         Ok(result)
     }
 
@@ -177,15 +224,15 @@ impl LibcString {
     /// Make the string momentarily available to a C API that expects `const char*`
     ///
     /// Make sure the C API does not retain any pointer to the string after
-    /// this LibcString is deallocated!
+    /// this [`LibcString`] is deallocated!
     pub(crate) fn borrow(&self) -> *const c_char {
         self.0.as_ptr().cast::<c_char>()
     }
 
     /// Transfer ownership of the string to a C API
     ///
-    /// Unlike with regular CString, it is safe to pass this string to a C API
-    /// that may later free it using `libc::free()`.
+    /// Unlike with regular [`CString`], it is safe to pass this string to a C
+    /// API that may later free it using `free()`.
     pub(crate) fn into_raw(self) -> *mut c_char {
         let ptr = self.0.as_ptr().cast::<c_char>();
         std::mem::forget(self);
@@ -195,21 +242,30 @@ impl LibcString {
 //
 impl Drop for LibcString {
     fn drop(&mut self) {
+        // SAFETY: self.0 comes from malloc and there is no way to deallocate it
+        //         other than Drop so double free cannot happen
         unsafe { libc::free(self.0.as_ptr().cast::<c_void>()) }
     }
 }
 //
+// SAFETY: LibcString exposes no internal mutability
 unsafe impl Send for LibcString {}
+//
+// SAFETY: LibcString exposes no internal mutability
 unsafe impl Sync for LibcString {}
 
 /// Rust model of a C incomplete type (struct declaration without a definition)
-/// From https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs
+/// From <https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs>
 #[repr(C)]
 pub(crate) struct IncompleteType {
+    /// Must have least one private field and no constructor
     _data: [u8; 0],
+
+    /// Marker ensures `!Send + !Sync + !Unpin`
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
 
+/// Generate the C ffi with proper linkage for this operating system
 macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]

@@ -24,8 +24,8 @@ impl NodeSet {
     /// [`Topology::cpuset()`], would be converted by this function into the
     /// set of all nodes that have some local CPUs.
     #[doc(alias = "hwloc_cpuset_to_nodeset")]
-    pub fn from_cpuset(topology: &Topology, cpuset: impl Borrow<CpuSet>) -> NodeSet {
-        let mut nodeset = NodeSet::new();
+    pub fn from_cpuset(topology: &Topology, cpuset: impl Borrow<CpuSet>) -> Self {
+        let mut nodeset = Self::new();
         for obj in topology.objects_covering_cpuset_at_depth(cpuset, Depth::NUMANode) {
             nodeset.set(obj.os_index().expect("NUMA nodes should have OS indices"));
         }

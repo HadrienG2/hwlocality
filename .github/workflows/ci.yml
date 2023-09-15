@@ -22,6 +22,7 @@ env:
   RUSTFLAGS: '-D warnings'
   HWLOC_VERSION: '2.9.1'
   HWLOC_VERSION_SHORT: '2.9' # Used in URL to official tarball/binaries
+  MRSV: '1.70.0'
 
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
@@ -145,7 +146,7 @@ jobs:
           - windows-latest
         rust:
           - stable
-          - 1.67.1  # Minimum supported Rust version
+          - 1.70.0  # Minimum supported Rust version
         features:
           - ''
           - '--features=hwloc-2_0_4'
@@ -218,7 +219,7 @@ jobs:
         rust:
           - beta
           - nightly
-          - 1.67.1  # Minimum supported Rust version (can be broken by deps)
+          - 1.70.0  # Minimum supported Rust version (can be broken by deps)
         features:
           - ''
           - '--features=hwloc-2_0_4'

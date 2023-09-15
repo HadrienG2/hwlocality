@@ -21,7 +21,7 @@ use std::{
 // # Safety
 //
 // As a type invariant, all inner pointers are assumed to be safe to dereference
-// and devoid of mutable aliases if the TopologyObject is reachable at all.
+// and devoid of mutable aliases if the TextualInfo is reachable at all.
 //
 // This is enforced through the following precautions:
 //
@@ -31,9 +31,9 @@ use std::{
 //   shared XOR mutable aliasing rules, with no internal mutability.
 // - new() explicitly warns about associated aliasing/validity dangers.
 //
-// Provided that objects do not link to other objects outside of the topology
-// they originate from, which is minimally sane expectation from hwloc, this
-// should be enough.
+// Provided that objects do not link to strings allocated outside of the
+// topology they originate from, which is a minimally sane expectation from
+// hwloc, this should be enough.
 #[doc(alias = "hwloc_info_s")]
 #[repr(C)]
 pub struct TextualInfo {
@@ -49,14 +49,14 @@ pub struct TextualInfo {
 }
 //
 impl TextualInfo {
-    /// Build a TextualInfo struct
+    /// Build a [`TextualInfo`] struct for hwloc consumption
     ///
     /// # Safety
     ///
     /// The resulting `TextualInfo` struct may not be used after the end of the
     /// lifetime of underlying strings `name` and `value`.
     #[allow(unused)]
-    pub(crate) fn new(name: &LibcString, value: &LibcString) -> Self {
+    pub(crate) unsafe fn new(name: &LibcString, value: &LibcString) -> Self {
         Self {
             name: name.borrow().cast_mut(),
             value: value.borrow().cast_mut(),
@@ -106,5 +106,8 @@ impl PartialEq for TextualInfo {
     }
 }
 //
+// SAFETY: Does not have internal mutability
 unsafe impl Send for TextualInfo {}
+//
+// SAFETY: Does not have internal mutability
 unsafe impl Sync for TextualInfo {}

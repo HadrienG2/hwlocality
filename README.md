@@ -4,6 +4,7 @@
 [![On crates.io](https://img.shields.io/crates/v/hwlocality.svg)](https://crates.io/crates/hwlocality)
 [![On docs.rs](https://docs.rs/hwlocality/badge.svg)](https://docs.rs/hwlocality/)
 [![Continuous Integration](https://github.com/HadrienG2/hwlocality/workflows/Continuous%20Integration/badge.svg)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
+![Requires rustc 1.70+](https://img.shields.io/badge/rustc-1.70+-red.svg)
 
 ## What is this?
 

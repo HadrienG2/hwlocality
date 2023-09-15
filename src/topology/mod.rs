@@ -81,10 +81,17 @@ pub(crate) struct RawTopology(IncompleteType);
     doc = "- [Windows-specific helpers](#windows-specific-helpers) (hwloc 2.5+)"
 )]
 //
-// NOTE: Since the Topology API is _huge_, not all of it is implemented in the
-//       topology module. Instead, functionality which is very strongly related
-//       to one other code module is implemented inside that module, leaving
-//       this module focused on basic lifecycle and cross-cutting issues.
+// --- Implementation details ---
+//
+// Since the Topology API is _huge_, not all of it is implemented in the
+// topology module. Instead, functionality which is very strongly related to
+// one other code module is implemented inside that module, leaving this module
+// focused on basic lifecycle and cross-cutting issues.
+//
+// # Safety
+//
+// As a type invariant, the inner pointer is assumed to always point to a valid
+// fully built, non-aliased topology.
 #[derive(Debug)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
@@ -126,14 +133,13 @@ impl Topology {
     /// initialized is important for the code sample to make sense. And do not,
     /// under any circumstances, use this in non-test code.
     ///
-    /// NOTE: In an ideal world, this would be cfg(any(test, doctest)) and
-    ///       once_cell would be a dev-dependency, but that doesn't work for
-    ///       doctests yet: https://github.com/rust-lang/rust/issues/67295
+    /// NOTE: In an ideal world, this would be cfg(any(test, doctest)), but that
+    ///       doesn't work for doctests yet:
+    ///       https://github.com/rust-lang/rust/issues/67295
     pub fn test_instance() -> &'static Self {
-        use once_cell::sync::Lazy;
-        static INSTANCE: Lazy<Topology> =
-            Lazy::new(|| Topology::new().expect("Failed to initialize test Topology"));
-        &INSTANCE
+        use std::sync::OnceLock;
+        static INSTANCE: OnceLock<Topology> = OnceLock::new();
+        INSTANCE.get_or_init(|| Topology::new().expect("Failed to initialize test Topology"))
     }
 
     /// Prepare to create a Topology with custom configuration

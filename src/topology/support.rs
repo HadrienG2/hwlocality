@@ -15,14 +15,13 @@ use std::{ffi::c_uchar, fmt, hash::Hash, ptr};
 // # Safety
 //
 // As a type invariant, all inner pointers are assumed to be safe to dereference
-// and devoid of mutable aliases if the TopologyObject is reachable at all.
+// and devoid of mutable aliases if the FeatureSupport is reachable at all.
 //
 // This is enforced through the following precautions:
 //
 // - No API exposes an owned FeatureSupport, only references to it bound by
 //   the source topology's lifetime are exposed.
-// - APIs for interacting with topologies and support flags honor Rust's shared
-//   XOR mutable aliasing rules, with no internal mutability.
+// - There is no API for modifying a loaded topology's feature support.
 #[doc(alias = "hwloc_topology_support")]
 #[repr(C)]
 pub struct FeatureSupport {

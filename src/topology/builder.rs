@@ -37,6 +37,11 @@ pub struct TopologyBuilder(NonNull<RawTopology>);
 // --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
+//
+// # Safety
+//
+// As a type invariant, the inner pointer is assumed to always point to an
+// initialized but non-built, non-aliased topology.
 impl TopologyBuilder {
     /// Start building a [`Topology`]
     ///

@@ -167,8 +167,8 @@ impl Debug for RawBitmap {
 //
 // # Safety
 //
-// Bitmaps should always hold a pointer to a valid hwloc-allocated,
-// non-deallocated bitmap, until they are dropped.
+// As a type invariant, the inner pointer is assumed to always point to a valid,
+// non-aliased bitmap.
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
@@ -1148,10 +1148,13 @@ impl Default for Bitmap {
 impl Display for Bitmap {
     #[doc(alias = "hwloc_bitmap_list_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // SAFETY: Safe because this bitmap is trusted to contain a valid pointer
-        ffi::write_snprintf(f, |buf, len| unsafe {
-            ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
-        })
+        // SAFETY: Safe because this is an snprintf-like API and the bitmap is
+        //         trusted to contain a valid pointer
+        unsafe {
+            ffi::write_snprintf(f, |buf, len| {
+                ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
+            })
+        }
     }
 }
 

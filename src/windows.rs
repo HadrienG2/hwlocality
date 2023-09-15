@@ -32,6 +32,7 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_windows_get_nr_processor_groups")]
     pub fn num_processor_groups(&self) -> Result<NonZeroUsize, RawHwlocError> {
+        // SAFETY: Topology pointer is trusted to be correct, flags must be zero
         let count =
             errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
                 ffi::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
@@ -64,6 +65,10 @@ impl Topology {
                 let mut set = CpuSet::new();
                 let pg_index = c_uint::try_from(pg_index)
                     .expect("Can't fail, pg_index upper bound comes from hwloc");
+                // SAFETY: - Topology pointer is trusted to be correct
+                //         - pg_index is in bounds by construction
+                //         - Bitmap pointer is trusted to be correct
+                //         - flags must be zero
                 errors::call_hwloc_int_normal(
                     "hwloc_windows_get_processor_group_cpuset",
                     || unsafe {

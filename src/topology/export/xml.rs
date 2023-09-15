@@ -130,6 +130,13 @@ impl Default for XMLExportFlags {
 ///
 /// This behaves like a `Box<str>` and will similarly automatically
 /// liberate the allocated memory when it goes out of scope.
+//
+// --- Implementation details
+//
+// # Safety
+//
+// As a type invariant, the data pointer is assumed to always point to a valid,
+// non-aliased XML string.
 pub struct XML<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,

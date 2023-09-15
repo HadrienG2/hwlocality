@@ -1,5 +1,5 @@
 allow-unwrap-in-tests = true
 doc-valid-idents = ["CoreType", "FrequencyMaxMHz", ".."]
-msrv = "1.67.1"
+msrv = "1.70.0"
 semicolon-inside-block-ignore-singleline = true
 semicolon-outside-block-ignore-multiline = true

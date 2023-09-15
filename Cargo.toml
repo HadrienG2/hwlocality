@@ -8,9 +8,7 @@ keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
 description = "Rust bindings for the hwloc hardware locality library"
 repository = "https://github.com/HadrienG2/hwlocality"
 links = "hwloc"
-# TODO: Determine MSRV, set it here and in clippy.toml
-#       Drop oncecell dep once MSRV gets >= 1.70
-rust-version = "1.67.1"
+rust-version = "1.70.0"
 edition = "2021"
 
 [features]
