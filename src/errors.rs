@@ -78,7 +78,7 @@ pub(crate) fn call_hwloc_ptr_mut<T>(
         let result = call();
         (result, result.is_null())
     });
-    NonNull::new(result).map_or(Err(RawHwlocError { api, errno }), Ok)
+    NonNull::new(result).ok_or(RawHwlocError { api, errno })
 }
 
 /// Call an hwloc entry point that returns a `*const T` that should not be null

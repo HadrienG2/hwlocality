@@ -132,7 +132,6 @@
     clippy::todo,
     clippy::too_many_lines,
     clippy::trailing_empty_array,
-    clippy::trait_duplication_in_bounds,
     clippy::transmute_ptr_to_ptr,
     clippy::trivial_regex,
     clippy::trivially_copy_pass_by_ref,

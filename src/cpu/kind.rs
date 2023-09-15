@@ -16,7 +16,7 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
-    errors::{self, HybridError, RawHwlocError},
+    errors::{self, RawHwlocError},
     ffi::{self, LibcString},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
@@ -89,6 +89,8 @@ impl Topology {
     /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_nr")]
     pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindsUnknown> {
+        // SAFETY: Per Topology invariant, the topology pointer is trusted to be
+        //         valid. Per hwloc 2.9 docs, 0 is the only valid flags value.
         let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
             ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
@@ -118,14 +120,20 @@ impl Topology {
     > {
         // Iterate over all CPU kinds
         let num_cpu_kinds = usize::from(self.num_cpu_kinds()?);
-        Ok((0..num_cpu_kinds).map(move |kind_index| self.cpu_kind(kind_index)))
+        // SAFETY: This only calls cpu_kind() with valid kind_index values
+        Ok((0..num_cpu_kinds).map(move |kind_index| unsafe { self.cpu_kind(kind_index) }))
     }
 
     /// Tell what we know about a CPU kind
     ///
+    /// # Safety
+    ///
     /// This internal method should only be called on CPU kind indices which are
     /// known to be valid by the high-level APIs.
-    fn cpu_kind(&self, kind_index: usize) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
+    unsafe fn cpu_kind(
+        &self,
+        kind_index: usize,
+    ) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
         // Let hwloc tell us everything it knows about this CPU kind
         let kind_index =
             c_uint::try_from(kind_index).expect("Should not happen if API contract is honored");
@@ -133,6 +141,12 @@ impl Topology {
         let mut efficiency = c_int::MAX;
         let mut nr_infos: c_uint = 0;
         let mut infos = ptr::null_mut();
+        // SAFETY: - Per Topology invariant, topology pointer is trusted
+        //         - Per input precondition, kind_index is trusted
+        //         - Per bitmap invariant, cpuset pointer is trusted
+        //         - Per hwloc 2.9 docs, efficiency, nr_infos and infos are a
+        //           pure out parameters that hwloc does not read.
+        //         - Per hwloc 2.9 docs, 0 is the only valid flags value
         errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
             ffi::hwloc_cpukinds_get_info(
                 self.as_ptr(),
@@ -158,6 +172,9 @@ impl Topology {
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
+        // SAFETY: - Per hwloc contract, `infos` and `nr_infos` should be valid
+        //         - We trust hwloc not to modify this information without warning
+        //         - Total size should not wrap around for any valid allocation
         let infos = unsafe { std::slice::from_raw_parts(infos, ffi::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
     }
@@ -180,6 +197,9 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
+        // SAFETY: - Per Topology invariant, topology pointer is trusted
+        //         - Per bitmap invariant, cpuset pointer is trusted
+        //         - Per hwloc 2.9 docs, 0 is the only valid flags value
         let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
             ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
@@ -197,7 +217,9 @@ impl Topology {
             },
             Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
         };
-        Ok(self.cpu_kind(kind_index))
+        // SAFETY: In absence of errors, we trust hwloc_cpukinds_get_by_cpuset
+        //         to produce correct CPU kind indices
+        Ok(unsafe { self.cpu_kind(kind_index) })
     }
 }
 
@@ -230,23 +252,31 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
+    /// - [`ExcessiveEfficiency`] if `forced_efficiency` exceeds hwloc's
+    ///   [`c_int::MAX`] limit.
     /// - [`InfoContainsNul`] if a provided info's key or value contains NUL chars
     /// - [`TooManyInfos`] if the number of specified (key, value) info tuples
-    ///   exceeds hwloc's `c_uint::MAX` limit.
+    ///   exceeds hwloc's [`c_uint::MAX`] limit.
     ///
+    /// [`ExcessiveEfficiency`]: CpuKindRegisterError::ExcessiveEfficiency
     /// [`InfoContainsNul`]: CpuKindRegisterError::InfoContainsNul
     /// [`TooManyInfos`]: CpuKindRegisterError::TooManyInfos
+    #[allow(clippy::collection_is_never_read)]
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
         &mut self,
         cpuset: impl Borrow<CpuSet>,
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
-    ) -> Result<(), HybridError<CpuKindRegisterError>> {
-        let forced_efficiency = forced_efficiency
-            .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
-            .unwrap_or(-1);
+    ) -> Result<(), CpuKindRegisterError> {
+        // Translate forced_efficiency into hwloc's preferred format
+        let forced_efficiency = if let Some(eff) = forced_efficiency {
+            c_int::try_from(eff).map_err(|_| CpuKindRegisterError::ExcessiveEfficiency(eff))?
+        } else {
+            -1
+        };
 
+        // Translate  infos into hwloc's preferred format
         let input_infos = infos.into_iter();
         let mut infos = Vec::new();
         let mut infos_ptrs = Vec::new();
@@ -264,6 +294,13 @@ impl TopologyEditor<'_> {
         let num_infos =
             c_uint::try_from(infos_ptrs.len()).map_err(|_| CpuKindRegisterError::TooManyInfos)?;
 
+        // SAFETY: - Per TopologyEditor invariant, topology pointer is trusted
+        //         - Per bitmap invariant, cpuset pointer is trusted
+        //         - Per hwloc 2.9 docs, forced_efficiency can only be positive
+        //           or -1, which is enforced above
+        //         - `num_infos` and `infos_ptrs` are guaranteed to be in sync
+        //           since they both originate from the same slice
+        //         - Per hwloc 2.9 docs, 0 is the only valid flags value
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
             ffi::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),
@@ -275,7 +312,8 @@ impl TopologyEditor<'_> {
             )
         })
         .map(std::mem::drop)
-        .map_err(HybridError::Hwloc)
+        .expect("All known failure cases are prevented by API design");
+        Ok(())
     }
 }
 
@@ -316,6 +354,10 @@ pub enum CpuKindFromSetError {
 /// Error while registering a new CPU kind
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum CpuKindRegisterError {
+    /// `forced_efficiency` value is above what hwloc can handle on this platform
+    #[error("forced_efficiency value {0} is too high for hwloc")]
+    ExcessiveEfficiency(CpuEfficiency),
+
     /// One of the CPU kind's textual info strings contains the NUL char
     #[error("one of the CPU kind's textual info strings contains the NUL char")]
     InfoContainsNul,

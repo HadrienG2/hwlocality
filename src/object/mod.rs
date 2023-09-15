@@ -963,43 +963,145 @@ impl Topology {
 // Upstream docs:
 // - https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
 // - https://hwloc.readthedocs.io/en/v2.9/attributes.html
+//
+// See the matching accessor methods and hwloc documentation for more details on
+// field semantics, the struct member documentation will only be focused on
+// allowed interactions from methods.
+//
+// # Safety
+//
+// As a type invariant, all inner pointers are assumed to be safe to dereference
+// and devoid of mutable aliases if the TopologyObject is reachable at all.
+//
+// This is enforced through the following precautions:
+//
+// - No API exposes an owned TopologyObjects, only references to it bound by
+//   the source topology's lifetime are exposed.
+// - APIs for interacting with topologies and topology objects honor Rust's
+//   shared XOR mutable aliasing rules, with no internal mutability.
+//
+// Provided that objects do not link to other objects outside of the topology
+// they originate from, which is minimally sane expectation from hwloc, this
+// should be enough.
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
 #[repr(C)]
 pub struct TopologyObject {
-    // See the matching method names for more details on field semantics
+    /// SAFETY: Determines which attr union variant is active, do not modify
     object_type: RawObjectType,
+
+    /// # Safety
+    ///
+    /// Only allowed write is replacement with a freshly allocated owned C
+    /// string from the libc allocator. It must come from the libc allocator
+    /// because hwloc will call free() on this during Topology destruction.
+    ///
+    /// This seems guaranteed to remain the case because of the following note
+    /// from [the documentation of
+    /// `hwloc_topology_insert_group_object()`](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html#ga1fc6012b3e1c249b83f48cb7bcacaa5b)...
+    ///
+    /// > The subtype object attribute may be defined (to a dynamically
+    /// > allocated string) to display something else than "Group" as the type
+    /// > name for this object in lstopo.
+    ///
+    /// ...which actively encourages users to replace this field with a C string
+    /// of their own choosing.
     subtype: *mut c_char,
+
+    /// Do not modify
     os_index: c_uint,
+
+    /// SAFETY: Do not modify
     name: *mut c_char,
+
+    /// Linked to memory children by API contract, do not modify
     total_memory: u64,
+
+    /// SAFETY: Target assumed only accessible through this object -> &mut ok,
+    ///         but do not allow modification in a way that switches which union
+    ///         variant is active.
     attr: *mut RawObjectAttributes,
+
+    /// SAFETY: Number of entries behind parent, do not modify
     depth: RawDepth,
+
+    /// SAFETY: Number of entries behind (next|prev)_cousin, do not modify
     logical_index: c_uint,
+
+    /// SAFETY: Do not modify
     next_cousin: *mut TopologyObject,
+
+    /// SAFETY: Do not modify
     prev_cousin: *mut TopologyObject,
+
+    /// SAFETY: Do not modify
     parent: *mut TopologyObject,
+
+    /// SAFETY: Number of entries behind (next|prev)_sibling, do not modify
     sibling_rank: c_uint,
+
+    /// SAFETY: Do not modify
     next_sibling: *mut TopologyObject,
+
+    /// SAFETY: Do not modify
     prev_sibling: *mut TopologyObject,
+
+    /// SAFETY: Number of entries behind (children|(first|last)_child), do not modify
     arity: c_uint,
+
+    /// SAFETY: Do not modify
     children: *mut *mut TopologyObject,
+
+    /// SAFETY: Do not modify
     first_child: *mut TopologyObject,
+
+    /// SAFETY: Do not modify
     last_child: *mut TopologyObject,
+
+    /// SAFETY: Affects children pointer interpretation, do not modify
     symmetric_subtree: c_int,
+
+    /// SAFETY: Number of entries behind memory_first_child, do not modify
     memory_arity: c_uint,
+
+    /// SAFETY: Do not modify
     memory_first_child: *mut TopologyObject,
+
+    /// SAFETY: Number of entries behind io_first_child, do not modify
     io_arity: c_uint,
+
+    /// SAFETY: Do not modify
     io_first_child: *mut TopologyObject,
+
+    /// SAFETY: Number of entries behind misc_first_child, do not modify
     misc_arity: c_uint,
+
+    /// SAFETY: Do not modify
     misc_first_child: *mut TopologyObject,
+
+    /// Linked to children by API contract, do not modify
     cpuset: *mut RawBitmap,
+
+    /// Linked to children by API contract, do not modify
     complete_cpuset: *mut RawBitmap,
+
+    /// Linked to children by API contract, do not modify
     nodeset: *mut RawBitmap,
+
+    /// Linked to children by API contract, do not modify
     complete_nodeset: *mut RawBitmap,
+
+    /// SAFETY: Do not modify manually, dedicated API available
     infos: *mut TextualInfo,
+
+    /// SAFETY: Do not modify manually, dedicated API available
     infos_count: c_uint,
-    _userdata: *mut c_void, // BEWARE: Topology duplication blindly duplicates this!
+
+    /// SAFETY: Not exposed as topology duplication blindly duplicates it, which
+    ///         could trivially create dangerous aliasing.
+    _userdata: *mut c_void,
+
+    /// Stable by API contract, do not modify
     gp_index: u64,
 }
 
@@ -1051,8 +1153,14 @@ impl TopologyObject {
     }
 
     /// Unsafe access to object type-specific attributes
+    ///
+    /// # Safety
+    ///
+    /// Caller should not change the active RawObjectAttributes union variant
     #[cfg(feature = "hwloc-2_3_0")]
-    pub(crate) fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
+    pub(crate) unsafe fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &mut self.
         unsafe { ffi::deref_mut_ptr(&mut self.attr) }
     }
 
@@ -1111,6 +1219,9 @@ impl TopologyObject {
     /// Only `None` for the root `Machine` object.
     #[doc(alias = "hwloc_obj::parent")]
     pub fn parent(&self) -> Option<&TopologyObject> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_ptr_mut(&self.parent) }
     }
 
@@ -1320,12 +1431,18 @@ impl TopologyObject {
     /// Next object of same type and depth
     #[doc(alias = "hwloc_obj::next_cousin")]
     pub fn next_cousin(&self) -> Option<&TopologyObject> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
     }
 
     /// Previous object of same type and depth
     #[doc(alias = "hwloc_obj::prev_cousin")]
     pub fn prev_cousin(&self) -> Option<&TopologyObject> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
     }
 
@@ -1338,12 +1455,18 @@ impl TopologyObject {
     /// Next object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::next_sibling")]
     pub fn next_sibling(&self) -> Option<&TopologyObject> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_ptr_mut(&self.next_sibling) }
     }
 
     /// Previous object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::prev_sibling")]
     pub fn prev_sibling(&self) -> Option<&TopologyObject> {
+        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
+        //         enforced by deriving the reference from &self, which itself
+        //         is derived from &Topology.
         unsafe { ffi::deref_ptr_mut(&self.prev_sibling) }
     }
 }
@@ -1777,25 +1900,6 @@ impl TopologyObject {
     }
 }
 
-impl fmt::Display for TopologyObject {
-    /// Display of the type and attributes that is more concise than `Debug`
-    ///
-    /// - Shorter type names are used, e.g. "L1Cache" becomes "L1"
-    /// - Only the major object attributes are printed
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use hwlocality::Topology;
-    /// # let topology = Topology::test_instance();
-    /// println!("Root object: {}", topology.root_object());
-    /// # Ok::<_, anyhow::Error>(())
-    /// ```
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, false)
-    }
-}
-
 impl fmt::Debug for TopologyObject {
     /// Verbose display of the object's type and attributes
     ///
@@ -1813,6 +1917,25 @@ impl fmt::Debug for TopologyObject {
     #[doc(alias = "hwloc_obj_type_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, true)
+    }
+}
+
+impl fmt::Display for TopologyObject {
+    /// Display of the type and attributes that is more concise than `Debug`
+    ///
+    /// - Shorter type names are used, e.g. "L1Cache" becomes "L1"
+    /// - Only the major object attributes are printed
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use hwlocality::Topology;
+    /// # let topology = Topology::test_instance();
+    /// println!("Root object: {}", topology.root_object());
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display(f, false)
     }
 }
 

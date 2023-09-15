@@ -168,7 +168,7 @@ impl Debug for RawBitmap {
 // # Safety
 //
 // Bitmaps should always hold a pointer to a valid hwloc-allocated,
-// non-deallocated bitmap.
+// non-deallocated bitmap, until they are dropped.
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
@@ -1810,7 +1810,7 @@ macro_rules! impl_bitmap_newtype {
                 }
             }
 
-            /// Wraps a borrowed hwloc_const_bitmap_t
+            /// Wraps a borrowed `hwloc_const_bitmap_t`
             ///
             /// See [`Bitmap::borrow_from_raw`](crate::bitmap::Bitmap::borrow_from_raw).
             #[allow(unused)]
@@ -2230,7 +2230,8 @@ macro_rules! impl_bitmap_newtype {
         //         itself a repr(transparent) newtype of RawBitmap.
         unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
             unsafe fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
-                self.0.as_raw()
+                // SAFETY: Just forwarding the safety contract from `Bitmap`
+                unsafe { self.0.as_raw() }
             }
         }
 

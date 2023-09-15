@@ -621,7 +621,9 @@ impl<'topology> Distances<'topology> {
            + FusedIterator {
         // SAFETY: inner is assumed to be valid, which includes having an
         //         nbobjs value consistent with the objs allocation, which
-        //         itself is assumed to be valid
+        //         itself is assumed to be valid. Rust aliasing rules are
+        //         enforced by deriving the references from &self, which itself
+        //         is derived from &Topology.
         unsafe {
             let objs = std::slice::from_raw_parts(self.inner().objs, self.num_objects());
             objs.iter().map(|ptr| ffi::deref_ptr(ptr))

@@ -27,7 +27,7 @@ use std::{
     ptr::{self, NonNull},
 };
 
-/// Assert that a c_int can be converted to a isize
+/// Assert that a [`c_int`] can be converted to a [`isize`]
 ///
 /// As far as I can tell, this is only false on very weird platforms that aren't
 /// supported by hwloc. However, counter-examples are welcome!
@@ -36,7 +36,7 @@ pub(crate) fn expect_isize(x: c_int) -> isize {
         .expect("Expected on any platform supported by hwloc")
 }
 
-/// Assert that a c_uint can be converted to a usize
+/// Assert that a [`c_uint`] can be converted to a [`usize`]
 ///
 /// As far as I can tell, this is only false on very weird platforms that aren't
 /// supported by hwloc. However, counter-examples are welcome!
@@ -46,35 +46,64 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
 }
 
 /// Dereference a C pointer with correct lifetime (*const -> & version)
+///
+/// # Safety
+///
+/// If non-null, p must be safe to dereference for the duration of the
+/// reference-to-pointer's lifetime, and the target data must not be modified
+/// as long as the reference exists.
 pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     if p.is_null() {
         return None;
     }
+    // SAFETY: Per input precondition
     Some(unsafe { &**p })
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> & version)
+///
+/// # Safety
+///
+/// If non-null, p must be safe to dereference for the duration of the
+/// reference-to-pointer's lifetime, and the target data must not be modified
+/// as long as the reference exists.
 pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
     if p.is_null() {
         return None;
     }
+    // SAFETY: Per input precondition
     Some(unsafe { &**p })
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> &mut version)
+///
+/// # Safety
+///
+/// If non-null, p must be safe to dereference for the duration of the
+/// reference-to-pointer's lifetime, and the target data must only be modified
+/// via the output reference and not be read via any other channel as long as
+/// the reference exists.
 #[allow(unused)]
 pub(crate) unsafe fn deref_mut_ptr<T>(p: &mut *mut T) -> Option<&mut T> {
     if p.is_null() {
         return None;
     }
+    // SAFETY: Per input precondition
     Some(unsafe { &mut **p })
 }
 
 /// Dereference a C-style string with correct lifetime
+///
+/// # Safety
+///
+/// If non-null, p must be safe to dereference for the duration of the
+/// reference-to-pointer's lifetime, and the target data must not be modified
+/// as long as the reference exists.
 pub(crate) unsafe fn deref_str(p: &*mut c_char) -> Option<&CStr> {
     if p.is_null() {
         return None;
     }
+    // SAFETY: Per input precondition
     Some(unsafe { CStr::from_ptr(*p) })
 }
 

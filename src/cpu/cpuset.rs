@@ -78,9 +78,7 @@ impl Topology {
             });
         }
 
-        // Start recursion
-        let mut result = Vec::new();
-        let mut cpusets = Vec::new();
+        /// Recursive implementation of the partitioning algorithm
         fn process_object<'a>(
             parent: &'a TopologyObject,
             set: &CpuSet,
@@ -117,6 +115,8 @@ impl Topology {
             }
             cpusets.push(subset);
         }
+        let mut result = Vec::new();
+        let mut cpusets = Vec::new();
         process_object(root, set, &mut result, &mut cpusets);
         Ok(result)
     }
@@ -237,7 +237,10 @@ impl Topology {
 /// Iterator over largest objects inside a cpuset
 #[derive(Clone, Debug)]
 struct LargestObjectsInsideCpuSet<'topology> {
+    /// Topology which is being interrogated
     topology: &'topology Topology,
+
+    /// Share of the input [`CpuSet`] that hasn't been covered yet
     set: CpuSet,
 }
 //
@@ -372,6 +375,10 @@ impl CpuSet {
             self.clear();
             return;
         };
+        // SAFETY: By safety invariant of Topology and Bitmap/CpuSet, the first
+        //         two arguments are trusted to be correct. Per its
+        //         documentation, hwloc should be able to handle arbitrarily
+        //         large `which` values.
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
         })
@@ -390,8 +397,8 @@ impl CpuSet {
     /// [`Topology::nodeset()`], would be converted by this function into the
     /// set of all CPUs that have some local NUMA nodes.
     #[doc(alias = "hwloc_cpuset_from_nodeset")]
-    pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> CpuSet {
-        let mut cpuset = CpuSet::new();
+    pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> Self {
+        let mut cpuset = Self::new();
         let nodeset = nodeset.borrow();
         for obj in topology.objects_at_depth(Depth::NUMANode) {
             if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {

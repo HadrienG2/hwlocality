@@ -315,6 +315,7 @@ impl<'topology> TopologyEditor<'topology> {
 
         // Adjust hwloc's propension to merge groups if instructed to do so
         if let Some(merge) = merge {
+            // SAFETY: We know this is a group, attribute variant isn't changed
             let mut group_attributes = unsafe {
                 group
                     .as_mut()
