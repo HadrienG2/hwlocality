@@ -19,6 +19,8 @@ use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
 /// groups so that applications know whether binding to a large set of PUs may
 /// fail because it spans over multiple Windows processor groups.
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
 impl Topology {
     /// Number of Windows processor groups

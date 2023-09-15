@@ -27,6 +27,8 @@ use thiserror::Error;
 
 /// # Retrieve distances between objects
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
 impl Topology {
     /// Retrieve distance matrices from the topology
@@ -180,6 +182,8 @@ impl Topology {
 }
 
 /// # Add distances between objects
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
 #[cfg(feature = "hwloc-2_5_0")]
@@ -367,6 +371,8 @@ pub(crate) type DistancesAddHandle = *mut std::ffi::c_void;
 
 /// # Remove distances between objects
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
 #[cfg(feature = "hwloc-2_3_0")]
 impl TopologyEditor<'_> {
@@ -451,8 +457,12 @@ impl TopologyEditor<'_> {
 /// Direct mapping of `hwloc_distances_s`. Cannot be exposed to safe code as it
 /// needs a special liberation procedure.
 //
-// NOTE: Pointers objs and values should not be replaced, reallocated, freed, etc
-//       and thus nbobj should not be changed either.
+// --- Implementation details ---
+//
+// # Safety
+//
+// The pointers objs and values should not be replaced, reallocated, freed, etc
+// and thus nbobj should not be changed either.
 #[repr(C)]
 pub(crate) struct RawDistances {
     /// Number of objects in the `objs` array

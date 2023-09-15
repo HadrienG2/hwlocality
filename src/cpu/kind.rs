@@ -78,6 +78,8 @@ use thiserror::Error;
 /// [`cpu_kinds()`]: Topology::cpu_kinds()
 /// [`num_cpu_kinds()`]: Topology::num_cpu_kinds()
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 impl Topology {
     /// Number of different kinds of CPU cores in the topology
@@ -200,6 +202,8 @@ impl Topology {
 }
 
 /// # Kinds of CPU cores
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 impl TopologyEditor<'_> {

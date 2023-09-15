@@ -7,8 +7,10 @@ use std::borrow::Borrow;
 
 /// # NodeSet-specific API
 //
-// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
-//       before the bitmap API reexport in rustdoc.
+// --- Implementation details ---
+//
+// This goes before the main impl_bitmap_newtype macro so that it appears before
+// the bitmap API reexport in rustdoc.
 impl NodeSet {
     /// Convert a CPU set into a NUMA node set
     ///

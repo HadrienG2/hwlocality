@@ -39,6 +39,8 @@ use thiserror::Error;
 /// depths, child/sibling/cousin relationships, and see an example of an
 /// asymmetric topology where one package has fewer caches than its peers.
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 // Also includes https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html,
 // which had to be reimplemented because it's static.
@@ -570,6 +572,8 @@ impl<'topology, Inner: FusedIterator<Item = &'topology TopologyObject>> FusedIte
 
 /// # Finding other objects
 //
+// --- Implementation details ---
+//
 // This is inspired by the upstream functionality described at
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
 // but the code had to be ported to Rust because it's inline
@@ -850,6 +854,8 @@ pub struct MissingCpuSetError;
 
 /// # Finding I/O objects
 //
+// --- Implementation details ---
+//
 // Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html
 // but inline functions had to be reimplemented in Rust. Further, queries
 // pertaining to ancestors and children were moved to the corresponding sections.
@@ -951,6 +957,8 @@ impl Topology {
 /// - [CPU set](#cpu-set)
 /// - [NUMA node set](#numa-node-set)
 /// - [Key-value information](#key-value-information)
+//
+// --- Implementation details ---
 //
 // Upstream docs:
 // - https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
@@ -1079,6 +1087,8 @@ impl TopologyObject {
 }
 
 /// # Depth and ancestors
+//
+// --- Implementation details ---
 //
 // Includes functionality inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__ancestors.html
 impl TopologyObject {

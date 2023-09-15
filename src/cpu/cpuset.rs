@@ -23,6 +23,8 @@ use thiserror::Error;
 
 /// # Finding objects inside a CPU set
 //
+// --- Implementation details ---
+//
 // This is inspired by the upstream functionality described at
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
 // but the code had to be ported to Rust as most C code is inline and thus
@@ -273,6 +275,8 @@ pub struct CoarsestPartitionError {
 
 /// # Finding objects covering at least a CPU set
 //
+// --- Implementation details ---
+//
 // This is inspired by the upstream functionality described at
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
 // and https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html
@@ -342,8 +346,10 @@ impl Topology {
 
 /// # CpuSet-specific API
 //
-// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
-//       before the bitmap API reexport in rustdoc.
+// --- Implementation details ---
+//
+// This goes before the main impl_bitmap_newtype macro so that it appears before
+// the bitmap API reexport in rustdoc.
 impl CpuSet {
     /// Remove simultaneous multithreading PUs from a CPU set
     ///

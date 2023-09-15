@@ -28,6 +28,8 @@ use thiserror::Error;
 
 /// # Modifying a loaded `Topology`
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 impl Topology {
     /// Modify this topology
@@ -142,6 +144,8 @@ impl<'topology> TopologyEditor<'topology> {
 }
 
 /// # Basic modifications
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 impl<'topology> TopologyEditor<'topology> {
@@ -274,9 +278,11 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// [`Group`]: ObjectType::Group
     //
-    // NOTE: In the future, find_children will be an
-    //       impl FnOnce(&Topology) -> impl IntoIterator<Item = &TopologyObject>
-    //       but impl Trait is not yet allowed on function return types.
+    // --- Implementation details ---
+    //
+    // In the future, find_children will be an impl FnOnce(&Topology) -> impl
+    // IntoIterator<Item = &TopologyObject>, but impl Trait inside of impl
+    // Trait is not allowed yet.
     #[doc(alias = "hwloc_topology_alloc_group_object")]
     #[doc(alias = "hwloc_obj_add_other_obj_sets")]
     #[doc(alias = "hwloc_topology_insert_group_object")]
@@ -404,27 +410,35 @@ bitflags! {
         /// - Do not have access to any CPU anymore when restricting by CpuSet
         /// - Do not have access to any memory anymore when restricting by NodeSet
         //
-        // NOTE: This is a virtual flag that is cleared and mapped into
-        //       `REMOVE_CPULESS` or `REMOVE_MEMLESS` as appropriate.
+        // --- Implementation details ---
+        //
+        // This is a virtual flag that is cleared and mapped into
+        // `REMOVE_CPULESS` or `REMOVE_MEMLESS` as appropriate.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_CPULESS")]
         #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS")]
         const REMOVE_EMPTIED = c_ulong::MAX;
 
         /// Remove all objects that became CPU-less
         //
-        // NOTE: This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
+        // --- Implementation details ---
+        //
+        // This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
         #[doc(hidden)]
         const REMOVE_CPULESS = (1<<0);
 
         /// Restrict by NodeSet insted of by `CpuSet`
         //
-        // NOTE: This flag is automatically set when restricting by `NodeSet`.
+        // --- Implementation details ---
+        //
+        // This flag is automatically set when restricting by `NodeSet`.
         #[doc(hidden)]
         const BY_NODE_SET = (1<<3);
 
         /// Remove all objects that became memory-less
         //
-        // NOTE: This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
+        // --- Implementation details ---
+        //
+        // This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
         #[doc(hidden)]
         const REMOVE_MEMLESS = (1<<4);
 

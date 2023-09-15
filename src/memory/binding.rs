@@ -72,6 +72,8 @@ use thiserror::Error;
 /// [`STRICT`]: MemoryBindingFlags::STRICT
 /// [`THREAD`]: MemoryBindingFlags::THREAD
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
 impl Topology {
     /// Allocate some memory
@@ -922,7 +924,10 @@ bitflags! {
         /// Memory binding by CPU set cannot work for CPU-less NUMA memory nodes.
         /// Binding by nodeset should therefore be preferred whenever possible.
         //
-        // NOTE: This flag is automatically set by the implementation
+        // --- Implementation details ---
+        //
+        // This flag does not need to be visible as it is automatically set and
+        // cleared by the implementation as appropriate.
         #[doc(hidden)]
         #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
         const BY_NODE_SET = (1<<5);

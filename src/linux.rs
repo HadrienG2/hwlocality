@@ -25,6 +25,8 @@ struct pid_t;
 /// equivalents of the Linux `sched_setaffinity` and `sched_getaffinity` system
 /// calls.
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
 impl Topology {
     /// Bind a thread `tid` on cpus given in `set`

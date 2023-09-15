@@ -34,6 +34,8 @@ pub struct TopologyBuilder(NonNull<RawTopology>);
 
 /// # Topology building
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 impl TopologyBuilder {
     /// Start building a [`Topology`]
@@ -104,6 +106,8 @@ impl TopologyBuilder {
 ///
 /// [`from_xml_file()`]: TopologyBuilder::from_xml_file()
 /// [`from_synthetic()`]: TopologyBuilder::from_synthetic()
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 impl TopologyBuilder {
@@ -329,6 +333,8 @@ bitflags! {
 }
 
 /// # Detection configuration and query
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 impl TopologyBuilder {

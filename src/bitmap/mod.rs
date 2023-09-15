@@ -163,8 +163,12 @@ impl Debug for RawBitmap {
 /// [`CpuSet`]: crate::cpu::cpuset::CpuSet
 /// [`NodeSet`]: crate::memory::nodeset::NodeSet
 //
-// NOTE: As a safety invariant, bitmaps should always hold a pointer to a valid
-//       hwloc-allocated, non-deallocated bitmap.
+// --- Implementation details ---
+//
+// # Safety
+//
+// Bitmaps should always hold a pointer to a valid hwloc-allocated,
+// non-deallocated bitmap.
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
@@ -1338,12 +1342,12 @@ unsafe impl Sync for Bitmap {}
 /// signature of generic methods that accept the aforementioned set of types
 /// and then go on to process them homogeneously.
 //
-// --- Internal docs ---
+// --- Implementation details ---
 //
 // # Safety
 //
-// Implementations of this type must effectively be a `repr(transparent)`
-// wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
+// Implementations of this type must be a `repr(transparent)` wrapper of
+// `NonNull<RawBitmap>`, possibly with some ZSTs added.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait OwnedBitmap:
     Borrow<Bitmap>
@@ -1357,15 +1361,19 @@ pub unsafe trait OwnedBitmap:
     + 'static
 {
     /// Access the inner `NonNull<RawBitmap>`
+    ///
+    /// # Safety
+    ///
+    /// The client must not use this pointer to mutate the target object
     #[doc(hidden)]
-    fn as_raw(&self) -> NonNull<RawBitmap>;
+    unsafe fn as_raw(&self) -> NonNull<RawBitmap>;
 }
 //
 impl Sealed for Bitmap {}
 //
 // SAFETY: Bitmap is a repr(transparent) newtype of NonNull<RawBitmap>
 unsafe impl OwnedBitmap for Bitmap {
-    fn as_raw(&self) -> NonNull<RawBitmap> {
+    unsafe fn as_raw(&self) -> NonNull<RawBitmap> {
         self.0
     }
 }
@@ -1376,7 +1384,7 @@ unsafe impl OwnedBitmap for Bitmap {
 /// `&'target Target` and use it as such. But it cannot literally be an
 /// `&'target Target` due to annoying details of the underlying C API.
 //
-// # Implementation details
+// --- Implementation details ---
 //
 // The reason why `BitmapRef` needs to be a thing is that...
 //
@@ -1397,6 +1405,11 @@ unsafe impl OwnedBitmap for Bitmap {
 //
 // Technically, we could also have a `BitmapMut` that models `&mut RawBitmap`,
 // but so far the need for this has not materialized.
+//
+// # Safety
+//
+// `BitmapRef<Target>` must never allow mutating the target because it is
+// constructible from `&Target`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
@@ -1557,7 +1570,8 @@ impl<Target: OwnedBitmap + Eq + PartialEq<Self>> Eq for BitmapRef<'_, Target> {}
 
 impl<'target, Target: OwnedBitmap> From<&'target Target> for BitmapRef<'target, Target> {
     fn from(input: &'target Target) -> Self {
-        Self(input.as_raw(), PhantomData)
+        // SAFETY: A `BitmapRef` does not allow mutating the target object
+        Self(unsafe { input.as_raw() }, PhantomData)
     }
 }
 
@@ -2215,7 +2229,7 @@ macro_rules! impl_bitmap_newtype {
         // SAFETY: $newtype is a repr(transparent) newtype of Bitmap, which is
         //         itself a repr(transparent) newtype of RawBitmap.
         unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
-            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
+            unsafe fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
                 self.0.as_raw()
             }
         }

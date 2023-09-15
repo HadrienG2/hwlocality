@@ -57,6 +57,8 @@ use thiserror::Error;
 /// performance values for host memory accesses performed by GPUs.
 /// The interface actually also accepts targets that are not NUMA nodes.
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
 impl Topology {
     /// Identifier of the memory attribute with the given name
@@ -147,6 +149,8 @@ impl Topology {
 }
 
 /// # Managing memory attributes
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
 impl<'topology> TopologyEditor<'topology> {
@@ -1069,8 +1073,10 @@ bitflags! {
         ///
         /// The initiator is ignored.
         //
-        // NOTE: This flag is automatically set when users specify
-        //       [`TargetNumaNodes::All`] as the target NUMA node set.
+        // --- Implementation details ---
+        //
+        // This flag is automatically set when users specify
+        // [`TargetNumaNodes::All`] as the target NUMA node set.
         #[doc(hidden)]
         const ALL = (1<<2);
     }

@@ -12,6 +12,8 @@ use std::ffi::{c_char, c_ulong, CString};
 
 /// # Exporting Topologies to Synthetic
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 impl Topology {
     /// Export the topology as a synthetic string

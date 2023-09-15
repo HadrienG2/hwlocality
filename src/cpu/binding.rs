@@ -38,6 +38,8 @@ use thiserror::Error;
 ///
 /// [`STRICT`]: CpuBindingFlags::STRICT
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 impl Topology {
     /// Binds the current process or thread on given CPUs
@@ -501,8 +503,11 @@ bitflags! {
         ///
         /// This is mutually exclusive with `PROCESS` and `THREAD`.
         //
-        // NOTE: This is not an actual hwloc flag, and must be cleared before
-        //       invoking hwloc. Please let validate() do this for you.
+        // --- Implementation details ---
+        //
+        // This is not an actual hwloc flag, it is only present to detect
+        // incompatible configurations and must be cleared before invoking
+        // hwloc. validate() will clear the flag for you.
         const ASSUME_SINGLE_THREAD = (1<<31);
 
         /// Bind the current thread of the current process

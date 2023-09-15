@@ -21,6 +21,8 @@ use std::{
 
 /// # Exporting Topologies to XML
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
 impl Topology {
     /// Export the topology into an XML file at filesystem location `path`

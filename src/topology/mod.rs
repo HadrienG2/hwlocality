@@ -92,6 +92,8 @@ pub struct Topology(NonNull<RawTopology>);
 
 /// # Topology building
 //
+// --- Implementation details ---
+//
 // Upstream docs:
 // - Creation: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 // - Build queries: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
@@ -331,6 +333,8 @@ impl Topology {
 
 /// # Distributing work items over a topology
 //
+// --- Implementation details ---
+//
 // Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html,
 // but the inline header implementation had to be rewritten in Rust.
 impl Topology {
@@ -560,6 +564,8 @@ fn weight_to_items(given_weight: usize, total_weight: usize, num_items: usize) -
 }
 
 /// # CPU and node sets of entire topologies
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
 impl Topology {

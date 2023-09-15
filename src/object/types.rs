@@ -94,7 +94,8 @@ pub enum ObjectType {
     L4Cache,
 
     /// Level 5 Data (or Unified) Cache
-    // NOTE: If hwloc adds more cache levels, update the cache module accordingly
+    //
+    // TODO: If hwloc adds more cache levels, update the cache module accordingly
     #[doc(alias = "HWLOC_OBJ_L5CACHE")]
     L5Cache,
 
