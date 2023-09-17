@@ -140,21 +140,26 @@ impl Topology {
 
     /// Logical index among the objects included in CPU set `set`
     ///
-    /// Consult all objects in the same level as obj and inside CPU set `set` in
-    /// the logical order, and return the index of `obj` within them. If `set`
-    /// covers the entire topology, this is the logical index of `obj`.
+    /// Consult all objects in the same level as `obj` and inside CPU set `set`
+    /// in the logical order, and return the index of `obj` within them. If
+    /// `set` covers the entire topology, this is the logical index of `obj`.
     /// Otherwise, this is similar to a logical index within the part of the
     /// topology defined by CPU set `set`.
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, `None` will always be
     /// returned for I/O or Misc depths as those objects have no cpusets.
+    ///
+    /// This method will also return `None` if called with an `obj` that does
+    /// not belong to this [`Topology`].
     #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
     pub fn object_index_inside_cpuset<'result>(
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
         obj: &TopologyObject,
     ) -> Option<usize> {
+        // obj may not belong to this topology, but the current implementation
+        // is fine with that and will just return None.
         self.objects_inside_cpuset_at_depth(set, obj.depth())
             .position(|candidate| std::ptr::eq(candidate, obj))
     }

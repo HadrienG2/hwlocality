@@ -993,7 +993,7 @@ impl Arbitrary for Bitmap {
         // Start with an arbitrary finite bitmap
         let mut result = HashSet::<BitmapIndex>::arbitrary(g)
             .into_iter()
-            .collect::<Bitmap>();
+            .collect::<Self>();
 
         // Decide by coin flip to extend infinitely on the right or not
         if bool::arbitrary(g) {
@@ -1013,7 +1013,7 @@ impl Arbitrary for Bitmap {
 
         // Now this is finite, can convert to Vec<BitmapIndex> and use Vec's shrinker
         let vec = local.into_iter().collect::<Vec<_>>();
-        Box::new(vec.shrink().map(|vec| vec.into_iter().collect::<Bitmap>()))
+        Box::new(vec.shrink().map(|vec| vec.into_iter().collect::<Self>()))
     }
 }
 

@@ -669,18 +669,25 @@ impl Topology {
     /// topology tree).
     ///
     /// This search may only be applied to objects that have a cpuset (normal
-    /// and memory objects).
+    /// and memory objects) and belong to this topology.
     ///
     /// # Errors
     ///
-    /// - [`MissingCpuSetError`] if `obj` does not have a cpuset.
+    /// - [`ForeignTarget`] if `obj` does not belong to this topology.
+    /// - [`MissingCpuSet`] if `obj` does not have a cpuset.
+    ///
+    /// [`ForeignTarget`]: ClosestObjsError::ForeignTarget
+    /// [`MissingCpuSet`]: ClosestObjsError::MissingCpuSet
     #[doc(alias = "hwloc_get_closest_objs")]
     pub fn objects_closest_to<'result>(
         &'result self,
         obj: &'result TopologyObject,
-    ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, MissingCpuSetError> {
-        // This search may only be applied to objects with cpusets
-        let obj_cpuset = obj.cpuset().ok_or(MissingCpuSetError)?;
+    ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, ClosestObjsError> {
+        // Validate input object
+        if !self.contains(obj) {
+            return Err(ClosestObjsError::ForeignTarget);
+        }
+        let obj_cpuset = obj.cpuset().ok_or(ClosestObjsError::MissingCpuSet)?;
 
         // Assert that an object has a cpuset, return both
         fn obj_and_cpuset<'obj>(
@@ -779,16 +786,19 @@ impl Topology {
 
     /// Find an object of a different type with the same locality
     ///
-    /// If the source object src is a normal or memory type, this function
-    /// returns an object of type `ty` with the same CPU and node sets, either
-    /// below or above in the hierarchy.
+    /// The source object `src` must belong to this topology, otherwise a
+    /// [`ForeignTarget`] error will be returned.
     ///
-    /// If the source object src is a PCI or an OS device within a PCI device,
-    /// the function may either return that PCI device, or another OS device in
-    /// the same PCI parent. This may for instance be useful for converting
-    /// between OS devices such as "nvml0" or "rsmi1" used in distance
-    /// structures into the the PCI device, or the CUDA or OpenCL OS device that
-    /// correspond to the same physical card.
+    /// If the source object is a normal or memory type, this function returns
+    /// an object of type `ty` with the same CPU and node sets, either below or
+    /// above in the hierarchy.
+    ///
+    /// If the source object is a PCI or an OS device within a PCI device, the
+    /// function may either return that PCI device, or another OS device in the
+    /// same PCI parent. This may for instance be useful for converting between
+    /// OS devices such as "nvml0" or "rsmi1" used in distance structures into
+    /// the the PCI device, or the CUDA or OpenCL OS device that correspond to
+    /// the same physical card.
     ///
     /// If specified, parameter `subtype` restricts the search to objects whose
     /// [`TopologyObject::subtype()`] attribute exists and is equal to `subtype`
@@ -810,7 +820,11 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`NulError`] if `subtype` or `name_prefix` contains NUL chars.
+    /// - [`ForeignTarget`] if `src` does not belong to this topology.
+    /// - [`StringContainsNul`] if `subtype` or `name_prefix` contains NUL chars.
+    ///
+    /// [`ForeignTarget`]: LocalObjError::ForeignTarget
+    /// [`StringContainsNul`]: LocalObjError::StringContainsNul
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_get_obj_with_same_locality")]
     pub fn object_with_same_locality(
@@ -819,7 +833,10 @@ impl Topology {
         ty: ObjectType,
         subtype: Option<&str>,
         name_prefix: Option<&str>,
-    ) -> Result<Option<&TopologyObject>, NulError> {
+    ) -> Result<Option<&TopologyObject>, LocalObjError> {
+        if !self.contains(src) {
+            return Err(LocalObjError::ForeignTarget);
+        }
         let subtype = subtype.map(LibcString::new).transpose()?;
         let name_prefix = name_prefix.map(LibcString::new).transpose()?;
         let borrow_pchar = |opt: &Option<LibcString>| -> *const c_char {
@@ -839,6 +856,18 @@ impl Topology {
     }
 }
 
+/// Error returned by [`Topology::objects_closest_to()`]
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum ClosestObjsError {
+    /// Target object does not belong to this topology
+    #[error("target object does not belong to this topology")]
+    ForeignTarget,
+
+    /// Target object does not have a cpuset and this search requires one
+    #[error("target object does not have a cpuset")]
+    MissingCpuSet,
+}
+
 /// Error returned when a search algorithm that requires a cpuset is applied to
 /// an object that doesn't have one.
 ///
@@ -851,6 +880,24 @@ impl Topology {
 #[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
 #[error("an operation that requires a cpuset was applied to an object without one")]
 pub struct MissingCpuSetError;
+
+/// Error returned by [`Topology::object_with_same_locality()`]
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum LocalObjError {
+    /// Target object does not belong to this topology
+    #[error("target object does not belong to this topology")]
+    ForeignTarget,
+
+    /// Subtype or name prefix string contains a NUL char
+    #[error("input string contains a NUL char")]
+    StringContainsNul,
+}
+//
+impl From<NulError> for LocalObjError {
+    fn from(_: NulError) -> Self {
+        Self::StringContainsNul
+    }
+}
 
 /// # Finding I/O objects
 //
@@ -1274,8 +1321,11 @@ impl TopologyObject {
 
     /// Search for the first ancestor that is shared with another object
     ///
-    /// The search will always succeed unless one of `self` and `other` is the
-    /// root [`Machine`](ObjectType::Machine) object, which has no ancestors.
+    /// The search will always succeed unless...
+    /// - One of `self` and `other` is the root [`Machine`]
+    ///   (ObjectType::Machine) object, which has no ancestors.
+    /// - `self` and `other` do not belong to the same topology, and thus have
+    ///   no shared ancestor.
     #[doc(alias = "hwloc_get_common_ancestor_obj")]
     pub fn common_ancestor(&self, other: &TopologyObject) -> Option<&TopologyObject> {
         // Handle degenerate case
@@ -1355,14 +1405,15 @@ impl TopologyObject {
 
     /// Truth that this object is in the subtree beginning with ancestor
     /// object `subtree_root`
+    ///
+    /// This will return `false` if `self` and `subtree_root` do not belong to
+    /// the same topology.
     #[doc(alias = "hwloc_obj_is_in_subtree")]
     pub fn is_in_subtree(&self, subtree_root: &TopologyObject) -> bool {
-        // Take a cpuset-based shortcut on normal objects
-        if let (Some(self_cpuset), Some(subtree_cpuset)) = (self.cpuset(), subtree_root.cpuset()) {
-            return subtree_cpuset.includes(&self_cpuset);
-        }
-
-        // Otherwise, walk the ancestor chain
+        // NOTE: Not reusing the cpuset-based optimization of hwloc as it is
+        //       invalid in the presence of objects that do not belong to the
+        //       same topology and there is no way to detect whether this is the
+        //       case or not without... walking the ancestors ;)
         self.ancestors()
             .any(|ancestor| ptr::eq(ancestor, subtree_root))
     }

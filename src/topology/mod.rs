@@ -92,6 +92,10 @@ pub(crate) struct RawTopology(IncompleteType);
 //
 // As a type invariant, the inner pointer is assumed to always point to a valid
 // fully built, non-aliased topology.
+//
+// Any binding to an hwloc topology function that takes a user-provided
+// &TopologyObject parameter **must** check that this object does belongs to the
+// topology using the Topology::contains() method before passing it to hwloc.
 #[derive(Debug)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
@@ -355,9 +359,10 @@ impl Topology {
     /// sharing resources like fast CPU caches.
     ///
     /// The set of CPUs over which work items are distributed is designated by a
-    /// set of root [`TopologyObject`]s with associated CPUs. You can distribute
-    /// items across all CPUs in the topology by setting `roots` to
-    /// `&[topology.root_object()]`.
+    /// set of root [`TopologyObject`]s with associated CPUs. The root objects
+    /// must be part of this [`Topology`], or the [`ForeignRoots`] error will
+    /// be returned. You can distribute items across all CPUs in the topology
+    /// by setting `roots` to `&[topology.root_object()]`.
     ///
     /// Since the purpose of `roots` is to designate which CPUs items should be
     /// allocated to, root objects should normally have a CPU set. If that is
@@ -367,7 +372,7 @@ impl Topology {
     /// which represents the CPUs closest to the object of interest. If none of
     /// the CPUs of that ancestor is available for binding, that root will be
     /// ignored, unless this is true of all roots in which case the
-    /// [`EmptyRootsError`] error is returned.
+    /// [`EmptyRoots`] error is returned.
     ///
     /// If there is no depth limit, which can be achieved by setting `max_depth`
     /// to `usize::MAX`, the distribution will be done down to the granularity
@@ -383,8 +388,13 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`EmptyRootsError`] if there are no CPUs to distribute work to (the
+    /// - [`EmptyRoots`] if there are no CPUs to distribute work to (the
     ///   union of all root cpusets is empty).
+    /// - [`ForeignRoots`] if some of the specified roots do not belong to this
+    ///   topology.
+    ///
+    /// [`EmptyRoots`]: DistributeError::EmptyRoots
+    /// [`ForeignRoots`]: DistributeError::ForeignRoots
     #[allow(clippy::missing_docs_in_private_items)]
     #[doc(alias = "hwloc_distrib")]
     pub fn distribute_items(
@@ -393,7 +403,12 @@ impl Topology {
         num_items: NonZeroUsize,
         max_depth: usize,
         flags: DistributeFlags,
-    ) -> Result<Vec<CpuSet>, EmptyRootsError> {
+    ) -> Result<Vec<CpuSet>, DistributeError> {
+        // Make sure all roots belong to this topology
+        if roots.iter().any(|root| !self.contains(root)) {
+            return Err(DistributeError::ForeignRoots);
+        }
+
         // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
         // With this function, we process an object that is presumed normal,
         // extract this information, and return it as an Option that is None if
@@ -497,7 +512,7 @@ impl Topology {
             root_then_ancestors.find_map(decode_normal_obj)
         });
         if decoded_roots.clone().count() == 0 {
-            return Err(EmptyRootsError);
+            return Err(DistributeError::EmptyRoots);
         }
 
         // Run the recursion, collect results
@@ -529,14 +544,21 @@ impl Default for DistributeFlags {
     }
 }
 //
-/// Error returned when the specified roots contain no accessible CPUs
-///
-/// This can happen if either an empty roots list is specified, or if the
-/// topology was built with [`BuildFlags::INCLUDE_DISALLOWED`] and the specified
-/// roots only contain disallowed CPUs.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("platform does not support this operation")]
-pub struct EmptyRootsError;
+/// Error returned by [`Topology::distribute_items()`]
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum DistributeError {
+    /// Error returned when the specified roots contain no accessible CPUs
+    ///
+    /// This can happen if either an empty roots list is specified, or if the
+    /// topology was built with [`BuildFlags::INCLUDE_DISALLOWED`] and the
+    /// specified roots only contain disallowed CPUs.
+    #[error("no CPU is accessible from provided roots")]
+    EmptyRoots,
+
+    /// Some of the specified roots do not belong to this topology
+    #[error("specified roots do not all belong to this topology")]
+    ForeignRoots,
+}
 
 /// Part of the implementation of `Topology::distribute_items()` that tells,
 /// given a number of items to distribute, a cpuset weight, and the sum of all
@@ -775,6 +797,25 @@ impl Topology {
     /// by the [`Topology::edit()`] mechanism.
     pub(crate) fn as_mut_ptr(&mut self) -> *mut RawTopology {
         self.0.as_ptr()
+    }
+
+    /// Check if a [`TopologyObject`] is part of this topology
+    ///
+    /// This check is a safety precondition to any hwloc topology method
+    /// binding that takes user-originated `&TopologyObject`s as a parameter.
+    ///
+    /// While this is not expected to happen often and will in fact often
+    /// require the user to jump through some serious hoops like creating
+    /// another `static` or `thread_local` topology, unfortunately there is
+    /// always a way to do it, and safe Rust code must remain safe even in the
+    /// craziest of edge cases...
+    pub(crate) fn contains(&self, object: &TopologyObject) -> bool {
+        let expected_root = self.root_object();
+        let actual_root = std::iter::once(object)
+            .chain(object.ancestors())
+            .last()
+            .expect("By definition, this iterator always has >= 1 element");
+        std::ptr::eq(expected_root, actual_root)
     }
 }
 

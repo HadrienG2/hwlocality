@@ -1,4 +1,17 @@
 //! Memory attributes
+//!
+//! On some platforms, NUMA nodes do not represent homogeneous memory, but
+//! instead reflect multiple tiers of memory with different performance
+//! characteristics (HBM, DDR, NVRAM...).
+//!
+//! hwloc's memory attribute API, which this module is all about, lets you know
+//! pick which memory you want to allocate from based on capacity, locality,
+//! latency and bandwidth considerations.
+//!
+//! Most of this module's functionality is exposed via [methods of the Topology
+//! struct](../../topology/struct.Topology.html#comparing-memory-node-attributes-for-finding-where-to-allocate-on).
+//! The module itself only hosts type definitions that are related to this
+//! functionality.
 
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
@@ -110,7 +123,7 @@ impl Topology {
     /// when `flags` contains both [`LocalNUMANodeFlags::LARGER_LOCALITY`] and
     /// [`LocalNUMANodeFlags::SMALLER_LOCALITY`], the returned array corresponds
     /// to the nodeset of that object.
-    #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_errors_doc, clippy::unnecessary_safety_comment)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
     pub fn local_numa_nodes<'target>(
         &self,
@@ -121,6 +134,10 @@ impl Topology {
         let (location, flags) = unsafe { target.into().into_raw_params() };
         let mut nr = 0;
         let call_ffi = |nr_mut, out_ptr| {
+            // SAFETY: - Topology is assumed to be valid as a type invariant
+            //         - The TargetNumaNodes API is designed in such a way that
+            //           an invalid (location, flags) tuple cannot happen.
+            //         - nr_mut and out_ptr are call site dependent, see below.
             errors::call_hwloc_int_normal("hwloc_get_local_numanode_objs", || unsafe {
                 ffi::hwloc_get_local_numanode_objs(
                     self.as_ptr(),
@@ -133,12 +150,16 @@ impl Topology {
         };
 
         // Query node count
+        // SAFETY: A null output is allowed, and 0 elements is the correct way
+        //         to model it in the "nr" parameter. This will set nr to the
+        //         actual buffer size we need to allocate.
         call_ffi(&mut nr, ptr::null_mut())?;
         let len = ffi::expect_usize(nr);
 
         // Allocate storage and fill node list
         let mut out = vec![ptr::null(); len];
         let old_nr = nr;
+        // SAFETY: out is a valid buffer of size len, which is just nr as usize
         call_ffi(&mut nr, out.as_mut_ptr())?;
         assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
 
@@ -147,6 +168,8 @@ impl Topology {
             .into_iter()
             .map(|ptr| {
                 assert!(!ptr.is_null(), "Invalid NUMA node pointer from hwloc");
+                // SAFETY: We trust that if hwloc emits a non-null pointer, it
+                //         is valid and bound to the topology's lifetime.
                 unsafe { &*ptr }
             })
             .collect())
@@ -183,7 +206,12 @@ impl<'topology> TopologyEditor<'topology> {
             return Err(MemoryAttributeRegisterError::BadFlags(flags));
         }
         let name = LibcString::new(name)?;
-        let mut id = MemoryAttributeID::default();
+        let mut id = MemoryAttributeID(u32::MAX);
+        // SAFETY: - Topology is assumed to be valid as a type invariant
+        //         - LibcString constructor weeds out things which are not valid
+        //           C strings and produces a valid C string
+        //         - Flags are validated to be correct
+        //         - id is an out-parameter, so it can take any input value
         let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
             ffi::hwloc_memattr_register(
                 self.topology_mut_ptr(),
@@ -349,7 +377,7 @@ pub enum InitiatorsError {
 ///
 /// May be a predefined identifier (see associated consts) or come from
 /// [`TopologyEditor::register_memory_attribute()`].
-#[derive(Copy, Clone, Debug, Default, Display, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 #[repr(transparent)]
 pub(crate) struct MemoryAttributeID(u32);
 //
@@ -1123,11 +1151,9 @@ bitflags! {
         /// Select all NUMA nodes in the topology
         ///
         /// The initiator is ignored.
-        //
-        // --- Implementation details ---
-        //
-        // This flag is automatically set when users specify
-        // [`TargetNumaNodes::All`] as the target NUMA node set.
+        ///
+        /// This flag is automatically set when users specify
+        /// [`TargetNumaNodes::All`] as the target NUMA node set.
         #[doc(hidden)]
         const ALL = (1<<2);
     }
@@ -1186,7 +1212,7 @@ bitflags! {
     /// These flags are given to [`TopologyEditor::register_memory_attribute()`]
     /// and returned by [`MemoryAttribute::flags()`].
     ///
-    /// At least one of `HIGHER_IS_BEST` and `LOWER_IS_BEST` must be set.
+    /// Exactly one of the `HIGHER_IS_BEST` and `LOWER_IS_BEST` flags must be set.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_memattr_flag_e")]
     #[repr(C)]
@@ -1194,21 +1220,29 @@ bitflags! {
         /// The best nodes for this memory attribute are those with the higher
         /// values
         ///
-        /// For instance [`MemoryAttribute::bandwidth()`].
+        /// This flag is mutually exclusive with [`LOWER_IS_BEST`].
+        ///
+        /// See for instance [`MemoryAttribute::bandwidth()`].
+        ///
+        /// [`LOWER_IS_BEST`]: Self::LOWER_IS_BEST
         #[doc(alias = "HWLOC_MEMATTR_FLAG_HIGHER_FIRST")]
         const HIGHER_IS_BEST = (1<<0);
 
         /// The best nodes for this memory attribute are those with the lower
         /// values
         ///
-        /// For instance [`MemoryAttribute::latency()`].
+        /// This flag is mutually exclusive with [`HIGHER_IS_BEST`].
+        ///
+        /// See for instance [`MemoryAttribute::latency()`].
+        ///
+        /// [`HIGHER_IS_BEST`]: Self::HIGHER_IS_BEST
         #[doc(alias = "HWLOC_MEMATTR_FLAG_LOWER_FIRST")]
         const LOWER_IS_BEST = (1<<1);
 
         /// The value returned for this memory attribute depends on the given
         /// initiator
         ///
-        /// For instance [`bandwidth()`] and [`latency()`], but not
+        /// See for instance [`bandwidth()`] and [`latency()`], but not
         /// [`capacity()`].
         ///
         /// [`bandwidth()`]: MemoryAttribute::bandwidth()

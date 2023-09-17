@@ -4,7 +4,7 @@ use super::RawTopology;
 use crate::{
     bitmap::{BitmapKind, SpecializedBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, HybridError, NulError, ParameterError, RawHwlocError},
+    errors::{self, HybridError, ParameterError, RawHwlocError},
     ffi::{self, LibcString},
     memory::nodeset::NodeSet,
     object::TopologyObject,
@@ -263,20 +263,29 @@ impl<'topology> TopologyEditor<'topology> {
 
     /// Add more structure to the topology by adding an intermediate [`Group`]
     ///
-    /// Use the `find_children` callback to specify which [`TopologyObject`]s
-    /// should be made children of the newly created Group object. The cpuset
-    /// and nodeset of the final Group object will be the union of the cpuset
-    /// and nodeset of all children respectively. Empty groups are not allowed,
-    /// so at least one of these sets must be non-empty, or no Group object
-    /// will be created.
+    /// Use the `find_children` callback to specify which [`TopologyObject`]s of
+    /// this topology should be made children of the newly created Group
+    /// object. The cpuset and nodeset of the final Group object will be the
+    /// union of the cpuset and nodeset of all children respectively. Empty
+    /// groups are not allowed, so at least one of these sets must be
+    /// non-empty, or no Group object will be created.
     ///
     /// Use the `merge` option to control hwloc's propension to merge groups
     /// with hierarchically-identical topology objects.
     ///
-    /// After insertion, [`TopologyObject::set_subtype()`] can be used to
-    /// display something other than "Group" as the type name for this object in
-    /// `lstopo`, and custom name/value info pairs may be added using
+    /// After a successful insertion, [`TopologyObject::set_subtype()`] can be
+    /// used to display something other than "Group" as the type name for this
+    /// object in `lstopo`, and custom name/value info pairs may be added using
     /// [`TopologyObject::add_info()`].
+    ///
+    /// # Errors
+    ///
+    /// - [`BadGroupChildren`] if some of the child `&TopologyObject`s
+    ///   specified by `find_children` do not belong to this [`Topology`].
+    /// - [`RawHwlocError`]s are documented to happen if there are conflicting
+    ///   sets in the topology tree, if [`Group`] objects are filtered out of
+    ///   the topology through [`TypeFilter::KeepNone`], and if the effective
+    ///   CPU set or NUMA node set ends up being empty.
     ///
     /// [`Group`]: ObjectType::Group
     //
@@ -292,27 +301,26 @@ impl<'topology> TopologyEditor<'topology> {
         &mut self,
         merge: Option<GroupMerge>,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> GroupInsertResult<'topology> {
+    ) -> Result<InsertedGroup<'topology>, HybridError<BadGroupChildren>> {
         // Allocate group object
         let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
             ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
         });
-        let mut group = match group {
-            Ok(group) => group,
-            Err(e) => return GroupInsertResult::Failed(e),
-        };
+        let mut group = group.map_err(HybridError::Hwloc)?;
 
         // Expand cpu sets and node sets to cover designated children
-        // NOTE: This function may panic, in which case an allocation will be
-        //       leaked, but hwloc does not provide a way to liberate it...
-        let children = find_children(self.topology());
+        // NOTE: This part may panic, in which case the above allocation will be
+        //       leaked, alas hwloc provides no way to cleanly liberate it :(
+        let topology = self.topology();
+        let children = find_children(topology);
+        if children.iter().any(|child| !topology.contains(child)) {
+            return Err(BadGroupChildren.into());
+        }
         for child in children {
-            let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
+            errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
                 ffi::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
-            });
-            if let Err(e) = result {
-                return GroupInsertResult::Failed(e);
-            }
+            })
+            .map_err(HybridError::Hwloc)?;
         }
 
         // Adjust hwloc's propension to merge groups if instructed to do so
@@ -332,14 +340,17 @@ impl<'topology> TopologyEditor<'topology> {
         }
 
         // Insert the group object into the topology
-        let result = errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
+        errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
             ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group.as_ptr())
-        });
-        match result {
-            Ok(result) if result == group => GroupInsertResult::New(unsafe { group.as_mut() }),
-            Ok(mut other) => GroupInsertResult::Existing(unsafe { other.as_mut() }),
-            Err(e) => GroupInsertResult::Failed(e),
-        }
+        })
+        .map(|mut result| {
+            if result == group {
+                InsertedGroup::New(unsafe { group.as_mut() })
+            } else {
+                InsertedGroup::Existing(unsafe { result.as_mut() })
+            }
+        })
+        .map_err(HybridError::Hwloc)
     }
 
     /// Add a [`Misc`] object as a leaf of the topology
@@ -351,23 +362,31 @@ impl<'topology> TopologyEditor<'topology> {
     /// actually changing the hierarchy.
     ///
     /// `name` is supposed to be unique across all [`Misc`] objects in the
-    /// topology. If it contains some non-printable characters, then they will
-    /// be dropped when exporting to XML.
+    /// topology. It must not contain any NUL chars. If it contains any other
+    /// non-printable characters, then they will be dropped when exporting to
+    /// XML.
     ///
     /// The new leaf object will not have any cpuset.
     ///
     /// # Errors
     ///
-    /// This method will fail with an unspecified hwloc error if Misc objects
-    /// are filtered out of the topology via [`TypeFilter::KeepNone`].
+    /// - [`ForeignParent`] if the parent `&TopologyObject` returned by
+    ///   `find_parent` does not belong to this [`Topology`].
+    /// - [`NameContainsNul`] if `name` contains NUL chars.
+    /// - An unspecified [`RawHwlocError`] if Misc objects are filtered out of
+    ///   the topology via [`TypeFilter::KeepNone`].
     ///
+    /// [`ForeignParent`]: InsertMiscError::ForeignParent
     /// [`Misc`]: ObjectType::Misc
+    /// [`NameContainsNul`]: InsertMiscError::NameContainsNul
     #[doc(alias = "hwloc_topology_insert_misc_object")]
     pub fn insert_misc_object(
         &mut self,
         name: &str,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
-    ) -> Result<&'topology mut TopologyObject, HybridError<NulError>> {
+    ) -> Result<&'topology mut TopologyObject, HybridError<InsertMiscError>> {
+        // Find parent object
+        //
         // This is on the edge of violating Rust's aliasing rules, but I think
         // it should work out because...
         //
@@ -388,9 +407,21 @@ impl<'topology> TopologyEditor<'topology> {
         // allowed to assume that nothing changed behind that shared reference.
         // So letting the client keep hold of it would be highly problematic.
         //
-        let parent: *const TopologyObject = find_parent(self.topology());
-        let parent = parent.cast_mut();
-        let name = LibcString::new(name)?;
+        let parent: *mut TopologyObject = {
+            let topology = self.topology();
+            let parent = find_parent(topology);
+            if !topology.contains(parent) {
+                return Err(HybridError::Rust(InsertMiscError::ForeignParent));
+            }
+            let parent: *const TopologyObject = parent;
+            parent.cast_mut()
+        };
+
+        // Convert object name to a C string
+        let name = LibcString::new(name)
+            .map_err(|_| HybridError::Rust(InsertMiscError::NameContainsNul))?;
+
+        // Call hwloc entry point
         let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
             ffi::hwloc_topology_insert_misc_object(self.topology_mut_ptr(), parent, name.borrow())
         })
@@ -546,7 +577,7 @@ pub enum GroupMerge {
 /// Result of inserting a Group object
 #[derive(Debug)]
 #[must_use]
-pub enum GroupInsertResult<'topology> {
+pub enum InsertedGroup<'topology> {
     /// New Group that was properly inserted
     New(&'topology mut TopologyObject),
 
@@ -555,15 +586,30 @@ pub enum GroupInsertResult<'topology> {
     /// If the Group adds no hierarchy information, hwloc may merge or discard
     /// it in favor of existing topology object at the same location.
     Existing(&'topology mut TopologyObject),
-
-    /// One hwloc API call failed
-    ///
-    /// This can happen if there are conflicting sets in the topology tree,
-    /// if [`Group`](ObjectType::Group) objects are filtered out of the
-    /// topology through [`TypeFilter::KeepNone`], or if the effective CPU set
-    /// or NUMA node set ends up being empty.
-    Failed(RawHwlocError),
 }
 
-// NOTE: Do not implement traits like AsRef/Deref/Borrow, that would be unsafe
-//       as it would expose &Topology with unevaluated lazy hwloc caches.
+/// Attempted to create a group with invalid children
+///
+/// The `find_children` callback that was passed to
+/// [`TopologyEditor::insert_group_object()`] returned "children" which don't
+/// actually belong to the topology that is being edited.
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("find_children returned some invalid (foreign) children")]
+pub struct BadGroupChildren;
+
+/// Error returned by [`TopologyEditor::insert_misc_object()`]
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum InsertMiscError {
+    /// Specified parent does not belong to this topology
+    #[error("the specified parent does not belong to this topology")]
+    ForeignParent,
+
+    /// Object name contains NUL chars, which hwloc can't handle
+    #[error("requested object name contains NUL chars")]
+    NameContainsNul,
+}
+
+// NOTE: Do not implement traits like AsRef/Deref/Borrow for TopologyEditor,
+//       that would be unsafe as it would expose &Topology with unevaluated lazy
+//       hwloc caches, and calling their methods could violates Rust's aliasing
+//       model via mutation through &Topology.

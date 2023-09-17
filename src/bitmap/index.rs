@@ -25,7 +25,6 @@ use crate::ffi;
 use crate::{
     cpu::cpuset::CpuSet,
     memory::nodeset::NodeSet,
-    object::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
 use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex};
