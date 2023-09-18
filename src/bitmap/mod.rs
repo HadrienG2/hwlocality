@@ -1414,7 +1414,7 @@ unsafe impl OwnedBitmap for Bitmap {
 // `BitmapRef<Target>` must never allow mutating the target because it is
 // constructible from `&Target`.
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
 
 impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
@@ -1548,6 +1548,8 @@ impl<Target: OwnedBitmap> Borrow<Target> for BitmapRef<'_, Target> {
 //       a `&'a Bitmap` of finite lifetime, as otherwise you would be able
 //       to clone this `BitmapRef`, drop the original `Bitmap`, and then you
 //       would have a dangling `BitmapRef`, resulting in UB.
+
+impl<Target: OwnedBitmap> Copy for BitmapRef<'_, Target> {}
 
 impl<Target: OwnedBitmap + Debug> Debug for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
