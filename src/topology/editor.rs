@@ -22,7 +22,7 @@ use std::{
     ffi::c_ulong,
     fmt::{self, Write},
     panic::{AssertUnwindSafe, UnwindSafe},
-    ptr,
+    ptr::{self, NonNull},
 };
 use thiserror::Error;
 
@@ -280,12 +280,13 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`BadGroupChildren`] if some of the child `&TopologyObject`s
-    ///   specified by `find_children` do not belong to this [`Topology`].
-    /// - [`RawHwlocError`]s are documented to happen if there are conflicting
-    ///   sets in the topology tree, if [`Group`] objects are filtered out of
-    ///   the topology through [`TypeFilter::KeepNone`], and if the effective
-    ///   CPU set or NUMA node set ends up being empty.
+    /// - [`BadGroupChildren`] if some of the child `&TopologyObject`s specified
+    ///   by the `find_children` callback do not belong to this [`Topology`].
+    /// - [`RawHwlocError`]s are documented to happen if...
+    ///     - There are conflicting sets in the topology tree
+    ///     - [`Group`] objects are filtered out of the topology through
+    ///       [`TypeFilter::KeepNone`]
+    ///     - The effective CPU set or NUMA node set ends up being empty.
     ///
     /// [`Group`]: ObjectType::Group
     //
@@ -302,55 +303,12 @@ impl<'topology> TopologyEditor<'topology> {
         merge: Option<GroupMerge>,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
     ) -> Result<InsertedGroup<'topology>, HybridError<BadGroupChildren>> {
-        // Allocate group object
-        let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
-            ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
-        });
-        let mut group = group.map_err(HybridError::Hwloc)?;
-
-        // Expand cpu sets and node sets to cover designated children
-        // NOTE: This part may panic, in which case the above allocation will be
-        //       leaked, alas hwloc provides no way to cleanly liberate it :(
-        let topology = self.topology();
-        let children = find_children(topology);
-        if children.iter().any(|child| !topology.contains(child)) {
-            return Err(BadGroupChildren.into());
-        }
-        for child in children {
-            errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
-                ffi::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
-            })
-            .map_err(HybridError::Hwloc)?;
-        }
-
-        // Adjust hwloc's propension to merge groups if instructed to do so
+        let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
+        group.add_children(find_children)?;
         if let Some(merge) = merge {
-            // SAFETY: We know this is a group, attribute variant isn't changed
-            let mut group_attributes = unsafe {
-                group
-                    .as_mut()
-                    .raw_attributes()
-                    .expect("Expected group attributes")
-                    .group
-            };
-            match merge {
-                GroupMerge::Never => group_attributes.prevent_merging(),
-                GroupMerge::Always => group_attributes.favor_merging(),
-            }
+            group.set_merge_policy(merge);
         }
-
-        // Insert the group object into the topology
-        errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
-            ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group.as_ptr())
-        })
-        .map(|mut result| {
-            if result == group {
-                InsertedGroup::New(unsafe { group.as_mut() })
-            } else {
-                InsertedGroup::Existing(unsafe { result.as_mut() })
-            }
-        })
-        .map_err(HybridError::Hwloc)
+        group.insert().map_err(HybridError::Hwloc)
     }
 
     /// Add a [`Misc`] object as a leaf of the topology
@@ -386,6 +344,21 @@ impl<'topology> TopologyEditor<'topology> {
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
     ) -> Result<&'topology mut TopologyObject, HybridError<InsertMiscError>> {
         // Find parent object
+        let parent: *mut TopologyObject = {
+            let topology = self.topology();
+            let parent = find_parent(topology);
+            if !topology.contains(parent) {
+                return Err(HybridError::Rust(InsertMiscError::ForeignParent));
+            }
+            let parent: *const TopologyObject = parent;
+            parent.cast_mut()
+        };
+
+        // Convert object name to a C string
+        let name = LibcString::new(name)
+            .map_err(|_| HybridError::Rust(InsertMiscError::NameContainsNul))?;
+
+        // Call hwloc entry point
         //
         // This is on the edge of violating Rust's aliasing rules, but I think
         // it should work out because...
@@ -407,21 +380,6 @@ impl<'topology> TopologyEditor<'topology> {
         // allowed to assume that nothing changed behind that shared reference.
         // So letting the client keep hold of it would be highly problematic.
         //
-        let parent: *mut TopologyObject = {
-            let topology = self.topology();
-            let parent = find_parent(topology);
-            if !topology.contains(parent) {
-                return Err(HybridError::Rust(InsertMiscError::ForeignParent));
-            }
-            let parent: *const TopologyObject = parent;
-            parent.cast_mut()
-        };
-
-        // Convert object name to a C string
-        let name = LibcString::new(name)
-            .map_err(|_| HybridError::Rust(InsertMiscError::NameContainsNul))?;
-
-        // Call hwloc entry point
         let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
             ffi::hwloc_topology_insert_misc_object(self.topology_mut_ptr(), parent, name.borrow())
         })
@@ -574,6 +532,172 @@ pub enum GroupMerge {
     Always,
 }
 
+/// RAII guard for `Group` objects that have been allocated, but not inserted
+///
+/// Ensures that these groups are auto-deleted if not inserted for any reason
+/// (typically as a result of erroring out).
+///
+/// # Safety
+///
+/// `group` must be a newly allocated, not-yet-inserted `Group` object that is
+/// bound to topology editor `editor`. It would be an `&mut TopologyObject` if
+/// this didn't break the Rust aliasing rules.
+struct AllocatedGroup<'editor, 'topology> {
+    /// Group object
+    group: NonNull<TopologyObject>,
+
+    /// Underlying TopologyEditor the Group is allocated from
+    editor: &'editor mut TopologyEditor<'topology>,
+}
+//
+impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
+    /// Allocate a new Group object
+    pub(self) fn new(
+        editor: &'editor mut TopologyEditor<'topology>,
+    ) -> Result<Self, RawHwlocError> {
+        // SAFETY: As a type invariant, the topology is always assumed valid
+        let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
+            ffi::hwloc_topology_alloc_group_object(editor.topology_mut_ptr())
+        })?;
+        Ok(Self { group, editor })
+    }
+
+    /// Expand cpu sets and node sets to cover designated children
+    ///
+    /// # Errors
+    ///
+    /// [`BadGroupChildren`] if some of the designated children do not come from
+    /// the same topology as this group.
+    pub(self) fn add_children(
+        &mut self,
+        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
+    ) -> Result<(), BadGroupChildren> {
+        // Enumerate children, check they belong to this topology
+        let topology = self.editor.topology();
+        let children = find_children(topology);
+        if children.iter().any(|child| !topology.contains(child)) {
+            return Err(BadGroupChildren);
+        }
+
+        // Add children to this group
+        for child in children {
+            // SAFETY: - Per group invariant, self.group is assumed to be valid
+            //         - child was checked to belong to the same topology as group
+            let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
+                ffi::hwloc_obj_add_other_obj_sets(self.group.as_ptr(), child)
+            });
+            match result {
+                Ok(_) => {}
+                Err(
+                    raw_err @ RawHwlocError {
+                        errno: Some(errno::Errno(ENOMEM)),
+                        ..
+                    },
+                ) => panic!("Internal reallocation failed: {raw_err}"),
+                Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+            }
+        }
+        Ok(())
+    }
+
+    /// Configure hwloc's group merging policy
+    ///
+    /// By default, hwloc may or may not merge identical groups covering the
+    /// same objects. You can encourage or inhibit this tendency with this method.
+    pub(self) fn set_merge_policy(&mut self, merge: GroupMerge) {
+        // SAFETY: We know this is a group and don't change its attributes variant
+        let mut group_attributes = unsafe {
+            self.group
+                .as_mut()
+                .raw_attributes()
+                .expect("Expected group attributes")
+                .group
+        };
+        match merge {
+            GroupMerge::Never => group_attributes.prevent_merging(),
+            GroupMerge::Always => group_attributes.favor_merging(),
+        }
+    }
+
+    /// Insert this Group object into the underlying topology
+    ///
+    /// # Errors
+    ///
+    /// Will return an unspecified error if any of the following happens:
+    ///
+    /// - Insertion failed because of conflicting sets in the topology tree
+    /// - Group objects are filtered out of the topology via
+    ///   [`TypeFilter::KeepNone`]
+    /// - The object was discarded because no set was initialized in the Group,
+    ///   or they were all empty.
+    pub(self) fn insert(mut self) -> Result<InsertedGroup<'topology>, RawHwlocError> {
+        // SAFETY: self is forgotten after this, so no drop or reuse will occur
+        let res = unsafe { self.insert_impl() };
+        std::mem::forget(self);
+        res
+    }
+
+    /// Implementation of `insert()` with an `&mut self` argument
+    ///
+    /// # Errors
+    ///
+    /// Will return an unspecified error if any of the following happens:
+    ///
+    /// - Insertion failed because of conflicting sets in the topology tree
+    /// - Group objects are filtered out of the topology via
+    ///   [`TypeFilter::KeepNone`]
+    /// - The object was discarded because no set was initialized in the Group,
+    ///   or they were all empty.
+    ///
+    /// # Safety
+    ///
+    /// After calling this method, `self` is in an invalid state and should not
+    /// be used in any way anymore. In particular, care should be taken to
+    /// ensure that the Drop destructor is not called.
+    unsafe fn insert_impl(&mut self) -> Result<InsertedGroup<'topology>, RawHwlocError> {
+        // SAFETY: - Per type variant, topology is trusted to be valid
+        //         - Per type invariant, self's group is trusted to be valid
+        errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
+            ffi::hwloc_topology_insert_group_object(
+                self.editor.topology_mut_ptr(),
+                self.group.as_ptr(),
+            )
+        })
+        .map(|mut result| {
+            if result == self.group {
+                // SAFETY: Group has been successfully inserted, can expose &mut
+                InsertedGroup::New(unsafe { self.group.as_mut() })
+            } else {
+                // SAFETY: hwloc is trusted to point to an existing group
+                InsertedGroup::Existing(unsafe { result.as_mut() })
+            }
+        })
+    }
+}
+//
+impl Drop for AllocatedGroup<'_, '_> {
+    fn drop(&mut self) {
+        // FIXME: As of hwloc v2.9.4, there is no API to delete a previously
+        //        allocated Group object without attempting to insert it into
+        //        the topology. An always-failing insertion is the officially
+        //        recommended workaround until such an API is added:
+        //        https://github.com/open-mpi/hwloc/issues/619
+        // SAFETY: Drop is not called for objects that have been inserted, and
+        //         objects won't be inserted after drop. Therefore, self.group
+        //         is in a valid state at the start of this method, and the fact
+        //         it won't be after the end doesn't matter.
+        unsafe {
+            TopologyObject::delete_all_sets(self.group);
+        }
+        // SAFETY: Object will not be used after insert_impl, and this is
+        //         already the destructor so drop will not re-run after this.
+        unsafe {
+            self.insert_impl()
+                .expect_err("Group insertion with NULL sets should fail and deallocate the group");
+        }
+    }
+}
+
 /// Result of inserting a Group object
 #[derive(Debug)]
 #[must_use]
@@ -594,7 +718,7 @@ pub enum InsertedGroup<'topology> {
 /// [`TopologyEditor::insert_group_object()`] returned "children" which don't
 /// actually belong to the topology that is being edited.
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("find_children returned some invalid (foreign) children")]
+#[error("Provided find_children callback returned invalid (foreign) children")]
 pub struct BadGroupChildren;
 
 /// Error returned by [`TopologyEditor::insert_misc_object()`]
