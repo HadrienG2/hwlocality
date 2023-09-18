@@ -27,7 +27,7 @@ use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
     iter::FusedIterator,
-    ptr,
+    ptr::{self, NonNull},
 };
 use thiserror::Error;
 
@@ -1322,8 +1322,8 @@ impl TopologyObject {
     /// Search for the first ancestor that is shared with another object
     ///
     /// The search will always succeed unless...
-    /// - One of `self` and `other` is the root [`Machine`]
-    ///   (ObjectType::Machine) object, which has no ancestors.
+    /// - One of `self` and `other` is the root [`Machine`](ObjectType::Machine)
+    ///   object, which has no ancestors.
     /// - `self` and `other` do not belong to the same topology, and thus have
     ///   no shared ancestor.
     #[doc(alias = "hwloc_get_common_ancestor_obj")]
@@ -1611,7 +1611,8 @@ impl TopologyObject {
     pub fn memory_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        self.singly_linked_children(self.memory_first_child, self.memory_arity())
+        // SAFETY: memory_first_child is a valid first-child of this object
+        unsafe { self.singly_linked_children(self.memory_first_child, self.memory_arity()) }
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -1637,7 +1638,8 @@ impl TopologyObject {
     pub fn io_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        self.singly_linked_children(self.io_first_child, self.io_arity())
+        // SAFETY: io_first_child is a valid first-child of this object
+        unsafe { self.singly_linked_children(self.io_first_child, self.io_arity()) }
     }
 
     /// Truth that this is a bridge covering the specified PCI bus
@@ -1666,7 +1668,8 @@ impl TopologyObject {
     pub fn misc_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        self.singly_linked_children(self.misc_first_child, self.misc_arity())
+        // SAFETY: misc_first_child is a valid first-child of this object
+        unsafe { self.singly_linked_children(self.misc_first_child, self.misc_arity()) }
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
@@ -1679,7 +1682,11 @@ impl TopologyObject {
     }
 
     /// Iterator over singly linked lists of child TopologyObjects with arity
-    fn singly_linked_children(
+    ///
+    /// # Safety
+    ///
+    /// `first` must be one of the `first_child` pointers of this object.
+    unsafe fn singly_linked_children(
         &self,
         first: *mut TopologyObject,
         arity: usize,
@@ -1961,6 +1968,43 @@ impl TopologyObject {
             } else {
                 let s = format!("{type_str} ({attr_str})");
                 f.pad(&s)
+            }
+        }
+    }
+
+    /// Delete all cpusets and nodesets from a non-inserted `Group` object
+    ///
+    /// This is needed as part of a dirty topology editing workaround that will
+    /// hopefully not be needed anymore after hwloc v2.10.
+    ///
+    /// # Safety
+    ///
+    /// `self` must designate a valid `Group` object that has been allocated
+    /// with `hwloc_topology_alloc_group_object()` but not yet inserted into a
+    /// topology with `hwloc_topology_insert_group_object()`.
+    #[cfg(feature = "hwloc-2_3_0")]
+    pub(crate) unsafe fn delete_all_sets(self_: NonNull<Self>) {
+        use std::ptr::addr_of_mut;
+
+        let self_ = self_.as_ptr();
+        for set_ptr in [
+            addr_of_mut!((*self_).cpuset),
+            addr_of_mut!((*self_).nodeset),
+            addr_of_mut!((*self_).complete_cpuset),
+            addr_of_mut!((*self_).complete_nodeset),
+        ] {
+            // SAFETY: This is safe per the input precondition that `self` is
+            //         a valid `TopologyObject` (which includes valid bitmap
+            //         pointers), and it's not part of a `Topology` yet so we
+            //         assume complete ownership of it and can delete its
+            //         cpusets and nodesets as we see fit without fear of
+            //         consequences.
+            unsafe {
+                let set = set_ptr.read();
+                if !set.is_null() {
+                    crate::ffi::hwloc_bitmap_free(set);
+                    set_ptr.write(std::ptr::null_mut())
+                }
             }
         }
     }
