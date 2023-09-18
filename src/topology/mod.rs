@@ -802,7 +802,8 @@ impl Topology {
     /// Check if a [`TopologyObject`] is part of this topology
     ///
     /// This check is a safety precondition to any hwloc topology method
-    /// binding that takes user-originated `&TopologyObject`s as a parameter.
+    /// binding that takes user-originated `&TopologyObject`s as a parameter
+    /// and passes it to an hwloc topology method.
     ///
     /// While this is not expected to happen often and will in fact often
     /// require the user to jump through some serious hoops like creating

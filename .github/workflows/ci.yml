@@ -21,8 +21,8 @@ concurrency:
 env:
   RUSTFLAGS: '-D warnings'
   HWLOC_VERSION: '2.9.1'
-  HWLOC_VERSION_SHORT: '2.9' # Used in URL to official tarball/binaries
-  MRSV: '1.70.0'
+  HWLOC_VERSION_SHORT: '2.9'  # Used in URL to official tarball/binaries
+  MRSV: '1.70.0'  # Minimal Supported Rust Version
 
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
