@@ -99,9 +99,10 @@ impl Topology {
         });
         match res {
             // SAFETY: If hwloc indicates success, it should have initialized id
-            Ok(_positive) => Ok(Some(MemoryAttribute::wrap(self, unsafe {
-                id.assume_init()
-            }))),
+            //         to a valid memory attribute ID
+            Ok(_positive) => Ok(Some(unsafe {
+                MemoryAttribute::wrap(self, id.assume_init())
+            })),
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
@@ -112,7 +113,7 @@ impl Topology {
 
     /// Find local NUMA nodes
     ///
-    /// If `target` is given as a `TopologyObject`, its CPU set is used to
+    /// If `target` is given as a [`TopologyObject`], its CPU set is used to
     /// find NUMA nodes with the corresponding locality. If the object does not
     /// have a CPU set (e.g. I/O object), the CPU parent (where the I/O object
     /// is attached) is used.
@@ -217,7 +218,7 @@ impl<'topology> TopologyEditor<'topology> {
         // SAFETY: - Topology is assumed to be valid as a type invariant
         //         - LibcString constructor weeds out things which are not valid
         //           C strings and produces a valid C string
-        //         - Flags are validated to be correct
+        //         - flags are validated to be correct
         //         - id is an out-parameter, so it can take any input value
         let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
             ffi::hwloc_memattr_register(
@@ -273,18 +274,39 @@ impl From<NulError> for MemoryAttributeRegisterError {
 /// Mechanism to configure a memory attribute
 #[derive(Debug)]
 pub struct MemoryAttributeBuilder<'editor, 'topology> {
+    /// Underlying [`TopologyEditor`]
     editor: &'editor mut TopologyEditor<'topology>,
+
+    /// Flags which this memory attribute was registered with
     flags: MemoryAttributeFlags,
+
+    /// ID that `hwloc_memattr_register` allocated to this memory attribute
     id: MemoryAttributeID,
 }
 //
 impl MemoryAttributeBuilder<'_, '_> {
     /// Set attribute values for (initiator, target node) pairs
     ///
-    /// Initiators should be provided if and only if this memory attribute has
-    /// an initiator (flag [`MemoryAttributeFlags::NEED_INITIATOR`] was set at
-    /// registration time). In that case, there should be as many initiators as
-    /// there are targets and attribute values.
+    /// Given a read-only view of the underlying [`Topology`], the provided
+    /// `find_values` callback should conceptually extract a list of
+    /// `(initiator, target, value)` tuples if this memory attribute has
+    /// initiators (flag [`MemoryAttributeFlags::NEED_INITIATOR`] was set at
+    /// attribute registration time), and a list of `(target, value)` tuples
+    /// if the attribute has no initiators.
+    ///
+    /// However, for efficiency reasons, the callback does not literally return
+    /// a list of ternary tuples with an optional initiator member, as this
+    /// would require one initiator check per attribute value. Instead, the
+    /// callback returns a list of `(target, value)` pairs along with an
+    /// optional list of initiators. If a list of initiators is provided, it
+    /// must be as long as the provided list of `(target, value)` pairs.
+    ///
+    /// Initiators should be specified as
+    /// [`CpuSet`](MemoryAttributeLocation::CpuSet) when referring to accesses
+    /// performed by CPU cores. The [`Object`](MemoryAttributeLocation::Object)
+    /// initiator type is currently  unused internally by hwloc, but users may
+    /// for instance use it to provide custom information about host memory
+    /// accesses performed by GPUs.
     ///
     /// # Errors
     ///
@@ -292,15 +314,17 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///   attribute values does not match
     /// - [`ForeignInitiators`] if some of the provided initiators are
     ///   [`TopologyObject`]s that do not belong to this [`Topology`]
+    /// - [`ForeignTargets`] if some of the provided targets are
+    ///   [`TopologyObject`]s that do not belong to this [`Topology`]
     /// - [`NeedInitiators`] if initiators were not specified for an attribute
     ///   that requires them
     /// - [`UnwantedInitiators`] if initiators were specified for an attribute
     ///   that does not requires them
     ///
-    /// [`BadInitiatorsCount`]: BadAttributeInitiators::BadInitiatorsCount
-    /// [`ForeignInitiators`]: BadAttributeInitiators::ForeignInitiators
-    /// [`NeedInitiators`]: BadAttributeInitiators::NeedInitiators
-    /// [`UnwantedInitiators`]: BadAttributeInitiators::UnwantedInitiators
+    /// [`BadInitiatorsCount`]: BadAttributeValues::BadInitiatorsCount
+    /// [`ForeignInitiators`]: BadAttributeValues::ForeignInitiators
+    /// [`NeedInitiators`]: BadAttributeValues::NeedInitiators
+    /// [`UnwantedInitiators`]: BadAttributeValues::UnwantedInitiators
     #[doc(alias = "hwloc_memattr_set_value")]
     pub fn set_values(
         &mut self,
@@ -310,19 +334,19 @@ impl MemoryAttributeBuilder<'_, '_> {
             Option<Vec<MemoryAttributeLocation<'_>>>,
             Vec<(&TopologyObject, u64)>,
         ),
-    ) -> Result<(), HybridError<BadAttributeInitiators>> {
+    ) -> Result<(), HybridError<BadAttributeValues>> {
         // Run user callback, validate results for correctness
         let topology = self.editor.topology();
         let (initiators, targets_and_values) = find_values(topology);
         if self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_none() {
-            return Err(BadAttributeInitiators::NeedInitiators.into());
+            return Err(BadAttributeValues::NeedInitiators.into());
         }
         if !self.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_some() {
-            return Err(BadAttributeInitiators::UnwantedInitiators.into());
+            return Err(BadAttributeValues::UnwantedInitiators.into());
         }
         if let Some(initiators) = &initiators {
             if initiators.len() != targets_and_values.len() {
-                return Err(BadAttributeInitiators::BadInitiatorsCount.into());
+                return Err(BadAttributeValues::BadInitiatorsCount.into());
             }
         }
 
@@ -334,9 +358,9 @@ impl MemoryAttributeBuilder<'_, '_> {
                     .map(|initiator| unsafe {
                         initiator
                             .into_checked_raw(topology)
-                            .map_err(|_| BadAttributeInitiators::ForeignInitiators)
+                            .map_err(|_| BadAttributeValues::ForeignInitiators)
                     })
-                    .collect::<Result<Vec<_>, BadAttributeInitiators>>()
+                    .collect::<Result<Vec<_>, BadAttributeValues>>()
             })
             .transpose()
             .map_err(HybridError::Rust)?;
@@ -351,13 +375,22 @@ impl MemoryAttributeBuilder<'_, '_> {
         let target_ptrs_and_values = targets_and_values
             .into_iter()
             .map(|(target_ref, value)| {
+                if !topology.contains(target_ref) {
+                    return Err(BadAttributeValues::ForeignTargets);
+                }
                 let target_ptr: *const TopologyObject = target_ref;
-                (target_ptr, value)
+                Ok((target_ptr, value))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, BadAttributeValues>>()?;
 
         // Set memory attribute values
         for (initiator_ptr, (target_ptr, value)) in initiator_ptrs.zip(target_ptrs_and_values) {
+            // SAFETY: - Topology is trusted to be valid per type invariant
+            //         - id comes from `hwloc_memattr_register`, it must be valid
+            //         - target_ptr was checked to belong to this topology
+            //         - initiator_ptr was checked to belong to this topology
+            //         - Flags must be 0 for now
+            //         - Any attribute value is valid
             errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
                 ffi::hwloc_memattr_set_value(
                     self.editor.topology_mut_ptr(),
@@ -375,17 +408,22 @@ impl MemoryAttributeBuilder<'_, '_> {
 }
 
 /// Error returned by [`MemoryAttributeBuilder::set_values`] when the
-/// `find_values` callback returns an incorrect set of initiators
+/// `find_values` callback returns incorrect initiators or targets
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum BadAttributeInitiators {
+pub enum BadAttributeValues {
     /// The number of provided initiators does not match the number of attribute values
     #[error("the number of initiators doesn't match the number of attribute values")]
     BadInitiatorsCount,
 
     /// Some provided initiators are [`TopologyObject`]s that do not belong to
-    /// the target topology
-    #[error("some provided initiators don't belong to the target topology")]
+    /// the topology being modified
+    #[error("some provided initiators don't belong to this topology")]
     ForeignInitiators,
+
+    /// Some provided targets are [`TopologyObject`]s that do not belong to
+    /// the topology being modified
+    #[error("some provided targets don't belong to this topology")]
+    ForeignTargets,
 
     /// An initiator was needed, but none was provided
     #[error("this attribute has an initiator, but none was provided")]
@@ -405,22 +443,37 @@ pub enum BadAttributeInitiators {
 pub(crate) struct MemoryAttributeID(u32);
 //
 impl MemoryAttributeID {
-    // See MemoryAttribute constructors below for detailed semantics
+    /// Node capacity in bytes (see [`MemoryAttribute::capacity()`])
     const CAPACITY: Self = Self(0);
+
+    /// Number of PUs in that locality (see [`MemoryAttribute::locality()`])
     const LOCALITY: Self = Self(1);
+
+    /// Average bandwidth in MiB/s (see [`MemoryAttribute::bandwidth()`])
     const BANDWIDTH: Self = Self(2);
+
+    /// Read bandwidth in MiB/s (see [`MemoryAttribute::read_bandwidth()`])
     #[cfg(feature = "hwloc-2_8_0")]
     const READ_BANDWIDTH: Self = Self(4);
+
+    /// Write bandwidth in MiB/s (see [`MemoryAttribute::write_bandwidth()`])
     #[cfg(feature = "hwloc-2_8_0")]
     const WRITE_BANDWIDTH: Self = Self(5);
+
+    /// Average latency in nanoseconds (see [`MemoryAttribute::latency()`])
     const LATENCY: Self = Self(3);
+
+    /// Read latency in nanoseconds (see [`MemoryAttribute::read_latency()`])
     #[cfg(feature = "hwloc-2_8_0")]
     const READ_LATENCY: Self = Self(6);
+
+    /// Write latency in nanoseconds (see [`MemoryAttribute::write_latency()`])
     #[cfg(feature = "hwloc-2_8_0")]
     const WRITE_LATENCY: Self = Self(7);
-    // NOTE: If you add new attributes, add support to static_flags and MemoryAttribute constructors
+    // TODO: If you add new attributes, add support to static_flags and
+    //       a matching MemoryAttribute constructor below
 
-    /// For predefined attributes, flags are known at compile time
+    /// Tell attribute flags if known at compile time
     fn static_flags(self) -> Option<MemoryAttributeFlags> {
         let bandwidth_flags =
             Some(MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
@@ -442,7 +495,8 @@ impl MemoryAttributeID {
     }
 }
 
-/// Generate MemoryAttribute constructors around a certain ID with minimal boilerplate
+/// Generate [`MemoryAttribute`] constructors around a predefined memory
+/// attribute ID from hwloc with minimal boilerplate
 macro_rules! wrap_ids {
     (
         $(
@@ -453,7 +507,9 @@ macro_rules! wrap_ids {
         $(
             $(#[$attr])*
             pub const fn $constructor(topology: &'topology Topology) -> Self {
-                Self::wrap(topology, MemoryAttributeID::$id)
+                // SAFETY: These memory attribute identifiers are pre-defined by
+                //         hwloc and guaranteed to always be valid
+                unsafe { Self::wrap(topology, MemoryAttributeID::$id) }
             }
         )*
     };
@@ -464,11 +520,20 @@ macro_rules! wrap_ids {
 /// May be either one of the predefined attributes (see associated const fns)
 /// or a new attribute created using
 /// [`TopologyEditor::register_memory_attribute()`].
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// `id` must be a valid identifier to a memory attribute known of `topology`.
 #[derive(Copy, Clone, Debug)]
 #[doc(alias = "hwloc_memattr_id_e")]
 #[doc(alias = "hwloc_memattr_id_t")]
 pub struct MemoryAttribute<'topology> {
+    /// Topology for which memory attribute is defined
     topology: &'topology Topology,
+
+    /// Identifier of the memory attribute being manipulated
     id: MemoryAttributeID,
 }
 //
@@ -509,7 +574,7 @@ impl<'topology> MemoryAttribute<'topology> {
         #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_BANDWIDTH")]
         WRITE_BANDWIDTH -> write_bandwidth,
 
-        /// Latency in nanoseconds, as seen from the given initiator location
+        /// Average latency in nanoseconds, as seen from the given initiator location
         ///
         /// This is the average latency for read and write accesses. If the
         /// platform value provides individual read and write latencies but no
@@ -531,8 +596,14 @@ impl<'topology> MemoryAttribute<'topology> {
 //
 /// # Memory attribute API
 impl<'topology> MemoryAttribute<'topology> {
-    /// Extend a MemoryAttributeID with topology access to enable method syntax
-    pub(crate) const fn wrap(topology: &'topology Topology, id: MemoryAttributeID) -> Self {
+    /// Extend a [`MemoryAttributeID`] with topology access to enable method syntax
+    ///
+    /// # Safety
+    ///
+    /// `id` must be a valid memory attribute ID, corresponding either to one of
+    /// hwloc's predefined attributes or an attribute that was user-allocated
+    /// using `hwloc_memattr_register`.
+    pub(crate) const unsafe fn wrap(topology: &'topology Topology, id: MemoryAttributeID) -> Self {
         Self { id, topology }
     }
 
@@ -540,6 +611,9 @@ impl<'topology> MemoryAttribute<'topology> {
     #[doc(alias = "hwloc_memattr_get_name")]
     pub fn name(&self) -> &'topology CStr {
         let mut name = ptr::null();
+        // SAFETY: - Topology is assumed to be valid per type invariant
+        //         - id is assumed to be valid per type invariant
+        //         - name is an out parameter, its initial value doesn't matter
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
             ffi::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
@@ -555,17 +629,19 @@ impl<'topology> MemoryAttribute<'topology> {
             !name.is_null(),
             "Memory attributes should have non-NULL names"
         );
+        // SAFETY: If hwloc does emit a non-NULL name in a successful query run,
+        //         we trust that name to be a valid `char*` C string pointer
+        //         bound to the topology's lifetime
         unsafe { CStr::from_ptr(name) }
     }
 
-    /// Memory attribute flags
+    /// Flags of this memory attribute
     #[doc(alias = "hwloc_memattr_get_flags")]
     pub fn flags(&self) -> MemoryAttributeFlags {
-        let flags = if let Some(flags) = self.id.static_flags() {
-            flags
-        } else {
-            self.dynamic_flags()
-        };
+        let flags = self
+            .id
+            .static_flags()
+            .unwrap_or_else(|| self.dynamic_flags());
         debug_assert!(flags.is_valid(), "Flags should be valid");
         flags
     }
@@ -573,6 +649,9 @@ impl<'topology> MemoryAttribute<'topology> {
     /// Dynamically query this memory attribute's flags
     fn dynamic_flags(&self) -> MemoryAttributeFlags {
         let mut flags = 0;
+        // SAFETY: - Topology is assumed to be valid per type invariant
+        //         - id is assumed to be valid per type invariant
+        //         - flags is an out parameter, its initial value doesn't matter
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
             ffi::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
@@ -618,7 +697,7 @@ impl<'topology> MemoryAttribute<'topology> {
         initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
         target_node: &TopologyObject,
     ) -> Result<u64, HybridError<BadValueQuery>> {
-        // Check and build initiator argument
+        // Check and translate initiator argument
         // SAFETY: Will only be used before returning from this function
         let initiator = unsafe {
             self.checked_initiator(initiator.map(Into::into), false)
@@ -632,6 +711,13 @@ impl<'topology> MemoryAttribute<'topology> {
 
         // Run the query
         let mut value = u64::MAX;
+        // SAFETY: - Topology is trusted to be valid per type invariant
+        //         - id is trusted to be valid per type invariant
+        //         - target_node has been checked to come from this topology
+        //         - initiator has been checked to come from this topology and
+        //           to be NULL if and only if the attribute has no initiator
+        //         - flags must be 0
+        //         - Value is an out parameter, its initial value isn't read
         errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
             ffi::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
@@ -675,22 +761,35 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
     ) -> Result<Option<(&'topology TopologyObject, u64)>, BadInitiatorParam> {
+        // Validate the query
         // SAFETY: Will only be used before returning from this function,
         let initiator = unsafe { self.checked_initiator(initiator.map(Into::into), false)? };
+
+        // Run the query
         let mut best_target = ptr::null();
-        let opt = self.get_best(
-            "hwloc_memattr_get_best_target",
-            |topology, attribute, flags, value| unsafe {
-                ffi::hwloc_memattr_get_best_target(
-                    topology,
-                    attribute,
-                    &initiator,
-                    flags,
-                    &mut best_target,
-                    value,
-                )
-            },
-        );
+        // SAFETY: - hwloc_memattr_get_best_target is a "best X" query
+        //         - Parameters are forwarded in the right order
+        //         - initiator has been checked to come from this topology and
+        //           to be NULL if and only if the attribute has no initiator
+        //         - best_target is an out parameter, its initial value isn't read
+        let opt = unsafe {
+            self.get_best(
+                "hwloc_memattr_get_best_target",
+                |topology, attribute, flags, value| {
+                    ffi::hwloc_memattr_get_best_target(
+                        topology,
+                        attribute,
+                        &initiator,
+                        flags,
+                        &mut best_target,
+                        value,
+                    )
+                },
+            )
+        };
+
+        // Convert target node into a safe high-level form
+        // SAFETY: Target originates from a query against this topology
         Ok(opt.map(|value| (unsafe { self.encapsulate_target_node(best_target) }, value)))
     }
 
@@ -715,24 +814,36 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         target: &TopologyObject,
     ) -> Result<Option<(MemoryAttributeLocation<'topology>, u64)>, BadInitiatorQuery> {
+        // Validate the query
         self.check_initiator_query_target(target)?;
+
+        // Run the query
         // SAFETY: This is an out parameter, initial value won't be read
         let mut best_initiator = unsafe { RawLocation::null() };
-        self.get_best(
-            "hwloc_memattr_get_best_initiator",
-            |topology, attribute, flags, value| unsafe {
-                ffi::hwloc_memattr_get_best_initiator(
-                    topology,
-                    attribute,
-                    target,
-                    flags,
-                    &mut best_initiator,
-                    value,
-                )
-            },
-        )
-        .map(|value| Ok((unsafe { self.encapsulate_initiator(best_initiator) }, value)))
-        .transpose()
+        // SAFETY: - hwloc_memattr_get_best_initiator is a "best X" query
+        //         - Parameters are forwarded in the right order
+        //         - target node has been checked to come from this topology
+        //         - best_initiator is an out parameter, its initial value isn't read
+        let opt = unsafe {
+            self.get_best(
+                "hwloc_memattr_get_best_initiator",
+                |topology, attribute, flags, value| {
+                    ffi::hwloc_memattr_get_best_initiator(
+                        topology,
+                        attribute,
+                        target,
+                        flags,
+                        &mut best_initiator,
+                        value,
+                    )
+                },
+            )
+        };
+
+        // Convert initiator into a safe high-level form
+        // SAFETY: Initiator originates from a query against this topology
+        opt.map(|value| Ok((unsafe { self.encapsulate_initiator(best_initiator) }, value)))
+            .transpose()
     }
 
     /// Target NUMA nodes that have some values for a given attribute, along
@@ -770,25 +881,33 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
     ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<BadInitiatorParam>> {
-        // Check parameters and query target list + associated values
+        // Validate the query + translate initiator to hwloc format
         // SAFETY: - Will only be used before returning from this function,
         //         - get_targets is documented to accept a NULL initiator
         let initiator = unsafe { self.checked_initiator(initiator.map(Into::into), true)? };
-        let (targets, values) = self
-            .array_query(
+
+        // Run the query
+        // SAFETY: - hwloc_memattr_get_targets is indeed an array query
+        //         - Parameters are forwarded in the right order
+        //         - initiator has been checked to come from this topology and
+        //           is allowed by the API contract to be NULL
+        let (targets, values) = unsafe {
+            self.array_query(
                 "hwloc_memattr_get_targets",
                 ptr::null(),
-                |topology, attribute, flags, nr, targets, values| unsafe {
+                |topology, attribute, flags, nr, targets, values| {
                     ffi::hwloc_memattr_get_targets(
                         topology, attribute, &initiator, flags, nr, targets, values,
                     )
                 },
             )
-            .map_err(HybridError::Hwloc)?;
+            .map_err(HybridError::Hwloc)?
+        };
 
         // Convert target list into a safe high-level form
         let targets = targets
             .into_iter()
+            // SAFETY: Targets originate from a query against this topology
             .map(|node_ptr| unsafe { self.encapsulate_target_node(node_ptr) })
             .collect();
         Ok((targets, values))
@@ -820,13 +939,15 @@ impl<'topology> MemoryAttribute<'topology> {
         // Validate the query
         self.check_initiator_query_target(target_node)?;
 
-        // Run it
-        let (initiators, values) = self
-            .array_query(
+        // Run the query
+        // SAFETY: - hwloc_memattr_get_initiators is indeed an array query
+        //         - Parameters are forwarded in the right order
+        //         - target_node has been checked to come from this topology
+        let (initiators, values) = unsafe {
+            self.array_query(
                 "hwloc_memattr_get_initiators",
-                // SAFETY: Input value will not be read by hwloc
-                unsafe { RawLocation::null() },
-                |topology, attribute, flags, nr, initiators, values| unsafe {
+                RawLocation::null(),
+                |topology, attribute, flags, nr, initiators, values| {
                     ffi::hwloc_memattr_get_initiators(
                         topology,
                         attribute,
@@ -838,18 +959,34 @@ impl<'topology> MemoryAttribute<'topology> {
                     )
                 },
             )
-            .map_err(HybridError::Hwloc)?;
+            .map_err(HybridError::Hwloc)?
+        };
 
         // Convert initiators into a safe high-level form
         let initiators = initiators
             .into_iter()
+            // SAFETY: Initiators originate from a query against this topology
             .map(|initiator| unsafe { self.encapsulate_initiator(initiator) })
             .collect();
         Ok((initiators, values))
     }
 
-    /// Perform a get_targets style memory attribute query
-    fn array_query<Endpoint: Copy>(
+    /// Perform a `get_targets` style memory attribute query
+    ///
+    /// # Safety
+    ///
+    /// `query` must be one of the `hwloc_memattr_<plural>` queries, with the
+    /// parameter list simplified to the elements that are common to all of
+    /// these queries:
+    ///
+    /// - Topology
+    /// - Memory attribute id
+    /// - Flags
+    /// - In/out number of memory attribute values
+    /// - Output endpoint buffer with capacity given above
+    /// - Output value buffer with capacity given above
+    #[allow(clippy::unnecessary_safety_comment)]
+    unsafe fn array_query<Endpoint: Copy>(
         &self,
         api: &'static str,
         placeholder: Endpoint,
@@ -866,6 +1003,11 @@ impl<'topology> MemoryAttribute<'topology> {
         let mut nr = 0;
         let mut call_ffi = |nr_mut, endpoint_out, values_out| {
             errors::call_hwloc_int_normal(api, || {
+                // SAFETY: - Topology is assumed valid as a type invariant
+                //         - id is assumed valid as a type invariant
+                //         - flags must be 0 for all of these queries
+                //         - Correctness of nr_mut, enpoint_out and values_out
+                //           is call site dependent
                 query(
                     self.topology.as_ptr(),
                     self.id,
@@ -878,27 +1020,47 @@ impl<'topology> MemoryAttribute<'topology> {
         };
 
         // Query node count
+        // SAFETY: 0 elements + null buffer pointers is the correct way to
+        //         request the buffer size to be allocated from hwloc
         call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut())?;
         let len = ffi::expect_usize(nr);
 
         // Allocate storage and fill arrays
         let mut endpoints = vec![placeholder; len];
-        let mut values = vec![0; len];
+        let mut values = vec![u64::MAX; len];
         let old_nr = nr;
+        // SAFETY: endpoints and values are indeed buffers of nr = len elements,
+        //         input values don't matter as this is an out-parameter
         call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
         assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
         Ok((endpoints, values))
     }
 
-    /// Perform a get_best_initiator-style memory attribute query, assuming the
-    /// query arguments have been checked for correctness
-    fn get_best(
+    /// Perform a `get_best_initiator`-style memory attribute query, assuming
+    /// the query arguments have been checked for correctness
+    ///
+    /// # Safety
+    ///
+    /// `query` must be one of the `hwloc_memattr_get_best_` queries, with the
+    /// parameter list simplified to the elements that are common to all of
+    /// these queries:
+    ///
+    /// - Topology
+    /// - Memory attribute id
+    /// - Flags
+    /// - Best value output
+    #[allow(clippy::unnecessary_safety_comment)]
+    unsafe fn get_best(
         &self,
         api: &'static str,
         query: impl FnOnce(*const RawTopology, MemoryAttributeID, c_ulong, *mut u64) -> c_int,
     ) -> Option<u64> {
         let mut value = u64::MAX;
         match errors::call_hwloc_int_normal(api, || {
+            // SAFETY: - Topology is assumed valid as a type invariant
+            //         - id is assumed valid as a type invariant
+            //         - flags must be 0 for all of these queries
+            //         - value is an out-parameter, input value doesn't matter
             query(self.topology.as_ptr(), self.id, 0, &mut value)
         }) {
             Ok(_positive) => Some(value),
@@ -915,16 +1077,17 @@ impl<'topology> MemoryAttribute<'topology> {
         }
     }
 
-    /// Encapsulate a *const TopologyObject to a target NUMA node from hwloc
+    /// Encapsulate a `*const TopologyObject` to a target NUMA node from hwloc
     ///
     /// # Safety
     ///
-    /// `node_ptr` must originate from the topology
+    /// `node_ptr` must originate a query against this attribute
     unsafe fn encapsulate_target_node(
         &self,
         node_ptr: *const TopologyObject,
     ) -> &'topology TopologyObject {
         assert!(!node_ptr.is_null(), "Got null target pointer from hwloc");
+        // SAFETY: Lifetime per input precondition, query output assumed valid
         unsafe { &*node_ptr }
     }
 
@@ -932,11 +1095,12 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Safety
     ///
-    /// `initiator` must originate from the topology
+    /// `initiator` must originate a query against this attribute
     unsafe fn encapsulate_initiator(
         &self,
         initiator: RawLocation,
     ) -> MemoryAttributeLocation<'topology> {
+        // SAFETY: Lifetime per input precondition, query output assumed valid
         unsafe { MemoryAttributeLocation::from_raw(self.topology, initiator) }
             .expect("Failed to decode location from hwloc")
     }
@@ -949,9 +1113,10 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Safety
     ///
-    /// - Do not use the output after the source lifetime has expired.
-    /// - is_optional should only be set to `true` for recipients that are
+    /// - Do not use the output after the `'initiator` lifetime has expired.
+    /// - `is_optional` should only be set to `true` for recipients that are
     ///   documented to accept NULL initiators.
+    #[allow(clippy::needless_lifetimes)]
     unsafe fn checked_initiator<'initiator>(
         &self,
         initiator: Option<MemoryAttributeLocation<'initiator>>,
@@ -996,10 +1161,10 @@ impl<'topology> MemoryAttribute<'topology> {
         target: &TopologyObject,
     ) -> Result<(), BadInitiatorQuery> {
         if !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) {
-            return Err(BadInitiatorQuery::NoInitiators.into());
+            return Err(BadInitiatorQuery::NoInitiators);
         }
         if !self.topology.contains(target) {
-            return Err(BadInitiatorQuery::ForeignTarget.into());
+            return Err(BadInitiatorQuery::ForeignTarget);
         }
         Ok(())
     }
@@ -1098,7 +1263,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                 },
             }),
             Self::Object(object) => {
-                if !topology.contains(object) {
+                if topology.contains(object) {
                     Ok(RawLocation {
                         ty: RawLocationType::OBJECT,
                         location: RawLocationUnion { object },
@@ -1114,7 +1279,9 @@ impl<'target> MemoryAttributeLocation<'target> {
     ///
     /// # Safety
     ///
-    /// Only use this on RawLocation structs from hwloc topology queries
+    /// This function should only be used to encapsulate [`RawLocation`] structs
+    /// from hwloc topology queries, and the `_topology` parameter should match
+    /// the [`Topology`] from which the location was extracted.
     unsafe fn from_raw(
         _topology: &'target Topology,
         raw: RawLocation,
@@ -1122,8 +1289,8 @@ impl<'target> MemoryAttributeLocation<'target> {
         // SAFETY: - Location type information from hwloc is assumed to be
         //           correct and tells us which union variant we should read.
         //         - Pointer is assumed to point to a valid CpuSet or
-        //           TopologyObject that is owned by the active topology, and
-        //           thus has lifetime 'target.
+        //           TopologyObject that is owned by _topology, and thus has a
+        //           lifetime of 'target or greater.
         unsafe {
             match raw.ty {
                 RawLocationType::CPUSET => {
@@ -1182,7 +1349,8 @@ impl RawLocation {
     ///
     /// # Safety
     ///
-    /// Do not expose this location to an hwloc function that actually reads it
+    /// Do not expose this location value to an hwloc function that actually
+    /// reads it, unless it is explicitly documented to accept NULL locations.
     unsafe fn null() -> Self {
         Self {
             ty: RawLocationType::OBJECT,
@@ -1193,7 +1361,7 @@ impl RawLocation {
     }
 }
 
-/// Type of location
+/// Type of location stored in a [`RawLocation`]
 ///
 /// C enums can't be modeled as Rust enums because new variants would be UB
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
@@ -1208,7 +1376,7 @@ impl RawLocationType {
     pub(crate) const OBJECT: Self = Self(0);
 }
 
-/// Concrete location information
+/// Concrete location information stored in a [`RawLocation`]
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub(crate) union RawLocationUnion {
@@ -1285,7 +1453,7 @@ impl TargetNumaNodes<'_> {
     ///
     /// # Safety
     ///
-    /// Do not use the output after the source lifetime has expired
+    /// Do not use the output raw location after the source lifetime has expired
     pub(crate) unsafe fn into_checked_raw(
         self,
         topology: &Topology,
