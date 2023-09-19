@@ -90,18 +90,19 @@ impl Topology {
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc")]
     pub fn allocate_memory(&self, len: usize) -> Result<Bytes<'_>, MemoryAllocationError<NodeSet>> {
-        self.allocate_memory_impl::<NodeSet>(len)
+        self.allocate_memory_generic::<NodeSet>(len)
     }
 
-    /// Like allocate_memory, but polymorphic on Set
-    fn allocate_memory_impl<Set: SpecializedBitmap>(
+    /// Like [`allocate_memory()`], but polymorphic on `Set`
+    ///
+    /// [`allocate_memory`]: Topology::allocate_memory
+    fn allocate_memory_generic<Set: SpecializedBitmap>(
         &self,
         len: usize,
     ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
-        memory::binding::call_hwloc_allocate::<Set>("hwloc_alloc", None, || unsafe {
-            ffi::hwloc_alloc(self.as_ptr(), len)
+        self.allocate_memory_impl::<Set>("hwloc_alloc", None, len, |topology, len| unsafe {
+            ffi::hwloc_alloc(topology, len)
         })
-        .map(|base| unsafe { Bytes::wrap(self, base, len) })
     }
 
     /// Allocate some memory on NUMA nodes specified by `set`
@@ -148,16 +149,20 @@ impl Topology {
         if !flags.is_valid(MemoryBoundObject::Area, MemoryBindingOperation::Allocate) {
             return Err(MemoryAllocationError::BadFlags(flags.into()));
         }
-        memory::binding::call_hwloc_allocate("hwloc_alloc_membind", Some(set), || unsafe {
-            ffi::hwloc_alloc_membind(
-                self.as_ptr(),
-                len,
-                set.as_ref().as_ptr(),
-                policy.into(),
-                flags.bits(),
-            )
-        })
-        .map(|base| unsafe { Bytes::wrap(self, base, len) })
+        self.allocate_memory_impl::<Set>(
+            "hwloc_alloc_membind",
+            Some(set),
+            len,
+            |topology, len| unsafe {
+                ffi::hwloc_alloc_membind(
+                    topology,
+                    len,
+                    set.as_ref().as_ptr(),
+                    policy.into(),
+                    flags.bits(),
+                )
+            },
+        )
     }
 
     /// Allocate some memory on NUMA nodes specified by `set` and `flags`,
@@ -211,7 +216,7 @@ impl Topology {
         self.bind_memory(set, policy, flags)?;
 
         // If that succeeds, try allocating more memory
-        let mut bytes = self.allocate_memory_impl::<Set>(len)?;
+        let mut bytes = self.allocate_memory_generic::<Set>(len)?;
 
         // Depending on policy, we may or may not need to touch the memory to
         // enforce the binding
@@ -753,6 +758,27 @@ impl Topology {
         }
     }
 
+    /// Call an hwloc API that allocates (possibly bound) memory
+    fn allocate_memory_impl<Set: SpecializedBitmap>(
+        &self,
+        api: &'static str,
+        set: Option<&Set>,
+        len: usize,
+        allocate_memory_like: impl FnOnce(*const RawTopology, usize) -> *mut c_void,
+    ) -> Result<Bytes<'_>, MemoryBindingError<Set::Owned>> {
+        errors::call_hwloc_ptr_mut(api, || allocate_memory_like(self.as_ptr(), len))
+            .map_err(|raw_err| {
+                decode_errno(
+                    MemoryBoundObject::Area,
+                    MemoryBindingOperation::Allocate,
+                    set,
+                    raw_err.errno.expect("Unexpected hwloc error without errno"),
+                )
+                .expect("Unexpected errno value")
+            })
+            .map(|base| unsafe { Bytes::wrap(self, base, len) })
+    }
+
     /// Call an hwloc memory binding function to bind some memory
     fn bind_memory_impl<Set: SpecializedBitmap>(
         &self,
@@ -1006,14 +1032,23 @@ impl Display for MemoryBoundObject {
 /// Binding operation
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub(crate) enum MemoryBindingOperation {
-    GetBinding,
-    Bind,
-    Unbind,
+    /// Allocate memory
     Allocate,
+
+    /// Bind memory to some NUMA nodes
+    Bind,
+
+    /// Query the current binding of some memory
+    GetBinding,
+
+    /// Query on which NUMA node(s) memory was last resident
     GetLastLocation,
+
+    /// Un-bind memory
+    Unbind,
 }
 
-/// Rust mapping of the hwloc_membind_policy_t enum
+/// Rust mapping of the `hwloc_membind_policy_t` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
@@ -1181,27 +1216,6 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
 /// Errors that can occur when allocating memory
 pub type MemoryAllocationError<Set> = MemoryBindingError<Set>;
 
-/// Call an hwloc API that allocates (possibly bound) memory and translate
-/// known errors into higher-level `MemoryBindingError`s.
-///
-/// Validating flags is left up to the caller, to avoid allocating result
-/// objects when it can be proved upfront that the request is invalid.
-pub(crate) fn call_hwloc_allocate<Set: SpecializedBitmap>(
-    api: &'static str,
-    set: Option<&Set>,
-    ffi: impl FnOnce() -> *mut c_void,
-) -> Result<NonNull<c_void>, MemoryAllocationError<Set::Owned>> {
-    errors::call_hwloc_ptr_mut(api, ffi).map_err(|raw_err| {
-        decode_errno(
-            MemoryBoundObject::Area,
-            MemoryBindingOperation::Allocate,
-            set,
-            raw_err.errno.expect("Unexpected hwloc error without errno"),
-        )
-        .expect("Unexpected errno value")
-    })
-}
-
 /// Translating hwloc errno into high-level errors
 fn decode_errno<Set: SpecializedBitmap>(
     object: MemoryBoundObject,
@@ -1235,6 +1249,13 @@ fn decode_errno<Set: SpecializedBitmap>(
 ///
 /// This behaves like a `Box<[MaybeUninit<u8>]>` and will similarly
 /// automatically liberate the allocated memory when it goes out of scope.
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// `data` must point to an hwloc-originated allocation from `topology` with
+// correct size metadata, that isn't freed until this is dropped.
 pub struct Bytes<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,
@@ -1242,58 +1263,58 @@ pub struct Bytes<'topology> {
     /// Previously allocated data pointer
     data: NonNull<[MaybeUninit<u8>]>,
 }
-
+//
 impl<'topology> Bytes<'topology> {
     /// Wrap an hwloc allocation
     ///
     /// # Safety
     ///
     /// `base` must originate from an hwloc memory allocation function that
-    /// was called for `size` bytes.
+    /// was called on `topology` for `size` bytes.
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
         base: NonNull<c_void>,
         size: usize,
     ) -> Self {
-        let base = base.as_ptr().cast::<MaybeUninit<u8>>();
-        let data = std::ptr::slice_from_raw_parts_mut(base, size);
         Self {
             topology,
-            data: unsafe { NonNull::new_unchecked(data) },
+            data: NonNull::slice_from_raw_parts(base.cast::<MaybeUninit<u8>>(), size),
         }
     }
 }
-
+//
 impl AsRef<[MaybeUninit<u8>]> for Bytes<'_> {
     fn as_ref(&self) -> &[MaybeUninit<u8>] {
+        // SAFETY: Per type invariant
         unsafe { self.data.as_ref() }
     }
 }
-
+//
 impl AsMut<[MaybeUninit<u8>]> for Bytes<'_> {
     fn as_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        // SAFETY: Per type invariant
         unsafe { self.data.as_mut() }
     }
 }
-
+//
 impl Borrow<[MaybeUninit<u8>]> for Bytes<'_> {
     fn borrow(&self) -> &[MaybeUninit<u8>] {
         self.as_ref()
     }
 }
-
+//
 impl BorrowMut<[MaybeUninit<u8>]> for Bytes<'_> {
     fn borrow_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         self.as_mut()
     }
 }
-
+//
 impl Debug for Bytes<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.as_ref(), f)
     }
 }
-
+//
 impl Deref for Bytes<'_> {
     type Target = [MaybeUninit<u8>];
 
@@ -1301,18 +1322,20 @@ impl Deref for Bytes<'_> {
         self.as_ref()
     }
 }
-
+//
 impl DerefMut for Bytes<'_> {
     fn deref_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         self.as_mut()
     }
 }
-
+//
 impl Drop for Bytes<'_> {
     #[doc(alias = "hwloc_free")]
     fn drop(&mut self) {
         let addr = self.data.as_ptr().cast::<c_void>();
         let len = self.data.len();
+        // SAFETY: - Topology is assumed to be valid per type invariant
+        //         - self.data is assumed to be valid per type invariant
         let result = unsafe { ffi::hwloc_free(self.topology.as_ptr(), addr, len) };
         assert_eq!(
             result,
@@ -1322,6 +1345,9 @@ impl Drop for Bytes<'_> {
         );
     }
 }
-
+//
+// SAFETY: Exposes no internal mutability
 unsafe impl Send for Bytes<'_> {}
+//
+// SAFETY: Exposes no internal mutability
 unsafe impl Sync for Bytes<'_> {}
