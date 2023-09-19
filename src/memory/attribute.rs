@@ -18,7 +18,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::{
     bitmap::{BitmapRef, RawBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, HybridError, NulError, RawHwlocError},
+    errors::{self, ForeignObject, HybridError, NulError, RawHwlocError},
     ffi::{self, LibcString},
     object::TopologyObject,
     topology::{editor::TopologyEditor, RawTopology, Topology},
@@ -127,14 +127,14 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`ForeignInitiator`] if `target` refers to a [`TopologyObject`] that
+    /// - [`ForeignObject`] if `target` refers to a [`TopologyObject`] that
     ///   does not belong to this topology.
     #[allow(clippy::missing_errors_doc, clippy::unnecessary_safety_comment)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
     pub fn local_numa_nodes<'target>(
         &self,
         target: impl Into<TargetNumaNodes<'target>>,
-    ) -> Result<Vec<&TopologyObject>, HybridError<ForeignInitiator>> {
+    ) -> Result<Vec<&TopologyObject>, HybridError<ForeignObject>> {
         // Prepare to call hwloc
         // SAFETY: Will only be used before returning from this function
         let (location, flags) = unsafe { target.into().into_checked_raw(self)? };
@@ -1080,8 +1080,8 @@ impl<'target> MemoryAttributeLocation<'target> {
     ///
     /// # Errors
     ///
-    /// [`ForeignInitiator`] if this [`MemoryAttributeLocation`] is constructed
-    /// from an `&TopologyObject` that does not belong to the target topology.
+    /// [`ForeignObject`] if this [`MemoryAttributeLocation`] is constructed
+    /// from an `&TopologyObject` that does not belong to the target [`Topology`].
     ///
     /// # Safety
     ///
@@ -1089,7 +1089,7 @@ impl<'target> MemoryAttributeLocation<'target> {
     pub(crate) unsafe fn into_checked_raw(
         self,
         topology: &Topology,
-    ) -> Result<RawLocation, ForeignInitiator> {
+    ) -> Result<RawLocation, ForeignObject> {
         match self {
             Self::CpuSet(cpuset) => Ok(RawLocation {
                 ty: RawLocationType::CPUSET,
@@ -1104,7 +1104,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                         location: RawLocationUnion { object },
                     })
                 } else {
-                    Err(ForeignInitiator)
+                    Err(ForeignObject)
                 }
             }
         }
@@ -1160,13 +1160,6 @@ impl<'target> From<&'target TopologyObject> for MemoryAttributeLocation<'target>
         Self::Object(object)
     }
 }
-
-/// Error returned when a memory attribute query is passed a
-/// [`MemoryAttributeLocation::Object`] that does not belong to the active
-/// target [`Topology`].
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("memory attribute query was passed a foreign initiator")]
-pub struct ForeignInitiator;
 
 /// Error returned when an unknown location type is observed
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
@@ -1285,13 +1278,18 @@ impl TargetNumaNodes<'_> {
     /// Convert to the inputs expected by a `hwloc_get_local_numanode_objs`
     /// query against `topology`
     ///
+    /// # Errors
+    ///
+    /// [`ForeignObject`] if the input location is a [`TopologyObject`] that
+    /// does not belong to the target [`Topology`]
+    ///
     /// # Safety
     ///
     /// Do not use the output after the source lifetime has expired
     pub(crate) unsafe fn into_checked_raw(
         self,
         topology: &Topology,
-    ) -> Result<(RawLocation, LocalNUMANodeFlags), ForeignInitiator> {
+    ) -> Result<(RawLocation, LocalNUMANodeFlags), ForeignObject> {
         match self {
             Self::Local { location, flags } => {
                 // SAFETY: Per function precondition

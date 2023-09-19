@@ -4,7 +4,7 @@ use super::RawTopology;
 use crate::{
     bitmap::{BitmapKind, SpecializedBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, HybridError, ParameterError, RawHwlocError},
+    errors::{self, ForeignObject, HybridError, ParameterError, RawHwlocError},
     ffi::{self, LibcString},
     memory::nodeset::NodeSet,
     object::TopologyObject,
@@ -280,7 +280,7 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`BadGroupChildren`] if some of the child `&TopologyObject`s specified
+    /// - [`ForeignObject`] if some of the child `&TopologyObject`s specified
     ///   by the `find_children` callback do not belong to this [`Topology`].
     /// - [`RawHwlocError`]s are documented to happen if...
     ///     - There are conflicting sets in the topology tree
@@ -302,7 +302,7 @@ impl<'topology> TopologyEditor<'topology> {
         &mut self,
         merge: Option<GroupMerge>,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<InsertedGroup<'topology>, HybridError<BadGroupChildren>> {
+    ) -> Result<InsertedGroup<'topology>, HybridError<ForeignObject>> {
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_children)?;
         if let Some(merge) = merge {
@@ -566,17 +566,17 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// # Errors
     ///
-    /// [`BadGroupChildren`] if some of the designated children do not come from
+    /// [`ForeignObject`] if some of the designated children do not come from
     /// the same topology as this group.
     pub(self) fn add_children(
         &mut self,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<(), BadGroupChildren> {
+    ) -> Result<(), ForeignObject> {
         // Enumerate children, check they belong to this topology
         let topology = self.editor.topology();
         let children = find_children(topology);
         if children.iter().any(|child| !topology.contains(child)) {
-            return Err(BadGroupChildren);
+            return Err(ForeignObject);
         }
 
         // Add children to this group

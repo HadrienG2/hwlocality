@@ -227,3 +227,14 @@ impl<Parameter: Debug> From<Parameter> for ParameterError<Parameter> {
 /// depend on the value of other function parameters. Otherwise, a more
 /// descriptive dedicated error type will be used.
 pub type FlagsError<Flags> = ParameterError<Flags>;
+
+/// A [`Topology`] method was passed in a [`TopologyObject`] that does not
+/// belong to said topology
+///
+/// Given that this is an obscure usage error that has tiny odds of happening in
+/// the real world, it is not systematically reported as an error. Methods
+/// whose semantics boil down to "return entity that matches this query if it
+/// exists and `None` otherwise" may instead return `None` in this scenario.
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("topology method was passed in a foreign topology object")]
+pub struct ForeignObject;

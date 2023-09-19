@@ -3,7 +3,7 @@
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
 use crate::{
-    errors::{self, RawHwlocError},
+    errors::{self, ForeignObject, RawHwlocError},
     ffi,
     object::{depth::Depth, types::ObjectType, TopologyObject},
     topology::{RawTopology, Topology},
@@ -190,7 +190,8 @@ impl Topology {
 impl TopologyEditor<'_> {
     /// Create a new object distances matrix
     ///
-    /// `kind` specifies the kind of distance.
+    /// `kind` specifies the kind of distance. You should not use the
+    /// [`HETEROGENEOUS_TYPES`] kind here, it will be set automatically.
     ///
     /// `flags` can be used to request the grouping of existing objects based on
     /// distance.
@@ -206,17 +207,24 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// - [`NameContainsNul`](AddDistancesError::NameContainsNul) if the
-    ///   provided `name` contains NUL chars
-    /// - [`BadKind`](AddDistancesError::BadKind) if the provided `kind`
-    ///   contains [`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES)
-    ///   or several of the "FROM_" and "MEANS_" kinds.
-    /// - [`BadObjectsCount`](AddDistancesError::BadObjectsCount) if less
-    ///   than 2 or more than `c_uint::MAX` objects are returned by the callback
-    ///   (hwloc does not support such configurations).
-    /// - [`BadDistancesCount`](AddDistancesError::BadDistancesCount) if
-    ///   the number of distances returned by the callback is not compatible
-    ///   with the number of objects (it should be the square of it).
+    /// - [`BadDistancesCount`] if the number of distances returned by the
+    ///   callback is not compatible with the number of objects (it should be
+    ///   the square of it)
+    /// - [`BadKind`] if the provided `kind` contains [`HETEROGENEOUS_TYPES`] or
+    ///   several of the "FROM_" and "MEANS_" kinds
+    /// - [`BadObjectsCount`] if less than 2 or more than `c_uint::MAX` objects
+    ///   are returned by the callback(hwloc does not support such
+    ///   configurations)
+    /// - [`ForeignObjects`] if the callback returned objects that do not belong
+    ///   to this topology
+    /// - [`NameContainsNul`] if the provided `name` contains NUL chars
+    ///
+    /// [`BadDistancesCount`]: AddDistancesError::BadDistancesCount
+    /// [`BadKind`]: AddDistancesError::BadKind
+    /// [`BadObjectsCount`]: AddDistancesError::BadObjectsCount
+    /// [`ForeignObjects`]: AddDistancesError::ForeignObjects
+    /// [`HETEROGENEOUS_TYPES`]: DistancesKind::HETEROGENEOUS_TYPES
+    /// [`NameContainsNul`]: AddDistancesError::NameContainsNul
     #[doc(alias = "hwloc_distances_add_create")]
     #[doc(alias = "hwloc_distances_add_values")]
     #[doc(alias = "hwloc_distances_add_commit")]
@@ -244,7 +252,8 @@ impl TopologyEditor<'_> {
         let create_add_flags = 0;
         let commit_flags = flags.bits();
         //
-        let (objects, distances) = collect_objects_and_distances(self.topology());
+        let topology = self.topology();
+        let (objects, distances) = collect_objects_and_distances(topology);
         if objects.len() < 2 {
             return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
         }
@@ -258,6 +267,9 @@ impl TopologyEditor<'_> {
                 actual_distances_len: distances.len(),
             }
             .into());
+        }
+        if objects.iter().flatten().any(|obj| !topology.contains(obj)) {
+            return Err(AddDistancesError::ForeignObjects.into());
         }
         let objs = objects.as_ptr().cast::<*const TopologyObject>();
         let values = distances.as_ptr();
@@ -324,9 +336,18 @@ impl Default for AddDistancesFlags {
 #[cfg(feature = "hwloc-2_5_0")]
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum AddDistancesError {
-    /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars")]
-    NameContainsNul,
+    /// Provided callback returned incompatible objects and distances arrays
+    ///
+    /// If we denote N the length of the objects array, the distances array
+    /// should contain N.pow(2) elements.
+    #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
+    BadDistancesCount {
+        /// Expected number of distances from the callback
+        expected_distances_len: usize,
+
+        /// Number of distances that the callback actually emitted
+        actual_distances_len: usize,
+    },
 
     /// Provided `kind` is invalid
     ///
@@ -344,18 +365,13 @@ pub enum AddDistancesError {
     #[error("callback emitted <2 or >c_uint::MAX objects: {0}")]
     BadObjectsCount(usize),
 
-    /// Provided callback returned incompatible objects and distances arrays
-    ///
-    /// If we denote N the length of the objects array, the distances array
-    /// should contain N.pow(2) elements.
-    #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
-    BadDistancesCount {
-        /// Expected number of distances from the callback
-        expected_distances_len: usize,
+    /// Provided callback returned objects that do not belong to this [`Topology`]
+    #[error("callback emitted some objects that don't belong to this topology")]
+    ForeignObjects,
 
-        /// Number of distances that the callback actually emitted
-        actual_distances_len: usize,
-    },
+    /// Provided `name` contains NUL chars
+    #[error("provided name contains NUL chars")]
+    NameContainsNul,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
@@ -640,10 +656,15 @@ impl<'topology> Distances<'topology> {
 
     /// Find the row/column index of an object in the distance matrix
     ///
-    /// Beware that calling this in a loop will result in a lot of duplicate work.
-    /// It is a good idea to instead build a cache of indices for the objects
-    /// that you are interested in, or to use the
-    /// [`Distances::object_distances()`] iterator if your algorithm allows for it.
+    /// This will return `None` if called with an object that does not belong
+    /// to the active topology.
+    ///
+    /// Beware that calling this in a loop will result in a lot of duplicate
+    /// work. It is a good idea to instead build a cache of indices for the
+    /// objects that you are interested in, or to use the
+    /// [`object_distances()`] iterator if your algorithm allows for it.
+    ///
+    /// [`object_distances()`]: Distances::object_distances()
     #[doc(alias = "hwloc_distances_obj_index")]
     pub fn object_idx(&self, obj: &TopologyObject) -> Option<usize> {
         self.objects()
@@ -664,41 +685,85 @@ impl<'topology> Distances<'topology> {
         unsafe { std::slice::from_raw_parts_mut(self.inner_mut().objs, self.num_objects()) }
     }
 
-    /// Convert Option<&'topology TopologyObject> to a *const TopologyObject for
-    /// storage in objects_mut().
-    fn obj_to_ptr(obj: Option<&'topology TopologyObject>) -> *const TopologyObject {
-        obj.map_or(std::ptr::null(), |obj| obj)
+    /// Convert `Option<&'topology TopologyObject>` to a `*const TopologyObject`
+    /// for storage in [`objects_mut()`], validating that it does belong to the
+    /// target [`Topology`] along the way.
+    ///
+    /// # Errors
+    ///
+    /// [`ForeignObject`] if the input object does not belong to the [`Topology`]
+    fn obj_to_checked_ptr(
+        topology: &'topology Topology,
+        obj: Option<&'topology TopologyObject>,
+    ) -> Result<*const TopologyObject, ForeignObject> {
+        if let Some(obj) = obj {
+            if topology.contains(obj) {
+                Ok(obj)
+            } else {
+                Err(ForeignObject)
+            }
+        } else {
+            Ok(std::ptr::null())
+        }
     }
 
     /// Replace the object at index `idx` with another
     ///
     /// If the new object is unrelated to the original one, you may want to
     /// adjust the distance matrix after doing this, which you can using one
-    /// of the [`distances_mut()`](Distances::distances_mut()),
-    /// [`enumerate_distances_mut()`](Distances::enumerate_distances_mut())
-    /// and [`object_distances_mut()`](Distances::object_distances_mut()) methods.
-    pub fn replace_object(&mut self, idx: usize, new_object: Option<&'topology TopologyObject>) {
-        // SAFETY: Overwriting with valid topology object pointers from topology
-        unsafe {
-            self.objects_mut()[idx] = Self::obj_to_ptr(new_object);
+    /// of the [`distances_mut()`], [`enumerate_distances_mut()`] and
+    /// [`object_distances_mut()`] methods.
+    ///
+    /// # Errors
+    ///
+    /// [`ForeignObject`] if `new_object` does not belong to the same
+    /// [`Topology`] as this distances matrix.
+    ///
+    /// [`distances_mut()`]: Distances::distances_mut()
+    /// [`enumerate_distances_mut()`]: Distances::enumerate_distances_mut()
+    /// [`object_distances_mut()`]: Distances::object_distances_mut()
+    pub fn replace_object(
+        &mut self,
+        idx: usize,
+        new_object: Option<&'topology TopologyObject>,
+    ) -> Result<(), ForeignObject> {
+        // Validate input parameter
+        if let Some(object) = new_object {
+            if !self.topology.contains(object) {
+                return Err(ForeignObject);
+            }
         }
+
+        // Apply modification
+        let topology = self.topology;
+        // SAFETY: Overwriting with valid topology object pointers from topology
+        unsafe { self.objects_mut()[idx] = Self::obj_to_checked_ptr(topology, new_object)? };
+        Ok(())
     }
 
     /// Replace all objects using the provided (index, object) -> object mapping
     ///
     /// This is more efficient than calling [`Distances::replace_object()`] in
     /// a loop and allows you to know what object you are replacing.
+    ///
+    /// # Errors
+    ///
+    /// [`ForeignObject`] if any of the [`TopologyObject`]s returned by
+    /// `mapping` does not belong to the same [`Topology`] as this distances
+    /// matrix.
     pub fn replace_objects(
         &mut self,
         mut mapping: impl FnMut(usize, Option<&TopologyObject>) -> Option<&'topology TopologyObject>,
-    ) {
+    ) -> Result<(), ForeignObject> {
         // SAFETY: Overwriting with valid topology object pointers from topology
+        let topology = self.topology;
         for (idx, obj) in unsafe { self.objects_mut().iter_mut().enumerate() } {
             // SAFETY: Object pointers from RawDistances are assumed to be valid
             let old_obj = unsafe { ffi::deref_ptr(obj) };
             let new_obj = mapping(idx, old_obj);
-            *obj = Self::obj_to_ptr(new_obj);
+            *obj = Self::obj_to_checked_ptr(topology, new_obj)?;
         }
+        Ok(())
     }
 
     /// Number of distances
@@ -803,11 +868,16 @@ impl<'topology> Distances<'topology> {
     /// Distance between a pair of objects
     ///
     /// Will return the distance from the first to the second input object and
-    /// the distance from the second to the first input object.
+    /// the distance from the second to the first input object, if known.
+    ///
+    /// Will return `None` if one of the objects doesn't belong to the host
+    /// topology.
     ///
     /// This is a rather expensive operation. If you find yourself needing to
     /// do it in a loop, consider rearchitecturing your workflow around object
-    /// indices or [`Distances::object_distances()`].
+    /// indices or [`object_distances()`].
+    ///
+    /// [`object_distances()`]: Distances::object_distances()
     #[doc(alias = "hwloc_distances_obj_pair_values")]
     pub fn object_pair_distance(
         &self,
