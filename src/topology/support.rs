@@ -1,4 +1,5 @@
 //! hwloc feature support
+// TODO: Long-form description
 
 // - API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html

@@ -1,4 +1,5 @@
 //! Exporting topologies to Synthetic
+// TODO: Long-form description
 
 #[cfg(doc)]
 use crate::topology::builder::TopologyBuilder;

@@ -4,6 +4,8 @@
 //! provide higher-quality error messages, for some common patterns we do emit
 //! generic error types, which are implemented in this module.
 //
+// --- Implementation details ---
+//
 // At the implementation level, this is also the place where all the low-level
 // handling of hwloc errors is implemented.
 

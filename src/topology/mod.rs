@@ -1,4 +1,5 @@
 //! Hardware topology (main hwloc entry point)
+// TODO: Long-form description
 
 pub mod builder;
 #[cfg(feature = "hwloc-2_3_0")]

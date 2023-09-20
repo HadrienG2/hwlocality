@@ -1,4 +1,5 @@
 //! Building a topology with a custom configuration
+// TODO: Long-form description
 
 use super::{RawTopology, Topology};
 #[cfg(all(doc, feature = "hwloc-2_8_0"))]

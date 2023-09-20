@@ -1,4 +1,5 @@
 //! Object attributes
+// TODO: Long-form description
 
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal

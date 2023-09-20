@@ -1,4 +1,5 @@
 //! Object distances
+// TODO: Long-form description
 
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;

@@ -1,4 +1,5 @@
 //! Object types
+// TODO: Long-form description
 
 // - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
 // - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html

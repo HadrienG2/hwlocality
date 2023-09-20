@@ -1,4 +1,7 @@
 //! NUMA node sets
+//!
+//! These specialized bitmaps represent sets of NUMA nodes, as exposed by the
+//! underlying operating system.
 
 #[cfg(doc)]
 use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};

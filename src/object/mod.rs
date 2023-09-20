@@ -1,4 +1,5 @@
 //! Objects within a hardware topology
+// TODO: Long-form description
 
 pub mod attributes;
 pub mod depth;
