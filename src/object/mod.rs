@@ -8,7 +8,7 @@ pub mod types;
 
 use self::{
     attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain, RawObjectAttributes},
-    depth::{Depth, DepthError, DepthResult, RawDepth},
+    depth::{Depth, RawDepth, TypeToDepthError, TypeToDepthResult},
     types::{CacheType, ObjectType, RawObjectType},
 };
 #[cfg(doc)]
@@ -28,7 +28,7 @@ use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
     iter::FusedIterator,
-    ptr::{self, NonNull},
+    ptr,
 };
 use thiserror::Error;
 
@@ -97,7 +97,7 @@ impl Topology {
     /// [`Package`]: ObjectType::Package
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
-    pub fn memory_parents_depth(&self) -> Result<usize, DepthError> {
+    pub fn memory_parents_depth(&self) -> Result<usize, TypeToDepthError> {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
@@ -133,7 +133,7 @@ impl Topology {
     /// [depth_or_above_for_type()]: Topology::depth_or_above_for_type()
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
-    pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
+    pub fn depth_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
         Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
     }
 
@@ -171,14 +171,14 @@ impl Topology {
     ///
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_or_below_depth")]
-    pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> DepthResult {
+    pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
         assert!(
             object_type.is_normal(),
             "This is only meaningful for normal objects"
         );
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
-            Err(DepthError::Nonexistent) => {
+            Err(TypeToDepthError::Nonexistent) => {
                 let pu_depth = self
                     .depth_for_type(ObjectType::PU)
                     .expect("PU objects should be present")
@@ -192,7 +192,7 @@ impl Topology {
                         return Ok((depth + 1).into());
                     }
                 }
-                Err(DepthError::Nonexistent)
+                Err(TypeToDepthError::Nonexistent)
             }
             other_err => other_err,
         }
@@ -232,14 +232,14 @@ impl Topology {
     ///
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_or_above_depth")]
-    pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> DepthResult {
+    pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
         assert!(
             object_type.is_normal(),
             "This is only meaningful for normal objects"
         );
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
-            Err(DepthError::Nonexistent) => {
+            Err(TypeToDepthError::Nonexistent) => {
                 for depth in (0..self.depth()).rev() {
                     if self
                         .type_at_depth(depth)
@@ -249,7 +249,7 @@ impl Topology {
                         return Ok((depth - 1).into());
                     }
                 }
-                Err(DepthError::Nonexistent)
+                Err(TypeToDepthError::Nonexistent)
             }
             other_err => other_err,
         }
@@ -297,8 +297,8 @@ impl Topology {
         &self,
         cache_level: usize,
         cache_type: Option<CacheType>,
-    ) -> DepthResult {
-        let mut result = Err(DepthError::Nonexistent);
+    ) -> TypeToDepthResult {
+        let mut result = Err(TypeToDepthError::Nonexistent);
         for depth in 0..self.depth() {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
@@ -325,14 +325,14 @@ impl Topology {
                         // Without a cache type check, multiple matches may
                         // occur, so we need to check all other depths.
                         match result {
-                            Err(DepthError::Nonexistent) => result = Ok(depth.into()),
+                            Err(TypeToDepthError::Nonexistent) => result = Ok(depth.into()),
                             Ok(_) => {
-                                return Err(DepthError::Multiple);
+                                return Err(TypeToDepthError::Multiple);
                             }
-                            Err(DepthError::Multiple) => {
+                            Err(TypeToDepthError::Multiple) => {
                                 unreachable!("Setting this value triggers a loop break")
                             }
-                            Err(DepthError::Unexpected(_)) => {
+                            Err(TypeToDepthError::Unexpected(_)) => {
                                 unreachable!("This value is never set")
                             }
                         }
@@ -722,7 +722,7 @@ impl Topology {
         // them again during the next pass with a higher-level ancestor.
         let mut cousins_and_cpusets = self
             .objects_at_depth(obj.depth())
-            .filter(|cousin_or_obj| !std::ptr::eq(*cousin_or_obj, obj))
+            .filter(|cousin_or_obj| !ptr::eq(*cousin_or_obj, obj))
             .map(|cousin| {
                 obj_and_cpuset(
                     cousin,
@@ -1984,8 +1984,8 @@ impl TopologyObject {
     /// with `hwloc_topology_alloc_group_object()` but not yet inserted into a
     /// topology with `hwloc_topology_insert_group_object()`.
     #[cfg(feature = "hwloc-2_3_0")]
-    pub(crate) unsafe fn delete_all_sets(self_: NonNull<Self>) {
-        use std::ptr::addr_of_mut;
+    pub(crate) unsafe fn delete_all_sets(self_: ptr::NonNull<Self>) {
+        use ptr::addr_of_mut;
 
         let self_ = self_.as_ptr();
         for set_ptr in [
@@ -2004,7 +2004,7 @@ impl TopologyObject {
                 let set = set_ptr.read();
                 if !set.is_null() {
                     crate::ffi::hwloc_bitmap_free(set);
-                    set_ptr.write(std::ptr::null_mut())
+                    set_ptr.write(ptr::null_mut())
                 }
             }
         }

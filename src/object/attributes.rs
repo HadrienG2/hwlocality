@@ -1,11 +1,13 @@
 //! Object attributes
-// TODO: Long-form description
+//!
+//! Some [`TopologyObject` types](ObjectType) come with supplementary attributes
+//! that extend the object's description. These modules can be accessed using
+//! the [`TopologyObject::attributes()`] method, and are described using types
+//! defined inside of this module.
 
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
-#[cfg(doc)]
-use crate::topology::support::DiscoverySupport;
 use crate::{
     ffi,
     object::types::{
@@ -13,6 +15,8 @@ use crate::{
         RawOSDeviceType,
     },
 };
+#[cfg(doc)]
+use crate::{object::TopologyObject, topology::support::DiscoverySupport};
 use std::{
     ffi::{c_float, c_int, c_uchar, c_uint, c_ushort},
     fmt,
@@ -20,67 +24,90 @@ use std::{
     num::NonZeroUsize,
 };
 
-/// hwloc FFI for the hwloc_obj_attr_u union
+/// hwloc FFI for the `hwloc_obj_attr_u` union
+///
+/// Exposed to users via the safe [`ObjectAttributes`] enum.
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub(crate) union RawObjectAttributes {
+    /// [`NUMANode`]-specific attributes
+    ///
+    /// [`NUMANode`]: ObjectType::NUMANode
     numa: NUMANodeAttributes,
+
+    /// CPU cache-specific attributes
     cache: CacheAttributes,
+
+    /// [`Group`]-specific attributes
+    ///
+    /// [`Group`]: ObjectType::Group
     pub(crate) group: GroupAttributes,
+
+    /// [`PCIDevice`]-specific attributes
+    ///
+    /// [`PCIDevice`]: ObjectType::PCIDevice
     pcidev: PCIDeviceAttributes,
+
+    /// [`Bridge`]-specific attributes
+    ///
+    /// [`Bridge`]: ObjectType::Bridge
     bridge: BridgeAttributes,
+
+    /// [`OSDevice`]-specific attributes
+    ///
+    /// [`OSDevice`]: ObjectType::OSDevice
     osdev: OSDeviceAttributes,
 }
 
 /// ObjectType-specific attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[doc(alias = "hwloc_obj_attr_u")]
-pub enum ObjectAttributes<'attr> {
+pub enum ObjectAttributes<'object> {
     /// [`NUMANode`]-specific attributes
     ///
     /// [`NUMANode`]: ObjectType::NUMANode
     #[doc(alias = "hwloc_obj_attr_u::numanode")]
-    NUMANode(&'attr NUMANodeAttributes),
+    NUMANode(&'object NUMANodeAttributes),
 
-    /// Cache-specific attributes
+    /// CPU cache-specific attributes
     #[doc(alias = "hwloc_obj_attr_u::cache")]
-    Cache(&'attr CacheAttributes),
+    Cache(&'object CacheAttributes),
 
     /// [`Group`]-specific attributes
     ///
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_obj_attr_u::group")]
-    Group(&'attr GroupAttributes),
+    Group(&'object GroupAttributes),
 
     /// [`PCIDevice`]-specific attributes
     ///
     /// [`PCIDevice`]: ObjectType::PCIDevice
     #[doc(alias = "hwloc_obj_attr_u::pcidev")]
-    PCIDevice(&'attr PCIDeviceAttributes),
+    PCIDevice(&'object PCIDeviceAttributes),
 
     /// [`Bridge`]-specific attributes
     ///
     /// [`Bridge`]: ObjectType::Bridge
     #[doc(alias = "hwloc_obj_attr_u::bridge")]
-    Bridge(&'attr BridgeAttributes),
+    Bridge(&'object BridgeAttributes),
 
     /// [`OSDevice`]-specific attributes
     ///
     /// [`OSDevice`]: ObjectType::OSDevice
     #[doc(alias = "hwloc_obj_attr_u::osdev")]
-    OSDevice(&'attr OSDeviceAttributes),
+    OSDevice(&'object OSDeviceAttributes),
 }
 //
-impl<'attr> ObjectAttributes<'attr> {
+impl<'object> ObjectAttributes<'object> {
     /// Wrap the hwloc object type specific attributes behind a safe API
     ///
     /// # Safety
     ///
     /// If non-null, the `attr` pointer must target `RawObjectAttributes` that
-    /// are valid for lifetime `'attr` and consistent with object type `ty`.
+    /// are valid for lifetime `'object` and consistent with object type `ty`.
     pub(crate) unsafe fn new(
         ty: ObjectType,
-        attr: &'attr *mut RawObjectAttributes,
+        attr: &'object *mut RawObjectAttributes,
     ) -> Option<Self> {
         if attr.is_null() {
             return None;
@@ -91,6 +118,7 @@ impl<'attr> ObjectAttributes<'attr> {
 
         // SAFETY: Safe because we checked for union field access validity
         unsafe {
+            #[allow(clippy::wildcard_enum_match_arm)]
             match ty {
                 ObjectType::NUMANode => Some(Self::NUMANode(&attr.numa)),
                 ObjectType::Group => Some(Self::Group(&attr.group)),
@@ -112,13 +140,21 @@ impl<'attr> ObjectAttributes<'attr> {
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s")]
 #[repr(C)]
 pub struct NUMANodeAttributes {
+    /// Node-local memory in bytes
     local_memory: u64,
+
+    /// Number of memory page types
     page_types_len: c_uint,
+
+    /// # Safety
+    ///
+    /// If non-null, this is trusted to point to a C-style array of
+    /// `page_types_len` memory page types, sorted by increasing page size.
     page_types: *mut MemoryPageType,
 }
 //
 impl NUMANodeAttributes {
-    /// Local memory in bytes
+    /// Node-local memory in bytes
     ///
     /// Requires [`DiscoverySupport::numa_memory()`].
     #[doc(alias = "hwloc_numanode_attr_s::local_memory")]
@@ -134,11 +170,12 @@ impl NUMANodeAttributes {
         if self.page_types.is_null() {
             return &[];
         }
+        // SAFETY: Per type invariant
         unsafe {
             std::slice::from_raw_parts(
                 self.page_types,
                 // If this fails, it means pages_types_len does not fit in a
-                // size_t, but by definition of size_t that cannot happen...
+                // size_t, but by definition of size_t that cannot happen
                 self.page_types_len.try_into().expect("Should not happen"),
             )
         }
@@ -168,7 +205,10 @@ impl PartialEq for NUMANodeAttributes {
     }
 }
 //
+// SAFETY: No internal mutability
 unsafe impl Send for NUMANodeAttributes {}
+//
+// SAFETY: No internal mutability
 unsafe impl Sync for NUMANodeAttributes {}
 
 /// Local memory page type
@@ -178,7 +218,10 @@ unsafe impl Sync for NUMANodeAttributes {}
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::hwloc_memory_page_type_s")]
 #[repr(C)]
 pub struct MemoryPageType {
+    /// Size of pages
     size: u64,
+
+    /// Number of pages of this size
     count: u64,
 }
 //
@@ -206,10 +249,19 @@ impl MemoryPageType {
 #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s")]
 #[repr(C)]
 pub struct CacheAttributes {
+    /// Size of the cache in bytes
     size: u64,
+
+    /// Depth ofthe cache (e.g. L1, L2, ...)
     depth: c_uint,
+
+    /// Cache line size in bytes
     linesize: c_uint,
+
+    /// Ways of associativity
     associativity: c_int,
+
+    /// Cache type
     ty: RawCacheType,
 }
 //
@@ -282,9 +334,18 @@ pub enum CacheAssociativity {
 #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s")]
 #[repr(C)]
 pub struct GroupAttributes {
+    /// Depth of group object
     depth: c_uint,
+
+    /// Internally-used kind of group
     kind: c_uint,
+
+    /// Internally-used subkind to distinguish different levels of groups with
+    /// the same kind
     subkind: c_uint,
+
+    /// Flag preventing groups from being automatically merged with identical
+    /// parent or children
     #[cfg(feature = "hwloc-2_0_4")]
     dont_merge: c_uchar,
 }
@@ -358,16 +419,37 @@ pub type PCIDomain = u16;
 #[doc(alias = "hwloc_obj_attr_u::hwloc_pcidev_attr_s")]
 #[repr(C)]
 pub struct PCIDeviceAttributes {
+    /// PCI domain
     domain: PCIDomain,
+
+    /// PCI bus id
     bus: c_uchar,
+
+    /// PCI bus device
     dev: c_uchar,
+
+    /// PCI function
     func: c_uchar,
+
+    /// PCI class id
     class_id: c_ushort,
+
+    /// PCI vendor id
     vendor_id: c_ushort,
+
+    /// PCI device id
     device_id: c_ushort,
+
+    /// PCI subvendor id
     subvendor_id: c_ushort,
+
+    /// PCI subdevice id
     subdevice_id: c_ushort,
+
+    /// PCI revision
     revision: c_uchar,
+
+    /// Link speed in GB/s
     linkspeed: c_float,
 }
 //
@@ -458,10 +540,23 @@ impl PCIDeviceAttributes {
 #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s")]
 #[repr(C)]
 pub struct BridgeAttributes {
+    /// # Safety
+    ///
+    /// This union is trusted to be in sync with `upstream_type`
     upstream: RawUpstreamAttributes,
+
+    /// Upstream type
     upstream_type: RawBridgeType,
+
+    /// # Safety
+    ///
+    /// This union is trusted to be in sync with `downstream_type`
     downstream: RawDownstreamAttributes,
+
+    /// Downstream type
     downstream_type: RawBridgeType,
+
+    /// Object depth
     depth: c_uint,
 }
 //
@@ -479,6 +574,7 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::upstream")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::upstream")]
     pub fn upstream_attributes(&self) -> Option<UpstreamAttributes<'_>> {
+        // SAFETY: Per type invariant
         unsafe { UpstreamAttributes::new(self.upstream_type(), &self.upstream) }
     }
 
@@ -495,6 +591,7 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::downstream")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::downstream")]
     pub fn downstream_attributes(&self) -> Option<DownstreamAttributes<'_>> {
+        // SAFETY: Per type invariant
         unsafe { DownstreamAttributes::new(self.downstream_type(), &self.downstream) }
     }
 
@@ -506,12 +603,11 @@ impl BridgeAttributes {
     }
 }
 //
+#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for BridgeAttributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BridgeAttributes")
-            .field("upstream_type", &self.upstream_type())
             .field("upstream_attributes", &self.upstream_attributes())
-            .field("downstream_type", &self.downstream_type())
             .field("downstream_attributes", &self.downstream_attributes())
             .field("depth", &self.depth)
             .finish()
@@ -527,27 +623,29 @@ impl PartialEq for BridgeAttributes {
     }
 }
 
-/// hwloc FFI for hwloc_bridge_attr_s::upstream
+/// hwloc FFI for `hwloc_bridge_attr_s::upstream`
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub(crate) union RawUpstreamAttributes {
+    /// PCI-specific attributes
     pci: PCIDeviceAttributes,
 }
 
 /// Bridge upstream attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum UpstreamAttributes<'attr> {
+pub enum UpstreamAttributes<'object> {
     /// PCI-specific attributes
-    PCI(&'attr PCIDeviceAttributes),
+    PCI(&'object PCIDeviceAttributes),
 }
 //
-impl<'attr> UpstreamAttributes<'attr> {
+impl<'object> UpstreamAttributes<'object> {
     /// Wrap the upstream attributes behind a safe API
     ///
     /// # Safety
     ///
     /// `attr` must be consistent with `ty`.
-    pub(crate) unsafe fn new(ty: BridgeType, attr: &'attr RawUpstreamAttributes) -> Option<Self> {
+    pub(crate) unsafe fn new(ty: BridgeType, attr: &'object RawUpstreamAttributes) -> Option<Self> {
+        // SAFETY: Per input precondition
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(&attr.pci)),
@@ -561,8 +659,13 @@ impl<'attr> UpstreamAttributes<'attr> {
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[repr(C)]
 pub struct DownstreamPCIAttributes {
+    /// PCI domain
     domain: PCIDomain,
+
+    /// PCI secondary bus
     secondary_bus: c_uchar,
+
+    /// PCI subordinate bus
     subordinate_bus: c_uchar,
 }
 //
@@ -583,27 +686,33 @@ impl DownstreamPCIAttributes {
     }
 }
 
-/// hwloc FFI for hwloc_bridge_attr_s::downstream
+/// hwloc FFI for `hwloc_bridge_attr_s::downstream`
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub(crate) union RawDownstreamAttributes {
+    /// PCI-specific attributes
     pci: DownstreamPCIAttributes,
 }
 
 /// Bridge downstream attributes
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub enum DownstreamAttributes<'attr> {
+pub enum DownstreamAttributes<'object> {
     /// PCI-specific attributes
-    PCI(&'attr DownstreamPCIAttributes),
+    PCI(&'object DownstreamPCIAttributes),
 }
 //
-impl<'attr> DownstreamAttributes<'attr> {
+impl<'object> DownstreamAttributes<'object> {
     /// Wrap the upstream attributes behind a safe API
     ///
     /// # Safety
     ///
     /// `attr` must be consistent with `ty`.
-    pub(crate) unsafe fn new(ty: BridgeType, attr: &'attr RawDownstreamAttributes) -> Option<Self> {
+    #[allow(clippy::unnecessary_wraps)]
+    pub(crate) unsafe fn new(
+        ty: BridgeType,
+        attr: &'object RawDownstreamAttributes,
+    ) -> Option<Self> {
+        // SAFETY: Per input precondition
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(&attr.pci)),
@@ -621,6 +730,7 @@ impl<'attr> DownstreamAttributes<'attr> {
 #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s")]
 #[repr(C)]
 pub struct OSDeviceAttributes {
+    /// OS device type
     ty: RawOSDeviceType,
 }
 //

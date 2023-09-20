@@ -1,5 +1,5 @@
 use hwlocality::{
-    object::{depth::DepthError, types::ObjectType},
+    object::{depth::TypeToDepthError, types::ObjectType},
     Topology,
 };
 
@@ -12,9 +12,11 @@ fn main() -> anyhow::Result<()> {
             "*** Found {} package(s)",
             topology.num_objects_at_depth(depth)
         ),
-        Err(DepthError::Nonexistent) => println!("*** No package object found"),
-        Err(DepthError::Multiple) => println!("*** Package objects exist at multiple depths"),
-        Err(DepthError::Unexpected(i)) => println!("*** Unknown error while probing packages: {i}"),
+        Err(TypeToDepthError::Nonexistent) => println!("*** No package object found"),
+        Err(TypeToDepthError::Multiple) => println!("*** Package objects exist at multiple depths"),
+        Err(TypeToDepthError::Unexpected(i)) => {
+            println!("*** Unknown error while probing packages: {i}")
+        }
     }
 
     Ok(())
