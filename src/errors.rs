@@ -9,6 +9,8 @@
 // At the implementation level, this is also the place where all the low-level
 // handling of hwloc errors is implemented.
 
+#[cfg(doc)]
+use crate::{object::TopologyObject, topology::Topology};
 use errno::Errno;
 use std::{
     error::Error,

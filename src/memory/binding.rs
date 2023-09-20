@@ -509,6 +509,7 @@ impl Topology {
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
+    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported

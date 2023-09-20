@@ -76,7 +76,7 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::Multiple`] if memory objects are attached at multiple
+    /// - [`TypeToDepthError::Multiple`] if memory objects are attached at multiple
     ///   depths, e.g. some to [`Package`]s and some to [`Group`]s
     ///
     /// # Examples
@@ -106,11 +106,11 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::Nonexistent`] if no object of this type is present or
+    /// - [`TypeToDepthError::Nonexistent`] if no object of this type is present or
     ///   if the OS doesn't provide this kind of information. If a similar type
     ///   is acceptable, consider using [depth_or_below_for_type()] or
     ///   [depth_or_above_for_type()] instead.
-    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
     ///   depths (can happen when `object_type` is [`Group`]).
     ///
     /// # Examples
@@ -149,9 +149,9 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::Nonexistent`] if no object typically found inside
+    /// - [`TypeToDepthError::Nonexistent`] if no object typically found inside
     ///   `object_type` is present.
-    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
     ///   depths (can happen when `object_type` is [`Group`]).
     ///
     /// # Examples
@@ -210,9 +210,9 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::Nonexistent`] if no object typically containing
+    /// - [`TypeToDepthError::Nonexistent`] if no object typically containing
     ///   `object_type` is present.
-    /// - [`DepthError::Multiple`] if objects of this type exist at multiple
+    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
     ///   depths (can happen when `object_type` is [`Group`]).
     ///
     /// # Examples
@@ -266,7 +266,7 @@ impl Topology {
     ///
     /// If `cache_type` is `None`, it is ignored and multiple levels may match.
     /// The function returns either the depth of a uniquely matching level or
-    /// Err([`DepthError::Multiple`]).
+    /// Err([`TypeToDepthError::Multiple`]).
     ///
     /// If `cache_type` is Some([`CacheType::Unified`]), the depth of the unique
     /// matching unified cache level (if any) is returned.
@@ -277,8 +277,8 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`DepthError::Nonexistent`] if no cache level matches
-    /// - [`DepthError::Multiple`] if multiple cache depths match (this can only
+    /// - [`TypeToDepthError::Nonexistent`] if no cache level matches
+    /// - [`TypeToDepthError::Multiple`] if multiple cache depths match (this can only
     ///   happen if `cache_type` is `None`).
     ///
     /// # Examples
@@ -883,6 +883,7 @@ pub enum ClosestObjsError {
 pub struct MissingCpuSetError;
 
 /// Error returned by [`Topology::object_with_same_locality()`]
+#[cfg(feature = "hwloc-2_5_0")]
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum LocalObjError {
     /// Target object does not belong to this topology
@@ -894,6 +895,7 @@ pub enum LocalObjError {
     StringContainsNul,
 }
 //
+#[cfg(feature = "hwloc-2_5_0")]
 impl From<NulError> for LocalObjError {
     fn from(_: NulError) -> Self {
         Self::StringContainsNul

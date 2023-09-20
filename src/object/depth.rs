@@ -182,14 +182,14 @@ pub enum TypeToDepthError {
     /// You can get this error for two different reasons:
     ///
     /// - hwloc introduced a new virtual depth, and the version of the Rust
-    ///   bindings that you are using has not yet been extended to handle this
+    ///   bindings that you are using has not yet been updated to handle this
     ///   new virtual depth. This is the most likely scenario.
     /// - hwloc failed to probe the requested depth and returned a negative
     ///   value to indicate that, but this negative value is not documented so
-    ///   the Rust bindings couldn't figure out what's not going on.
+    ///   the Rust bindings couldn't figure out what's going on.
     #[error("unexpected special depth value or hwloc error: {0}")]
     Unexpected(c_int),
 }
 
-/// Result from an hwloc depth query
+/// Result from an hwloc query looking for the depth of a certain object type
 pub type TypeToDepthResult = Result<Depth, TypeToDepthError>;

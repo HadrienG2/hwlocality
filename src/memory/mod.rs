@@ -8,3 +8,6 @@
 pub mod attribute;
 pub mod binding;
 pub mod nodeset;
+
+#[cfg(doc)]
+use crate::topology::Topology;
