@@ -1,7 +1,7 @@
 //! Object attributes
 //!
 //! Some [`TopologyObject` types](ObjectType) come with supplementary attributes
-//! that extend the object's description. These modules can be accessed using
+//! that extend the object's description. These attributes can be accessed using
 //! the [`TopologyObject::attributes()`] method, and are described using types
 //! defined inside of this module.
 

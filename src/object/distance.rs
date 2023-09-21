@@ -1,5 +1,18 @@
 //! Object distances
-// TODO: Long-form description
+//!
+//! Modern computer components are not usually connected via all-to-all
+//! networks. Instead, more scalable network topologies like rings or meshes
+//! are preferred. As a result, some components can communicate more quickly
+//! with each other than others, and the hwloc object distance API is meant to
+//! expose this information.
+//!
+//! At the time of writing, hwloc can only measure distances between NUMA nodes
+//! and between GPUs.
+//!
+//! Most of this module's functionality is exposed via [methods of the Topology
+//! struct](../../topology/struct.Topology.html#retrieve-distances-between-objects).
+//! The module itself only hosts type definitions that are related to this
+//! functionality.
 
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
@@ -522,8 +535,8 @@ impl RawDistances {
 /// "NUMALatency".
 ///
 /// The names and semantics of other distances matrices currently created by
-/// hwloc may be found
-/// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+/// hwloc may be found [in the hwloc
+/// documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
 ///
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the `kind` attribute provided
