@@ -181,7 +181,7 @@ impl<'topology> XML<'topology> {
 
     /// Access the inner string as a raw C string
     pub const fn as_raw(&self) -> &CStr {
-        // Safe because all necesary checks are done in `wrap()`
+        // SAFETY: All necesary checks are done in `wrap()`
         unsafe {
             let data = self.data.as_ptr() as *const [u8];
             CStr::from_bytes_with_nul_unchecked(&*data)

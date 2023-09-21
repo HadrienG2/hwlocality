@@ -458,6 +458,7 @@ impl Topology {
     ///   is applied to, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, bitmap, flags) tuple
+    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn bind_cpu_impl(
         &self,
         set: &CpuSet,
@@ -540,6 +541,7 @@ impl Topology {
     ///   performed, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, out bitmap, flags) tuple
+    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn get_cpuset(
         &self,
         flags: CpuBindingFlags,
