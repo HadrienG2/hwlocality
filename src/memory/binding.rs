@@ -11,7 +11,7 @@ use crate::{
     bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, RawBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},
     ffi,
-    memory::{self, nodeset::NodeSet},
+    memory::nodeset::NodeSet,
     topology::{RawTopology, Topology},
     ProcessId,
 };
@@ -107,10 +107,13 @@ impl Topology {
         &self,
         len: usize,
     ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
-        // SAFETY: allocate_memory_impl must pass in a valid topology and length
-        self.allocate_memory_impl::<Set>("hwloc_alloc", None, len, |topology, len| unsafe {
-            ffi::hwloc_alloc(topology, len)
-        })
+        // SAFETY: - hwloc_alloc is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, len)
+        unsafe {
+            self.allocate_memory_impl::<Set>("hwloc_alloc", None, len, |topology, len| {
+                ffi::hwloc_alloc(topology, len)
+            })
+        }
     }
 
     /// Allocate some memory on NUMA nodes specified by `set`
@@ -157,25 +160,29 @@ impl Topology {
         else {
             return Err(MemoryBindingError::BadFlags(flags.into()));
         };
-        self.allocate_memory_impl::<Set>(
-            "hwloc_alloc_membind",
-            Some(set),
-            len,
-            // SAFETY: - allocate_memory_impl must pass in a valid topology and
-            //           length
-            //         - set is always valid as a type invariant
-            //         - policy only allows hwloc-accepted values
-            //         - flags have been validated to be okay for this method
-            |topology, len| unsafe {
-                ffi::hwloc_alloc_membind(
-                    topology,
-                    len,
-                    set.as_ref().as_ptr(),
-                    policy.into(),
-                    flags.bits(),
-                )
-            },
-        )
+        // SAFETY: - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc_alloc_membind with set, policy and flags
+        //           arguments curried away behaves like hwloc_alloc
+        //         - FFI is guaranteed to be passed valid (topology, len)
+        //         - All user-visible policies are accepted by hwloc
+        //         - flags are validated to be correct
+        unsafe {
+            self.allocate_memory_impl::<Set>(
+                "hwloc_alloc_membind",
+                Some(set),
+                len,
+                |topology, len| {
+                    ffi::hwloc_alloc_membind(
+                        topology,
+                        len,
+                        set.as_ref().as_ptr(),
+                        policy.into(),
+                        flags.bits(),
+                    )
+                },
+            )
+        }
     }
 
     /// Allocate some memory on NUMA nodes specified by `set` and `flags`,
@@ -281,18 +288,20 @@ impl Topology {
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
-        self.bind_memory_impl(
-            "hwloc_set_membind",
-            set,
-            policy,
-            flags,
-            MemoryBoundObject::ThisProgram,
-            // SAFETY: bind_memory_impl must pass in a valid topology, set,
-            //         policy and flags
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_membind(topology, set, policy, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - hwloc_set_membind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        unsafe {
+            self.bind_memory_impl(
+                "hwloc_set_membind",
+                set,
+                policy,
+                flags,
+                MemoryBoundObject::ThisProgram,
+                |topology, set, policy, flags| ffi::hwloc_set_membind(topology, set, policy, flags),
+            )
+        }
     }
 
     /// Reset the memory allocation policy of the current process or thread to
@@ -329,16 +338,18 @@ impl Topology {
         &self,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
-        self.unbind_memory_impl(
-            "hwloc_set_membind",
-            flags,
-            MemoryBoundObject::ThisProgram,
-            // SAFETY: unbind_memory_impl must pass in a valid topology, set,
-            //         policy and flags
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_membind(topology, set, policy, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - hwloc_set_membind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        unsafe {
+            self.unbind_memory_impl(
+                "hwloc_set_membind",
+                flags,
+                MemoryBoundObject::ThisProgram,
+                |topology, set, policy, flags| ffi::hwloc_set_membind(topology, set, policy, flags),
+            )
+        }
     }
 
     /// Query the default memory binding policy and physical locality of the
@@ -394,17 +405,20 @@ impl Topology {
         &self,
         flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
-        self.memory_binding_impl(
-            "hwloc_get_membind",
-            flags,
-            MemoryBoundObject::ThisProgram,
-            MemoryBindingOperation::GetBinding,
-            // SAFETY: memory_binding_impl must pass in a valid topology,
-            //         out set, out policy and flags
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_get_membind(topology, set, policy, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - GetBinding is the correct operation for this FFI
+        //         - hwloc_get_membind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_membind",
+                flags,
+                MemoryBoundObject::ThisProgram,
+                MemoryBindingOperation::GetBinding,
+                |topology, set, policy, flags| ffi::hwloc_get_membind(topology, set, policy, flags),
+            )
+        }
     }
 
     /// Set the default memory binding policy of the specified process to prefer
@@ -434,19 +448,25 @@ impl Topology {
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
-        self.bind_memory_impl(
-            "hwloc_set_proc_membind",
-            set,
-            policy,
-            flags,
-            MemoryBoundObject::Process,
-            // SAFETY: - bind_memory_impl must pass in a valid topology, set,
-            //           policy and flags
-            //         - hwloc should be able to deal with an invalid PID
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
-            },
-        )
+        // SAFETY: - Process is the correct target for this FFI
+        //         - hwloc_set_proc_membind with pid argument curried away
+        //           behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.bind_memory_impl(
+                "hwloc_set_proc_membind",
+                set,
+                policy,
+                flags,
+                MemoryBoundObject::Process,
+                |topology, set, policy, flags| {
+                    ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Reset the memory allocation policy of the specified process to the
@@ -474,17 +494,23 @@ impl Topology {
         pid: ProcessId,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
-        self.unbind_memory_impl(
-            "hwloc_set_proc_membind",
-            flags,
-            MemoryBoundObject::Process,
-            // SAFETY: - unbind_memory_impl must pass in a valid topology, set,
-            //           policy and flags
-            //         - hwloc should be able to deal with an invalid PID
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
-            },
-        )
+        // SAFETY: - Process is the correct target for this FFI
+        //         - hwloc_set_proc_membind with pid argument curried away
+        //           behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.unbind_memory_impl(
+                "hwloc_set_proc_membind",
+                flags,
+                MemoryBoundObject::Process,
+                |topology, set, policy, flags| {
+                    ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Query the default memory binding policy and physical locality of the
@@ -519,18 +545,25 @@ impl Topology {
         pid: ProcessId,
         flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
-        self.memory_binding_impl(
-            "hwloc_get_proc_membind",
-            flags,
-            MemoryBoundObject::Process,
-            MemoryBindingOperation::GetBinding,
-            // SAFETY: - memory_binding_impl must pass in a valid topology,
-            //           out set, out policy and flags
-            //         - hwloc should be able to deal with an invalid PID
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_get_proc_membind(topology, pid, set, policy, flags)
-            },
-        )
+        // SAFETY: - Process is the correct target for this FFI
+        //         - GetBinding is the correct operation for this FFI
+        //         - hwloc_get_proc_membind with pid argument curried away
+        //           behaves like hwloc_get_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_proc_membind",
+                flags,
+                MemoryBoundObject::Process,
+                MemoryBindingOperation::GetBinding,
+                |topology, set, policy, flags| {
+                    ffi::hwloc_get_proc_membind(topology, pid, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Bind the memory identified by `target` to the NUMA node(s) specified by
@@ -572,27 +605,32 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.bind_memory_impl(
-            "hwloc_set_area_membind",
-            set,
-            policy,
-            flags,
-            MemoryBoundObject::Area,
-            // SAFETY: - bind_memory_impl must pass in a valid topology, set,
-            //           policy and flags
-            //         - target_ptr is valid as a type invariant of & references
-            //         - target_size has been checked not to be zero
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_area_membind(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    policy,
-                    flags,
-                )
-            },
-        )
+        // SAFETY: - Area is the correct target for this FFI
+        //         - hwloc_set_area_membind with target_ptr and target_size
+        //           arguments curried away behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.bind_memory_impl(
+                "hwloc_set_area_membind",
+                set,
+                policy,
+                flags,
+                MemoryBoundObject::Area,
+                |topology, set, policy, flags| {
+                    ffi::hwloc_set_area_membind(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        policy,
+                        flags,
+                    )
+                },
+            )
+        }
     }
 
     /// Reset the memory allocation policy of the memory identified by `target`
@@ -627,25 +665,30 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.unbind_memory_impl(
-            "hwloc_set_area_membind",
-            flags,
-            MemoryBoundObject::Area,
-            // SAFETY: - unbind_memory_impl must pass in a valid topology, set,
-            //           policy and flags
-            //         - target_ptr is valid as a type invariant of & references
-            //         - target_size has been checked not to be zero
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_area_membind(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    policy,
-                    flags,
-                )
-            },
-        )
+        // SAFETY: - Area is the correct target for this FFI
+        //         - hwloc_set_area_membind with target_ptr and target_size
+        //           arguments curried away behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.unbind_memory_impl(
+                "hwloc_set_area_membind",
+                flags,
+                MemoryBoundObject::Area,
+                |topology, set, policy, flags| {
+                    ffi::hwloc_set_area_membind(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        policy,
+                        flags,
+                    )
+                },
+            )
+        }
     }
 
     /// Query the memory binding policy and physical locality of the
@@ -699,26 +742,32 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.memory_binding_impl(
-            "hwloc_get_area_membind",
-            flags,
-            MemoryBoundObject::Area,
-            MemoryBindingOperation::GetBinding,
-            // SAFETY: - memory_binding_impl must pass in a valid topology,
-            //           out set, out policy and flags
-            //         - target_ptr is valid as a type invariant of & references
-            //         - target_size has been checked not to be zero
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_get_area_membind(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    policy,
-                    flags,
-                )
-            },
-        )
+        // SAFETY: - Area is the correct target for this FFI
+        //         - GetBinding is the correct operation for this FFI
+        //         - hwloc_get_area_membind with target_ptr and target_size
+        //           arguments curried away behaves like hwloc_get_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_area_membind",
+                flags,
+                MemoryBoundObject::Area,
+                MemoryBindingOperation::GetBinding,
+                |topology, set, policy, flags| {
+                    ffi::hwloc_get_area_membind(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        policy,
+                        flags,
+                    )
+                },
+            )
+        }
     }
 
     /// Get the NUMA nodes where the memory identified by `target` is physically
@@ -766,27 +815,34 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.memory_binding_impl(
-            "hwloc_get_area_memlocation",
-            flags,
-            MemoryBoundObject::ThisProgram,
-            MemoryBindingOperation::GetLastLocation,
-            // SAFETY: - memory_binding_impl must pass in a valid topology,
-            //           out set, out policy and flags
-            //         - target_ptr is valid as a type invariant of & references
-            //         - target_size has been checked not to be zero
-            |topology, set, policy, flags| unsafe {
-                *policy = -1;
-                ffi::hwloc_get_area_memlocation(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    flags,
-                )
-            },
-        )
-        .map(|(set, _policy)| set)
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - GetLastLocation is the correct operation for this FFI
+        //         - hwloc_get_area_memlocation with target_ptr and target_size
+        //           arguments curried away and policy placeholder'd behaves
+        //           like hwloc_get_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_area_memlocation",
+                flags,
+                MemoryBoundObject::ThisProgram,
+                MemoryBindingOperation::GetLastLocation,
+                |topology, set, policy, flags| {
+                    *policy = -1;
+                    ffi::hwloc_get_area_memlocation(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        flags,
+                    )
+                },
+            )
+            .map(|(set, _policy)| set)
+        }
     }
 
     /// Adjust binding flags for a certain kind of Set
@@ -797,23 +853,25 @@ impl Topology {
         }
     }
 
-    /// Call an hwloc API that allocates (possibly bound) memory
+    /// Binding for `hwloc_alloc`-like functions
     ///
     /// # Safety
     ///
-    /// - `allocate_memory_like` must be a valid hwloc memory allocation
-    ///   function
-    /// - Guaranteed to call the allocation function with a valid
-    ///   (topology, size) tuple that hwloc can understand.
-    fn allocate_memory_impl<Set: SpecializedBitmap>(
+    /// - `ffi` should have semantics analogous to `hwloc_alloc`
+    /// - If so, this is guaranteed to call `ffi` with a valid (topology, size)
+    ///   tuple
+    unsafe fn allocate_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
         set: Option<&Set>,
         len: usize,
-        allocate_memory_like: impl FnOnce(*const RawTopology, usize) -> *mut c_void,
+        ffi: impl FnOnce(*const RawTopology, usize) -> *mut c_void,
     ) -> Result<Bytes<'_>, MemoryBindingError<Set::Owned>> {
         if len > 0 {
-            errors::call_hwloc_ptr_mut(api, || allocate_memory_like(self.as_ptr(), len))
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - len was checked to be nonzero above
+            errors::call_hwloc_ptr_mut(api, || ffi(self.as_ptr(), len))
                 .map_err(|raw_err| {
                     decode_errno(
                         MemoryBoundObject::Area,
@@ -827,38 +885,41 @@ impl Topology {
                 //         assumed to be a valid allocation pointer
                 .map(|base| unsafe { Bytes::wrap(self, base, len) })
         } else {
-            // SAFETY: Bytes accept any pointer for zero-sized allocations
+            // SAFETY: Bytes accepts any pointer for zero-sized allocations
             Ok(unsafe { Bytes::wrap(self, NonNull::dangling(), 0) })
         }
     }
 
-    /// Call an hwloc memory binding function to bind some memory
+    /// Memory-binding interface for `hwloc_set_membind`-like functions
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the binding setter with a valid (topology, bitmap,
-    /// policy, flags) tuple that hwloc can understand.
-    fn bind_memory_impl<Set: SpecializedBitmap>(
+    /// - `ffi` should have semantics analogous to `hwloc_set_membind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, bitmap, policy, flags) tuple
+    unsafe fn bind_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
         set: &Set,
         policy: MemoryBindingPolicy,
         mut flags: MemoryBindingFlags,
         target: MemoryBoundObject,
-        set_membind_like: impl FnOnce(
-            *const RawTopology,
-            *const RawBitmap,
-            RawMemoryBindingPolicy,
-            c_int,
-        ) -> c_int,
+        ffi: impl FnOnce(*const RawTopology, *const RawBitmap, RawMemoryBindingPolicy, c_int) -> c_int,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
         let operation = MemoryBindingOperation::Bind;
         Self::adjust_flags_for::<Set>(&mut flags);
         let Some(flags) = flags.validate(target, operation) else {
             return Err(MemoryBindingError::BadFlags(flags.into()));
         };
-        memory::binding::call_hwloc_int(api, target, operation, Some(set), || {
-            set_membind_like(
+        call_hwloc_int(api, target, operation, Some(set), || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - All user-visible policies are accepted by hwloc
+            //         - flags should be valid if target is valid
+            ffi(
                 self.as_ptr(),
                 set.as_ref().as_ptr(),
                 policy.into(),
@@ -867,46 +928,55 @@ impl Topology {
         })
     }
 
-    /// Call an hwloc memory binding function to unbind some memory
+    /// Memory-unbinding interface for `hwloc_set_membind`-like functions
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the binding setter with a valid (topology, bitmap,
-    /// policy, flags) tuple that hwloc can understand.
-    fn unbind_memory_impl(
+    /// - `ffi` should have semantics analogous to `hwloc_set_membind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, bitmap, policy, flags) tuple
+    unsafe fn unbind_memory_impl(
         &self,
         api: &'static str,
         flags: MemoryBindingFlags,
         target: MemoryBoundObject,
-        set_membind_like: impl FnOnce(
-            *const RawTopology,
-            *const RawBitmap,
-            RawMemoryBindingPolicy,
-            c_int,
-        ) -> c_int,
+        ffi: impl FnOnce(*const RawTopology, *const RawBitmap, RawMemoryBindingPolicy, c_int) -> c_int,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
         let operation = MemoryBindingOperation::Unbind;
         let Some(flags) = flags.validate(target, operation) else {
             return Err(MemoryBindingError::BadFlags(flags.into()));
         };
-        memory::binding::call_hwloc_int::<NodeSet>(api, target, operation, None, || {
-            set_membind_like(self.as_ptr(), ptr::null(), 0, flags.bits())
+        call_hwloc_int::<NodeSet>(api, target, operation, None, || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Passing a null set and a zero policy (= default policy)
+            //           is an hwloc-accepted way to reset the binding policy
+            //         - All user-visible policies are accepted by hwloc
+            //         - flags should be valid if target is valid
+            ffi(self.as_ptr(), ptr::null(), 0, flags.bits())
         })
     }
 
-    /// Call an hwloc memory binding query function
+    /// Binding for `hwloc_get_membind`-like functions
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the binding getter with a valid (topology, out
-    /// bitmap, out policy, flags) tuple that hwloc can understand.
-    fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
+    /// - `ffi` should have semantics analogous to `hwloc_get_membind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - `operation` should accurately reflect the kind of operation being
+    ///   performed, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, out policy, flags) tuple
+    unsafe fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
         &self,
         api: &'static str,
         mut flags: MemoryBindingFlags,
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
-        get_membind_like: impl FnOnce(
+        ffi: impl FnOnce(
             *const RawTopology,
             *mut RawBitmap,
             *mut RawMemoryBindingPolicy,
@@ -919,8 +989,14 @@ impl Topology {
         };
         let mut set = Bitmap::new();
         let mut raw_policy = RawMemoryBindingPolicy::MAX;
-        memory::binding::call_hwloc_int::<Set>(api, target, operation, None, || {
-            get_membind_like(
+        call_hwloc_int::<Set>(api, target, operation, None, || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a valid state
+            //         - As a pure out parameter, policy shouldn't be read by hwloc
+            //         - flags should be valid if target & operation are valid
+            ffi(
                 self.as_ptr(),
                 set.as_mut_ptr(),
                 &mut raw_policy,
@@ -1355,10 +1431,11 @@ fn decode_errno<Set: SpecializedBitmap>(
 //
 // # Safety
 //
-// If the size is nonzero, `data` must point to an hwloc-originated allocation
-// from `topology` with correct size metadata, that isn't freed until this is
-// dropped. If the size is zero, then `data` is a zero-sized slice with a
-// dangling base pointer that should not be treated as an allocation.
+// - If the size is nonzero, `data` is an owned (valid, non-aliased)
+//   hwloc-originated allocation from `topology`, with correct size metadata,
+//   that should be freed on Drop
+// - If the size is zero, `data` is a zero-sized slice with a dangling base
+//   pointer, that should not be freed on Drop
 pub struct Bytes<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,
@@ -1435,12 +1512,19 @@ impl DerefMut for Bytes<'_> {
 impl Drop for Bytes<'_> {
     #[doc(alias = "hwloc_free")]
     fn drop(&mut self) {
-        let addr = self.data.as_ptr().cast::<c_void>();
         let len = self.data.len();
         if len > 0 {
-            // SAFETY: - Topology is assumed to be valid per type invariant
-            //         - self.data is assumed to be valid per type invariant
-            let result = unsafe { ffi::hwloc_free(self.topology.as_ptr(), addr, len) };
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - self.data is trusted to be valid (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Bytes will not be usable again after Drop
+            let result = unsafe {
+                ffi::hwloc_free(
+                    self.topology.as_ptr(),
+                    self.data.as_ptr().cast::<c_void>(),
+                    len,
+                )
+            };
             assert_eq!(
                 result,
                 0,

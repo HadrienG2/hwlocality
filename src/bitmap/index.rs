@@ -285,7 +285,7 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn rotate_left(self, n: u32) -> Self {
-        self.rotate_impl(n, true)
+        self.rotate_impl::<true>(n)
     }
 
     /// Shifts the bits to the right by a specified amount, `n`, wrapping the
@@ -314,12 +314,11 @@ impl BitmapIndex {
     /// );
     /// ```
     pub const fn rotate_right(self, n: u32) -> Self {
-        self.rotate_impl(n, false)
+        self.rotate_impl::<false>(n)
     }
 
     /// Common preparation of `rotate_xyz` operations
-    #[inline]
-    const fn rotate_impl(self, n: u32, left: bool) -> Self {
+    const fn rotate_impl<const LEFT: bool>(self, n: u32) -> Self {
         // We model a rotation as the boolean OR of two bitshifts going in
         // opposite directions:
         // - The direct shift is applied to bits that are just being shifted in
@@ -329,7 +328,7 @@ impl BitmapIndex {
         //   pushing them in the opposite direction by the expected amount.
         let direct_shift = n % Self::EFFECTIVE_BITS;
         let opposite_shift = Self::EFFECTIVE_BITS - direct_shift;
-        let (left_shift, right_shift) = if left {
+        let (left_shift, right_shift) = if LEFT {
             (direct_shift, opposite_shift)
         } else {
             (opposite_shift, direct_shift)

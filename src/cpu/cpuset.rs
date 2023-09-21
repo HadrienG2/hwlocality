@@ -380,10 +380,11 @@ impl CpuSet {
             self.clear();
             return;
         };
-        // SAFETY: By safety invariant of Topology and Bitmap/CpuSet, the first
-        //         two arguments are trusted to be correct. Per its
-        //         documentation, hwloc should be able to handle arbitrarily
-        //         large `which` values.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - Per documentation, hwloc should handle arbitrarily large which values
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
         })

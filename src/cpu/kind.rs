@@ -89,8 +89,9 @@ impl Topology {
     /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_nr")]
     pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindsUnknown> {
-        // SAFETY: Per Topology invariant, the topology pointer is trusted to be
-        //         valid. Per hwloc 2.9 docs, 0 is the only valid flags value.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Per documentation, flags should be zero
         let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
             ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
@@ -141,12 +142,13 @@ impl Topology {
         let mut efficiency = c_int::MIN;
         let mut nr_infos: c_uint = 0;
         let mut infos = ptr::null_mut();
-        // SAFETY: - Per Topology invariant, topology pointer is trusted
-        //         - Per input precondition, kind_index is trusted
-        //         - Per bitmap invariant, cpuset pointer is trusted
-        //         - Per hwloc 2.9 docs, efficiency, nr_infos and infos are a
-        //           pure out parameters that hwloc does not read.
-        //         - Per hwloc 2.9 docs, 0 is the only valid flags value
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - Per documentation, efficiency, nr_infos and infos are
+        //           pure out parameters that hwloc does not read
+        //         - Per documentation, flags should be zero
         errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
             ffi::hwloc_cpukinds_get_info(
                 self.as_ptr(),
@@ -172,8 +174,11 @@ impl Topology {
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
-        // SAFETY: - Per hwloc contract, `infos` and `nr_infos` should be valid
-        //         - We trust hwloc not to modify this information without warning
+        // SAFETY: - Per hwloc API contract, infos and nr_infos should be valid
+        //           if the function returned successfully
+        //         - We trust hwloc not to modify infos' target in a manner that
+        //           violates Rust aliasing rules, as long as we honor these
+        //           rules ourselves
         //         - Total size should not wrap around for any valid allocation
         let infos = unsafe { std::slice::from_raw_parts(infos, ffi::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
@@ -197,9 +202,10 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
-        // SAFETY: - Per Topology invariant, topology pointer is trusted
-        //         - Per bitmap invariant, cpuset pointer is trusted
-        //         - Per hwloc 2.9 docs, 0 is the only valid flags value
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Per documentation, flags should be zero
         let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
             ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
@@ -296,13 +302,15 @@ impl TopologyEditor<'_> {
         let num_infos =
             c_uint::try_from(infos_ptrs.len()).map_err(|_| CpuKindRegisterError::TooManyInfos)?;
 
-        // SAFETY: - Per TopologyEditor invariant, topology pointer is trusted
-        //         - Per bitmap invariant, cpuset pointer is trusted
-        //         - Per hwloc 2.9 docs, forced_efficiency can only be positive
-        //           or -1, which is enforced above
-        //         - `num_infos` and `infos_ptrs` are guaranteed to be in sync
-        //           since they both originate from the same slice
-        //         - Per hwloc 2.9 docs, 0 is the only valid flags value
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - Above logic enforces that forced_efficiency be >= -1,
+        //           as hwloc demands
+        //         - num_infos and infos_ptrs originate from the same slice, so
+        //           they should be valid and in sync
+        //         - Per documentation, flags should be zero
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
             ffi::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),

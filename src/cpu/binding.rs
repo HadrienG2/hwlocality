@@ -97,14 +97,18 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), CpuBindingError> {
-        let res = self.bind_cpu_impl(
-            set.borrow(),
-            flags,
-            CpuBoundObject::ThisProgram,
-            "hwloc_set_cpubind",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags)
-            |topology, cpuset, flags| unsafe { ffi::hwloc_set_cpubind(topology, cpuset, flags) },
-        );
+        // SAFETY: - ThisProgram is the correct target for this operation
+        //         - hwloc_set_cpubind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        let res = unsafe {
+            self.bind_cpu_impl(
+                set.borrow(),
+                flags,
+                CpuBoundObject::ThisProgram,
+                "hwloc_set_cpubind",
+                |topology, cpuset, flags| ffi::hwloc_set_cpubind(topology, cpuset, flags),
+            )
+        };
         match res {
             Ok(()) => Ok(()),
             Err(HybridError::Rust(e)) => Err(e),
@@ -144,13 +148,17 @@ impl Topology {
         &self,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.cpu_binding_impl(
-            flags,
-            CpuBoundObject::ThisProgram,
-            "hwloc_get_cpubind",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags)
-            |topology, cpuset, flags| unsafe { ffi::hwloc_get_cpubind(topology, cpuset, flags) },
-        )
+        // SAFETY: - ThisProgram is the correct target for this operation
+        //         - hwloc_get_cpubind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        unsafe {
+            self.cpu_binding_impl(
+                flags,
+                CpuBoundObject::ThisProgram,
+                "hwloc_get_cpubind",
+                |topology, cpuset, flags| ffi::hwloc_get_cpubind(topology, cpuset, flags),
+            )
+        }
     }
 
     /// Binds a process (identified by its `pid`) on given CPUs
@@ -185,17 +193,21 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
-        self.bind_cpu_impl(
-            set.borrow(),
-            flags,
-            CpuBoundObject::ProcessOrThread(pid),
-            "hwloc_set_proc_cpubind",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags),
-            //         hwloc should be able to handle an invalid PID.
-            |topology, cpuset, flags| unsafe {
-                ffi::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
-            },
-        )
+        // SAFETY: - ProcessOrThread is the correct target for this operation
+        //         - hwloc_set_proc_cpubind with pid argument curried away
+        //           behaves like hwloc_set_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.bind_cpu_impl(
+                set.borrow(),
+                flags,
+                CpuBoundObject::ProcessOrThread(pid),
+                "hwloc_set_proc_cpubind",
+                |topology, cpuset, flags| ffi::hwloc_set_proc_cpubind(topology, pid, cpuset, flags),
+            )
+        }
     }
 
     /// Get the current physical binding of a process, identified by its `pid`
@@ -228,16 +240,20 @@ impl Topology {
         pid: ProcessId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.cpu_binding_impl(
-            flags,
-            CpuBoundObject::ProcessOrThread(pid),
-            "hwloc_get_proc_cpubind",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags),
-            //         hwloc should be able to handle an invalid PID.
-            |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
-            },
-        )
+        // SAFETY: - ProcessOrThread is the correct target for this operation
+        //         - hwloc_get_proc_cpubind with pid argument curried away
+        //           behaves like hwloc_get_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.cpu_binding_impl(
+                flags,
+                CpuBoundObject::ProcessOrThread(pid),
+                "hwloc_get_proc_cpubind",
+                |topology, cpuset, flags| ffi::hwloc_get_proc_cpubind(topology, pid, cpuset, flags),
+            )
+        }
     }
 
     /// Bind a thread, identified by its `tid`, on the given CPUs
@@ -264,17 +280,23 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
-        self.bind_cpu_impl(
-            set.borrow(),
-            flags,
-            CpuBoundObject::Thread(tid),
-            "hwloc_set_thread_cpubind",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags),
-            //         hwloc should be able to handle an invalid TID.
-            |topology, cpuset, flags| unsafe {
-                ffi::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
-            },
-        )
+        // SAFETY: - Thread is the correct target for this operation
+        //         - hwloc_set_thread_cpubind with tid argument curried away
+        //           behaves like hwloc_set_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
+        unsafe {
+            self.bind_cpu_impl(
+                set.borrow(),
+                flags,
+                CpuBoundObject::Thread(tid),
+                "hwloc_set_thread_cpubind",
+                |topology, cpuset, flags| {
+                    ffi::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Get the current physical binding of thread `tid`
@@ -306,16 +328,22 @@ impl Topology {
         tid: ThreadId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.cpu_binding_impl(
-            flags,
-            CpuBoundObject::Thread(tid),
-            "hwloc_get_thread_cpubind",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags),
-            //         hwloc should be able to handle an invalid TID.
-            |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
-            },
-        )
+        // SAFETY: - Thread is the correct target for this operation
+        //         - hwloc_get_thread_cpubind with tid argument curried away
+        //           behaves like hwloc_get_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
+        unsafe {
+            self.cpu_binding_impl(
+                flags,
+                CpuBoundObject::Thread(tid),
+                "hwloc_get_thread_cpubind",
+                |topology, cpuset, flags| {
+                    ffi::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Get the last physical CPUs where the current process or thread ran
@@ -359,15 +387,17 @@ impl Topology {
         &self,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.last_cpu_location_impl(
-            flags,
-            CpuBoundObject::ThisProgram,
-            "hwloc_get_last_cpu_location",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags)
-            |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_last_cpu_location(topology, cpuset, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this operation
+        //         - hwloc_get_last_cpu_location is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        unsafe {
+            self.last_cpu_location_impl(
+                flags,
+                CpuBoundObject::ThisProgram,
+                "hwloc_get_last_cpu_location",
+                |topology, cpuset, flags| ffi::hwloc_get_last_cpu_location(topology, cpuset, flags),
+            )
+        }
     }
 
     /// Get the last physical CPU where a process ran.
@@ -401,25 +431,34 @@ impl Topology {
         pid: ProcessId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.last_cpu_location_impl(
-            flags,
-            CpuBoundObject::ProcessOrThread(pid),
-            "hwloc_get_proc_last_cpu_location",
-            // SAFETY: Guaranteed to be passed valid (topology, cpuset, flags),
-            //         hwloc should be able to handle an invalid PID.
-            |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
-            },
-        )
+        // SAFETY: - ProcessOrThread is the correct target for this operation
+        //         - hwloc_get_proc_last_cpu_location with pid argument curried
+        //           away behaves like hwloc_get_last_cpu_location
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.last_cpu_location_impl(
+                flags,
+                CpuBoundObject::ProcessOrThread(pid),
+                "hwloc_get_proc_last_cpu_location",
+                |topology, cpuset, flags| {
+                    ffi::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
+                },
+            )
+        }
     }
 
-    /// Binding for `hwloc_set_cpubind` style functions
+    /// Binding for `hwloc_set_cpubind`-like functions
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the binding setter with a valid (topology, bitmap,
-    /// flags) tuple that hwloc can understand.
-    fn bind_cpu_impl(
+    /// - `ffi` should have semantics analogous to `hwloc_set_cpubind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, bitmap, flags) tuple
+    unsafe fn bind_cpu_impl(
         &self,
         set: &CpuSet,
         flags: CpuBindingFlags,
@@ -431,55 +470,77 @@ impl Topology {
             return Err(CpuBindingError::from(flags).into());
         };
         call_hwloc(api, target, Some(set), || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - flags should be valid if target is valid
             ffi(self.as_ptr(), set.as_ptr(), flags.bits())
         })
     }
 
-    /// Binding for `hwloc_get_cpubind` style functions
+    /// Binding for `hwloc_get_cpubind`-like functions
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the binding getter with a valid (topology, bitmap,
-    /// flags) tuple that hwloc can understand.
-    fn cpu_binding_impl(
+    /// - `ffi` should have semantics analogous to `hwloc_get_cpubind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, flags) tuple
+    unsafe fn cpu_binding_impl(
         &self,
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.get_cpuset(flags, target, CpuBindingOperation::GetBinding, api, ffi)
+        // SAFETY: - GetBinding is the valid operation tag for this FFI
+        //         - Rest is per function precondition
+        unsafe { self.get_cpuset(flags, target, CpuBindingOperation::GetBinding, api, ffi) }
     }
 
-    /// Binding for `hwloc_get_last_cpu_location` style functions
+    /// Binding for `hwloc_get_last_cpu_location`-like functions
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the location getter with a valid (topology, bitmap,
-    /// flags) tuple that hwloc can understand.
-    fn last_cpu_location_impl(
+    /// - `ffi` should have semantics analogous to `hwloc_get_last_cpu_location`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, flags) tuple
+    unsafe fn last_cpu_location_impl(
         &self,
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.get_cpuset(
-            flags,
-            target,
-            CpuBindingOperation::GetLastLocation,
-            api,
-            ffi,
-        )
+        // SAFETY: - GetLastLocation is the valid operation tag for this FFI
+        //         - Rest is per function precondition
+        unsafe {
+            self.get_cpuset(
+                flags,
+                target,
+                CpuBindingOperation::GetLastLocation,
+                api,
+                ffi,
+            )
+        }
     }
 
-    /// Binding for all functions that get CPU bindings
+    /// Binding for all functions that get CPU bindings & locations
     ///
     /// # Safety
     ///
-    /// Guaranteed to call the binding getter with a valid (topology, bitmap,
-    /// flags) tuple that hwloc can understand.
-    fn get_cpuset(
+    /// - `ffi` should have semantics analogous to `hwloc_get_cpubind` and
+    ///   `hwloc_get_last_cpu_location`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - `operation` should accurately reflect the kind of operation being
+    ///   performed, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, flags) tuple
+    unsafe fn get_cpuset(
         &self,
         flags: CpuBindingFlags,
         target: CpuBoundObject,
@@ -492,6 +553,11 @@ impl Topology {
         };
         let mut cpuset = CpuSet::new();
         call_hwloc(api, target, None, || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a valid state
+            //         - flags should be valid if target & operation are valid
             ffi(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         })
         .map(|()| cpuset)

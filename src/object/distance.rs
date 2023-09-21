@@ -155,7 +155,9 @@ impl Topology {
     ///
     /// # Safety
     ///
-    /// `getter` must perform a correct call to a `hwloc_distances_get` API
+    /// - `getter` must perform a correct call to a `hwloc_distances_get` API
+    /// - This API is guaranteed to be passed valid (Topology, distances buffer
+    ///   length, distance out-buffer pointer, flags) tuples.
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
@@ -173,6 +175,10 @@ impl Topology {
 
         // Allocate array of distances pointers
         errors::call_hwloc_int_normal(getter_name, || {
+            // SAFETY: - Topology is trusted to be valid as a type invariant
+            //         - The combination of a 0 length and a null out-pointer
+            //           is valid to query the required length and get it in nr
+            //         - flags must be zero
             getter(self.as_ptr(), &mut nr, ptr::null_mut(), flags)
         })?;
         let mut distances_ptrs = vec![ptr::null_mut(); ffi::expect_usize(nr)];
@@ -180,6 +186,9 @@ impl Topology {
         // Let hwloc fill the distance pointers
         let old_nr = nr;
         errors::call_hwloc_int_normal(getter_name, || {
+            // SAFETY: - Topology is trusted to be valid as a type invariant
+            //         - nr is in sync with the distances_ptrs buffer size
+            //         - flags must be zero
             getter(self.as_ptr(), &mut nr, distances_ptrs.as_mut_ptr(), flags)
         })?;
         assert_eq!(
@@ -190,6 +199,8 @@ impl Topology {
         // Wrap them into a safe interface
         Ok(distances_ptrs
             .into_iter()
+            // SAFETY: If hwloc distance queries succeed, they are trusted to
+            //         emit valid distance object pointers
             .map(|raw| unsafe { Distances::wrap(self, raw) })
             .collect())
     }

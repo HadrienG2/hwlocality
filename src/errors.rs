@@ -97,7 +97,8 @@ pub(crate) fn call_hwloc_ptr<T>(
     call_hwloc_ptr_mut(api, || call().cast_mut())
 }
 
-/// Call an hwloc entry point that returns an `int` where -1 signals failure
+/// Call an hwloc entry point that returns an `int` where -1 signals failure and
+/// other negative values are not expected
 ///
 /// This behavior is followed by almost every hwloc API, though unfortunately
 /// there are a couple of exception.
@@ -109,14 +110,16 @@ pub(crate) fn call_hwloc_int_normal(
     api: &'static str,
     call: impl FnOnce() -> c_int,
 ) -> Result<c_uint, RawHwlocError> {
-    match call_hwloc_int_raw(api, call) {
-        Ok(positive) => Ok(positive),
+    match call_hwloc_int_raw(api, call, 0) {
+        Ok(positive) => {
+            Ok(c_uint::try_from(positive).expect("Cannot happen due to 0 threshold above"))
+        }
         Err(RawNegIntError {
             api,
             result: -1,
             errno,
         }) => Err(RawHwlocError { api, errno }),
-        Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
+        Err(other_err) => unreachable!("Unexpected hwloc output: {other_err}"),
     }
 }
 
@@ -136,10 +139,10 @@ pub(crate) fn call_hwloc_bool(
 
 /// Raw error emitted by hwloc functions that returns a negative int on failure
 ///
-/// A few hwloc functions (most prominently topology diffing) return negative
-/// integer values other than -1 when erroring out. This error type is an
-/// extension of [`RawHwlocError`] that allows you to catch and process those
-/// negative return values.
+/// A few hwloc functions (most prominently bitmap queries and topology diffing)
+/// return negative integer values other than -1 when erroring out. This error
+/// type is an extension of [`RawHwlocError`] that allows you to catch and
+/// process those negative return values.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 #[error("hwloc API {api} failed with result {result} and errno {errno:?}")]
 pub(crate) struct RawNegIntError {
@@ -154,15 +157,20 @@ pub(crate) struct RawNegIntError {
 }
 //
 /// Call an hwloc entry point that returns int and post-process its result
+///
+/// Result values lower than `lowest_good_value` are treated as errors
 pub(crate) fn call_hwloc_int_raw(
     api: &'static str,
     call: impl FnOnce() -> c_int,
-) -> Result<c_uint, RawNegIntError> {
+    lowest_good_value: c_int,
+) -> Result<c_int, RawNegIntError> {
     let (result, errno) = check_errno(|| {
         let result = call();
-        (result, result < 0)
+        (result, result < lowest_good_value)
     });
-    c_uint::try_from(result).map_err(|_| RawNegIntError { api, result, errno })
+    (result >= lowest_good_value)
+        .then_some(result)
+        .ok_or(RawNegIntError { api, result, errno })
 }
 
 /// A function errored out either on the Rust or hwloc side
