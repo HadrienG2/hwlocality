@@ -185,12 +185,8 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_abi_check")]
     pub fn is_abi_compatible(&self) -> bool {
-        // SAFETY: - Topology is only initialized from the output of
-        //           hwloc_topology_init, which is valid to ABI-check.
-        //         - The API allows no modification that could break this
-        //           invariant. In particular, the public API does not expose
-        //           any way to destroy the inner NonNull<RawTopology> other
-        //           than Drop.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
             ffi::hwloc_topology_abi_check(self.as_ptr())
         });
@@ -825,13 +821,9 @@ impl Clone for Topology {
     #[doc(alias = "hwloc_topology_dup")]
     fn clone(&self) -> Self {
         let mut clone = ptr::null_mut();
-
-        // SAFETY: - Topology is only initialized from the output of
-        //           hwloc_topology_init, which is valid to dup.
-        //         - The API allows no modification that could break this
-        //           invariant. In particular, the public API does not expose
-        //           any way to destroy the inner NonNull<RawTopology> other
-        //           than Drop.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - clone is an out-parameter, it can have any initial value
         errors::call_hwloc_int_normal("hwloc_topology_dup", || unsafe {
             ffi::hwloc_topology_dup(&mut clone, self.as_ptr())
         })
@@ -844,18 +836,14 @@ impl Clone for Topology {
 impl Drop for Topology {
     #[doc(alias = "hwloc_topology_destroy")]
     fn drop(&mut self) {
-        // SAFETY: - Topology is only initialized from the output of
-        //           hwloc_topology_init, which is valid to destroy.
-        //         - The API allows no modification that could break this
-        //           invariant. In particular, the public API does not expose
-        //           any way to destroy the inner NonNull<RawTopology> other
-        //           than Drop.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Topology will not be usable again after Drop
         unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 
-// SAFETY: Topology does not expose any shared mutability in its API
+// SAFETY: No shared mutability
 unsafe impl Send for Topology {}
 
-// SAFETY: Topology does not expose any shared mutability in its API
+// SAFETY: No shared mutability
 unsafe impl Sync for Topology {}

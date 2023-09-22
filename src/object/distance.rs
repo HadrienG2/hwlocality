@@ -169,38 +169,37 @@ impl Topology {
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
-        // Common setup to all getter calls
+        // Prepare to call hwloc
         let mut nr = 0;
-        let flags = 0;
+        let mut call_ffi = |nr_mut, distances_out| {
+            errors::call_hwloc_int_normal(getter_name, || {
+                // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+                //         - hwloc ops are trusted not to modify *const parameters
+                //         - Per documentation, flags must be 0
+                //         - Correctness of nr_mut and distances_out is call
+                //           site dependent, see below
+                getter(self.as_ptr(), nr_mut, distances_out, 0)
+            })
+        };
 
         // Allocate array of distances pointers
-        errors::call_hwloc_int_normal(getter_name, || {
-            // SAFETY: - Topology is trusted to be valid as a type invariant
-            //         - The combination of a 0 length and a null out-pointer
-            //           is valid to query the required length and get it in nr
-            //         - flags must be zero
-            getter(self.as_ptr(), &mut nr, ptr::null_mut(), flags)
-        })?;
+        // SAFETY: 0 elements + null buffer pointers is the correct way to
+        //         request the buffer size to be allocated from hwloc
+        call_ffi(&mut nr, ptr::null_mut())?;
         let mut distances_ptrs = vec![ptr::null_mut(); ffi::expect_usize(nr)];
 
-        // Let hwloc fill the distance pointers
+        // Let hwloc fill the distances array
         let old_nr = nr;
-        errors::call_hwloc_int_normal(getter_name, || {
-            // SAFETY: - Topology is trusted to be valid as a type invariant
-            //         - nr is in sync with the distances_ptrs buffer size
-            //         - flags must be zero
-            getter(self.as_ptr(), &mut nr, distances_ptrs.as_mut_ptr(), flags)
-        })?;
-        assert_eq!(
-            nr, old_nr,
-            "Inconsistent reported number of distance matrices"
-        );
+        // SAFETY: - distances_ptrs is indeed an array of nr elements
+        //         - Input array contents don't matter as this is an out-parameter
+        call_ffi(&mut nr, distances_ptrs.as_mut_ptr())?;
+        assert_eq!(nr, old_nr, "Inconsistent distances count from hwloc");
 
         // Wrap them into a safe interface
         Ok(distances_ptrs
             .into_iter()
             // SAFETY: If hwloc distance queries succeed, they are trusted to
-            //         emit valid distance object pointers
+            //         emit valid distances pointers
             .map(|raw| unsafe { Distances::wrap(self, raw) })
             .collect())
     }
@@ -504,14 +503,14 @@ impl TopologyEditor<'_> {
 //
 // The pointers objs and values should not be replaced, reallocated, freed, etc
 // and thus nbobj should not be changed either. As a type invariant, they are
-// assumed to be always valid and devoid of mutable aliases.
+// assumed to be always valid and devoid of (mutable) aliases.
 #[repr(C)]
 pub(crate) struct RawDistances {
     /// Number of objects in the `objs` array
     nbobj: c_uint,
 
-    /// Non-null pointer to an array of `objs` TopologyObject pointers, which
-    /// can potentially be null.
+    /// Non-null pointer to an array of `objs` [`TopologyObject`] pointers,
+    /// which can themselves potentially be null.
     objs: *mut *const TopologyObject,
 
     /// Kind of distance
@@ -583,7 +582,7 @@ impl RawDistances {
 // # Safety
 //
 // As a type invariant, the inner pointer is assumed to always point to a valid,
-// non-aliased RawDistances struct.
+// owned, unaliased RawDistances struct.
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
     /// Pointer to a valid RawDistances struct that originates from `topology`
@@ -598,22 +597,25 @@ impl<'topology> Distances<'topology> {
     ///
     /// # Safety
     ///
-    /// `inner` must be a valid `RawDistances` pointer originating from
-    /// some `topology` query.
+    /// `inner` must be a valid and non-aliased `RawDistances` pointer
+    /// originating from a query against `topology`
     pub(crate) unsafe fn wrap(topology: &'topology Topology, inner: *mut RawDistances) -> Self {
         let inner = NonNull::new(inner).expect("Got null distance matrix pointer from hwloc");
-        // SAFETY: inner is assumed to be valid and originate from topology
+        // SAFETY: inner is assumed valid & unaliased per precondition
         unsafe { inner.as_ref().check() };
+        // SAFETY: inner is assumed to originate from topology per precondition
         Self { inner, topology }
     }
 
     /// Access the inner `RawDistances` (& version)
     fn inner(&self) -> &RawDistances {
+        // SAFETY: inner is assumed valid and unaliased as a type invariant
         unsafe { self.inner.as_ref() }
     }
 
     /// Get the inner `RawDistances` (&mut version)
     fn inner_mut(&mut self) -> &mut RawDistances {
+        // SAFETY: inner is assumed valid and unaliased as a type invariant
         unsafe { self.inner.as_mut() }
     }
 
@@ -636,7 +638,15 @@ impl<'topology> Distances<'topology> {
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_distances_get_name")]
     pub fn name(&self) -> Option<&std::ffi::CStr> {
-        // SAFETY: inner is assumed to be valid and originate from topology
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - inner pointer validity is assumed as a type invariant
+        //         - inner is assumed to belong to topology as a type invariant
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Successful output is assumed to be a valid C string, whose
+        //           lifetime/mutability is linked to the topology that self
+        //           holds an &-reference to
+        //         - Topology has no internal mutability so holding an &-ref to
+        //           it is enough to prevent mutation and invalidation
         unsafe {
             let name = ffi::hwloc_distances_get_name(self.topology.as_ptr(), self.inner());
             (!name.is_null()).then(|| std::ffi::CStr::from_ptr(name))
@@ -652,6 +662,10 @@ impl<'topology> Distances<'topology> {
     }
 
     /// Number of objects described by the distance matrix
+    ///
+    /// # Safety
+    ///
+    /// Output can be trusted by unsafe code
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
         ffi::expect_usize(self.inner().nbobj)
@@ -668,11 +682,12 @@ impl<'topology> Distances<'topology> {
            + Clone
            + ExactSizeIterator
            + FusedIterator {
-        // SAFETY: inner is assumed to be valid, which includes having an
-        //         nbobjs value consistent with the objs allocation, which
-        //         itself is assumed to be valid. Rust aliasing rules are
-        //         enforced by deriving the references from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant
+        //         - objs & num_objects() are trusted to be consistent
+        //         - objs is assumed unaliased and bound to the lifetime of self
+        //         - Non-null enpoint pointers are assumed to be valid
+        //         - Their lifetime is bound to the topology to which self holds
+        //           an &-reference, preventing invalidation/aliasing issues
         unsafe {
             let objs = std::slice::from_raw_parts(self.inner().objs, self.num_objects());
             objs.iter().map(|ptr| ffi::deref_ptr(ptr))
@@ -704,9 +719,9 @@ impl<'topology> Distances<'topology> {
     /// Users must only overwrite this pointer with object pointers originating
     /// from the same topology or null pointers.
     unsafe fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
-        // SAFETY: inner is assumed to be valid, which includes having an
-        //         nbobjs value consistent with the objs allocation, which
-        //         itself is assumed to be valid
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant
+        //         - objs & num_objects() are trusted to be consistent
+        //         - objs is assumed unaliased and bound to the lifetime of self
         unsafe { std::slice::from_raw_parts_mut(self.inner_mut().objs, self.num_objects()) }
     }
 
@@ -752,16 +767,8 @@ impl<'topology> Distances<'topology> {
         idx: usize,
         new_object: Option<&'topology TopologyObject>,
     ) -> Result<(), ForeignObject> {
-        // Validate input parameter
-        if let Some(object) = new_object {
-            if !self.topology.contains(object) {
-                return Err(ForeignObject);
-            }
-        }
-
-        // Apply modification
         let topology = self.topology;
-        // SAFETY: Overwriting with valid topology object pointers from topology
+        // SAFETY: Overwriting with a valid topology object pointer from topology
         unsafe { self.objects_mut()[idx] = Self::obj_to_checked_ptr(topology, new_object)? };
         Ok(())
     }
@@ -780,10 +787,12 @@ impl<'topology> Distances<'topology> {
         &mut self,
         mut mapping: impl FnMut(usize, Option<&TopologyObject>) -> Option<&'topology TopologyObject>,
     ) -> Result<(), ForeignObject> {
-        // SAFETY: Overwriting with valid topology object pointers from topology
         let topology = self.topology;
+        // SAFETY: Overwriting these with a valid topology object pointers from topology
         for (idx, obj) in unsafe { self.objects_mut().iter_mut().enumerate() } {
-            // SAFETY: Object pointers from RawDistances are assumed to be valid
+            // SAFETY: - Non-null enpoint pointers are assumed to be valid
+            //         - Their lifetime is bound to the topology to which self holds
+            //           an &-reference, preventing invalidation/aliasing issues
             let old_obj = unsafe { ffi::deref_ptr(obj) };
             let new_obj = mapping(idx, old_obj);
             *obj = Self::obj_to_checked_ptr(topology, new_obj)?;
@@ -792,6 +801,10 @@ impl<'topology> Distances<'topology> {
     }
 
     /// Number of distances
+    ///
+    /// # Safety
+    ///
+    /// Output can be trusted by unsafe code
     fn num_distances(&self) -> usize {
         self.num_objects().pow(2)
     }
@@ -809,9 +822,9 @@ impl<'topology> Distances<'topology> {
     /// you may want to use [`Distances::object_distances()`] instead.
     #[doc(alias = "hwloc_distances_s::values")]
     pub fn distances(&self) -> &[u64] {
-        // SAFETY: inner is assumed to be valid, which includes having an
-        //         nbobjs value consistent with the values allocation, which
-        //         itself is assumed to be valid
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant
+        //         - values & num_distances() are trusted to be consistent
+        //         - values is assumed unaliased and bound to the lifetime of self
         unsafe { std::slice::from_raw_parts(self.inner().values, self.num_distances()) }
     }
 
@@ -819,9 +832,9 @@ impl<'topology> Distances<'topology> {
     ///
     /// See also [`Distances::distances()`].
     pub fn distances_mut(&mut self) -> &mut [u64] {
-        // SAFETY: inner is assumed to be valid, which includes having an
-        //         nbobjs value consistent with the values allocation, which
-        //         itself is assumed to be valid
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant
+        //         - values & num_distances() are trusted to be consistent
+        //         - values is assumed unaliased and bound to the lifetime of self
         unsafe { std::slice::from_raw_parts_mut(self.inner_mut().values, self.num_distances()) }
     }
 
@@ -846,6 +859,10 @@ impl<'topology> Distances<'topology> {
     /// Iteration over ((sender index, receiver index), &mut distance) tuples
     ///
     /// See also [`Distances::distances()`].
+    ///
+    /// # Safety
+    ///
+    /// Output can be trusted by unsafe code
     pub fn enumerate_distances_mut(
         &mut self,
     ) -> impl DoubleEndedIterator<Item = ((usize, usize), &mut u64)> + ExactSizeIterator + FusedIterator
@@ -876,12 +893,17 @@ impl<'topology> Distances<'topology> {
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
     {
-        // SAFETY: Inner RawDistances instance is assumed to be valid
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant
+        //         - objs & num_objects() are trusted to be consistent
+        //         - objs is assumed unaliased and bound to the lifetime of self
         let objects = unsafe { std::slice::from_raw_parts(self.inner().objs, self.num_objects()) };
         self.enumerate_distances_mut()
             .map(move |((sender_idx, receiver_idx), distance)| {
-                // SAFETY: enumerate_distances_mut only produces valid object
-                //         indices
+                // SAFETY: - enumerate_distances_mut will only produces valid
+                //           object indices in the 0..num_objects range
+                //         - Non-null enpoint pointers are assumed to be valid
+                //         - Their lifetime is bound to the topology to which self holds
+                //           an &-reference, preventing invalidation/aliasing issues
                 let obj = |idx| unsafe {
                     let obj_ptr: *const TopologyObject = *objects.get_unchecked(idx);
                     (!obj_ptr.is_null()).then(|| &*obj_ptr)
@@ -913,8 +935,8 @@ impl<'topology> Distances<'topology> {
         let num_objects = self.num_objects();
         let distances = self.distances();
         // SAFETY: Will produce indices smaller than the square of the number of
-        //         objects in the distances matrix, and thus smaller than the
-        //         number of distances in the matrix
+        //         objects in the distances matrix, which is the number of
+        //         distances in the matrix
         unsafe {
             let dist1to2 = *distances.get_unchecked(idx1 * num_objects + idx2);
             let dist2to1 = *distances.get_unchecked(idx2 * num_objects + idx1);
@@ -952,7 +974,13 @@ impl<'topology> Distances<'topology> {
     ) -> Result<(), HybridError<TransformError>> {
         use errno::Errno;
         use libc::EINVAL;
-        // SAFETY: inner is assumed to be valid and originate from topology
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - inner pointer validity is assumed as a type invariant
+        //         - inner is assumed to belong to topology as a type invariant
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - Any supported transform value is accepted by hwloc
+        //         - Per documentation, transform attr/flags must be NULL/0
         errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
             ffi::hwloc_distances_transform(
                 self.topology.as_ptr(),
@@ -985,7 +1013,11 @@ impl Debug for Distances<'_> {
 impl Drop for Distances<'_> {
     #[doc(alias = "hwloc_distances_release")]
     fn drop(&mut self) {
-        // SAFETY: inner is assumed to be valid and originate from topology
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - inner pointer validity is assumed as a type invariant
+        //         - inner is assumed to belong to topology as a type invariant
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Distances will not be usable again after Drop
         unsafe { ffi::hwloc_distances_release(self.topology.as_ptr(), self.inner.as_ptr()) }
     }
 }
@@ -1007,7 +1039,10 @@ impl IndexMut<(usize, usize)> for Distances<'_> {
     }
 }
 //
+// SAFETY: No internal mutability
 unsafe impl Send for Distances<'_> {}
+//
+// SAFETY: No internal mutability
 unsafe impl Sync for Distances<'_> {}
 
 bitflags! {

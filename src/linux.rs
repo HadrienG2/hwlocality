@@ -42,8 +42,11 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
     pub fn bind_tid_cpu(&self, tid: pid_t, set: impl Borrow<CpuSet>) -> Result<(), RawHwlocError> {
-        // SAFETY: Topology and bitmap pointers are trusted to be correct.
-        //         hwloc is entrusted with tid validation.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
             ffi::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.borrow().as_ptr())
         })
@@ -66,8 +69,12 @@ impl Topology {
     #[doc(alias = "hwloc_linux_get_tid_cpubind")]
     pub fn tid_cpu_binding(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
-        // SAFETY: Topology and bitmap pointers are trusted to be correct.
-        //         hwloc is entrusted with tid validation.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_cpubind", || unsafe {
             ffi::hwloc_linux_get_tid_cpubind(self.as_ptr(), tid, set.as_mut_ptr())
         })
@@ -87,8 +94,12 @@ impl Topology {
     #[doc(alias = "hwloc_linux_get_tid_last_cpu_location")]
     pub fn tid_last_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
-        // SAFETY: Topology and bitmap pointers are trusted to be correct.
-        //         hwloc is entrusted with tid validation.
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_last_cpu_location", || unsafe {
             ffi::hwloc_linux_get_tid_last_cpu_location(self.as_ptr(), tid, set.as_mut_ptr())
         })
@@ -109,8 +120,10 @@ impl Topology {
     ) -> Result<CpuSet, HybridError<PathError>> {
         let path = path::make_hwloc_path(path)?;
         let mut set = CpuSet::new();
-        // SAFETY: Topology and bitmap pointers are trusted to be correct.
-        //         hwloc is entrusted with tid validation.
+        // SAFETY: - Path is trusted to contain a valid C string (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             ffi::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
         })

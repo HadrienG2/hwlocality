@@ -294,9 +294,9 @@ impl TopologyEditor<'_> {
             let new_string =
                 |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
-            // SAFETY: The source name and value LibcStrings are retained by the
-            //         infos vector until we're done using infos_ptrs
-            infos_ptrs.push(unsafe { TextualInfo::new(&name, &value) });
+            // SAFETY: The source name and value LibcStrings are unmodified and
+            //         retained by infos Vec until we're done using infos_ptrs
+            infos_ptrs.push(unsafe { TextualInfo::borrow(&name, &value) });
             infos.push((name, value));
         }
         let num_infos =

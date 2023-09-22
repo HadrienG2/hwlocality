@@ -20,16 +20,17 @@ use std::{
 //
 // # Safety
 //
-// As a type invariant, all inner pointers are assumed to be safe to dereference
-// and devoid of mutable aliases if the TextualInfo is reachable at all.
+// As a type invariant, all inner pointers are assumed to be safe to
+// dereference, and pointing to a valid C string devoid of mutable aliases, as
+// long as the TextualInfo is reachable at all.
 //
 // This is enforced through the following precautions:
 //
 // - No public API exposes an owned TextualInfo, only references to it bound by
-//   the source topology's lifetime are exposed.
+//   the parent topology's lifetime are exposed
 // - APIs for interacting with topologies and textual info honor Rust's
-//   shared XOR mutable aliasing rules, with no internal mutability.
-// - new() explicitly warns about associated aliasing/validity dangers.
+//   shared XOR mutable aliasing rules, with no internal mutability
+// - new() explicitly warns about associated aliasing/validity dangers
 //
 // Provided that objects do not link to strings allocated outside of the
 // topology they originate from, which is a minimally sane expectation from
@@ -53,10 +54,10 @@ impl TextualInfo {
     ///
     /// # Safety
     ///
-    /// The resulting `TextualInfo` struct may not be used after the end of the
-    /// lifetime of underlying strings `name` and `value`.
+    /// - Do not modify the target [`LibcString`]s as long as this is used
+    /// - Do not use after the associated [`LibcString`]s have been dropped
     #[allow(unused)]
-    pub(crate) unsafe fn new(name: &LibcString, value: &LibcString) -> Self {
+    pub(crate) unsafe fn borrow(name: &LibcString, value: &LibcString) -> Self {
         Self {
             name: name.borrow().cast_mut(),
             value: value.borrow().cast_mut(),
@@ -66,18 +67,18 @@ impl TextualInfo {
     /// Name indicating which information is being provided
     #[doc(alias = "hwloc_info_s::name")]
     pub fn name(&self) -> &CStr {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Owner.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_str(&self.name) }.expect("Infos should have names")
     }
 
     /// Information in textual form
     #[doc(alias = "hwloc_info_s::value")]
     pub fn value(&self) -> &CStr {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_str(&self.value) }.expect("Infos should have values")
     }
 }

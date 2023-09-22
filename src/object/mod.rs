@@ -1171,9 +1171,9 @@ impl TopologyObject {
     /// for a list of subtype strings that hwloc can emit.
     #[doc(alias = "hwloc_obj::subtype")]
     pub fn subtype(&self) -> Option<&CStr> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_str(&self.subtype) }
     }
 
@@ -1196,9 +1196,9 @@ impl TopologyObject {
     /// string is more useful than numerical indices.
     #[doc(alias = "hwloc_obj::name")]
     pub fn name(&self) -> Option<&CStr> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_str(&self.name) }
     }
 
@@ -1215,8 +1215,9 @@ impl TopologyObject {
     /// Caller should not change the active RawObjectAttributes union variant
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) unsafe fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &mut self.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &mut self, which itself is derived from &mut Topology
         unsafe { ffi::deref_mut_ptr(&mut self.attr) }
     }
 
@@ -1275,9 +1276,9 @@ impl TopologyObject {
     /// Only `None` for the root `Machine` object.
     #[doc(alias = "hwloc_obj::parent")]
     pub fn parent(&self) -> Option<&TopologyObject> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr_mut(&self.parent) }
     }
 
@@ -1491,18 +1492,18 @@ impl TopologyObject {
     /// Next object of same type and depth
     #[doc(alias = "hwloc_obj::next_cousin")]
     pub fn next_cousin(&self) -> Option<&TopologyObject> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
     }
 
     /// Previous object of same type and depth
     #[doc(alias = "hwloc_obj::prev_cousin")]
     pub fn prev_cousin(&self) -> Option<&TopologyObject> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
     }
 
@@ -1515,18 +1516,18 @@ impl TopologyObject {
     /// Next object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::next_sibling")]
     pub fn next_sibling(&self) -> Option<&TopologyObject> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr_mut(&self.next_sibling) }
     }
 
     /// Previous object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::prev_sibling")]
     pub fn prev_sibling(&self) -> Option<&TopologyObject> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self, which itself
-        //         is derived from &Topology.
+        // SAFETY: - Pointer validity is assumed as a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr_mut(&self.prev_sibling) }
     }
 }
@@ -1937,9 +1938,8 @@ impl TopologyObject {
 impl TopologyObject {
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter<'_>, verbose: bool) -> fmt::Result {
-        // SAFETY: This is indeed an snprintf-like API, we are passing it a
-        //         TopologyObject pointer which is trusted to be valid, and
-        //         verbose translates nicely into a C-style boolean.
+        // SAFETY: - This is indeed an snprintf-like API
+        //         - verbose translates nicely into a C-style boolean
         let (type_chars, attr_chars) = unsafe {
             let type_chars = ffi::call_snprintf(|buf, len| {
                 ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
@@ -1950,16 +1950,18 @@ impl TopologyObject {
                 b"  \0".as_ptr()
             }
             .cast::<c_char>();
-            // SAFETY: separator is a valid C string
+            // SAFETY: - This is indeed an snprintf-like API
+            //         - verbose translates nicely into a C-style boolean
+            //         - separator is a valid C string
             let attr_chars = ffi::call_snprintf(|buf, len| {
                 ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
             });
             (type_chars, attr_chars)
         };
 
-        // SAFETY: The output of call_snprintf should be valid C strings and
-        //         we're not touching type_chars and attr_chars while type_str
-        //         and attr_str are live.
+        // SAFETY: - Output of call_snprintf should be valid C strings
+        //         - We're not touching type_chars and attr_chars while type_str
+        //           and attr_str are live.
         unsafe {
             let type_str = CStr::from_ptr(type_chars.as_ptr()).to_string_lossy();
             let attr_str = CStr::from_ptr(attr_chars.as_ptr()).to_string_lossy();
@@ -1982,7 +1984,7 @@ impl TopologyObject {
     ///
     /// # Safety
     ///
-    /// `self` must designate a valid `Group` object that has been allocated
+    /// `self_` must designate a valid `Group` object that has been allocated
     /// with `hwloc_topology_alloc_group_object()` but not yet inserted into a
     /// topology with `hwloc_topology_insert_group_object()`.
     #[cfg(feature = "hwloc-2_3_0")]
@@ -1996,12 +1998,11 @@ impl TopologyObject {
             addr_of_mut!((*self_).complete_cpuset),
             addr_of_mut!((*self_).complete_nodeset),
         ] {
-            // SAFETY: This is safe per the input precondition that `self` is
-            //         a valid `TopologyObject` (which includes valid bitmap
+            // SAFETY: This is safe per the input precondition that `self_` is a
+            //         valid `TopologyObject` (which includes valid bitmap
             //         pointers), and it's not part of a `Topology` yet so we
-            //         assume complete ownership of it and can delete its
-            //         cpusets and nodesets as we see fit without fear of
-            //         consequences.
+            //         assume complete ownership of it delete its cpu/node-sets
+            //         without worrying about unintended consequences.
             unsafe {
                 let set = set_ptr.read();
                 if !set.is_null() {

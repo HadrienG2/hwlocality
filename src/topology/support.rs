@@ -16,13 +16,16 @@ use std::{ffi::c_uchar, fmt, hash::Hash, ptr};
 // # Safety
 //
 // As a type invariant, all inner pointers are assumed to be safe to dereference
-// and devoid of mutable aliases if the FeatureSupport is reachable at all.
+// and devoid of mutable aliases if non-null, as long as the host
+// FeatureSupport is reachable at all.
 //
 // This is enforced through the following precautions:
 //
 // - No API exposes an owned FeatureSupport, only references to it bound by
-//   the source topology's lifetime are exposed.
-// - There is no API for modifying a loaded topology's feature support.
+//   the source topology's lifetime are exposed
+// - The initial feature support that is set up by hwloc at topology
+//   construction time is trusted to be correct
+// - There is no API for modifying a loaded topology's feature support
 #[doc(alias = "hwloc_topology_support")]
 #[repr(C)]
 pub struct FeatureSupport {
@@ -44,24 +47,27 @@ impl FeatureSupport {
     /// Support for discovering information about the topology
     #[doc(alias = "hwloc_topology_support::discovery")]
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self.
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr(&self.discovery) }
     }
 
     /// Support for getting and setting thread/process CPU bindings
     #[doc(alias = "hwloc_topology_support::cpubind")]
     pub fn cpu_binding(&self) -> Option<&CpuBindingSupport> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self.
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr(&self.cpubind) }
     }
 
     /// Support for getting and setting thread/process NUMA node bindings
     #[doc(alias = "hwloc_topology_support::membind")]
     pub fn memory_binding(&self) -> Option<&MemoryBindingSupport> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self.
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr(&self.membind) }
     }
 
@@ -69,8 +75,9 @@ impl FeatureSupport {
     #[cfg(feature = "hwloc-2_3_0")]
     #[doc(alias = "hwloc_topology_support::misc")]
     pub fn misc(&self) -> Option<&MiscSupport> {
-        // SAFETY: Pointer validity is a type invariant, Rust aliasing rules are
-        //         enforced by deriving the reference from &self.
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
         unsafe { ffi::deref_ptr(&self.misc) }
     }
 }

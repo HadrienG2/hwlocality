@@ -556,11 +556,13 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     pub(self) fn new(
         editor: &'editor mut TopologyEditor<'topology>,
     ) -> Result<Self, RawHwlocError> {
-        // SAFETY: As a type invariant, the topology is always assumed valid
-        let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
             ffi::hwloc_topology_alloc_group_object(editor.topology_mut_ptr())
-        })?;
-        Ok(Self { group, editor })
+        })
+        // SAFETY: hwloc is trusted to produce a valid, non-inserted group pointer
+        .map(|group| Self { group, editor })
     }
 
     /// Expand cpu sets and node sets to cover designated children
@@ -582,7 +584,8 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
 
         // Add children to this group
         for child in children {
-            // SAFETY: - Per group invariant, self.group is assumed to be valid
+            // SAFETY: - group is assumed to be valid as a type invariant
+            //         - hwloc ops are trusted not to modify *const parameters
             //         - child was checked to belong to the same topology as group
             let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
                 ffi::hwloc_obj_add_other_obj_sets(self.group.as_ptr(), child)
@@ -606,7 +609,9 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     /// By default, hwloc may or may not merge identical groups covering the
     /// same objects. You can encourage or inhibit this tendency with this method.
     pub(self) fn set_merge_policy(&mut self, merge: GroupMerge) {
-        // SAFETY: We know this is a group and don't change its attributes variant
+        // SAFETY: - We know this is a group object as a type invariant, so
+        //           accessing the group raw attribute is safe
+        //         - We are not changing the raw attributes variant
         let mut group_attributes = unsafe {
             self.group
                 .as_mut()
@@ -654,10 +659,14 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// After calling this method, `self` is in an invalid state and should not
     /// be used in any way anymore. In particular, care should be taken to
-    /// ensure that the Drop destructor is not called.
+    /// ensure that its Drop destructor is not called.
     unsafe fn insert_impl(&mut self) -> Result<InsertedGroup<'topology>, RawHwlocError> {
-        // SAFETY: - Per type variant, topology is trusted to be valid
-        //         - Per type invariant, self's group is trusted to be valid
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Inner group pointer is assumed valid as a type invariant
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - We break the AllocatedGroup type invariant by inserting the
+        //           group object, but a precondition warns the user about it
         errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
             ffi::hwloc_topology_insert_group_object(
                 self.editor.topology_mut_ptr(),
@@ -669,7 +678,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                 // SAFETY: Group has been successfully inserted, can expose &mut
                 InsertedGroup::New(unsafe { self.group.as_mut() })
             } else {
-                // SAFETY: hwloc is trusted to point to an existing group
+                // SAFETY: Successful result is trusted to point to an existing group
                 InsertedGroup::Existing(unsafe { result.as_mut() })
             }
         })
@@ -683,15 +692,13 @@ impl Drop for AllocatedGroup<'_, '_> {
         //        the topology. An always-failing insertion is the officially
         //        recommended workaround until such an API is added:
         //        https://github.com/open-mpi/hwloc/issues/619
-        // SAFETY: Drop is not called for objects that have been inserted, and
-        //         objects won't be inserted after drop. Therefore, self.group
-        //         is in a valid state at the start of this method, and the fact
-        //         it won't be after the end doesn't matter.
+        // SAFETY: - Inner group pointer is assumed valid as a type invariant
+        //         - The state where this invariant is invalidated, produced by
+        //           insert_impl(), is never exposed to Drop
         unsafe {
             TopologyObject::delete_all_sets(self.group);
         }
-        // SAFETY: Object will not be used after insert_impl, and this is
-        //         already the destructor so drop will not re-run after this.
+        // SAFETY: - AllocatedGroup will not be droppable again after Drop
         unsafe {
             self.insert_impl()
                 .expect_err("Group insertion with NULL sets should fail and deallocate the group");

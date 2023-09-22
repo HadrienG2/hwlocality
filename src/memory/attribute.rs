@@ -1027,18 +1027,18 @@ impl<'topology> MemoryAttribute<'topology> {
             })
         };
 
-        // Query node count
+        // Allocate arrays of endpoints and values
         // SAFETY: 0 elements + null buffer pointers is the correct way to
         //         request the buffer size to be allocated from hwloc
         call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut())?;
         let len = ffi::expect_usize(nr);
-
-        // Allocate storage and fill arrays
         let mut endpoints = vec![placeholder; len];
         let mut values = vec![u64::MAX; len];
+
+        // Let hwloc fill the arrays
         let old_nr = nr;
-        // SAFETY: endpoints and values are indeed buffers of nr = len elements,
-        //         input values don't matter as this is an out-parameter
+        // SAFETY: - endpoints and values are indeed arrays of nr = len elements
+        //         - Input array contents don't matter as this is an out-parameter
         call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
         assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
         Ok((endpoints, values))
