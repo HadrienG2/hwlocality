@@ -5,7 +5,7 @@
 use crate::{errors::NulError, topology::builder::TopologyBuilder};
 use crate::{
     errors::{self, HybridError, RawHwlocError},
-    ffi,
+    ffi::{self, int},
     path::{self, PathError},
     topology::Topology,
 };
@@ -100,7 +100,7 @@ impl Topology {
                 flags.bits(),
             )
         })?;
-        let buflen = ffi::expect_usize(
+        let buflen = int::expect_usize(
             c_uint::try_from(buflen).expect("Got negative buffer length from hwloc"),
         );
         Ok(unsafe { XML::wrap(self, xmlbuffer, buflen) }

@@ -24,13 +24,10 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 
-use crate::ffi;
+use crate::ffi::int::PositiveInt;
 #[cfg(doc)]
 use crate::object::{types::ObjectType, TopologyObject};
-use std::{
-    ffi::{c_int, c_uint},
-    fmt,
-};
+use std::{ffi::c_int, fmt, num::TryFromIntError};
 use thiserror::Error;
 
 /// Rust mapping of the `hwloc_get_type_depth_e` enum
@@ -39,6 +36,9 @@ use thiserror::Error;
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 pub(crate) type RawDepth = c_int;
 
+/// Depth of a normal object (not Memory, I/O or Misc)
+pub type NormalDepth = PositiveInt;
+
 /// Valid object/type depth values
 ///
 /// See the [module-level documentation](self) for context.
@@ -46,7 +46,7 @@ pub(crate) type RawDepth = c_int;
 #[doc(alias("hwloc_get_type_depth_e"))]
 pub enum Depth {
     /// Depth of a normal object (not Memory, I/O or Misc)
-    Normal(usize),
+    Normal(NormalDepth),
 
     /// Virtual depth for [`ObjectType::NUMANode`]
     #[doc(alias = "HWLOC_TYPE_DEPTH_NUMANODE")]
@@ -77,8 +77,8 @@ pub enum Depth {
 //
 impl Depth {
     /// Assert that this should be a normal object depth
-    pub fn assume_normal(self) -> usize {
-        usize::try_from(self).expect("Not a normal object depth")
+    pub fn assume_normal(self) -> NormalDepth {
+        NormalDepth::try_from(self).expect("Not a normal object depth")
     }
 
     /// List of virtual depths
@@ -97,7 +97,7 @@ impl fmt::Display for Depth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::wildcard_enum_match_arm)]
         match self {
-            Self::Normal(d) => <usize as fmt::Display>::fmt(d, f),
+            Self::Normal(d) => <NormalDepth as fmt::Display>::fmt(d, f),
             abnormal => {
                 let s = format!("<{abnormal:?}>");
                 f.pad(&s)
@@ -106,13 +106,21 @@ impl fmt::Display for Depth {
     }
 }
 //
-impl From<usize> for Depth {
-    fn from(value: usize) -> Self {
+impl From<NormalDepth> for Depth {
+    fn from(value: NormalDepth) -> Self {
         Self::Normal(value)
     }
 }
 //
-impl TryFrom<Depth> for usize {
+impl TryFrom<usize> for Depth {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, TryFromIntError> {
+        NormalDepth::try_from(value).map(Self::from)
+    }
+}
+//
+impl TryFrom<Depth> for NormalDepth {
     type Error = Depth;
 
     fn try_from(value: Depth) -> Result<Self, Depth> {
@@ -124,14 +132,23 @@ impl TryFrom<Depth> for usize {
     }
 }
 //
+impl TryFrom<Depth> for usize {
+    type Error = Depth;
+
+    fn try_from(value: Depth) -> Result<Self, Depth> {
+        NormalDepth::try_from(value).map(usize::from)
+    }
+}
+//
 impl TryFrom<RawDepth> for Depth {
     type Error = TypeToDepthError;
 
     fn try_from(value: RawDepth) -> Result<Self, TypeToDepthError> {
         match value {
-            d if d >= 0 => {
-                let d = c_uint::try_from(d).expect("int >= 0 -> uint conversion can't fail");
-                Ok(Self::Normal(ffi::expect_usize(d)))
+            normal if normal >= 0 => {
+                let normal = NormalDepth::try_from_c_int(normal)
+                    .expect("NormalDepth should support all normal depths");
+                Ok(normal.into())
             }
             -1 => Err(TypeToDepthError::Nonexistent),
             -2 => Err(TypeToDepthError::Multiple),
@@ -150,7 +167,7 @@ impl TryFrom<RawDepth> for Depth {
 impl From<Depth> for RawDepth {
     fn from(value: Depth) -> Self {
         match value {
-            Depth::Normal(value) => value.try_into().expect("Depth is too high for hwloc"),
+            Depth::Normal(value) => value.into_c_int(),
             Depth::NUMANode => -3,
             Depth::Bridge => -4,
             Depth::PCIDevice => -5,

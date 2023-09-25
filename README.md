@@ -77,12 +77,12 @@ Here is a quick usage example which walks though the detected hardware topology
 and prints out a description of every hardware object known to hwloc:
 
 ```rust
-use hwlocality::Topology;
+use hwlocality::{object::depth::NormalDepth, Topology};
 
 fn main() -> anyhow::Result<()> {
     let topology = Topology::new()?;
 
-    for depth in 0..topology.depth() {
+    for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()) {
         println!("*** Objects at depth {depth}");
 
         for (idx, object) in topology.objects_at_depth(depth).enumerate() {

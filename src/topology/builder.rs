@@ -12,7 +12,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::topology::support::MiscSupport;
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError},
-    ffi::{self, LibcString},
+    ffi::{self, string::LibcString},
     object::types::ObjectType,
     path::{self, PathError},
     ProcessId,

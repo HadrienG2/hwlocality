@@ -6,7 +6,7 @@ use crate::{
     bitmap::{BitmapKind, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObject, HybridError, ParameterError, RawHwlocError},
-    ffi::{self, LibcString},
+    ffi::{self, string::LibcString},
     memory::nodeset::NodeSet,
     object::TopologyObject,
     topology::Topology,

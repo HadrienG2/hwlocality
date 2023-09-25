@@ -4,7 +4,7 @@
 //! C file paths can fail in several way, and this module is concerned with the
 //! associated error detection and reporting.
 
-use crate::{errors::NulError, ffi::LibcString};
+use crate::{errors::NulError, ffi::string::LibcString};
 use std::path::Path;
 use thiserror::Error;
 

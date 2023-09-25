@@ -14,19 +14,19 @@
 //! The module itself only hosts type definitions that are related to this
 //! functionality.
 
-#[cfg(feature = "hwloc-2_3_0")]
-use crate::topology::editor::TopologyEditor;
 use crate::{
     errors::{self, ForeignObject, RawHwlocError},
-    ffi,
+    ffi::{self, int},
     object::{depth::Depth, types::ObjectType, TopologyObject},
     topology::{RawTopology, Topology},
 };
 #[cfg(feature = "hwloc-2_1_0")]
 use crate::{
     errors::{HybridError, NulError},
-    ffi::LibcString,
+    ffi::string::LibcString,
 };
+#[cfg(feature = "hwloc-2_3_0")]
+use crate::{object::depth::NormalDepth, topology::editor::TopologyEditor};
 use bitflags::bitflags;
 use std::{
     debug_assert,
@@ -54,10 +54,17 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
     pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+        // SAFETY: - By definition, it's valid to pass hwloc_distances_get
+        //         - Parameters are guaranteed valid per get_distances_with_kind
+        //           contract
         unsafe {
-            self.get_distances("hwloc_distances_get", |topology, nr, distances, flags| {
-                ffi::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
-            })
+            self.get_distances(
+                kind,
+                "hwloc_distances_get",
+                |topology, nr, distances, kind, flags| {
+                    ffi::hwloc_distances_get(topology, nr, distances, kind, flags)
+                },
+            )
         }
     }
 
@@ -74,16 +81,22 @@ impl Topology {
         depth: impl Into<Depth>,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         let depth = depth.into();
+        // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
+        //           curried away behaves indeed like hwloc_distances_get
+        //         - Depth only allows valid depth values to exist
+        //         - Other parameters are guaranteed valid per
+        //           get_distances_with_kind contract
         unsafe {
             self.get_distances(
+                kind,
                 "hwloc_distances_get_by_depth",
-                |topology, nr, distances, flags| {
+                |topology, nr, distances, kind, flags| {
                     ffi::hwloc_distances_get_by_depth(
                         topology,
                         depth.into(),
                         nr,
                         distances,
-                        kind.bits(),
+                        kind,
                         flags,
                     )
                 },
@@ -103,16 +116,24 @@ impl Topology {
         kind: DistancesKind,
         ty: ObjectType,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+        // SAFETY: - hwloc_distances_get_by_type with the type parameter curried
+        //           away behaves indeed like hwloc_distances_get
+        //         - No invalid ObjectType value should be exposed by this
+        //           binding (to enable values from newer releases of hwloc, you
+        //           must configure the build to require newer hwloc DLLs)
+        //         - Other parameters are guaranteed valid per
+        //           get_distances_with_kind contract
         unsafe {
             self.get_distances(
+                kind,
                 "hwloc_distances_get_by_type",
-                |topology, nr, distances, flags| {
+                |topology, nr, distances, kind, flags| {
                     ffi::hwloc_distances_get_by_type(
                         topology,
                         ty.into(),
                         nr,
                         distances,
-                        kind.bits(),
+                        kind,
                         flags,
                     )
                 },
@@ -137,8 +158,12 @@ impl Topology {
         name: &str,
     ) -> Result<Vec<Distances<'_>>, HybridError<NulError>> {
         let name = LibcString::new(name)?;
+        // SAFETY: - hwloc_distances_get_by_name with the name parameter curried
+        //           away behaves indeed like hwloc_distances_get
+        //         - `name` is a valid c string by construction of LibcString
+        //         - Other parameters are guaranteed valid per get_distances contract
         unsafe {
-            self.get_distances(
+            self.get_distances_without_kind(
                 "hwloc_distances_get_by_name",
                 |topology, nr, distances, flags| {
                     ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
@@ -150,16 +175,55 @@ impl Topology {
 
     /// Call one of the hwloc_distances_get(_by)? APIs
     ///
+    /// # Safety
+    ///
+    /// - `getter` must be an hwloc API with `hwloc_distances_get`-like
+    ///   semantics
+    /// - This API is guaranteed to be passed valid (Topology, distances buffer
+    ///   length, distance out-buffer pointer, kind, flags) tuples
+    #[allow(clippy::missing_errors_doc)]
+    unsafe fn get_distances(
+        &self,
+        kind: DistancesKind,
+        getter_name: &'static str,
+        mut getter: impl FnMut(
+            *const RawTopology,
+            *mut c_uint,
+            *mut *mut RawDistances,
+            RawDistancesKind,
+            c_ulong,
+        ) -> c_int,
+    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+        // SAFETY: - getter with the kind parameters curried away behaves as
+        //           get_distances would expect
+        //         - There are no invalid kind values for these search APIs
+        //           since the kind flags only serves as a "one of" filter and
+        //           DistancesKind exposes no invalid flags through proper
+        //           version-gating
+        //         - Other parameters are guaranteed valid per get_distances contract
+        unsafe {
+            self.get_distances_without_kind(getter_name, |topology, nr, distances, flags| {
+                getter(topology, nr, distances, kind.bits(), flags)
+            })
+        }
+    }
+
+    /// Call one of the hwloc_distances_get(_by)? APIs, without the kind parameter
+    ///
     /// Takes care of all parameters except for `kind`, which is not universal
-    /// to these APIs. So the last c_ulong is the flags parameter.
+    /// to these APIs and taken care of by [`get_distances()`]. So the last
+    /// `c_ulong` here is the flags parameter.
     ///
     /// # Safety
     ///
-    /// - `getter` must perform a correct call to a `hwloc_distances_get` API
+    /// - `getter` must be an hwloc API with `hwloc_distances_get`-like
+    ///   semantics, save for the absence of a kind parameter
     /// - This API is guaranteed to be passed valid (Topology, distances buffer
-    ///   length, distance out-buffer pointer, flags) tuples.
+    ///   length, distance out-buffer pointer, flags) tuples
+    ///
+    /// [`get_distances()`]: Self::get_distances()
     #[allow(clippy::missing_errors_doc)]
-    unsafe fn get_distances(
+    unsafe fn get_distances_without_kind(
         &self,
         getter_name: &'static str,
         mut getter: impl FnMut(
@@ -186,7 +250,7 @@ impl Topology {
         // SAFETY: 0 elements + null buffer pointers is the correct way to
         //         request the buffer size to be allocated from hwloc
         call_ffi(&mut nr, ptr::null_mut())?;
-        let mut distances_ptrs = vec![ptr::null_mut(); ffi::expect_usize(nr)];
+        let mut distances_ptrs = vec![ptr::null_mut(); int::expect_usize(nr)];
 
         // Let hwloc fill the distances array
         let old_nr = nr;
@@ -477,7 +541,7 @@ impl TopologyEditor<'_> {
         if let Ok(depth) = topology.depth_for_type(ty) {
             self.remove_distances_at_depth(depth)?;
         } else {
-            let depths = (0..topology.depth())
+            let depths = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
                 .map(Depth::from)
                 .filter(|&depth| {
                     let depth_ty = topology
@@ -668,7 +732,7 @@ impl<'topology> Distances<'topology> {
     /// Output can be trusted by unsafe code
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
-        ffi::expect_usize(self.inner().nbobj)
+        int::expect_usize(self.inner().nbobj)
     }
 
     /// Objects described by the distance matrix
@@ -1044,6 +1108,13 @@ unsafe impl Send for Distances<'_> {}
 //
 // SAFETY: No internal mutability
 unsafe impl Sync for Distances<'_> {}
+
+/// Rust mapping of the hwloc_distances_kind_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawDistancesKind = c_ulong;
 
 bitflags! {
     /// Kinds of distance matrices

@@ -4,7 +4,7 @@
 //! information in a key-value layout. This module provides an interface to
 //! this information.
 
-use crate::ffi::{self, LibcString};
+use crate::ffi::{self, string::LibcString};
 use std::{
     ffi::{c_char, CStr},
     fmt,

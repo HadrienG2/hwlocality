@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
 
     match topology.depth_for_type(ObjectType::Package) {
         Ok(depth) => println!(
-            "*** Found {} package(s)",
+            "*** Found {} package(s) at depth {depth}",
             topology.num_objects_at_depth(depth)
         ),
         Err(TypeToDepthError::Nonexistent) => println!("*** No package object found"),

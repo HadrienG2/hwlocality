@@ -1,37 +1,31 @@
-//! Facilities for indexing bitmaps
+//! [`c_int`]-related concerns
 //!
-//! In the hwloc C API, bitmap methods that take indices as parameters mostly
-//! accept and emit positive [`c_int`] values. They do not accept values in the
-//! full [`c_uint`] range because they occasionally need the sentinel `-1 as
-//! c_int` value to express special semantics like "no such index" or "infinite
-//! index".
+//! As an idiomatic C API, hwloc uses the `int` C type, which unfortunately
+//! comes with various type-safety problems :
 //!
-//! In Rust, these concepts are expressed using type wrappers such as
-//! [`Range`] and [`Option`]. Therefore, we are free to use a specially crafted
-//! [`BitmapIndex`] type that models only the range of normal bitmap index
-//! values and nothing else, improving type safety by eradicating the
-//! possibility or exchanging forbidden index values like `-2` with hwloc.
+//! - The C specification does not define its size, and thus its range
+//! - It is commonly used in a pattern where only positive values and _some_
+//!   negative values are accepted
 //!
-//! Alas, integer newtypes cannot match the ergonomics of built-in integer types
-//! in Rust, so great care was taken in order to ensure that integer literals
-//! can be used in almost every place where [`BitmapIndex`] can be used.
+//! Further, attempting to use [`c_int`] in a type-safe language like Rust comes
+//! with the extra woe of needing some sort of explicit type conversion from
+//! whichever idiomatic integer type you were actually using.
 //!
-//! [`c_int`]: std::ffi::c_int
-//! [`c_uint`]: std::ffi::c_uint
-//! [`Range`]: std::ops::Range
+//! All these things being considered, it is probably best to design Rust
+//! bindings in terms of either [`isize`]/[`usize`] (more idiomatic, less
+//! type-safe) or a type that models the set of positive [`c_int`] values
+//! (more type-safe, less idiomatic), possibly extended into an enum to account
+//! for the negative special values that any given API may accept.
+//!
+//! This module helps you implement both of these strategies.
 
-use crate::ffi;
-#[cfg(doc)]
-use crate::{
-    cpu::cpuset::CpuSet,
-    memory::nodeset::NodeSet,
-    topology::{builder::BuildFlags, Topology},
-};
 use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex};
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(any(test, feature = "quickcheck"))]
 use rand::Rng;
+#[cfg(doc)]
+use std::ops::{Range, RangeFrom, RangeInclusive};
 use std::{
     borrow::Borrow,
     clone::Clone,
@@ -39,7 +33,7 @@ use std::{
     convert::TryFrom,
     ffi::{c_int, c_uint},
     fmt::Debug,
-    iter::{Product, Sum},
+    iter::{FusedIterator, Product, Sum},
     num::{ParseIntError, TryFromIntError},
     ops::{
         Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div,
@@ -49,14 +43,30 @@ use std::{
     str::FromStr,
 };
 
-/// Bitmap indices can range from 0 to an implementation-defined limit
+/// Assert that a [`c_int`] can be converted to a [`isize`]
 ///
-/// The limit is the upper bound of C's int type. On all platforms currently
-/// supported by Rust, it is at least 32767 (2^15-1), and outside of exotic
-/// 16-bit hardware, it will usually be greater than 2147483647 (2^31-1).
+/// As far as I can tell, this is only false on very weird platforms that aren't
+/// supported by hwloc. However, counter-examples are welcome!
+pub(crate) fn expect_isize(x: c_int) -> isize {
+    x.try_into()
+        .expect("Expected on any platform supported by hwloc")
+}
+
+/// Assert that a [`c_uint`] can be converted to a [`usize`]
 ///
-/// An alternate way to view `BitmapIndex` is as the intersection of integer
-/// values permitted by C's int and unsigned int types.
+/// As far as I can tell, this is only false on very weird platforms that aren't
+/// supported by hwloc. However, counter-examples are welcome!
+pub(crate) fn expect_usize(x: c_uint) -> usize {
+    x.try_into()
+        .expect("Expected on any platform supported by hwloc")
+}
+
+/// Integer ranging from 0 to the implementation-defined upper bound of C's
+/// `int` type
+///
+/// On all platforms currently supported by Rust, the upper limit is at least
+/// 32767 (2^15-1), and outside of exotic 16-bit hardware, it will usually be
+/// greater than or equal to 2147483647 (2^31-1).
 ///
 /// # External operators
 ///
@@ -77,9 +87,9 @@ use std::{
 /// Assuming a binary operator `A op B` is defined for two different types A and
 /// B, we also define `B op A` if both operands play a symmetric role. We do
 /// not generally do so otherwise as the result could be confusing (e.g. it
-/// seems fair to expect `BitmapIndex << usize` to be a `BitmapIndex`, but by
-/// the same logic `usize << BitmapIndex` should be an `usize`, not a
-/// `BitmapIndex`).
+/// seems fair to expect `PositiveInt << usize` to be a `PositiveInt`, but by
+/// the same logic `usize << PositiveInt` should be an `usize`, not a
+/// `PositiveInt`).
 #[derive(
     Binary,
     Clone,
@@ -98,10 +108,10 @@ use std::{
     UpperExp,
     UpperHex,
 )]
-pub struct BitmapIndex(c_uint);
+pub struct PositiveInt(c_uint);
 //
-impl BitmapIndex {
-    /// The smallest value that can be used as a bitmap index
+impl PositiveInt {
+    /// The smallest value of this integer type
     pub const MIN: Self = Self(0);
 
     /// The zero of this integer type
@@ -110,7 +120,7 @@ impl BitmapIndex {
     /// The 1 of this integer type
     pub const ONE: Self = Self(1);
 
-    /// The largest value that can be used as a bitmap index
+    /// The largest value of this integer type
     pub const MAX: Self = Self(c_int::MAX as c_uint);
 
     /// Effective size of this integer type in bits
@@ -137,15 +147,15 @@ impl BitmapIndex {
     /// # Errors
     ///
     /// [`ParseIntError`] if `src` is not a base-`radix` number smaller than
-    /// `BitmapIndex::MAX`.
+    /// `PositiveInt::MAX`.
     ///
     /// # Examples
     ///
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::from_str_radix("0", 16), Ok(BitmapIndex::ZERO));
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::from_str_radix("0", 16), Ok(PositiveInt::ZERO));
     /// ```
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, ParseIntError> {
         // This convoluted impl is needed because I can't construct ParseIntError
@@ -159,10 +169,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::ZERO.count_ones(), 0);
-    /// assert_eq!(BitmapIndex::ONE.count_ones(), 1);
-    /// assert_eq!(BitmapIndex::MAX.count_ones(), BitmapIndex::EFFECTIVE_BITS);
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::ZERO.count_ones(), 0);
+    /// assert_eq!(PositiveInt::ONE.count_ones(), 1);
+    /// assert_eq!(PositiveInt::MAX.count_ones(), PositiveInt::EFFECTIVE_BITS);
     /// ```
     pub const fn count_ones(self) -> u32 {
         self.0.count_ones()
@@ -175,10 +185,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::ZERO.count_zeros(), BitmapIndex::EFFECTIVE_BITS);
-    /// assert_eq!(BitmapIndex::ONE.count_zeros(), BitmapIndex::EFFECTIVE_BITS - 1);
-    /// assert_eq!(BitmapIndex::MAX.count_zeros(), 0);
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::ZERO.count_zeros(), PositiveInt::EFFECTIVE_BITS);
+    /// assert_eq!(PositiveInt::ONE.count_zeros(), PositiveInt::EFFECTIVE_BITS - 1);
+    /// assert_eq!(PositiveInt::MAX.count_zeros(), 0);
     /// ```
     pub const fn count_zeros(self) -> u32 {
         self.0.count_zeros() - 1
@@ -196,10 +206,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::ZERO.leading_zeros(), BitmapIndex::EFFECTIVE_BITS);
-    /// assert_eq!(BitmapIndex::ONE.leading_zeros(), BitmapIndex::EFFECTIVE_BITS - 1);
-    /// assert_eq!(BitmapIndex::MAX.leading_zeros(), 0);
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::ZERO.leading_zeros(), PositiveInt::EFFECTIVE_BITS);
+    /// assert_eq!(PositiveInt::ONE.leading_zeros(), PositiveInt::EFFECTIVE_BITS - 1);
+    /// assert_eq!(PositiveInt::MAX.leading_zeros(), 0);
     /// ```
     pub const fn leading_zeros(self) -> u32 {
         self.0.leading_zeros() - 1
@@ -213,10 +223,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::ZERO.trailing_zeros(), BitmapIndex::EFFECTIVE_BITS);
-    /// assert_eq!(BitmapIndex::ONE.trailing_zeros(), 0);
-    /// assert_eq!(BitmapIndex::MAX.trailing_zeros(), 0);
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::ZERO.trailing_zeros(), PositiveInt::EFFECTIVE_BITS);
+    /// assert_eq!(PositiveInt::ONE.trailing_zeros(), 0);
+    /// assert_eq!(PositiveInt::MAX.trailing_zeros(), 0);
     /// ```
     pub const fn trailing_zeros(self) -> u32 {
         if self.0 == 0 {
@@ -234,10 +244,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::ZERO.leading_ones(), 0);
-    /// assert_eq!(BitmapIndex::ONE.leading_ones(), 0);
-    /// assert_eq!(BitmapIndex::MAX.leading_ones(), BitmapIndex::EFFECTIVE_BITS);
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::ZERO.leading_ones(), 0);
+    /// assert_eq!(PositiveInt::ONE.leading_ones(), 0);
+    /// assert_eq!(PositiveInt::MAX.leading_ones(), PositiveInt::EFFECTIVE_BITS);
     /// ```
     pub const fn leading_ones(self) -> u32 {
         (self.0 << 1).leading_ones()
@@ -251,10 +261,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert_eq!(BitmapIndex::ZERO.trailing_ones(), 0);
-    /// assert_eq!(BitmapIndex::ONE.trailing_ones(), 1);
-    /// assert_eq!(BitmapIndex::MAX.trailing_ones(), BitmapIndex::EFFECTIVE_BITS);
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert_eq!(PositiveInt::ZERO.trailing_ones(), 0);
+    /// assert_eq!(PositiveInt::ONE.trailing_ones(), 1);
+    /// assert_eq!(PositiveInt::MAX.trailing_ones(), PositiveInt::EFFECTIVE_BITS);
     /// ```
     pub const fn trailing_ones(self) -> u32 {
         self.0.trailing_ones()
@@ -270,18 +280,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.rotate_left(129),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.rotate_left(129),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.rotate_left(129),
-    ///     BitmapIndex::ONE << (129 % BitmapIndex::EFFECTIVE_BITS)
+    ///     PositiveInt::ONE.rotate_left(129),
+    ///     PositiveInt::ONE << (129 % PositiveInt::EFFECTIVE_BITS)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.rotate_left(129),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.rotate_left(129),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn rotate_left(self, n: u32) -> Self {
@@ -298,19 +308,19 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.rotate_right(129),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.rotate_right(129),
+    ///     PositiveInt::ZERO
     /// );
-    /// let effective_rotate = 129 % BitmapIndex::EFFECTIVE_BITS;
+    /// let effective_rotate = 129 % PositiveInt::EFFECTIVE_BITS;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.rotate_right(129),
-    ///     BitmapIndex::ONE << (BitmapIndex::EFFECTIVE_BITS - effective_rotate)
+    ///     PositiveInt::ONE.rotate_right(129),
+    ///     PositiveInt::ONE << (PositiveInt::EFFECTIVE_BITS - effective_rotate)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.rotate_right(129),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.rotate_right(129),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn rotate_right(self, n: u32) -> Self {
@@ -354,18 +364,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.reverse_bits(),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.reverse_bits(),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.reverse_bits(),
-    ///     BitmapIndex::ONE << BitmapIndex::EFFECTIVE_BITS - 1
+    ///     PositiveInt::ONE.reverse_bits(),
+    ///     PositiveInt::ONE << PositiveInt::EFFECTIVE_BITS - 1
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.reverse_bits(),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.reverse_bits(),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn reverse_bits(self) -> Self {
@@ -383,29 +393,29 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_add(BitmapIndex::ZERO),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_add(PositiveInt::ZERO),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_add(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::ZERO.checked_add(PositiveInt::MAX),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_add(BitmapIndex::ONE),
-    ///     BitmapIndex::try_from(2).ok()
+    ///     PositiveInt::ONE.checked_add(PositiveInt::ONE),
+    ///     PositiveInt::try_from(2).ok()
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_add(BitmapIndex::MAX),
+    ///     PositiveInt::ONE.checked_add(PositiveInt::MAX),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_add(BitmapIndex::ZERO),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::MAX.checked_add(PositiveInt::ZERO),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_add(BitmapIndex::ONE),
+    ///     PositiveInt::MAX.checked_add(PositiveInt::ONE),
     ///     None
     /// );
     /// ```
@@ -424,25 +434,25 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_add_signed(0),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_add_signed(0),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_add_signed(1),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::ZERO.checked_add_signed(1),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_add_signed(-1),
+    ///     PositiveInt::MIN.checked_add_signed(-1),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_add_signed(0),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::MAX.checked_add_signed(0),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_add_signed(1),
+    ///     PositiveInt::MAX.checked_add_signed(1),
     ///     None
     /// );
     /// ```
@@ -476,22 +486,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_sub(BitmapIndex::ZERO),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_sub(PositiveInt::ZERO),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.checked_sub(BitmapIndex::ONE),
+    ///     PositiveInt::MIN.checked_sub(PositiveInt::ONE),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_sub(BitmapIndex::ZERO),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::MAX.checked_sub(PositiveInt::ZERO),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_sub(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::MAX.checked_sub(PositiveInt::MAX),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// ```
     #[allow(clippy::if_then_some_else_none)]
@@ -511,29 +521,29 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_mul(BitmapIndex::ONE),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_mul(PositiveInt::ONE),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_mul(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_mul(PositiveInt::MAX),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_mul(BitmapIndex::ONE),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::ONE.checked_mul(PositiveInt::ONE),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_mul(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::ONE.checked_mul(PositiveInt::MAX),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_mul(BitmapIndex::ZERO),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::MAX.checked_mul(PositiveInt::ZERO),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_mul(BitmapIndex::MAX),
+    ///     PositiveInt::MAX.checked_mul(PositiveInt::MAX),
     ///     None
     /// );
     /// ```
@@ -553,22 +563,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_div(BitmapIndex::ZERO),
+    ///     PositiveInt::ZERO.checked_div(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_div(BitmapIndex::ONE),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_div(PositiveInt::ONE),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_div(BitmapIndex::ZERO),
+    ///     PositiveInt::MAX.checked_div(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_div(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::MAX.checked_div(PositiveInt::MAX),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// ```
     #[allow(clippy::if_then_some_else_none)]
@@ -588,22 +598,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_div_euclid(BitmapIndex::ZERO),
+    ///     PositiveInt::ZERO.checked_div_euclid(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_div_euclid(BitmapIndex::ONE),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_div_euclid(PositiveInt::ONE),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::ZERO),
+    ///     PositiveInt::MAX.checked_div_euclid(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_div_euclid(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::MAX.checked_div_euclid(PositiveInt::MAX),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// ```
     pub const fn checked_div_euclid(self, rhs: Self) -> Option<Self> {
@@ -618,22 +628,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_rem(BitmapIndex::ZERO),
+    ///     PositiveInt::ZERO.checked_rem(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_rem(BitmapIndex::ONE),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_rem(PositiveInt::ONE),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_rem(BitmapIndex::ZERO),
+    ///     PositiveInt::MAX.checked_rem(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_rem(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::MAX.checked_rem(PositiveInt::MAX),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// ```
     #[allow(clippy::if_then_some_else_none)]
@@ -653,22 +663,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_rem_euclid(BitmapIndex::ZERO),
+    ///     PositiveInt::ZERO.checked_rem_euclid(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_rem_euclid(BitmapIndex::ONE),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_rem_euclid(PositiveInt::ONE),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::ZERO),
+    ///     PositiveInt::MAX.checked_rem_euclid(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_rem_euclid(BitmapIndex::MAX),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::MAX.checked_rem_euclid(PositiveInt::MAX),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// ```
     pub const fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
@@ -689,13 +699,13 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.ilog(BitmapIndex::MAX),
+    ///     PositiveInt::ONE.ilog(PositiveInt::MAX),
     ///     0
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.ilog(BitmapIndex::MAX),
+    ///     PositiveInt::MAX.ilog(PositiveInt::MAX),
     ///     1
     /// );
     /// ```
@@ -712,14 +722,14 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.ilog2(),
+    ///     PositiveInt::ONE.ilog2(),
     ///     0
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.ilog2(),
-    ///     BitmapIndex::EFFECTIVE_BITS - 1
+    ///     PositiveInt::MAX.ilog2(),
+    ///     PositiveInt::EFFECTIVE_BITS - 1
     /// );
     /// ```
     pub const fn ilog2(self) -> u32 {
@@ -735,13 +745,13 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.ilog10(),
+    ///     PositiveInt::ONE.ilog10(),
     ///     0
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::try_from(100).unwrap().ilog10(),
+    ///     PositiveInt::try_from(100).unwrap().ilog10(),
     ///     2
     /// );
     /// ```
@@ -761,21 +771,21 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_ilog(BitmapIndex::ONE),
+    ///     PositiveInt::ZERO.checked_ilog(PositiveInt::ONE),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_ilog(BitmapIndex::MAX),
+    ///     PositiveInt::ONE.checked_ilog(PositiveInt::MAX),
     ///     Some(0)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_ilog(BitmapIndex::ZERO),
+    ///     PositiveInt::MAX.checked_ilog(PositiveInt::ZERO),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_ilog(BitmapIndex::MAX),
+    ///     PositiveInt::MAX.checked_ilog(PositiveInt::MAX),
     ///     Some(1)
     /// );
     /// ```
@@ -790,18 +800,18 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_ilog2(),
+    ///     PositiveInt::ZERO.checked_ilog2(),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_ilog2(),
+    ///     PositiveInt::ONE.checked_ilog2(),
     ///     Some(0)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_ilog2(),
-    ///     Some(BitmapIndex::EFFECTIVE_BITS - 1)
+    ///     PositiveInt::MAX.checked_ilog2(),
+    ///     Some(PositiveInt::EFFECTIVE_BITS - 1)
     /// );
     /// ```
     pub const fn checked_ilog2(self) -> Option<u32> {
@@ -815,17 +825,17 @@ impl BitmapIndex {
     /// # Examples
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_ilog10(),
+    ///     PositiveInt::ZERO.checked_ilog10(),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_ilog10(),
+    ///     PositiveInt::ONE.checked_ilog10(),
     ///     Some(0)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::try_from(100).ok().and_then(BitmapIndex::checked_ilog10),
+    ///     PositiveInt::try_from(100).ok().and_then(PositiveInt::checked_ilog10),
     ///     Some(2)
     /// );
     /// ```
@@ -842,17 +852,17 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_neg(),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_neg(),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_neg(),
+    ///     PositiveInt::ONE.checked_neg(),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_neg(),
+    ///     PositiveInt::MAX.checked_neg(),
     ///     None
     /// );
     /// ```
@@ -873,29 +883,29 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_shl(1),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_shl(1),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_shl(BitmapIndex::EFFECTIVE_BITS),
+    ///     PositiveInt::ZERO.checked_shl(PositiveInt::EFFECTIVE_BITS),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_shl(1),
-    ///     BitmapIndex::try_from(2).ok()
+    ///     PositiveInt::ONE.checked_shl(1),
+    ///     PositiveInt::try_from(2).ok()
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shl(0),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::MAX.checked_shl(0),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shl(1),
-    ///     Some((BitmapIndex::MAX / 2) * 2)
+    ///     PositiveInt::MAX.checked_shl(1),
+    ///     Some((PositiveInt::MAX / 2) * 2)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shl(BitmapIndex::EFFECTIVE_BITS),
+    ///     PositiveInt::MAX.checked_shl(PositiveInt::EFFECTIVE_BITS),
     ///     None
     /// );
     /// ```
@@ -916,29 +926,29 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_shr(1),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ZERO.checked_shr(1),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_shr(BitmapIndex::EFFECTIVE_BITS),
+    ///     PositiveInt::ZERO.checked_shr(PositiveInt::EFFECTIVE_BITS),
     ///     None
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_shr(1),
-    ///     Some(BitmapIndex::ZERO)
+    ///     PositiveInt::ONE.checked_shr(1),
+    ///     Some(PositiveInt::ZERO)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shr(0),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::MAX.checked_shr(0),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shr(1),
-    ///     Some(BitmapIndex::MAX / 2)
+    ///     PositiveInt::MAX.checked_shr(1),
+    ///     Some(PositiveInt::MAX / 2)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_shr(BitmapIndex::EFFECTIVE_BITS),
+    ///     PositiveInt::MAX.checked_shr(PositiveInt::EFFECTIVE_BITS),
     ///     None
     /// );
     /// ```
@@ -959,21 +969,21 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_pow(0),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::ZERO.checked_pow(0),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_pow(3),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::ONE.checked_pow(3),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_pow(1),
-    ///     Some(BitmapIndex::MAX)
+    ///     PositiveInt::MAX.checked_pow(1),
+    ///     Some(PositiveInt::MAX)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_pow(2),
+    ///     PositiveInt::MAX.checked_pow(2),
     ///     None
     /// );
     /// ```
@@ -994,22 +1004,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_add(BitmapIndex::ZERO),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.saturating_add(PositiveInt::ZERO),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.saturating_add(BitmapIndex::ZERO),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.saturating_add(PositiveInt::ZERO),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.saturating_add(BitmapIndex::MAX),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::ONE.saturating_add(PositiveInt::MAX),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_add(BitmapIndex::MAX),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_add(PositiveInt::MAX),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn saturating_add(self, rhs: Self) -> Self {
@@ -1025,22 +1035,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_add_signed(0),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.saturating_add_signed(0),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_add_signed(-1),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.saturating_add_signed(-1),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_add_signed(0),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_add_signed(0),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_add_signed(1),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_add_signed(1),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     #[allow(
@@ -1067,22 +1077,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::ZERO),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.saturating_sub(PositiveInt::ZERO),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.saturating_sub(BitmapIndex::MAX),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.saturating_sub(PositiveInt::MAX),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::ZERO),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_sub(PositiveInt::ZERO),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_sub(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::MAX.saturating_sub(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// ```
     pub const fn saturating_sub(self, rhs: Self) -> Self {
@@ -1097,22 +1107,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.saturating_mul(BitmapIndex::ZERO),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.saturating_mul(PositiveInt::ZERO),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.saturating_mul(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.saturating_mul(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::ONE),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_mul(PositiveInt::ONE),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_mul(BitmapIndex::MAX),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_mul(PositiveInt::MAX),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn saturating_mul(self, rhs: Self) -> Self {
@@ -1128,14 +1138,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.saturating_div(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ONE.saturating_div(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_div(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.saturating_div(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn saturating_div(self, rhs: Self) -> Self {
@@ -1150,26 +1160,26 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.saturating_pow(0),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ZERO.saturating_pow(0),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.saturating_pow(2),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.saturating_pow(2),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.saturating_pow(3),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.saturating_pow(3),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_pow(1),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_pow(1),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.saturating_pow(2),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.saturating_pow(2),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn saturating_pow(self, exp: u32) -> Self {
@@ -1194,26 +1204,26 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.wrapping_add(BitmapIndex::ZERO),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.wrapping_add(PositiveInt::ZERO),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.wrapping_add(BitmapIndex::MAX),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::ZERO.wrapping_add(PositiveInt::MAX),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_add(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ONE.wrapping_add(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_add(BitmapIndex::ZERO),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.wrapping_add(PositiveInt::ZERO),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_add(BitmapIndex::MAX),
-    ///     BitmapIndex::MAX - 1
+    ///     PositiveInt::MAX.wrapping_add(PositiveInt::MAX),
+    ///     PositiveInt::MAX - 1
     /// );
     /// ```
     pub const fn wrapping_add(self, rhs: Self) -> Self {
@@ -1228,22 +1238,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_add_signed(0),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.wrapping_add_signed(0),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_add_signed(-1),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MIN.wrapping_add_signed(-1),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_add_signed(0),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.wrapping_add_signed(0),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_add_signed(1),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MAX.wrapping_add_signed(1),
+    ///     PositiveInt::MIN
     /// );
     /// ```
     #[allow(clippy::cast_possible_truncation)]
@@ -1259,26 +1269,26 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::ZERO),
-    ///     BitmapIndex::MIN
+    ///     PositiveInt::MIN.wrapping_sub(PositiveInt::ZERO),
+    ///     PositiveInt::MIN
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::ONE),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MIN.wrapping_sub(PositiveInt::ONE),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.wrapping_sub(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MIN.wrapping_sub(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::ZERO),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.wrapping_sub(PositiveInt::ZERO),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_sub(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::MAX.wrapping_sub(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// ```
     pub const fn wrapping_sub(self, rhs: Self) -> Self {
@@ -1293,22 +1303,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.wrapping_mul(BitmapIndex::ZERO),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.wrapping_mul(PositiveInt::ZERO),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.wrapping_mul(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.wrapping_mul(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::ZERO),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::MAX.wrapping_mul(PositiveInt::ZERO),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_mul(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.wrapping_mul(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn wrapping_mul(self, rhs: Self) -> Self {
@@ -1325,14 +1335,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_div(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ONE.wrapping_div(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_div(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.wrapping_div(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn wrapping_div(self, rhs: Self) -> Self {
@@ -1351,14 +1361,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_div_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ONE.wrapping_div_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_div_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.wrapping_div_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn wrapping_div_euclid(self, rhs: Self) -> Self {
@@ -1376,14 +1386,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_rem(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.wrapping_rem(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_rem(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::MAX.wrapping_rem(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// ```
     pub const fn wrapping_rem(self, rhs: Self) -> Self {
@@ -1402,14 +1412,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_rem_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.wrapping_rem_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_rem_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::MAX.wrapping_rem_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// ```
     pub const fn wrapping_rem_euclid(self, rhs: Self) -> Self {
@@ -1431,18 +1441,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.wrapping_neg(),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ZERO.wrapping_neg(),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_neg(),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::ONE.wrapping_neg(),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_neg(),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.wrapping_neg(),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn wrapping_neg(self) -> Self {
@@ -1463,18 +1473,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - 1),
-    ///     BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1)
+    ///     PositiveInt::MAX.wrapping_shl(PositiveInt::EFFECTIVE_BITS - 1),
+    ///     PositiveInt::MAX << (PositiveInt::EFFECTIVE_BITS - 1)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.wrapping_shl(PositiveInt::EFFECTIVE_BITS),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shl(BitmapIndex::EFFECTIVE_BITS + 1),
-    ///     BitmapIndex::MAX << 1
+    ///     PositiveInt::MAX.wrapping_shl(PositiveInt::EFFECTIVE_BITS + 1),
+    ///     PositiveInt::MAX << 1
     /// );
     /// ```
     pub const fn wrapping_shl(self, rhs: u32) -> Self {
@@ -1496,18 +1506,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - 1),
-    ///     BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1)
+    ///     PositiveInt::MAX.wrapping_shr(PositiveInt::EFFECTIVE_BITS - 1),
+    ///     PositiveInt::MAX >> (PositiveInt::EFFECTIVE_BITS - 1)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.wrapping_shr(PositiveInt::EFFECTIVE_BITS),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_shr(BitmapIndex::EFFECTIVE_BITS + 1),
-    ///     BitmapIndex::MAX >> 1
+    ///     PositiveInt::MAX.wrapping_shr(PositiveInt::EFFECTIVE_BITS + 1),
+    ///     PositiveInt::MAX >> 1
     /// );
     /// ```
     pub const fn wrapping_shr(self, rhs: u32) -> Self {
@@ -1522,22 +1532,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.wrapping_pow(0),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ZERO.wrapping_pow(0),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.wrapping_pow(3),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.wrapping_pow(3),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_pow(1),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.wrapping_pow(1),
+    ///     PositiveInt::MAX
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.wrapping_pow(2),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.wrapping_pow(2),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn wrapping_pow(self, exp: u32) -> Self {
@@ -1555,22 +1565,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.overflowing_add(BitmapIndex::ZERO),
-    ///     (BitmapIndex::MIN, false)
+    ///     PositiveInt::MIN.overflowing_add(PositiveInt::ZERO),
+    ///     (PositiveInt::MIN, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.overflowing_add(BitmapIndex::MAX),
-    ///     (BitmapIndex::MAX, false)
+    ///     PositiveInt::ZERO.overflowing_add(PositiveInt::MAX),
+    ///     (PositiveInt::MAX, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_add(BitmapIndex::ZERO),
-    ///     (BitmapIndex::MAX, false)
+    ///     PositiveInt::MAX.overflowing_add(PositiveInt::ZERO),
+    ///     (PositiveInt::MAX, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_add(BitmapIndex::ONE),
-    ///     (BitmapIndex::MIN, true)
+    ///     PositiveInt::MAX.overflowing_add(PositiveInt::ONE),
+    ///     (PositiveInt::MIN, true)
     /// );
     /// ```
     pub const fn overflowing_add(self, rhs: Self) -> (Self, bool) {
@@ -1589,22 +1599,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.overflowing_add_signed(0),
-    ///     (BitmapIndex::MIN, false)
+    ///     PositiveInt::MIN.overflowing_add_signed(0),
+    ///     (PositiveInt::MIN, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.overflowing_add_signed(-1),
-    ///     (BitmapIndex::MAX, true)
+    ///     PositiveInt::MIN.overflowing_add_signed(-1),
+    ///     (PositiveInt::MAX, true)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_add_signed(0),
-    ///     (BitmapIndex::MAX, false)
+    ///     PositiveInt::MAX.overflowing_add_signed(0),
+    ///     (PositiveInt::MAX, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_add_signed(1),
-    ///     (BitmapIndex::MIN, true)
+    ///     PositiveInt::MAX.overflowing_add_signed(1),
+    ///     (PositiveInt::MIN, true)
     /// );
     /// ```
     #[allow(clippy::cast_possible_wrap)]
@@ -1624,22 +1634,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MIN.overflowing_sub(BitmapIndex::ZERO),
-    ///     (BitmapIndex::MIN, false)
+    ///     PositiveInt::MIN.overflowing_sub(PositiveInt::ZERO),
+    ///     (PositiveInt::MIN, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MIN.overflowing_sub(BitmapIndex::ONE),
-    ///     (BitmapIndex::MAX, true)
+    ///     PositiveInt::MIN.overflowing_sub(PositiveInt::ONE),
+    ///     (PositiveInt::MAX, true)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_sub(BitmapIndex::ZERO),
-    ///     (BitmapIndex::MAX, false)
+    ///     PositiveInt::MAX.overflowing_sub(PositiveInt::ZERO),
+    ///     (PositiveInt::MAX, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_sub(BitmapIndex::MAX),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::MAX.overflowing_sub(PositiveInt::MAX),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// ```
     pub const fn overflowing_sub(self, rhs: Self) -> (Self, bool) {
@@ -1653,9 +1663,9 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// let big = BitmapIndex::MAX;
-    /// let small = BitmapIndex::ONE;
+    /// # use hwlocality::ffi::PositiveInt;
+    /// let big = PositiveInt::MAX;
+    /// let small = PositiveInt::ONE;
     /// assert_eq!(
     ///     big.abs_diff(small),
     ///     big - small
@@ -1680,22 +1690,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.overflowing_mul(BitmapIndex::ZERO),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::ZERO.overflowing_mul(PositiveInt::ZERO),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.overflowing_mul(BitmapIndex::MAX),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::ZERO.overflowing_mul(PositiveInt::MAX),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_mul(BitmapIndex::ZERO),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::MAX.overflowing_mul(PositiveInt::ZERO),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_mul(BitmapIndex::MAX),
-    ///     (BitmapIndex::ONE, true)
+    ///     PositiveInt::MAX.overflowing_mul(PositiveInt::MAX),
+    ///     (PositiveInt::ONE, true)
     /// );
     /// ```
     pub const fn overflowing_mul(self, rhs: Self) -> (Self, bool) {
@@ -1715,14 +1725,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.overflowing_div(BitmapIndex::MAX),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::ONE.overflowing_div(PositiveInt::MAX),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_div(BitmapIndex::MAX),
-    ///     (BitmapIndex::ONE, false)
+    ///     PositiveInt::MAX.overflowing_div(PositiveInt::MAX),
+    ///     (PositiveInt::ONE, false)
     /// );
     /// ```
     pub const fn overflowing_div(self, rhs: Self) -> (Self, bool) {
@@ -1742,14 +1752,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.overflowing_div_euclid(BitmapIndex::MAX),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::ONE.overflowing_div_euclid(PositiveInt::MAX),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_div_euclid(BitmapIndex::MAX),
-    ///     (BitmapIndex::ONE, false)
+    ///     PositiveInt::MAX.overflowing_div_euclid(PositiveInt::MAX),
+    ///     (PositiveInt::ONE, false)
     /// );
     /// ```
     pub const fn overflowing_div_euclid(self, rhs: Self) -> (Self, bool) {
@@ -1767,14 +1777,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.overflowing_rem(BitmapIndex::MAX),
-    ///     (BitmapIndex::ONE, false)
+    ///     PositiveInt::ONE.overflowing_rem(PositiveInt::MAX),
+    ///     (PositiveInt::ONE, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_rem(BitmapIndex::MAX),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::MAX.overflowing_rem(PositiveInt::MAX),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// ```
     pub const fn overflowing_rem(self, rhs: Self) -> (Self, bool) {
@@ -1795,14 +1805,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.overflowing_rem_euclid(BitmapIndex::MAX),
-    ///     (BitmapIndex::ONE, false)
+    ///     PositiveInt::ONE.overflowing_rem_euclid(PositiveInt::MAX),
+    ///     (PositiveInt::ONE, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_rem_euclid(BitmapIndex::MAX),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::MAX.overflowing_rem_euclid(PositiveInt::MAX),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// ```
     pub const fn overflowing_rem_euclid(self, rhs: Self) -> (Self, bool) {
@@ -1811,28 +1821,28 @@ impl BitmapIndex {
 
     /// Negates `self` in an overflowing fashion.
     ///
-    /// Returns `!self + BitmapIndex::ONE` using wrapping operations to return
+    /// Returns `!self + PositiveInt::ONE` using wrapping operations to return
     /// the value that represents the negation of this unsigned value. Note
     /// that for positive unsigned values overflow always occurs, but negating
-    /// `BitmapIndex::ZERO` does not overflow.
+    /// `PositiveInt::ZERO` does not overflow.
     ///
     /// # Examples
     ///
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.overflowing_neg(),
-    ///     (BitmapIndex::ZERO, false)
+    ///     PositiveInt::ZERO.overflowing_neg(),
+    ///     (PositiveInt::ZERO, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.overflowing_neg(),
-    ///     (BitmapIndex::MAX, true)
+    ///     PositiveInt::ONE.overflowing_neg(),
+    ///     (PositiveInt::MAX, true)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_neg(),
-    ///     (BitmapIndex::ONE, true)
+    ///     PositiveInt::MAX.overflowing_neg(),
+    ///     (PositiveInt::ONE, true)
     /// );
     /// ```
     pub const fn overflowing_neg(self) -> (Self, bool) {
@@ -1852,18 +1862,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS - 1),
-    ///     (BitmapIndex::MAX << (BitmapIndex::EFFECTIVE_BITS - 1), false)
+    ///     PositiveInt::MAX.overflowing_shl(PositiveInt::EFFECTIVE_BITS - 1),
+    ///     (PositiveInt::MAX << (PositiveInt::EFFECTIVE_BITS - 1), false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS),
-    ///     (BitmapIndex::MAX, true)
+    ///     PositiveInt::MAX.overflowing_shl(PositiveInt::EFFECTIVE_BITS),
+    ///     (PositiveInt::MAX, true)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_shl(BitmapIndex::EFFECTIVE_BITS + 1),
-    ///     (BitmapIndex::MAX << 1, true)
+    ///     PositiveInt::MAX.overflowing_shl(PositiveInt::EFFECTIVE_BITS + 1),
+    ///     (PositiveInt::MAX << 1, true)
     /// );
     /// ```
     pub const fn overflowing_shl(self, rhs: u32) -> (Self, bool) {
@@ -1883,18 +1893,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS - 1),
-    ///     (BitmapIndex::MAX >> (BitmapIndex::EFFECTIVE_BITS - 1), false)
+    ///     PositiveInt::MAX.overflowing_shr(PositiveInt::EFFECTIVE_BITS - 1),
+    ///     (PositiveInt::MAX >> (PositiveInt::EFFECTIVE_BITS - 1), false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS),
-    ///     (BitmapIndex::MAX, true)
+    ///     PositiveInt::MAX.overflowing_shr(PositiveInt::EFFECTIVE_BITS),
+    ///     (PositiveInt::MAX, true)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_shr(BitmapIndex::EFFECTIVE_BITS + 1),
-    ///     (BitmapIndex::MAX >> 1, true)
+    ///     PositiveInt::MAX.overflowing_shr(PositiveInt::EFFECTIVE_BITS + 1),
+    ///     (PositiveInt::MAX >> 1, true)
     /// );
     /// ```
     pub const fn overflowing_shr(self, rhs: u32) -> (Self, bool) {
@@ -1911,22 +1921,22 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.overflowing_pow(0),
-    ///     (BitmapIndex::ONE, false)
+    ///     PositiveInt::ZERO.overflowing_pow(0),
+    ///     (PositiveInt::ONE, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.overflowing_pow(3),
-    ///     (BitmapIndex::ONE, false)
+    ///     PositiveInt::ONE.overflowing_pow(3),
+    ///     (PositiveInt::ONE, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_pow(1),
-    ///     (BitmapIndex::MAX, false)
+    ///     PositiveInt::MAX.overflowing_pow(1),
+    ///     (PositiveInt::MAX, false)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.overflowing_pow(2),
-    ///     (BitmapIndex::ONE, true)
+    ///     PositiveInt::MAX.overflowing_pow(2),
+    ///     (PositiveInt::ONE, true)
     /// );
     /// ```
     pub const fn overflowing_pow(self, exp: u32) -> (Self, bool) {
@@ -1942,18 +1952,18 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.pow(0),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ZERO.pow(0),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.pow(3),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.pow(3),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.pow(1),
-    ///     BitmapIndex::MAX
+    ///     PositiveInt::MAX.pow(1),
+    ///     PositiveInt::MAX
     /// );
     /// ```
     pub const fn pow(self, exp: u32) -> Self {
@@ -1961,7 +1971,7 @@ impl BitmapIndex {
             if let Some(res) = self.checked_pow(exp) {
                 res
             } else {
-                panic!("Attempted to call BitmapIndex::pow() with overflow")
+                panic!("Attempted to call PositiveInt::pow() with overflow")
             }
         } else {
             self.wrapping_pow(exp)
@@ -1975,21 +1985,21 @@ impl BitmapIndex {
     ///
     /// # Panics
     ///
-    /// This function will panic if `rhs` is `BitmapIndex::ZERO`.
+    /// This function will panic if `rhs` is `PositiveInt::ZERO`.
     ///
     /// # Examples
     ///
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.div_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::ONE.div_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.div_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::MAX.div_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn div_euclid(self, rhs: Self) -> Self {
@@ -2003,21 +2013,21 @@ impl BitmapIndex {
     ///
     /// # Panics
     ///
-    /// This function will panic if `rhs` is `BitmapIndex::ZERO`.
+    /// This function will panic if `rhs` is `PositiveInt::ZERO`.
     ///
     /// # Examples
     ///
     /// Basic usage:
     ///
     /// ```rust
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ONE.rem_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.rem_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.rem_euclid(BitmapIndex::MAX),
-    ///     BitmapIndex::ZERO
+    ///     PositiveInt::MAX.rem_euclid(PositiveInt::MAX),
+    ///     PositiveInt::ZERO
     /// );
     /// ```
     pub const fn rem_euclid(self, rhs: Self) -> Self {
@@ -2031,10 +2041,10 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmap::BitmapIndex;
-    /// assert!(!BitmapIndex::ZERO.is_power_of_two());
-    /// assert!(BitmapIndex::ONE.is_power_of_two());
-    /// assert!(!BitmapIndex::MAX.is_power_of_two());
+    /// # use hwlocality::ffi::PositiveInt;
+    /// assert!(!PositiveInt::ZERO.is_power_of_two());
+    /// assert!(PositiveInt::ONE.is_power_of_two());
+    /// assert!(!PositiveInt::MAX.is_power_of_two());
     /// ```
     pub const fn is_power_of_two(self) -> bool {
         self.0.is_power_of_two()
@@ -2042,8 +2052,8 @@ impl BitmapIndex {
 
     /// Returns the smallest power of two greater than or equal to `self`.
     ///
-    /// When return value overflows (i.e., `self > (BitmapIndex::ONE <<
-    /// (BitmapIndex::EFFECTIVE_BITS - 1))`, it panics in debug mode and the
+    /// When return value overflows (i.e., `self > (PositiveInt::ONE <<
+    /// (PositiveInt::EFFECTIVE_BITS - 1))`, it panics in debug mode and the
     /// return value is wrapped to 0 in release mode (the only situation in
     /// which method can return 0).
     ///
@@ -2052,14 +2062,14 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.next_power_of_two(),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ZERO.next_power_of_two(),
+    ///     PositiveInt::ONE
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.next_power_of_two(),
-    ///     BitmapIndex::ONE
+    ///     PositiveInt::ONE.next_power_of_two(),
+    ///     PositiveInt::ONE
     /// );
     /// ```
     pub const fn next_power_of_two(self) -> Self {
@@ -2083,17 +2093,17 @@ impl BitmapIndex {
     /// Basic usage:
     ///
     /// ```
-    /// # use hwlocality::bitmap::BitmapIndex;
+    /// # use hwlocality::ffi::PositiveInt;
     /// assert_eq!(
-    ///     BitmapIndex::ZERO.checked_next_power_of_two(),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::ZERO.checked_next_power_of_two(),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::ONE.checked_next_power_of_two(),
-    ///     Some(BitmapIndex::ONE)
+    ///     PositiveInt::ONE.checked_next_power_of_two(),
+    ///     Some(PositiveInt::ONE)
     /// );
     /// assert_eq!(
-    ///     BitmapIndex::MAX.checked_next_power_of_two(),
+    ///     PositiveInt::MAX.checked_next_power_of_two(),
     ///     None
     /// );
     /// ```
@@ -2111,6 +2121,39 @@ impl BitmapIndex {
 
     // NOTE: No (from|to)_(be|le)_bytes, the modeled integer is not made of an
     //       integral number of bytes so these operations do not make sense.
+
+    // === PositiveInt-specific functionality ===
+
+    /// Construct a [`Range`]-like iterator of this integer type
+    ///
+    /// Unfortunately, `Range<PositiveInt>` does not implement [`Iterator`]
+    /// due to that impl's dependency on the rustc-private `Step` trait.
+    /// This method is the workaround.
+    pub fn iter_range(
+        start: PositiveInt,
+        end: PositiveInt,
+    ) -> impl DoubleEndedIterator<Item = PositiveInt> + Clone + ExactSizeIterator + FusedIterator
+    {
+        PositiveIntRangeIter { start, end }
+    }
+
+    /// Construct a [`RangeInclusive`]-like iterator of this integer type
+    ///
+    /// This needs to exist for the same reason that [`iter_range()`] does.
+    pub fn iter_range_inclusive(
+        start: PositiveInt,
+        end: PositiveInt,
+    ) -> impl DoubleEndedIterator<Item = PositiveInt> + Clone + ExactSizeIterator + FusedIterator
+    {
+        PositiveIntRangeInclusiveIter { start, end }
+    }
+
+    /// Construct a [`RangeFrom`]-like iterator of this integer type
+    ///
+    /// This needs to exist for the same reason that [`iter_range()`] does.
+    pub fn iter_range_from(start: PositiveInt) -> impl FusedIterator<Item = PositiveInt> + Clone {
+        PositiveIntRangeFromIter(start)
+    }
 
     /// Convert from an hwloc-originated [`c_int`]
     ///
@@ -2155,7 +2198,7 @@ impl BitmapIndex {
     }
 }
 
-impl<B: Borrow<Self>> Add<B> for BitmapIndex {
+impl<B: Borrow<Self>> Add<B> for PositiveInt {
     type Output = Self;
 
     fn add(self, rhs: B) -> Self {
@@ -2168,7 +2211,7 @@ impl<B: Borrow<Self>> Add<B> for BitmapIndex {
     }
 }
 
-impl Add<isize> for BitmapIndex {
+impl Add<isize> for PositiveInt {
     type Output = Self;
 
     fn add(self, rhs: isize) -> Self {
@@ -2181,15 +2224,15 @@ impl Add<isize> for BitmapIndex {
     }
 }
 
-impl Add<BitmapIndex> for isize {
-    type Output = BitmapIndex;
+impl Add<PositiveInt> for isize {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn add(self, rhs: PositiveInt) -> PositiveInt {
         rhs + self
     }
 }
 
-impl Add<&isize> for BitmapIndex {
+impl Add<&isize> for PositiveInt {
     type Output = Self;
 
     fn add(self, rhs: &isize) -> Self {
@@ -2197,55 +2240,55 @@ impl Add<&isize> for BitmapIndex {
     }
 }
 
-impl Add<BitmapIndex> for &isize {
-    type Output = BitmapIndex;
+impl Add<PositiveInt> for &isize {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn add(self, rhs: PositiveInt) -> PositiveInt {
         rhs + (*self)
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Add<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> Add<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: B) -> BitmapIndex {
+    fn add(self, rhs: B) -> PositiveInt {
         *self + rhs
     }
 }
 
-impl Add<isize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Add<isize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: isize) -> BitmapIndex {
+    fn add(self, rhs: isize) -> PositiveInt {
         *self + rhs
     }
 }
 
-impl Add<&BitmapIndex> for isize {
-    type Output = BitmapIndex;
+impl Add<&PositiveInt> for isize {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn add(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs + self
     }
 }
 
-impl Add<&isize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Add<&isize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: &isize) -> BitmapIndex {
+    fn add(self, rhs: &isize) -> PositiveInt {
         *self + (*rhs)
     }
 }
 
-impl Add<&BitmapIndex> for &isize {
-    type Output = BitmapIndex;
+impl Add<&PositiveInt> for &isize {
+    type Output = PositiveInt;
 
-    fn add(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn add(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs + (*self)
     }
 }
 
-impl<Rhs> AddAssign<Rhs> for BitmapIndex
+impl<Rhs> AddAssign<Rhs> for PositiveInt
 where
     Self: Add<Rhs, Output = Self>,
 {
@@ -2255,10 +2298,10 @@ where
 }
 
 #[cfg(any(test, feature = "quickcheck"))]
-impl Arbitrary for BitmapIndex {
+impl Arbitrary for PositiveInt {
     fn arbitrary(g: &mut Gen) -> Self {
         // Many index-based hwloc APIs exhibit O(n) behavior depending on which
-        // index is passed as input, so we enforce that indices used in tests
+        // index is passed as input, so we enforce that ints used in tests
         // are "not too big", as per the quickcheck size parameter
         let mut rng = rand::thread_rng();
         let max = Self::try_from(g.size()).unwrap_or(Self::MAX);
@@ -2275,7 +2318,7 @@ impl Arbitrary for BitmapIndex {
     }
 }
 
-impl<B: Borrow<Self>> BitAnd<B> for BitmapIndex {
+impl<B: Borrow<Self>> BitAnd<B> for PositiveInt {
     type Output = Self;
 
     fn bitand(self, rhs: B) -> Self {
@@ -2283,7 +2326,7 @@ impl<B: Borrow<Self>> BitAnd<B> for BitmapIndex {
     }
 }
 
-impl BitAnd<usize> for BitmapIndex {
+impl BitAnd<usize> for PositiveInt {
     type Output = Self;
 
     #[allow(clippy::cast_possible_truncation)]
@@ -2293,15 +2336,15 @@ impl BitAnd<usize> for BitmapIndex {
     }
 }
 
-impl BitAnd<BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl BitAnd<PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn bitand(self, rhs: PositiveInt) -> PositiveInt {
         rhs & self
     }
 }
 
-impl BitAnd<&usize> for BitmapIndex {
+impl BitAnd<&usize> for PositiveInt {
     type Output = Self;
 
     fn bitand(self, rhs: &usize) -> Self {
@@ -2309,55 +2352,55 @@ impl BitAnd<&usize> for BitmapIndex {
     }
 }
 
-impl BitAnd<BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl BitAnd<PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn bitand(self, rhs: PositiveInt) -> PositiveInt {
         rhs & (*self)
     }
 }
 
-impl<B: Borrow<BitmapIndex>> BitAnd<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> BitAnd<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: B) -> BitmapIndex {
+    fn bitand(self, rhs: B) -> PositiveInt {
         *self & rhs
     }
 }
 
-impl BitAnd<usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl BitAnd<usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: usize) -> BitmapIndex {
+    fn bitand(self, rhs: usize) -> PositiveInt {
         *self & rhs
     }
 }
 
-impl BitAnd<&BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl BitAnd<&PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn bitand(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs & self
     }
 }
 
-impl BitAnd<&usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl BitAnd<&usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: &usize) -> BitmapIndex {
+    fn bitand(self, rhs: &usize) -> PositiveInt {
         *self & (*rhs)
     }
 }
 
-impl BitAnd<&BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl BitAnd<&PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn bitand(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn bitand(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs & (*self)
     }
 }
 
-impl<Rhs> BitAndAssign<Rhs> for BitmapIndex
+impl<Rhs> BitAndAssign<Rhs> for PositiveInt
 where
     Self: BitAnd<Rhs, Output = Self>,
 {
@@ -2366,7 +2409,7 @@ where
     }
 }
 
-impl<B: Borrow<Self>> BitOr<B> for BitmapIndex {
+impl<B: Borrow<Self>> BitOr<B> for PositiveInt {
     type Output = Self;
 
     fn bitor(self, rhs: B) -> Self {
@@ -2374,7 +2417,7 @@ impl<B: Borrow<Self>> BitOr<B> for BitmapIndex {
     }
 }
 
-impl BitOr<usize> for BitmapIndex {
+impl BitOr<usize> for PositiveInt {
     type Output = Self;
 
     #[allow(clippy::cast_possible_truncation)]
@@ -2386,15 +2429,15 @@ impl BitOr<usize> for BitmapIndex {
     }
 }
 
-impl BitOr<BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl BitOr<PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn bitor(self, rhs: PositiveInt) -> PositiveInt {
         rhs | self
     }
 }
 
-impl BitOr<&usize> for BitmapIndex {
+impl BitOr<&usize> for PositiveInt {
     type Output = Self;
 
     fn bitor(self, rhs: &usize) -> Self {
@@ -2402,55 +2445,55 @@ impl BitOr<&usize> for BitmapIndex {
     }
 }
 
-impl BitOr<BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl BitOr<PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn bitor(self, rhs: PositiveInt) -> PositiveInt {
         rhs | (*self)
     }
 }
 
-impl<B: Borrow<BitmapIndex>> BitOr<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> BitOr<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: B) -> BitmapIndex {
+    fn bitor(self, rhs: B) -> PositiveInt {
         *self | rhs
     }
 }
 
-impl BitOr<usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl BitOr<usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: usize) -> BitmapIndex {
+    fn bitor(self, rhs: usize) -> PositiveInt {
         *self | rhs
     }
 }
 
-impl BitOr<&BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl BitOr<&PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn bitor(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs | self
     }
 }
 
-impl BitOr<&usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl BitOr<&usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: &usize) -> BitmapIndex {
+    fn bitor(self, rhs: &usize) -> PositiveInt {
         *self | (*rhs)
     }
 }
 
-impl BitOr<&BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl BitOr<&PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn bitor(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn bitor(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs | (*self)
     }
 }
 
-impl<Rhs> BitOrAssign<Rhs> for BitmapIndex
+impl<Rhs> BitOrAssign<Rhs> for PositiveInt
 where
     Self: BitOr<Rhs, Output = Self>,
 {
@@ -2459,7 +2502,7 @@ where
     }
 }
 
-impl<B: Borrow<Self>> BitXor<B> for BitmapIndex {
+impl<B: Borrow<Self>> BitXor<B> for PositiveInt {
     type Output = Self;
 
     fn bitxor(self, rhs: B) -> Self {
@@ -2467,7 +2510,7 @@ impl<B: Borrow<Self>> BitXor<B> for BitmapIndex {
     }
 }
 
-impl BitXor<usize> for BitmapIndex {
+impl BitXor<usize> for PositiveInt {
     type Output = Self;
 
     #[allow(clippy::cast_possible_truncation)]
@@ -2479,15 +2522,15 @@ impl BitXor<usize> for BitmapIndex {
     }
 }
 
-impl BitXor<BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl BitXor<PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn bitxor(self, rhs: PositiveInt) -> PositiveInt {
         rhs ^ self
     }
 }
 
-impl BitXor<&usize> for BitmapIndex {
+impl BitXor<&usize> for PositiveInt {
     type Output = Self;
 
     fn bitxor(self, rhs: &usize) -> Self {
@@ -2495,55 +2538,55 @@ impl BitXor<&usize> for BitmapIndex {
     }
 }
 
-impl BitXor<BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl BitXor<PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn bitxor(self, rhs: PositiveInt) -> PositiveInt {
         rhs ^ (*self)
     }
 }
 
-impl<B: Borrow<BitmapIndex>> BitXor<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> BitXor<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: B) -> BitmapIndex {
+    fn bitxor(self, rhs: B) -> PositiveInt {
         *self ^ rhs
     }
 }
 
-impl BitXor<usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl BitXor<usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: usize) -> BitmapIndex {
+    fn bitxor(self, rhs: usize) -> PositiveInt {
         *self ^ rhs
     }
 }
 
-impl BitXor<&BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl BitXor<&PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn bitxor(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs ^ self
     }
 }
 
-impl BitXor<&usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl BitXor<&usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: &usize) -> BitmapIndex {
+    fn bitxor(self, rhs: &usize) -> PositiveInt {
         *self ^ (*rhs)
     }
 }
 
-impl BitXor<&BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl BitXor<&PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn bitxor(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn bitxor(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs ^ (*self)
     }
 }
 
-impl<Rhs> BitXorAssign<Rhs> for BitmapIndex
+impl<Rhs> BitXorAssign<Rhs> for PositiveInt
 where
     Self: BitXor<Rhs, Output = Self>,
 {
@@ -2552,7 +2595,7 @@ where
     }
 }
 
-impl<B: Borrow<Self>> Div<B> for BitmapIndex {
+impl<B: Borrow<Self>> Div<B> for PositiveInt {
     type Output = Self;
 
     fn div(self, rhs: B) -> Self {
@@ -2560,7 +2603,7 @@ impl<B: Borrow<Self>> Div<B> for BitmapIndex {
     }
 }
 
-impl Div<usize> for BitmapIndex {
+impl Div<usize> for PositiveInt {
     type Output = Self;
 
     fn div(self, rhs: usize) -> Self {
@@ -2568,7 +2611,7 @@ impl Div<usize> for BitmapIndex {
     }
 }
 
-impl Div<&usize> for BitmapIndex {
+impl Div<&usize> for PositiveInt {
     type Output = Self;
 
     fn div(self, rhs: &usize) -> Self {
@@ -2576,31 +2619,31 @@ impl Div<&usize> for BitmapIndex {
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Div<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> Div<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn div(self, rhs: B) -> BitmapIndex {
+    fn div(self, rhs: B) -> PositiveInt {
         *self / rhs
     }
 }
 
-impl Div<usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Div<usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn div(self, rhs: usize) -> BitmapIndex {
+    fn div(self, rhs: usize) -> PositiveInt {
         *self / rhs
     }
 }
 
-impl Div<&usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Div<&usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn div(self, rhs: &usize) -> BitmapIndex {
+    fn div(self, rhs: &usize) -> PositiveInt {
         *self / *rhs
     }
 }
 
-impl<Rhs> DivAssign<Rhs> for BitmapIndex
+impl<Rhs> DivAssign<Rhs> for PositiveInt
 where
     Self: Div<Rhs, Output = Self>,
 {
@@ -2613,8 +2656,8 @@ where
 //       u16 would not work because it allows u16::MAX > i16::MAX.
 //       From<u8> would also be safe to implement, but would break integer type
 //       inference when an integer literal is passed to a function that expects
-//       T with BitmapIndex: TryFrom<T>.
-impl From<bool> for BitmapIndex {
+//       T with PositiveInt: TryFrom<T>.
+impl From<bool> for PositiveInt {
     fn from(x: bool) -> Self {
         Self(x.into())
     }
@@ -2622,19 +2665,19 @@ impl From<bool> for BitmapIndex {
 
 // NOTE: Assumed to work, otherwise the whole premise of allowing users to use
 //       usize/isize instead of c_u?int for indexing falls flat.
-impl From<BitmapIndex> for isize {
-    fn from(x: BitmapIndex) -> Self {
-        ffi::expect_isize(x.into_c_int())
+impl From<PositiveInt> for isize {
+    fn from(x: PositiveInt) -> Self {
+        expect_isize(x.into_c_int())
     }
 }
 //
-impl From<BitmapIndex> for usize {
-    fn from(x: BitmapIndex) -> Self {
-        ffi::expect_usize(x.into_c_uint())
+impl From<PositiveInt> for usize {
+    fn from(x: PositiveInt) -> Self {
+        expect_usize(x.into_c_uint())
     }
 }
 
-impl FromStr for BitmapIndex {
+impl FromStr for PositiveInt {
     type Err = ParseIntError;
 
     fn from_str(src: &str) -> Result<Self, ParseIntError> {
@@ -2642,7 +2685,7 @@ impl FromStr for BitmapIndex {
     }
 }
 
-impl<B: Borrow<Self>> Mul<B> for BitmapIndex {
+impl<B: Borrow<Self>> Mul<B> for PositiveInt {
     type Output = Self;
 
     fn mul(self, rhs: B) -> Self {
@@ -2655,7 +2698,7 @@ impl<B: Borrow<Self>> Mul<B> for BitmapIndex {
     }
 }
 
-impl Mul<usize> for BitmapIndex {
+impl Mul<usize> for PositiveInt {
     type Output = Self;
 
     #[allow(clippy::cast_possible_truncation)]
@@ -2677,15 +2720,15 @@ impl Mul<usize> for BitmapIndex {
     }
 }
 
-impl Mul<BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl Mul<PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn mul(self, rhs: PositiveInt) -> PositiveInt {
         rhs * self
     }
 }
 
-impl Mul<&usize> for BitmapIndex {
+impl Mul<&usize> for PositiveInt {
     type Output = Self;
 
     fn mul(self, rhs: &usize) -> Self {
@@ -2693,55 +2736,55 @@ impl Mul<&usize> for BitmapIndex {
     }
 }
 
-impl Mul<BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl Mul<PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn mul(self, rhs: PositiveInt) -> PositiveInt {
         rhs * (*self)
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Mul<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> Mul<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: B) -> BitmapIndex {
+    fn mul(self, rhs: B) -> PositiveInt {
         *self * rhs
     }
 }
 
-impl Mul<usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Mul<usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: usize) -> BitmapIndex {
+    fn mul(self, rhs: usize) -> PositiveInt {
         *self * rhs
     }
 }
 
-impl Mul<&BitmapIndex> for usize {
-    type Output = BitmapIndex;
+impl Mul<&PositiveInt> for usize {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn mul(self, rhs: &PositiveInt) -> PositiveInt {
         *rhs * self
     }
 }
 
-impl Mul<&usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Mul<&usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: &usize) -> BitmapIndex {
+    fn mul(self, rhs: &usize) -> PositiveInt {
         (*self) * (*rhs)
     }
 }
 
-impl Mul<&BitmapIndex> for &usize {
-    type Output = BitmapIndex;
+impl Mul<&PositiveInt> for &usize {
+    type Output = PositiveInt;
 
-    fn mul(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn mul(self, rhs: &PositiveInt) -> PositiveInt {
         (*rhs) * (*self)
     }
 }
 
-impl<Rhs> MulAssign<Rhs> for BitmapIndex
+impl<Rhs> MulAssign<Rhs> for PositiveInt
 where
     Self: Mul<Rhs, Output = Self>,
 {
@@ -2750,7 +2793,7 @@ where
     }
 }
 
-impl Not for BitmapIndex {
+impl Not for PositiveInt {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -2758,47 +2801,47 @@ impl Not for BitmapIndex {
     }
 }
 //
-impl Not for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Not for &PositiveInt {
+    type Output = PositiveInt;
 
     fn not(self) -> Self::Output {
         !*self
     }
 }
 
-impl PartialEq<usize> for BitmapIndex {
+impl PartialEq<usize> for PositiveInt {
     fn eq(&self, other: &usize) -> bool {
         usize::from(*self) == *other
     }
 }
 
-impl PartialEq<BitmapIndex> for usize {
+impl PartialEq<PositiveInt> for usize {
     #[allow(clippy::use_self)]
-    fn eq(&self, other: &BitmapIndex) -> bool {
+    fn eq(&self, other: &PositiveInt) -> bool {
         *self == usize::from(*other)
     }
 }
 
-impl PartialOrd<usize> for BitmapIndex {
+impl PartialOrd<usize> for PositiveInt {
     fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
         usize::from(*self).partial_cmp(other)
     }
 }
 
-impl PartialOrd<BitmapIndex> for usize {
+impl PartialOrd<PositiveInt> for usize {
     #[allow(clippy::use_self)]
-    fn partial_cmp(&self, other: &BitmapIndex) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &PositiveInt) -> Option<Ordering> {
         self.partial_cmp(&usize::from(*other))
     }
 }
 
-impl<B: Borrow<Self>> Product<B> for BitmapIndex {
+impl<B: Borrow<Self>> Product<B> for PositiveInt {
     fn product<I: Iterator<Item = B>>(iter: I) -> Self {
         iter.fold(Self::ONE, |acc, contrib| acc * contrib.borrow())
     }
 }
 
-impl<B: Borrow<Self>> Rem<B> for BitmapIndex {
+impl<B: Borrow<Self>> Rem<B> for PositiveInt {
     type Output = Self;
 
     fn rem(self, rhs: B) -> Self {
@@ -2806,7 +2849,7 @@ impl<B: Borrow<Self>> Rem<B> for BitmapIndex {
     }
 }
 
-impl Rem<usize> for BitmapIndex {
+impl Rem<usize> for PositiveInt {
     type Output = Self;
 
     fn rem(self, rhs: usize) -> Self {
@@ -2814,7 +2857,7 @@ impl Rem<usize> for BitmapIndex {
     }
 }
 
-impl Rem<&usize> for BitmapIndex {
+impl Rem<&usize> for PositiveInt {
     type Output = Self;
 
     fn rem(self, rhs: &usize) -> Self {
@@ -2822,31 +2865,31 @@ impl Rem<&usize> for BitmapIndex {
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Rem<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> Rem<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn rem(self, rhs: B) -> BitmapIndex {
+    fn rem(self, rhs: B) -> PositiveInt {
         *self % rhs
     }
 }
 
-impl Rem<usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Rem<usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn rem(self, rhs: usize) -> BitmapIndex {
+    fn rem(self, rhs: usize) -> PositiveInt {
         *self % rhs
     }
 }
 
-impl Rem<&usize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Rem<&usize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn rem(self, rhs: &usize) -> BitmapIndex {
+    fn rem(self, rhs: &usize) -> PositiveInt {
         *self % (*rhs)
     }
 }
 
-impl<Rhs> RemAssign<Rhs> for BitmapIndex
+impl<Rhs> RemAssign<Rhs> for PositiveInt
 where
     Self: Rem<Rhs, Output = Self>,
 {
@@ -2855,7 +2898,7 @@ where
     }
 }
 
-impl Shl<Self> for BitmapIndex {
+impl Shl<Self> for PositiveInt {
     type Output = Self;
 
     fn shl(self, rhs: Self) -> Self {
@@ -2863,7 +2906,7 @@ impl Shl<Self> for BitmapIndex {
     }
 }
 
-impl Shl<&Self> for BitmapIndex {
+impl Shl<&Self> for PositiveInt {
     type Output = Self;
 
     fn shl(self, rhs: &Self) -> Self {
@@ -2871,27 +2914,27 @@ impl Shl<&Self> for BitmapIndex {
     }
 }
 
-impl Shl<BitmapIndex> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Shl<PositiveInt> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn shl(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn shl(self, rhs: PositiveInt) -> PositiveInt {
         *self << rhs
     }
 }
 
 #[allow(clippy::use_self)]
-impl Shl<&BitmapIndex> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Shl<&PositiveInt> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn shl(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn shl(self, rhs: &PositiveInt) -> PositiveInt {
         *self << *rhs
     }
 }
 
-/// Generate heterogeneous `index << machine_integer` ops
+/// Generate heterogeneous `positive_int << machine_integer` ops
 macro_rules! shl_with_int {
     ( $( $int:ty ),* ) => { $(
-        impl Shl<$int> for BitmapIndex {
+        impl Shl<$int> for PositiveInt {
             type Output = Self;
 
             #[allow(trivial_numeric_casts)]
@@ -2910,7 +2953,7 @@ macro_rules! shl_with_int {
             }
         }
 
-        impl Shl<&$int> for BitmapIndex {
+        impl Shl<&$int> for PositiveInt {
             type Output = Self;
 
             fn shl(self, rhs: &$int) -> Self {
@@ -2918,18 +2961,18 @@ macro_rules! shl_with_int {
             }
         }
 
-        impl Shl<$int> for &BitmapIndex {
-            type Output = BitmapIndex;
+        impl Shl<$int> for &PositiveInt {
+            type Output = PositiveInt;
 
-            fn shl(self, rhs: $int) -> BitmapIndex {
+            fn shl(self, rhs: $int) -> PositiveInt {
                 *self << rhs
             }
         }
 
-        impl Shl<&$int> for &BitmapIndex {
-            type Output = BitmapIndex;
+        impl Shl<&$int> for &PositiveInt {
+            type Output = PositiveInt;
 
-            fn shl(self, rhs: &$int) -> BitmapIndex {
+            fn shl(self, rhs: &$int) -> PositiveInt {
                 *self << *rhs
             }
         }
@@ -2938,7 +2981,7 @@ macro_rules! shl_with_int {
 //
 shl_with_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-impl<Rhs> ShlAssign<Rhs> for BitmapIndex
+impl<Rhs> ShlAssign<Rhs> for PositiveInt
 where
     Self: Shl<Rhs, Output = Self>,
 {
@@ -2947,7 +2990,7 @@ where
     }
 }
 
-impl Shr<Self> for BitmapIndex {
+impl Shr<Self> for PositiveInt {
     type Output = Self;
 
     fn shr(self, rhs: Self) -> Self {
@@ -2955,7 +2998,7 @@ impl Shr<Self> for BitmapIndex {
     }
 }
 
-impl Shr<&Self> for BitmapIndex {
+impl Shr<&Self> for PositiveInt {
     type Output = Self;
 
     fn shr(self, rhs: &Self) -> Self {
@@ -2963,27 +3006,27 @@ impl Shr<&Self> for BitmapIndex {
     }
 }
 
-impl Shr<BitmapIndex> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Shr<PositiveInt> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn shr(self, rhs: BitmapIndex) -> BitmapIndex {
+    fn shr(self, rhs: PositiveInt) -> PositiveInt {
         *self >> rhs
     }
 }
 
 #[allow(clippy::use_self)]
-impl Shr<&BitmapIndex> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Shr<&PositiveInt> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn shr(self, rhs: &BitmapIndex) -> BitmapIndex {
+    fn shr(self, rhs: &PositiveInt) -> PositiveInt {
         *self >> *rhs
     }
 }
 
-/// Generate heterogeneous `index >> machine_integer` ops
+/// Generate heterogeneous `positive_int >> machine_integer` ops
 macro_rules! shr_with_int {
     ( $( $int:ty ),* ) => { $(
-        impl Shr<$int> for BitmapIndex {
+        impl Shr<$int> for PositiveInt {
             type Output = Self;
 
             #[allow(trivial_numeric_casts)]
@@ -3002,7 +3045,7 @@ macro_rules! shr_with_int {
             }
         }
 
-        impl Shr<&$int> for BitmapIndex {
+        impl Shr<&$int> for PositiveInt {
             type Output = Self;
 
             fn shr(self, rhs: &$int) -> Self {
@@ -3010,18 +3053,18 @@ macro_rules! shr_with_int {
             }
         }
 
-        impl Shr<$int> for &BitmapIndex {
-            type Output = BitmapIndex;
+        impl Shr<$int> for &PositiveInt {
+            type Output = PositiveInt;
 
-            fn shr(self, rhs: $int) -> BitmapIndex {
+            fn shr(self, rhs: $int) -> PositiveInt {
                 *self >> rhs
             }
         }
 
-        impl Shr<&$int> for &BitmapIndex {
-            type Output = BitmapIndex;
+        impl Shr<&$int> for &PositiveInt {
+            type Output = PositiveInt;
 
-            fn shr(self, rhs: &$int) -> BitmapIndex {
+            fn shr(self, rhs: &$int) -> PositiveInt {
                 *self >> *rhs
             }
         }
@@ -3030,7 +3073,7 @@ macro_rules! shr_with_int {
 //
 shr_with_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-impl<Rhs> ShrAssign<Rhs> for BitmapIndex
+impl<Rhs> ShrAssign<Rhs> for PositiveInt
 where
     Self: Shr<Rhs, Output = Self>,
 {
@@ -3039,7 +3082,7 @@ where
     }
 }
 
-impl<B: Borrow<Self>> Sub<B> for BitmapIndex {
+impl<B: Borrow<Self>> Sub<B> for PositiveInt {
     type Output = Self;
 
     fn sub(self, rhs: B) -> Self {
@@ -3052,7 +3095,7 @@ impl<B: Borrow<Self>> Sub<B> for BitmapIndex {
     }
 }
 
-impl Sub<isize> for BitmapIndex {
+impl Sub<isize> for PositiveInt {
     type Output = Self;
 
     fn sub(self, rhs: isize) -> Self {
@@ -3074,7 +3117,7 @@ impl Sub<isize> for BitmapIndex {
     }
 }
 
-impl Sub<&isize> for BitmapIndex {
+impl Sub<&isize> for PositiveInt {
     type Output = Self;
 
     fn sub(self, rhs: &isize) -> Self {
@@ -3082,31 +3125,31 @@ impl Sub<&isize> for BitmapIndex {
     }
 }
 
-impl<B: Borrow<BitmapIndex>> Sub<B> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl<B: Borrow<PositiveInt>> Sub<B> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn sub(self, rhs: B) -> BitmapIndex {
+    fn sub(self, rhs: B) -> PositiveInt {
         *self - rhs
     }
 }
 
-impl Sub<isize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Sub<isize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn sub(self, rhs: isize) -> BitmapIndex {
+    fn sub(self, rhs: isize) -> PositiveInt {
         *self - rhs
     }
 }
 
-impl Sub<&isize> for &BitmapIndex {
-    type Output = BitmapIndex;
+impl Sub<&isize> for &PositiveInt {
+    type Output = PositiveInt;
 
-    fn sub(self, rhs: &isize) -> BitmapIndex {
+    fn sub(self, rhs: &isize) -> PositiveInt {
         *self - (*rhs)
     }
 }
 
-impl<Rhs> SubAssign<Rhs> for BitmapIndex
+impl<Rhs> SubAssign<Rhs> for PositiveInt
 where
     Self: Sub<Rhs, Output = Self>,
 {
@@ -3115,7 +3158,7 @@ where
     }
 }
 
-impl<B: Borrow<Self>> Sum<B> for BitmapIndex {
+impl<B: Borrow<Self>> Sum<B> for PositiveInt {
     fn sum<I: Iterator<Item = B>>(iter: I) -> Self {
         iter.fold(Self::ZERO, |acc, contrib| acc + contrib.borrow())
     }
@@ -3123,7 +3166,7 @@ impl<B: Borrow<Self>> Sum<B> for BitmapIndex {
 
 // NOTE: Only implementing TryFrom<usize> for the same reason slices can only be
 //       indexed by usize, namely to avoid integer type inference issues
-impl TryFrom<usize> for BitmapIndex {
+impl TryFrom<usize> for PositiveInt {
     type Error = TryFromIntError;
 
     fn try_from(value: usize) -> Result<Self, TryFromIntError> {
@@ -3131,14 +3174,14 @@ impl TryFrom<usize> for BitmapIndex {
     }
 }
 
-/// Implement conversions from machine integer types to index
+/// Implement conversions from machine integer types to [`PositiveInt`]
 macro_rules! try_into {
     ( $( $int:ty ),* ) => { $(
-        impl TryFrom<BitmapIndex> for $int {
+        impl TryFrom<PositiveInt> for $int {
             type Error = TryFromIntError;
 
             #[allow(clippy::needless_question_mark)]
-            fn try_from(value: BitmapIndex) -> Result<Self, TryFromIntError> {
+            fn try_from(value: PositiveInt) -> Result<Self, TryFromIntError> {
                 Ok(value.0.try_into()?)
             }
         }
@@ -3146,6 +3189,201 @@ macro_rules! try_into {
 }
 //
 try_into!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
+
+/// [`Range`]-like iterator for [`PositiveInt`]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+struct PositiveIntRangeIter {
+    start: PositiveInt,
+    end: PositiveInt,
+}
+//
+impl PositiveIntRangeIter {
+    /// Truth that this iterator contains no element
+    fn is_empty_impl(&self) -> bool {
+        self.len() == 0
+    }
+}
+//
+impl DoubleEndedIterator for PositiveIntRangeIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.is_empty_impl() {
+            None
+        } else {
+            self.end -= 1;
+            Some(self.end + 1)
+        }
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        if self.len() < n {
+            self.end = self.start;
+            None
+        } else {
+            self.end -= PositiveInt::try_from(n)
+                .expect("The iterator cannot have an out-of-range number of elements");
+            Some(self.end + 1)
+        }
+    }
+}
+//
+impl ExactSizeIterator for PositiveIntRangeIter {
+    fn len(&self) -> usize {
+        usize::from(self.end).saturating_sub(usize::from(self.start))
+    }
+}
+//
+impl FusedIterator for PositiveIntRangeIter {}
+//
+impl Iterator for PositiveIntRangeIter {
+    type Item = PositiveInt;
+
+    fn next(&mut self) -> Option<PositiveInt> {
+        if self.is_empty_impl() {
+            None
+        } else {
+            self.start += 1;
+            Some(self.start - 1)
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len(), Some(self.len()))
+    }
+
+    fn count(self) -> usize {
+        self.len()
+    }
+
+    fn last(self) -> Option<PositiveInt> {
+        (!self.is_empty_impl()).then(|| self.end - 1)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<PositiveInt> {
+        if self.len() < n {
+            self.start = self.end;
+            None
+        } else {
+            self.start += PositiveInt::try_from(n)
+                .expect("The iterator cannot have an out-of-range number of elements");
+            Some(self.start - 1)
+        }
+    }
+}
+
+/// [`RangeInclusive`]-like iterator for [`PositiveInt`]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+struct PositiveIntRangeInclusiveIter {
+    start: PositiveInt,
+    end: PositiveInt,
+}
+//
+impl PositiveIntRangeInclusiveIter {
+    /// Truth that this iterator contains no element
+    fn is_empty_impl(&self) -> bool {
+        self.len() == 0
+    }
+}
+//
+impl DoubleEndedIterator for PositiveIntRangeInclusiveIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.is_empty_impl() {
+            None
+        } else {
+            self.end -= 1;
+            Some(self.end + 1)
+        }
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        if self.len() < n {
+            self.end = self.start;
+            None
+        } else {
+            self.end -= PositiveInt::try_from(n)
+                .expect("The iterator cannot have an out-of-range number of elements");
+            Some(self.end + 1)
+        }
+    }
+}
+//
+impl ExactSizeIterator for PositiveIntRangeInclusiveIter {
+    fn len(&self) -> usize {
+        usize::from(self.end)
+            .checked_sub(usize::from(self.start))
+            .map_or(0, |len| len + 1)
+    }
+}
+//
+impl FusedIterator for PositiveIntRangeInclusiveIter {}
+//
+impl Iterator for PositiveIntRangeInclusiveIter {
+    type Item = PositiveInt;
+
+    fn next(&mut self) -> Option<PositiveInt> {
+        if self.is_empty_impl() {
+            None
+        } else {
+            self.start += 1;
+            Some(self.start - 1)
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len(), Some(self.len()))
+    }
+
+    fn count(self) -> usize {
+        self.len()
+    }
+
+    fn last(self) -> Option<PositiveInt> {
+        (!self.is_empty_impl()).then(|| self.end - 1)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<PositiveInt> {
+        if self.len() < n {
+            self.start = self.end;
+            None
+        } else {
+            self.start += PositiveInt::try_from(n)
+                .expect("The iterator cannot have an out-of-range number of elements");
+            Some(self.start - 1)
+        }
+    }
+}
+
+/// [`RangeFrom`]-like iterator for [`PositiveInt`]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+struct PositiveIntRangeFromIter(PositiveInt);
+//
+impl FusedIterator for PositiveIntRangeFromIter {}
+//
+impl Iterator for PositiveIntRangeFromIter {
+    type Item = PositiveInt;
+
+    fn next(&mut self) -> Option<PositiveInt> {
+        self.0 += 1;
+        Some(self.0 - 1)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (usize::MAX, None)
+    }
+
+    fn count(self) -> usize {
+        panic!("This iterator has an infinite number of elements")
+    }
+
+    fn last(self) -> Option<PositiveInt> {
+        None
+    }
+
+    fn nth(&mut self, n: usize) -> Option<PositiveInt> {
+        self.0 += PositiveInt::try_from(n)
+            .expect("The iterator cannot have an out-of-range number of elements");
+        Some(self.0 - 1)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -3159,8 +3397,8 @@ mod tests {
         panic::{RefUnwindSafe, UnwindSafe},
     };
 
-    /// Inner bits of BitmapIndex that are not used by the implementation
-    const UNUSED_BITS: c_uint = 1 << BitmapIndex::EFFECTIVE_BITS;
+    /// Inner bits of PositiveInt that are not used by the implementation
+    const UNUSED_BITS: c_uint = 1 << PositiveInt::EFFECTIVE_BITS;
 
     /// Number of bits that are not used
     const NUM_UNUSED_BITS: u32 = UNUSED_BITS.count_ones();
@@ -3198,19 +3436,19 @@ mod tests {
     #[test]
     fn constants() {
         // Constants and conversions to/from bool
-        assert_eq!(BitmapIndex::MIN, BitmapIndex::ZERO);
-        assert_eq!(BitmapIndex::ZERO, 0);
-        assert_eq!(BitmapIndex::ONE, 1);
+        assert_eq!(PositiveInt::MIN, PositiveInt::ZERO);
+        assert_eq!(PositiveInt::ZERO, 0);
+        assert_eq!(PositiveInt::ONE, 1);
         assert_eq!(
-            BitmapIndex::MAX,
-            (1usize << BitmapIndex::EFFECTIVE_BITS) - 1
+            PositiveInt::MAX,
+            (1usize << PositiveInt::EFFECTIVE_BITS) - 1
         );
-        assert_eq!(BitmapIndex::default(), 0);
-        assert_eq!(BitmapIndex::from(false), 0);
-        assert_eq!(BitmapIndex::from(true), 1);
+        assert_eq!(PositiveInt::default(), 0);
+        assert_eq!(PositiveInt::from(false), 0);
+        assert_eq!(PositiveInt::from(true), 1);
 
         // Now let's test some properties that are specific to zero
-        let zero = BitmapIndex::ZERO;
+        let zero = PositiveInt::ZERO;
 
         // Logarithm fails for zero
         assert_panics(|| zero.ilog2());
@@ -3224,9 +3462,9 @@ mod tests {
         assert_eq!(zero.overflowing_neg(), (zero, false));
     }
 
-    /// Test properties of unary operations on bitmap indices
+    /// Test properties of unary operations on positive ints
     #[quickcheck]
-    fn unary(idx: BitmapIndex) {
+    fn unary(idx: PositiveInt) {
         // Version of idx's payload with the unused bits set
         let set_unused = idx.0 | UNUSED_BITS;
 
@@ -3270,7 +3508,7 @@ mod tests {
         }
 
         // Formatting
-        assert_eq!(format!("{idx:?}"), format!("BitmapIndex({:})", idx.0));
+        assert_eq!(format!("{idx:?}"), format!("PositiveInt({:})", idx.0));
         assert_eq!(format!("{idx}"), format!("{:}", idx.0));
         assert_eq!(format!("{idx:b}"), format!("{:b}", idx.0));
         assert_eq!(format!("{idx:e}"), format!("{:e}", idx.0));
@@ -3285,8 +3523,8 @@ mod tests {
         // Division and remainder by zero
         #[allow(clippy::op_ref)]
         {
-            // With BitmapIndex denominator
-            let zero = BitmapIndex::ZERO;
+            // With PositiveInt denominator
+            let zero = PositiveInt::ZERO;
             assert_eq!(idx.checked_div(zero), None);
             assert_panics(|| idx.overflowing_div(zero));
             assert_panics(|| idx.saturating_div(zero));
@@ -3355,14 +3593,14 @@ mod tests {
         // Logarithm of zero should fail/panic
         {
             // ...with base >= 2
-            let base_above2 = idx.saturating_add(BitmapIndex(2));
-            assert_panics(|| BitmapIndex::ZERO.ilog(base_above2));
-            assert_eq!(BitmapIndex::ZERO.checked_ilog(base_above2), None);
+            let base_above2 = idx.saturating_add(PositiveInt(2));
+            assert_panics(|| PositiveInt::ZERO.ilog(base_above2));
+            assert_eq!(PositiveInt::ZERO.checked_ilog(base_above2), None);
 
             // ...with base < 2
             let base_below2 = idx % 2;
-            assert_panics(|| BitmapIndex::ZERO.ilog(base_below2));
-            assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
+            assert_panics(|| PositiveInt::ZERO.ilog(base_below2));
+            assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
         }
 
         // Considerations specific to positive numbers
@@ -3376,16 +3614,16 @@ mod tests {
             assert_eq!(idx.checked_ilog10(), Some(expected_log10));
 
             // Negation fails or wraps around for positive numbers
-            let wrapping_neg = (!idx).wrapping_add(BitmapIndex(1));
+            let wrapping_neg = (!idx).wrapping_add(PositiveInt(1));
             assert_eq!(idx.checked_neg(), None);
             assert_eq!(idx.wrapping_neg(), wrapping_neg);
             assert_eq!(idx.overflowing_neg(), (wrapping_neg, true));
         }
 
         // Considerations specific to numbers that have a next power of 2
-        let last_pow2 = BitmapIndex::ONE << (BitmapIndex::EFFECTIVE_BITS - 1);
+        let last_pow2 = PositiveInt::ONE << (PositiveInt::EFFECTIVE_BITS - 1);
         let has_next_pow2 = idx & (!last_pow2);
-        let next_pow2 = BitmapIndex(has_next_pow2.0.next_power_of_two());
+        let next_pow2 = PositiveInt(has_next_pow2.0.next_power_of_two());
         assert_eq!(has_next_pow2.next_power_of_two(), next_pow2);
         assert_eq!(has_next_pow2.checked_next_power_of_two(), Some(next_pow2));
 
@@ -3394,22 +3632,22 @@ mod tests {
         if no_next_pow2 == last_pow2 {
             no_next_pow2 += 1;
         }
-        assert_debug_panics(|| no_next_pow2.next_power_of_two(), BitmapIndex::ZERO);
+        assert_debug_panics(|| no_next_pow2.next_power_of_two(), PositiveInt::ZERO);
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
     }
 
-    /// Test usize -> BitmapIndex conversion and special index-usize ops
+    /// Test usize -> PositiveInt conversion and special positive-usize ops
     #[allow(clippy::op_ref)]
     #[quickcheck]
     fn unary_usize(x: usize) {
-        // usize -> BitmapIndex conversion
+        // usize -> PositiveInt conversion
         assert_eq!(
-            BitmapIndex::try_from(x),
-            c_int::try_from(x).map(|i| BitmapIndex(i as c_uint))
+            PositiveInt::try_from(x),
+            c_int::try_from(x).map(|i| PositiveInt(i as c_uint))
         );
 
         // Multiplying ZERO by any usize works
-        let zero = BitmapIndex::ZERO;
+        let zero = PositiveInt::ZERO;
         assert_eq!(zero * x, zero);
         assert_eq!(x * zero, zero);
         assert_eq!(&zero * x, zero);
@@ -3426,11 +3664,11 @@ mod tests {
         assert_eq!(tmp, zero);
     }
 
-    /// Test str -> BitmapIndex conversion (common harness)
+    /// Test str -> PositiveInt conversion (common harness)
     fn test_from_str_radix(
         src: &str,
         radix: u32,
-        parse: impl FnOnce() -> Result<BitmapIndex, ParseIntError> + UnwindSafe,
+        parse: impl FnOnce() -> Result<PositiveInt, ParseIntError> + UnwindSafe,
     ) {
         // Handle excessive radix
         if !(2..=36).contains(&radix) {
@@ -3443,14 +3681,14 @@ mod tests {
         let as_usize = match usize::from_str_radix(src, radix) {
             Ok(as_usize) => as_usize,
             Err(_) => {
-                // If it fails for usize, it should fail for BitmapIndex
+                // If it fails for usize, it should fail for PositiveInt
                 assert!(result.is_err());
                 return;
             }
         };
 
-        // Handle the fact that valid BitmapIndex is a subset of usize
-        const MAX: usize = BitmapIndex::MAX.0 as usize;
+        // Handle the fact that valid PositiveInt is a subset of usize
+        const MAX: usize = PositiveInt::MAX.0 as usize;
         match as_usize {
             0..=MAX => {
                 assert_eq!(result.unwrap(), as_usize);
@@ -3461,17 +3699,17 @@ mod tests {
         }
     }
 
-    /// Test str -> BitmapIndex conversion via the FromStr trait
+    /// Test str -> PositiveInt conversion via the FromStr trait
     #[quickcheck]
     fn from_str(src: String) {
-        test_from_str_radix(&src, 10, || BitmapIndex::from_str(&src))
+        test_from_str_radix(&src, 10, || PositiveInt::from_str(&src))
     }
 
-    /// Test str -> BitmapIndex conversion via the from_str_radix() method
+    /// Test str -> PositiveInt conversion via the from_str_radix() method
     #[quickcheck]
     fn from_str_radix(src: String, radix: u32) {
         let radix = radix % 37;
-        test_from_str_radix(&src, radix, || BitmapIndex::from_str_radix(&src, radix))
+        test_from_str_radix(&src, radix, || PositiveInt::from_str_radix(&src, radix))
     }
 
     /// Test a faillible operation, produce the checked result for verification
@@ -3483,27 +3721,27 @@ mod tests {
     /// If `release_result` is `None`, it indicates that the faillible operation
     /// should panick even in release mode, as e.g. ilog() does.
     fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
-        index: BitmapIndex,
+        int: PositiveInt,
         rhs: Rhs,
-        checked_op: impl FnOnce(BitmapIndex, Rhs) -> Option<BitmapIndex>,
-        faillible_ops: [Box<dyn Fn(BitmapIndex, Rhs) -> BitmapIndex + RefUnwindSafe>; LEN],
-        release_result: Option<BitmapIndex>,
-    ) -> Option<BitmapIndex> {
-        let checked_result = checked_op(index, rhs);
+        checked_op: impl FnOnce(PositiveInt, Rhs) -> Option<PositiveInt>,
+        faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
+        release_result: Option<PositiveInt>,
+    ) -> Option<PositiveInt> {
+        let checked_result = checked_op(int, rhs);
         match (checked_result, release_result) {
             (Some(result), _) => {
                 for faillible_op in faillible_ops {
-                    assert_eq!(faillible_op(index, rhs), result);
+                    assert_eq!(faillible_op(int, rhs), result);
                 }
             }
             (None, Some(release_result)) => {
                 for faillible_op in faillible_ops {
-                    assert_debug_panics(|| faillible_op(index, rhs), release_result);
+                    assert_debug_panics(|| faillible_op(int, rhs), release_result);
                 }
             }
             (None, None) => {
                 for faillible_op in faillible_ops {
-                    assert_panics(|| faillible_op(index, rhs));
+                    assert_panics(|| faillible_op(int, rhs));
                 }
             }
         }
@@ -3512,18 +3750,18 @@ mod tests {
 
     /// Test an overflowing operation, produce the overflowing result for verification
     fn test_overflowing<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
-        index: BitmapIndex,
+        int: PositiveInt,
         rhs: Rhs,
-        checked_op: impl Fn(BitmapIndex, Rhs) -> Option<BitmapIndex>,
-        overflowing_op: impl Fn(BitmapIndex, Rhs) -> (BitmapIndex, bool),
-        wrapping_op: impl Fn(BitmapIndex, Rhs) -> BitmapIndex,
-        faillible_ops: [Box<dyn Fn(BitmapIndex, Rhs) -> BitmapIndex + RefUnwindSafe>; LEN],
-    ) -> (BitmapIndex, bool) {
-        let overflowing_result = overflowing_op(index, rhs);
+        checked_op: impl Fn(PositiveInt, Rhs) -> Option<PositiveInt>,
+        overflowing_op: impl Fn(PositiveInt, Rhs) -> (PositiveInt, bool),
+        wrapping_op: impl Fn(PositiveInt, Rhs) -> PositiveInt,
+        faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
+    ) -> (PositiveInt, bool) {
+        let overflowing_result = overflowing_op(int, rhs);
         let (wrapped_result, overflow) = overflowing_result;
-        assert_eq!(wrapping_op(index, rhs), wrapped_result);
+        assert_eq!(wrapping_op(int, rhs), wrapped_result);
         let checked_result =
-            test_faillible(index, rhs, checked_op, faillible_ops, Some(wrapped_result));
+            test_faillible(int, rhs, checked_op, faillible_ops, Some(wrapped_result));
         if overflow {
             assert_eq!(checked_result, None);
         } else {
@@ -3532,31 +3770,31 @@ mod tests {
         overflowing_result
     }
 
-    /// Predict the result of an overflowing BitmapIndex operation from the
+    /// Predict the result of an overflowing PositiveInt operation from the
     /// result of the equivalent overflowing usize operation.
-    fn predict_overflowing_result<IndexRhs, UsizeRhs: From<IndexRhs>>(
-        i1: BitmapIndex,
-        i2: IndexRhs,
+    fn predict_overflowing_result<IntRhs, UsizeRhs: From<IntRhs>>(
+        i1: PositiveInt,
+        i2: IntRhs,
         usize_op: fn(usize, UsizeRhs) -> (usize, bool),
-    ) -> (BitmapIndex, bool) {
-        let used_bits_usize = (1usize << BitmapIndex::EFFECTIVE_BITS) - 1;
-        let max_usize = usize::from(BitmapIndex::MAX);
+    ) -> (PositiveInt, bool) {
+        let used_bits_usize = (1usize << PositiveInt::EFFECTIVE_BITS) - 1;
+        let max_usize = usize::from(PositiveInt::MAX);
         let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), UsizeRhs::from(i2));
-        let expected_wrapped = BitmapIndex::try_from(wrapped_usize & used_bits_usize).unwrap();
+        let expected_wrapped = PositiveInt::try_from(wrapped_usize & used_bits_usize).unwrap();
         let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
         (expected_wrapped, expected_overflow)
     }
 
-    /// Test index-index binary operations
+    /// Test int-int binary operations
     #[allow(clippy::op_ref)]
     #[quickcheck]
-    fn index_op_index(i1: BitmapIndex, i2: BitmapIndex) {
+    fn int_op_int(i1: PositiveInt, i2: PositiveInt) {
         // Ordering passes through
         assert_eq!(i1 == i2, i1.0 == i2.0);
         assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
 
         // Bitwise AND passes through (no risk of setting high-order bit)
-        let expected = BitmapIndex(i1.0 & i2.0);
+        let expected = PositiveInt(i1.0 & i2.0);
         assert_eq!(i1 & i2, expected);
         assert_eq!(&i1 & i2, expected);
         assert_eq!(i1 & (&i2), expected);
@@ -3569,7 +3807,7 @@ mod tests {
         assert_eq!(tmp, expected);
 
         // Bitwise OR passes through (no risk of setting high-order bit)
-        let expected = BitmapIndex(i1.0 | i2.0);
+        let expected = PositiveInt(i1.0 | i2.0);
         assert_eq!(i1 | i2, expected);
         assert_eq!(&i1 | i2, expected);
         assert_eq!(i1 | (&i2), expected);
@@ -3582,7 +3820,7 @@ mod tests {
         assert_eq!(tmp, expected);
 
         // Bitwise XOR passes through (no risk of setting high-order bit)
-        let expected = BitmapIndex(i1.0 ^ i2.0);
+        let expected = PositiveInt(i1.0 ^ i2.0);
         assert_eq!(i1 ^ i2, expected);
         assert_eq!(&i1 ^ i2, expected);
         assert_eq!(i1 ^ (&i2), expected);
@@ -3600,9 +3838,9 @@ mod tests {
         let (wrapped, overflow) = test_overflowing(
             i1,
             i2,
-            BitmapIndex::checked_add,
-            BitmapIndex::overflowing_add,
-            BitmapIndex::wrapping_add,
+            PositiveInt::checked_add,
+            PositiveInt::overflowing_add,
+            PositiveInt::wrapping_add,
             [
                 Box::new(|i1, i2| i1 + i2),
                 Box::new(|i1, i2| &i1 + i2),
@@ -3621,7 +3859,7 @@ mod tests {
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
         if overflow {
-            assert_eq!(i1.saturating_add(i2), BitmapIndex::MAX);
+            assert_eq!(i1.saturating_add(i2), PositiveInt::MAX);
         } else {
             assert_eq!(i1.saturating_add(i2), wrapped);
         }
@@ -3632,9 +3870,9 @@ mod tests {
         let (wrapped, overflow) = test_overflowing(
             i1,
             i2,
-            BitmapIndex::checked_sub,
-            BitmapIndex::overflowing_sub,
-            BitmapIndex::wrapping_sub,
+            PositiveInt::checked_sub,
+            PositiveInt::overflowing_sub,
+            PositiveInt::wrapping_sub,
             [
                 Box::new(|i1, i2| i1 - i2),
                 Box::new(|i1, i2| &i1 - i2),
@@ -3653,13 +3891,13 @@ mod tests {
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
         if overflow {
-            assert_eq!(i1.saturating_sub(i2), BitmapIndex::MIN);
+            assert_eq!(i1.saturating_sub(i2), PositiveInt::MIN);
         } else {
             assert_eq!(i1.saturating_sub(i2), wrapped);
         }
 
         // Absolute difference
-        assert_eq!(i1.abs_diff(i2), BitmapIndex(i1.0.abs_diff(i2.0)));
+        assert_eq!(i1.abs_diff(i2), PositiveInt(i1.0.abs_diff(i2.0)));
 
         // Multiplication
         let (expected_wrapped, expected_overflow) =
@@ -3667,9 +3905,9 @@ mod tests {
         let (wrapped, overflow) = test_overflowing(
             i1,
             i2,
-            BitmapIndex::checked_mul,
-            BitmapIndex::overflowing_mul,
-            BitmapIndex::wrapping_mul,
+            PositiveInt::checked_mul,
+            PositiveInt::overflowing_mul,
+            PositiveInt::wrapping_mul,
             [
                 Box::new(|i1, i2| i1 * i2),
                 Box::new(|i1, i2| &i1 * i2),
@@ -3688,7 +3926,7 @@ mod tests {
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
         if overflow {
-            assert_eq!(i1.saturating_mul(i2), BitmapIndex::MAX);
+            assert_eq!(i1.saturating_mul(i2), PositiveInt::MAX);
         } else {
             assert_eq!(i1.saturating_mul(i2), wrapped);
         }
@@ -3696,15 +3934,15 @@ mod tests {
         // Division and remainder by nonzero (zero case tested in unary tests)
         {
             // Division
-            let nonzero = i2.saturating_add(BitmapIndex::ONE);
+            let nonzero = i2.saturating_add(PositiveInt::ONE);
             let (expected_wrapped, expected_overflow) =
                 predict_overflowing_result(i1, nonzero, usize::overflowing_div);
             let res1 = test_overflowing(
                 i1,
                 nonzero,
-                BitmapIndex::checked_div,
-                BitmapIndex::overflowing_div,
-                BitmapIndex::wrapping_div,
+                PositiveInt::checked_div,
+                PositiveInt::overflowing_div,
+                PositiveInt::wrapping_div,
                 [
                     Box::new(|i1, nonzero| i1 / nonzero),
                     Box::new(|i1, nonzero| &i1 / nonzero),
@@ -3723,9 +3961,9 @@ mod tests {
             let res2 = test_overflowing(
                 i1,
                 nonzero,
-                BitmapIndex::checked_div_euclid,
-                BitmapIndex::overflowing_div_euclid,
-                BitmapIndex::wrapping_div_euclid,
+                PositiveInt::checked_div_euclid,
+                PositiveInt::overflowing_div_euclid,
+                PositiveInt::wrapping_div_euclid,
                 [Box::new(|i1, nonzero| i1.div_euclid(nonzero))],
             );
             assert_eq!(i1.saturating_div(nonzero), expected_wrapped);
@@ -3740,9 +3978,9 @@ mod tests {
             let res1 = test_overflowing(
                 i1,
                 nonzero,
-                BitmapIndex::checked_rem,
-                BitmapIndex::overflowing_rem,
-                BitmapIndex::wrapping_rem,
+                PositiveInt::checked_rem,
+                PositiveInt::overflowing_rem,
+                PositiveInt::wrapping_rem,
                 [
                     Box::new(|i1, nonzero| i1 % nonzero),
                     Box::new(|i1, nonzero| &i1 % nonzero),
@@ -3761,9 +3999,9 @@ mod tests {
             let res2 = test_overflowing(
                 i1,
                 nonzero,
-                BitmapIndex::checked_rem_euclid,
-                BitmapIndex::overflowing_rem_euclid,
-                BitmapIndex::wrapping_rem_euclid,
+                PositiveInt::checked_rem_euclid,
+                PositiveInt::overflowing_rem_euclid,
+                PositiveInt::wrapping_rem_euclid,
                 [Box::new(|i1, nonzero| i1.rem_euclid(nonzero))],
             );
             for (wrapped, overflow) in [res1, res2] {
@@ -3775,23 +4013,23 @@ mod tests {
         // Checked logarithm
         {
             // Should succeed for a number >= 0 with a basis >= 2
-            let number_above0 = i1.saturating_add(BitmapIndex::ONE);
-            let base_above2 = i2.saturating_add(BitmapIndex(2));
+            let number_above0 = i1.saturating_add(PositiveInt::ONE);
+            let base_above2 = i2.saturating_add(PositiveInt(2));
             let expected = number_above0.0.ilog(base_above2.0);
             assert_eq!(number_above0.ilog(base_above2), expected);
             assert_eq!(number_above0.checked_ilog(base_above2), Some(expected));
 
             // Should fail if the basis is below 2
             let base_below2 = i2 % 2;
-            assert_panics(|| BitmapIndex::ZERO.ilog(base_below2));
-            assert_eq!(BitmapIndex::ZERO.checked_ilog(base_below2), None);
+            assert_panics(|| PositiveInt::ZERO.ilog(base_below2));
+            assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
         }
 
         // Non-overflowing left shift must keep high-order bit cleared
         #[allow(trivial_numeric_casts)]
-        let effective_bits = BitmapIndex(BitmapIndex::EFFECTIVE_BITS as _);
+        let effective_bits = PositiveInt(PositiveInt::EFFECTIVE_BITS as _);
         let wrapped_shift = i2 % effective_bits;
-        let wrapped_result = BitmapIndex((i1.0 << wrapped_shift.0) & BitmapIndex::MAX.0);
+        let wrapped_result = PositiveInt((i1.0 << wrapped_shift.0) & PositiveInt::MAX.0);
         assert_eq!(i1 << wrapped_shift, wrapped_result);
         assert_eq!(&i1 << wrapped_shift, wrapped_result);
         assert_eq!(i1 << (&wrapped_shift), wrapped_result);
@@ -3827,7 +4065,7 @@ mod tests {
         );
 
         // Non-overflowing right shift can pass through
-        let wrapped_result = BitmapIndex(i1.0 >> wrapped_shift.0);
+        let wrapped_result = PositiveInt(i1.0 >> wrapped_shift.0);
         assert_eq!(i1 >> wrapped_shift, wrapped_result);
         assert_eq!(&i1 >> wrapped_shift, wrapped_result);
         assert_eq!(i1 >> (&wrapped_shift), wrapped_result);
@@ -3862,61 +4100,61 @@ mod tests {
         );
     }
 
-    /// Test index-u32 binary operations
+    /// Test int-u32 binary operations
     #[allow(clippy::op_ref)]
     #[quickcheck]
-    fn index_op_u32(index: BitmapIndex, rhs: u32) {
+    fn int_op_u32(int: PositiveInt, rhs: u32) {
         // Elevation to an integer power
         let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(index, rhs, usize::overflowing_pow);
+            predict_overflowing_result(int, rhs, usize::overflowing_pow);
         let (wrapped, overflow) = test_overflowing(
-            index,
+            int,
             rhs,
-            BitmapIndex::checked_pow,
-            BitmapIndex::overflowing_pow,
-            BitmapIndex::wrapping_pow,
-            [Box::new(|index, rhs| index.pow(rhs))],
+            PositiveInt::checked_pow,
+            PositiveInt::overflowing_pow,
+            PositiveInt::wrapping_pow,
+            [Box::new(|int, rhs| int.pow(rhs))],
         );
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
         if overflow {
-            assert_eq!(index.saturating_pow(rhs), BitmapIndex::MAX);
+            assert_eq!(int.saturating_pow(rhs), PositiveInt::MAX);
         } else {
-            assert_eq!(index.saturating_pow(rhs), wrapped);
+            assert_eq!(int.saturating_pow(rhs), wrapped);
         }
 
         // Non-overflowing left shift
         let test_left_shift = |rhs| {
             test_overflowing(
-                index,
+                int,
                 rhs,
-                BitmapIndex::checked_shl,
-                BitmapIndex::overflowing_shl,
-                BitmapIndex::wrapping_shl,
+                PositiveInt::checked_shl,
+                PositiveInt::overflowing_shl,
+                PositiveInt::wrapping_shl,
                 [
-                    Box::new(|index, rhs| index << rhs),
-                    Box::new(|index, rhs| &index << rhs),
-                    Box::new(|index, rhs| index << &rhs),
-                    Box::new(|index, rhs| &index << &rhs),
-                    Box::new(|mut index, rhs| {
-                        index <<= rhs;
-                        index
+                    Box::new(|int, rhs| int << rhs),
+                    Box::new(|int, rhs| &int << rhs),
+                    Box::new(|int, rhs| int << &rhs),
+                    Box::new(|int, rhs| &int << &rhs),
+                    Box::new(|mut int, rhs| {
+                        int <<= rhs;
+                        int
                     }),
-                    Box::new(|mut index, rhs| {
-                        index <<= &rhs;
-                        index
+                    Box::new(|mut int, rhs| {
+                        int <<= &rhs;
+                        int
                     }),
                 ],
             )
         };
-        let wrapped_shift = rhs % BitmapIndex::EFFECTIVE_BITS;
-        let expected_wrapped = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
+        let wrapped_shift = rhs % PositiveInt::EFFECTIVE_BITS;
+        let expected_wrapped = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
         let (wrapped, overflow) = test_left_shift(wrapped_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(!overflow);
 
         // Overflowing left shift
-        let overflown_shift = rhs.saturating_add(BitmapIndex::EFFECTIVE_BITS);
+        let overflown_shift = rhs.saturating_add(PositiveInt::EFFECTIVE_BITS);
         let (wrapped, overflow) = test_left_shift(overflown_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(overflow);
@@ -3924,28 +4162,28 @@ mod tests {
         // Non-overflowing right shift
         let test_right_shift = |rhs| {
             test_overflowing(
-                index,
+                int,
                 rhs,
-                BitmapIndex::checked_shr,
-                BitmapIndex::overflowing_shr,
-                BitmapIndex::wrapping_shr,
+                PositiveInt::checked_shr,
+                PositiveInt::overflowing_shr,
+                PositiveInt::wrapping_shr,
                 [
-                    Box::new(|index, rhs| index >> rhs),
-                    Box::new(|index, rhs| &index >> rhs),
-                    Box::new(|index, rhs| index >> &rhs),
-                    Box::new(|index, rhs| &index >> &rhs),
-                    Box::new(|mut index, rhs| {
-                        index >>= rhs;
-                        index
+                    Box::new(|int, rhs| int >> rhs),
+                    Box::new(|int, rhs| &int >> rhs),
+                    Box::new(|int, rhs| int >> &rhs),
+                    Box::new(|int, rhs| &int >> &rhs),
+                    Box::new(|mut int, rhs| {
+                        int >>= rhs;
+                        int
                     }),
-                    Box::new(|mut index, rhs| {
-                        index >>= &rhs;
-                        index
+                    Box::new(|mut int, rhs| {
+                        int >>= &rhs;
+                        int
                     }),
                 ],
             )
         };
-        let expected_wrapped = BitmapIndex(index.0 >> wrapped_shift);
+        let expected_wrapped = PositiveInt(int.0 >> wrapped_shift);
         let (wrapped, overflow) = test_right_shift(wrapped_shift);
         assert_eq!(wrapped, expected_wrapped);
         assert!(!overflow);
@@ -3957,81 +4195,79 @@ mod tests {
 
         // Rotate can be expressed in terms of shifts and binary ops
         assert_eq!(
-            index.rotate_left(rhs),
-            (index << wrapped_shift)
-                | index.wrapping_shr(BitmapIndex::EFFECTIVE_BITS - wrapped_shift)
+            int.rotate_left(rhs),
+            (int << wrapped_shift) | int.wrapping_shr(PositiveInt::EFFECTIVE_BITS - wrapped_shift)
         );
         assert_eq!(
-            index.rotate_right(rhs),
-            (index >> wrapped_shift)
-                | index.wrapping_shl(BitmapIndex::EFFECTIVE_BITS - wrapped_shift)
+            int.rotate_right(rhs),
+            (int >> wrapped_shift) | int.wrapping_shl(PositiveInt::EFFECTIVE_BITS - wrapped_shift)
         );
     }
 
-    /// Test index-usize binary operations
+    /// Test int-usize binary operations
     #[allow(clippy::op_ref)]
     #[quickcheck]
-    fn index_op_usize(index: BitmapIndex, other: usize) {
+    fn int_op_usize(int: PositiveInt, other: usize) {
         // Ordering passes through
-        assert_eq!(index == other, usize::from(index) == other);
+        assert_eq!(int == other, usize::from(int) == other);
         assert_eq!(
-            index.partial_cmp(&other),
-            usize::from(index).partial_cmp(&other)
+            int.partial_cmp(&other),
+            usize::from(int).partial_cmp(&other)
         );
-        assert_eq!(other == usize::from(index), other == usize::from(index));
+        assert_eq!(other == usize::from(int), other == usize::from(int));
         assert_eq!(
-            other.partial_cmp(&usize::from(index)),
-            other.partial_cmp(&usize::from(index))
+            other.partial_cmp(&usize::from(int)),
+            other.partial_cmp(&usize::from(int))
         );
 
         // Bitwise AND passes through (no risk of setting high-order bit)
-        let expected = BitmapIndex(index.0 & (other as c_uint));
-        assert_eq!(index & other, expected);
-        assert_eq!(other & index, expected);
-        assert_eq!(&index & other, expected);
-        assert_eq!(&other & index, expected);
-        assert_eq!(index & (&other), expected);
-        assert_eq!(other & (&index), expected);
-        assert_eq!(&index & (&other), expected);
-        assert_eq!(&other & (&index), expected);
-        let mut tmp = index;
+        let expected = PositiveInt(int.0 & (other as c_uint));
+        assert_eq!(int & other, expected);
+        assert_eq!(other & int, expected);
+        assert_eq!(&int & other, expected);
+        assert_eq!(&other & int, expected);
+        assert_eq!(int & (&other), expected);
+        assert_eq!(other & (&int), expected);
+        assert_eq!(&int & (&other), expected);
+        assert_eq!(&other & (&int), expected);
+        let mut tmp = int;
         tmp &= other;
         assert_eq!(tmp, expected);
-        tmp = index;
+        tmp = int;
         tmp &= &other;
         assert_eq!(tmp, expected);
 
         // Non-overflowing bitwise OR
-        let small_other = other & usize::from(BitmapIndex::MAX);
-        let expected = BitmapIndex(index.0 | (small_other as c_uint));
-        assert_eq!(index | small_other, expected);
-        assert_eq!(small_other | index, expected);
-        assert_eq!(&index | small_other, expected);
-        assert_eq!(small_other | &index, expected);
-        assert_eq!(index | &small_other, expected);
-        assert_eq!(&small_other | index, expected);
-        assert_eq!(&index | &small_other, expected);
-        assert_eq!(&small_other | &index, expected);
-        tmp = index;
+        let small_other = other & usize::from(PositiveInt::MAX);
+        let expected = PositiveInt(int.0 | (small_other as c_uint));
+        assert_eq!(int | small_other, expected);
+        assert_eq!(small_other | int, expected);
+        assert_eq!(&int | small_other, expected);
+        assert_eq!(small_other | &int, expected);
+        assert_eq!(int | &small_other, expected);
+        assert_eq!(&small_other | int, expected);
+        assert_eq!(&int | &small_other, expected);
+        assert_eq!(&small_other | &int, expected);
+        tmp = int;
         tmp |= small_other;
         assert_eq!(tmp, expected);
-        tmp = index;
+        tmp = int;
         tmp |= &small_other;
         assert_eq!(tmp, expected);
 
         // Overflowing bitwise OR
-        let large_other = other.max(1usize << BitmapIndex::EFFECTIVE_BITS);
-        assert_debug_panics(|| index | large_other, expected);
-        assert_debug_panics(|| large_other | index, expected);
-        assert_debug_panics(|| &index | large_other, expected);
-        assert_debug_panics(|| large_other | &index, expected);
-        assert_debug_panics(|| index | &large_other, expected);
-        assert_debug_panics(|| &large_other | index, expected);
-        assert_debug_panics(|| &index | &large_other, expected);
-        assert_debug_panics(|| &large_other | &index, expected);
+        let large_other = other.max(1usize << PositiveInt::EFFECTIVE_BITS);
+        assert_debug_panics(|| int | large_other, expected);
+        assert_debug_panics(|| large_other | int, expected);
+        assert_debug_panics(|| &int | large_other, expected);
+        assert_debug_panics(|| large_other | &int, expected);
+        assert_debug_panics(|| int | &large_other, expected);
+        assert_debug_panics(|| &large_other | int, expected);
+        assert_debug_panics(|| &int | &large_other, expected);
+        assert_debug_panics(|| &large_other | &int, expected);
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp |= large_other;
                 tmp
             },
@@ -4039,7 +4275,7 @@ mod tests {
         );
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp |= &large_other;
                 tmp
             },
@@ -4047,34 +4283,34 @@ mod tests {
         );
 
         // Non-overflowing bitwise XOR
-        let expected = BitmapIndex(index.0 ^ (small_other as c_uint));
-        assert_eq!(index ^ small_other, expected);
-        assert_eq!(small_other ^ index, expected);
-        assert_eq!(&index ^ small_other, expected);
-        assert_eq!(small_other ^ &index, expected);
-        assert_eq!(index ^ &small_other, expected);
-        assert_eq!(&small_other ^ index, expected);
-        assert_eq!(&index ^ &small_other, expected);
-        assert_eq!(&small_other ^ &index, expected);
-        tmp = index;
+        let expected = PositiveInt(int.0 ^ (small_other as c_uint));
+        assert_eq!(int ^ small_other, expected);
+        assert_eq!(small_other ^ int, expected);
+        assert_eq!(&int ^ small_other, expected);
+        assert_eq!(small_other ^ &int, expected);
+        assert_eq!(int ^ &small_other, expected);
+        assert_eq!(&small_other ^ int, expected);
+        assert_eq!(&int ^ &small_other, expected);
+        assert_eq!(&small_other ^ &int, expected);
+        tmp = int;
         tmp ^= small_other;
         assert_eq!(tmp, expected);
-        tmp = index;
+        tmp = int;
         tmp ^= &small_other;
         assert_eq!(tmp, expected);
 
         // Overflowing bitwise XOR
-        assert_debug_panics(|| index ^ large_other, expected);
-        assert_debug_panics(|| large_other ^ index, expected);
-        assert_debug_panics(|| &index ^ large_other, expected);
-        assert_debug_panics(|| large_other ^ &index, expected);
-        assert_debug_panics(|| index ^ &large_other, expected);
-        assert_debug_panics(|| &large_other ^ index, expected);
-        assert_debug_panics(|| &index ^ &large_other, expected);
-        assert_debug_panics(|| &large_other ^ &index, expected);
+        assert_debug_panics(|| int ^ large_other, expected);
+        assert_debug_panics(|| large_other ^ int, expected);
+        assert_debug_panics(|| &int ^ large_other, expected);
+        assert_debug_panics(|| large_other ^ &int, expected);
+        assert_debug_panics(|| int ^ &large_other, expected);
+        assert_debug_panics(|| &large_other ^ int, expected);
+        assert_debug_panics(|| &int ^ &large_other, expected);
+        assert_debug_panics(|| &large_other ^ &int, expected);
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp ^= large_other;
                 tmp
             },
@@ -4082,28 +4318,28 @@ mod tests {
         );
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp ^= &large_other;
                 tmp
             },
             expected,
         );
 
-        // Multiplication by an usize in BitmapIndex range works as usual
-        let small_other_index = BitmapIndex::try_from(small_other).unwrap();
-        let (wrapped, overflow) = index.overflowing_mul(small_other_index);
+        // Multiplication by an usize in PositiveInt range works as usual
+        let small_other_int = PositiveInt::try_from(small_other).unwrap();
+        let (wrapped, overflow) = int.overflowing_mul(small_other_int);
         if overflow {
-            assert_debug_panics(|| index * small_other, wrapped);
-            assert_debug_panics(|| small_other * index, wrapped);
-            assert_debug_panics(|| &index * small_other, wrapped);
-            assert_debug_panics(|| small_other * (&index), wrapped);
-            assert_debug_panics(|| index * (&small_other), wrapped);
-            assert_debug_panics(|| &small_other * index, wrapped);
-            assert_debug_panics(|| &index * (&small_other), wrapped);
-            assert_debug_panics(|| &small_other * (&index), wrapped);
+            assert_debug_panics(|| int * small_other, wrapped);
+            assert_debug_panics(|| small_other * int, wrapped);
+            assert_debug_panics(|| &int * small_other, wrapped);
+            assert_debug_panics(|| small_other * (&int), wrapped);
+            assert_debug_panics(|| int * (&small_other), wrapped);
+            assert_debug_panics(|| &small_other * int, wrapped);
+            assert_debug_panics(|| &int * (&small_other), wrapped);
+            assert_debug_panics(|| &small_other * (&int), wrapped);
             assert_debug_panics(
                 || {
-                    let mut tmp = index;
+                    let mut tmp = int;
                     tmp *= small_other;
                     tmp
                 },
@@ -4111,44 +4347,44 @@ mod tests {
             );
             assert_debug_panics(
                 || {
-                    let mut tmp = index;
+                    let mut tmp = int;
                     tmp *= &small_other;
                     tmp
                 },
                 wrapped,
             );
         } else {
-            assert_eq!(index * small_other, wrapped);
-            assert_eq!(small_other * index, wrapped);
-            assert_eq!(&index * small_other, wrapped);
-            assert_eq!(small_other * (&index), wrapped);
-            assert_eq!(index * (&small_other), wrapped);
-            assert_eq!(&small_other * index, wrapped);
-            assert_eq!(&index * (&small_other), wrapped);
-            assert_eq!(&small_other * (&index), wrapped);
-            tmp = index;
+            assert_eq!(int * small_other, wrapped);
+            assert_eq!(small_other * int, wrapped);
+            assert_eq!(&int * small_other, wrapped);
+            assert_eq!(small_other * (&int), wrapped);
+            assert_eq!(int * (&small_other), wrapped);
+            assert_eq!(&small_other * int, wrapped);
+            assert_eq!(&int * (&small_other), wrapped);
+            assert_eq!(&small_other * (&int), wrapped);
+            tmp = int;
             tmp *= small_other;
             assert_eq!(tmp, wrapped);
-            tmp = index;
+            tmp = int;
             tmp *= &small_other;
             assert_eq!(tmp, wrapped);
         }
 
-        // Multiplication by an out-of-range usize fails for all indices but
+        // Multiplication by an out-of-range usize fails for all ints but
         // zero (which is tested elsewhere)
-        let zero = BitmapIndex::ZERO;
-        if index != zero {
-            assert_debug_panics(|| index * large_other, wrapped);
-            assert_debug_panics(|| large_other * index, wrapped);
-            assert_debug_panics(|| &index * large_other, wrapped);
-            assert_debug_panics(|| large_other * (&index), wrapped);
-            assert_debug_panics(|| index * (&large_other), wrapped);
-            assert_debug_panics(|| &large_other * index, wrapped);
-            assert_debug_panics(|| &index * (&large_other), wrapped);
-            assert_debug_panics(|| &large_other * (&index), wrapped);
+        let zero = PositiveInt::ZERO;
+        if int != zero {
+            assert_debug_panics(|| int * large_other, wrapped);
+            assert_debug_panics(|| large_other * int, wrapped);
+            assert_debug_panics(|| &int * large_other, wrapped);
+            assert_debug_panics(|| large_other * (&int), wrapped);
+            assert_debug_panics(|| int * (&large_other), wrapped);
+            assert_debug_panics(|| &large_other * int, wrapped);
+            assert_debug_panics(|| &int * (&large_other), wrapped);
+            assert_debug_panics(|| &large_other * (&int), wrapped);
             assert_debug_panics(
                 || {
-                    let mut tmp = index;
+                    let mut tmp = int;
                     tmp *= large_other;
                     tmp
                 },
@@ -4156,7 +4392,7 @@ mod tests {
             );
             assert_debug_panics(
                 || {
-                    let mut tmp = index;
+                    let mut tmp = int;
                     tmp *= &large_other;
                     tmp
                 },
@@ -4166,82 +4402,82 @@ mod tests {
 
         // Division by an in-range nonzero usize passes through
         if other != 0 {
-            let expected = index / small_other_index;
-            assert_eq!(index / small_other, expected);
-            assert_eq!(&index / small_other, expected);
-            assert_eq!(index / &small_other, expected);
-            assert_eq!(&index / &small_other, expected);
-            tmp = index;
+            let expected = int / small_other_int;
+            assert_eq!(int / small_other, expected);
+            assert_eq!(&int / small_other, expected);
+            assert_eq!(int / &small_other, expected);
+            assert_eq!(&int / &small_other, expected);
+            tmp = int;
             tmp /= small_other;
             assert_eq!(tmp, expected);
-            tmp = index;
+            tmp = int;
             tmp /= &small_other;
             assert_eq!(tmp, expected);
         }
 
         // Division by an out-of-range usize always returns zero
-        assert_eq!(index / large_other, zero);
-        assert_eq!(&index / large_other, zero);
-        assert_eq!(index / &large_other, zero);
-        assert_eq!(&index / &large_other, zero);
-        tmp = index;
+        assert_eq!(int / large_other, zero);
+        assert_eq!(&int / large_other, zero);
+        assert_eq!(int / &large_other, zero);
+        assert_eq!(&int / &large_other, zero);
+        tmp = int;
         tmp /= large_other;
         assert_eq!(tmp, zero);
-        tmp = index;
+        tmp = int;
         tmp /= &large_other;
         assert_eq!(tmp, zero);
 
         // Remainder from an in-range nonzero usize passes through
         if other != 0 {
-            let expected = index % small_other_index;
-            assert_eq!(index % small_other, expected);
-            assert_eq!(&index % small_other, expected);
-            assert_eq!(index % &small_other, expected);
-            assert_eq!(&index % &small_other, expected);
-            tmp = index;
+            let expected = int % small_other_int;
+            assert_eq!(int % small_other, expected);
+            assert_eq!(&int % small_other, expected);
+            assert_eq!(int % &small_other, expected);
+            assert_eq!(&int % &small_other, expected);
+            tmp = int;
             tmp %= small_other;
             assert_eq!(tmp, expected);
-            tmp = index;
+            tmp = int;
             tmp %= &small_other;
             assert_eq!(tmp, expected);
         }
 
         // Remainder from an out-of-range usize is identity
-        assert_eq!(index % large_other, index);
-        assert_eq!(&index % large_other, index);
-        assert_eq!(index % &large_other, index);
-        assert_eq!(&index % &large_other, index);
-        tmp = index;
+        assert_eq!(int % large_other, int);
+        assert_eq!(&int % large_other, int);
+        assert_eq!(int % &large_other, int);
+        assert_eq!(&int % &large_other, int);
+        tmp = int;
         tmp %= large_other;
-        assert_eq!(tmp, index);
-        tmp = index;
+        assert_eq!(tmp, int);
+        tmp = int;
         tmp %= &large_other;
-        assert_eq!(tmp, index);
+        assert_eq!(tmp, int);
 
         // Non-overflowing left shift must keep high-order bit cleared
-        let effective_bits = BitmapIndex::EFFECTIVE_BITS as usize;
+        let effective_bits = PositiveInt::EFFECTIVE_BITS as usize;
         let wrapped_shift = other % effective_bits;
-        let wrapped_result = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
-        assert_eq!(index << wrapped_shift, wrapped_result);
-        assert_eq!(&index << wrapped_shift, wrapped_result);
-        assert_eq!(index << (&wrapped_shift), wrapped_result);
-        assert_eq!(&index << (&wrapped_shift), wrapped_result);
-        tmp = index;
+        let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
+        assert_eq!(int << wrapped_shift, wrapped_result);
+        assert_eq!(&int << wrapped_shift, wrapped_result);
+        assert_eq!(int << (&wrapped_shift), wrapped_result);
+        assert_eq!(&int << (&wrapped_shift), wrapped_result);
+        tmp = int;
         tmp <<= wrapped_shift;
         assert_eq!(tmp, wrapped_result);
-        tmp = index;
+        tmp = int;
         tmp <<= &wrapped_shift;
         assert_eq!(tmp, wrapped_result);
 
         // Overflowing left shift should panic or wraparound
         let overflown_shift = other.saturating_add(effective_bits);
-        assert_debug_panics(|| index << overflown_shift, wrapped_result);
-        assert_debug_panics(|| &index << overflown_shift, wrapped_result);
-        assert_debug_panics(|| index << (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &index << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| int << overflown_shift, wrapped_result);
+        assert_debug_panics(|| &int << overflown_shift, wrapped_result);
+        assert_debug_panics(|| int << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &int << (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp <<= overflown_shift;
                 tmp
             },
@@ -4249,7 +4485,7 @@ mod tests {
         );
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp <<= &overflown_shift;
                 tmp
             },
@@ -4257,26 +4493,26 @@ mod tests {
         );
 
         // Non-overflowing right shift can pass through
-        let wrapped_result = BitmapIndex(index.0 >> wrapped_shift);
-        assert_eq!(index >> wrapped_shift, wrapped_result);
-        assert_eq!(&index >> wrapped_shift, wrapped_result);
-        assert_eq!(index >> (&wrapped_shift), wrapped_result);
-        assert_eq!(&index >> (&wrapped_shift), wrapped_result);
-        tmp = index;
+        let wrapped_result = PositiveInt(int.0 >> wrapped_shift);
+        assert_eq!(int >> wrapped_shift, wrapped_result);
+        assert_eq!(&int >> wrapped_shift, wrapped_result);
+        assert_eq!(int >> (&wrapped_shift), wrapped_result);
+        assert_eq!(&int >> (&wrapped_shift), wrapped_result);
+        tmp = int;
         tmp >>= wrapped_shift;
         assert_eq!(tmp, wrapped_result);
-        tmp = index;
+        tmp = int;
         tmp >>= &wrapped_shift;
         assert_eq!(tmp, wrapped_result);
 
         // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| index >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| &index >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| index >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| int >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| &int >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| int >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &int >> (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp >>= overflown_shift;
                 tmp
             },
@@ -4284,7 +4520,7 @@ mod tests {
         );
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp >>= &overflown_shift;
                 tmp
             },
@@ -4292,35 +4528,35 @@ mod tests {
         );
     }
 
-    /// Test index-isize binary operations
+    /// Test int-isize binary operations
     #[allow(clippy::op_ref)]
     #[quickcheck]
-    fn index_op_isize(index: BitmapIndex, other: isize) {
+    fn int_op_isize(int: PositiveInt, other: isize) {
         // Addition
         let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(index, other, usize::overflowing_add_signed);
+            predict_overflowing_result(int, other, usize::overflowing_add_signed);
         let (wrapped, overflow) = test_overflowing(
-            index,
+            int,
             other,
-            BitmapIndex::checked_add_signed,
-            BitmapIndex::overflowing_add_signed,
-            BitmapIndex::wrapping_add_signed,
+            PositiveInt::checked_add_signed,
+            PositiveInt::overflowing_add_signed,
+            PositiveInt::wrapping_add_signed,
             [
-                Box::new(|index, other| index + other),
-                Box::new(|index, other| other + index),
-                Box::new(|index, other| &index + other),
-                Box::new(|index, other| other + &index),
-                Box::new(|index, other| index + &other),
-                Box::new(|index, other| &other + index),
-                Box::new(|index, other| &index + &other),
-                Box::new(|index, other| &other + &index),
-                Box::new(|mut index, other| {
-                    index += other;
-                    index
+                Box::new(|int, other| int + other),
+                Box::new(|int, other| other + int),
+                Box::new(|int, other| &int + other),
+                Box::new(|int, other| other + &int),
+                Box::new(|int, other| int + &other),
+                Box::new(|int, other| &other + int),
+                Box::new(|int, other| &int + &other),
+                Box::new(|int, other| &other + &int),
+                Box::new(|mut int, other| {
+                    int += other;
+                    int
                 }),
-                Box::new(|mut index, other| {
-                    index += &other;
-                    index
+                Box::new(|mut int, other| {
+                    int += &other;
+                    int
                 }),
             ],
         );
@@ -4328,20 +4564,20 @@ mod tests {
         assert_eq!(overflow, expected_overflow);
         if overflow {
             if other > 0 {
-                assert_eq!(index.saturating_add_signed(other), BitmapIndex::MAX);
+                assert_eq!(int.saturating_add_signed(other), PositiveInt::MAX);
             } else {
-                assert_eq!(index.saturating_add_signed(other), BitmapIndex::MIN);
+                assert_eq!(int.saturating_add_signed(other), PositiveInt::MIN);
             }
         } else {
-            assert_eq!(index.saturating_add_signed(other), wrapped);
+            assert_eq!(int.saturating_add_signed(other), wrapped);
         }
 
         // Subtraction
         let (wrapped, overflow) = if other != isize::MIN {
-            predict_overflowing_result(index, -other, usize::overflowing_add_signed)
+            predict_overflowing_result(int, -other, usize::overflowing_add_signed)
         } else {
             predict_overflowing_result(
-                index,
+                int,
                 // iN::MIN is -(1 << (iN::BITS - 1)
                 // e.g. i8::MIN is -(1 << (8 - 1)) = -(1 << 7).
                 1usize << (isize::BITS - 1),
@@ -4349,13 +4585,13 @@ mod tests {
             )
         };
         if overflow {
-            assert_debug_panics(|| index - other, wrapped);
-            assert_debug_panics(|| &index - other, wrapped);
-            assert_debug_panics(|| index - &other, wrapped);
-            assert_debug_panics(|| &index - &other, wrapped);
+            assert_debug_panics(|| int - other, wrapped);
+            assert_debug_panics(|| &int - other, wrapped);
+            assert_debug_panics(|| int - &other, wrapped);
+            assert_debug_panics(|| &int - &other, wrapped);
             assert_debug_panics(
                 || {
-                    let mut tmp = index;
+                    let mut tmp = int;
                     tmp -= other;
                     tmp
                 },
@@ -4363,49 +4599,49 @@ mod tests {
             );
             assert_debug_panics(
                 || {
-                    let mut tmp = index;
+                    let mut tmp = int;
                     tmp -= &other;
                     tmp
                 },
                 wrapped,
             );
         } else {
-            assert_eq!(index - other, wrapped);
-            assert_eq!(&index - other, wrapped);
-            assert_eq!(index - &other, wrapped);
-            assert_eq!(&index - &other, wrapped);
-            let mut tmp = index;
+            assert_eq!(int - other, wrapped);
+            assert_eq!(&int - other, wrapped);
+            assert_eq!(int - &other, wrapped);
+            assert_eq!(&int - &other, wrapped);
+            let mut tmp = int;
             tmp -= other;
             assert_eq!(tmp, wrapped);
-            tmp = index;
+            tmp = int;
             tmp -= &other;
             assert_eq!(tmp, wrapped);
         }
 
         // Non-overflowing left shift must keep high-order bit cleared
-        let effective_bits = BitmapIndex::EFFECTIVE_BITS as isize;
+        let effective_bits = PositiveInt::EFFECTIVE_BITS as isize;
         let wrapped_shift = other.rem_euclid(effective_bits);
-        let wrapped_result = BitmapIndex((index.0 << wrapped_shift) & BitmapIndex::MAX.0);
-        assert_eq!(index << wrapped_shift, wrapped_result);
-        assert_eq!(&index << wrapped_shift, wrapped_result);
-        assert_eq!(index << (&wrapped_shift), wrapped_result);
-        assert_eq!(&index << (&wrapped_shift), wrapped_result);
-        let mut tmp = index;
+        let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
+        assert_eq!(int << wrapped_shift, wrapped_result);
+        assert_eq!(&int << wrapped_shift, wrapped_result);
+        assert_eq!(int << (&wrapped_shift), wrapped_result);
+        assert_eq!(&int << (&wrapped_shift), wrapped_result);
+        let mut tmp = int;
         tmp <<= wrapped_shift;
         assert_eq!(tmp, wrapped_result);
-        tmp = index;
+        tmp = int;
         tmp <<= &wrapped_shift;
         assert_eq!(tmp, wrapped_result);
 
         // Overflowing left shift should panic or wraparound
         let overflown_shift = other.saturating_add(effective_bits);
-        assert_debug_panics(|| index << overflown_shift, wrapped_result);
-        assert_debug_panics(|| &index << overflown_shift, wrapped_result);
-        assert_debug_panics(|| index << (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &index << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| int << overflown_shift, wrapped_result);
+        assert_debug_panics(|| &int << overflown_shift, wrapped_result);
+        assert_debug_panics(|| int << (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &int << (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp <<= overflown_shift;
                 tmp
             },
@@ -4413,7 +4649,7 @@ mod tests {
         );
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp <<= &overflown_shift;
                 tmp
             },
@@ -4422,26 +4658,26 @@ mod tests {
 
         // Non-overflowing right shift must keep high-order bit cleared as well
         // (with signed operands, a shift of -EFFECTIVE_BITS is possible!)
-        let wrapped_result = BitmapIndex((index.0 >> wrapped_shift) & BitmapIndex::MAX.0);
-        assert_eq!(index >> wrapped_shift, wrapped_result);
-        assert_eq!(&index >> wrapped_shift, wrapped_result);
-        assert_eq!(index >> (&wrapped_shift), wrapped_result);
-        assert_eq!(&index >> (&wrapped_shift), wrapped_result);
-        tmp = index;
+        let wrapped_result = PositiveInt((int.0 >> wrapped_shift) & PositiveInt::MAX.0);
+        assert_eq!(int >> wrapped_shift, wrapped_result);
+        assert_eq!(&int >> wrapped_shift, wrapped_result);
+        assert_eq!(int >> (&wrapped_shift), wrapped_result);
+        assert_eq!(&int >> (&wrapped_shift), wrapped_result);
+        tmp = int;
         tmp >>= wrapped_shift;
         assert_eq!(tmp, wrapped_result);
-        tmp = index;
+        tmp = int;
         tmp >>= &wrapped_shift;
         assert_eq!(tmp, wrapped_result);
 
         // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| index >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| &index >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| index >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &index >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| int >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| &int >> overflown_shift, wrapped_result);
+        assert_debug_panics(|| int >> (&overflown_shift), wrapped_result);
+        assert_debug_panics(|| &int >> (&overflown_shift), wrapped_result);
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp >>= overflown_shift;
                 tmp
             },
@@ -4449,7 +4685,7 @@ mod tests {
         );
         assert_debug_panics(
             || {
-                let mut tmp = index;
+                let mut tmp = int;
                 tmp >>= &overflown_shift;
                 tmp
             },
@@ -4459,19 +4695,19 @@ mod tests {
 
     /// Test iterator reductions
     #[quickcheck]
-    fn reductions(indices: Vec<BitmapIndex>) {
+    fn reductions(ints: Vec<PositiveInt>) {
         use std::iter::Copied;
-        type IndexRefIter<'a> = std::slice::Iter<'a, BitmapIndex>;
+        type IntRefIter<'a> = std::slice::Iter<'a, PositiveInt>;
 
         fn test_reduction(
-            indices: &[BitmapIndex],
-            neutral: BitmapIndex,
-            overflowing_op: impl Fn(BitmapIndex, BitmapIndex) -> (BitmapIndex, bool),
-            reduce_by_ref: impl Fn(IndexRefIter<'_>) -> BitmapIndex + RefUnwindSafe,
-            reduce_by_value: impl Fn(Copied<IndexRefIter<'_>>) -> BitmapIndex + RefUnwindSafe,
+            ints: &[PositiveInt],
+            neutral: PositiveInt,
+            overflowing_op: impl Fn(PositiveInt, PositiveInt) -> (PositiveInt, bool),
+            reduce_by_ref: impl Fn(IntRefIter<'_>) -> PositiveInt + RefUnwindSafe,
+            reduce_by_value: impl Fn(Copied<IntRefIter<'_>>) -> PositiveInt + RefUnwindSafe,
         ) {
             // Perform reduction using the overflowing operator
-            let (wrapping_result, overflow) = indices.iter().copied().fold(
+            let (wrapping_result, overflow) = ints.iter().copied().fold(
                 (neutral, false),
                 |(wrapping_acc, prev_overflow), elem| {
                     let (wrapping_acc, new_overflow) = overflowing_op(wrapping_acc, elem);
@@ -4480,9 +4716,9 @@ mod tests {
             );
 
             // Test the standard reductions accordingly
-            let reductions: [&(dyn Fn() -> BitmapIndex + RefUnwindSafe); 2] =
-                [&|| reduce_by_ref(indices.iter()), &|| {
-                    reduce_by_value(indices.iter().copied())
+            let reductions: [&(dyn Fn() -> PositiveInt + RefUnwindSafe); 2] =
+                [&|| reduce_by_ref(ints.iter()), &|| {
+                    reduce_by_value(ints.iter().copied())
                 }];
             for reduction in reductions {
                 if overflow {
@@ -4494,18 +4730,18 @@ mod tests {
         }
 
         test_reduction(
-            &indices,
-            BitmapIndex::ZERO,
-            BitmapIndex::overflowing_add,
-            |ref_iter| ref_iter.sum::<BitmapIndex>(),
-            |value_iter| value_iter.sum::<BitmapIndex>(),
+            &ints,
+            PositiveInt::ZERO,
+            PositiveInt::overflowing_add,
+            |ref_iter| ref_iter.sum::<PositiveInt>(),
+            |value_iter| value_iter.sum::<PositiveInt>(),
         );
         test_reduction(
-            &indices,
-            BitmapIndex::ONE,
-            BitmapIndex::overflowing_mul,
-            |ref_iter| ref_iter.product::<BitmapIndex>(),
-            |value_iter| value_iter.product::<BitmapIndex>(),
+            &ints,
+            PositiveInt::ONE,
+            PositiveInt::overflowing_mul,
+            |ref_iter| ref_iter.product::<PositiveInt>(),
+            |value_iter| value_iter.product::<PositiveInt>(),
         );
     }
 }

@@ -8,7 +8,7 @@ pub mod types;
 
 use self::{
     attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain, RawObjectAttributes},
-    depth::{Depth, RawDepth, TypeToDepthError, TypeToDepthResult},
+    depth::{Depth, NormalDepth, RawDepth, TypeToDepthError, TypeToDepthResult},
     types::{CacheType, ObjectType, RawObjectType},
 };
 #[cfg(doc)]
@@ -17,7 +17,7 @@ use crate::{
     bitmap::{BitmapRef, RawBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
-    ffi::{self, LibcString},
+    ffi::{self, int, string::LibcString},
     info::TextualInfo,
     memory::nodeset::NodeSet,
     topology::Topology,
@@ -66,9 +66,8 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
-    pub fn depth(&self) -> usize {
-        unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
-            .try_into()
+    pub fn depth(&self) -> NormalDepth {
+        NormalDepth::try_from_c_int(unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) })
             .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
 
@@ -97,7 +96,7 @@ impl Topology {
     /// [`Package`]: ObjectType::Package
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
-    pub fn memory_parents_depth(&self) -> Result<usize, TypeToDepthError> {
+    pub fn memory_parents_depth(&self) -> Result<NormalDepth, TypeToDepthError> {
         Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
@@ -183,7 +182,7 @@ impl Topology {
                     .depth_for_type(ObjectType::PU)
                     .expect("PU objects should be present")
                     .assume_normal();
-                for depth in (0..pu_depth).rev() {
+                for depth in NormalDepth::iter_range(NormalDepth::MIN, pu_depth).rev() {
                     if self
                         .type_at_depth(depth)
                         .expect("Depths above PU depth should exist")
@@ -240,7 +239,7 @@ impl Topology {
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(TypeToDepthError::Nonexistent) => {
-                for depth in (0..self.depth()).rev() {
+                for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()).rev() {
                     if self
                         .type_at_depth(depth)
                         .expect("Depths above bottom depth should exist")
@@ -299,7 +298,7 @@ impl Topology {
         cache_type: Option<CacheType>,
     ) -> TypeToDepthResult {
         let mut result = Err(TypeToDepthError::Nonexistent);
-        for depth in 0..self.depth() {
+        for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
             for obj in self.objects_at_depth(depth).take(1) {
@@ -390,7 +389,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
     pub fn num_objects_at_depth(&self, depth: impl Into<Depth>) -> usize {
-        ffi::expect_usize(unsafe {
+        int::expect_usize(unsafe {
             ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
         })
     }
@@ -467,7 +466,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_get_root_obj")]
     pub fn root_object(&self) -> &TopologyObject {
-        self.objects_at_depth(0)
+        self.objects_at_depth(NormalDepth::MIN)
             .next()
             .expect("Root object should exist")
     }
@@ -505,7 +504,7 @@ impl Topology {
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
     {
         let type_depth = self.depth_for_type(object_type);
-        let depth_iter = (0..self.depth())
+        let depth_iter = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
             .map(Depth::from)
             .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
             .filter(move |&depth| {
@@ -1230,7 +1229,7 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj::os_index")]
     pub fn os_index(&self) -> Option<usize> {
         const HWLOC_UNKNOWN_INDEX: c_uint = c_uint::MAX;
-        (self.os_index != HWLOC_UNKNOWN_INDEX).then(|| ffi::expect_usize(self.os_index))
+        (self.os_index != HWLOC_UNKNOWN_INDEX).then(|| int::expect_usize(self.os_index))
     }
 
     /// Global persistent index
@@ -1298,7 +1297,10 @@ impl TopologyObject {
         // Fast failure path when depth is comparable
         let depth = depth.into();
         let self_depth = self.depth();
-        if let (Ok(self_depth), Ok(depth)) = (usize::try_from(self_depth), usize::try_from(depth)) {
+        if let (Ok(self_depth), Ok(depth)) = (
+            NormalDepth::try_from(self_depth),
+            NormalDepth::try_from(depth),
+        ) {
             if self_depth <= depth {
                 return None;
             }
@@ -1380,7 +1382,7 @@ impl TopologyObject {
             // Only normal depths should be observed all the way through the
             // ancestor chain, since the parent of a normal object is normal.
             let normal_depth = |obj: &TopologyObject| {
-                usize::try_from(obj.depth()).expect("Should only observe normal depth here")
+                NormalDepth::try_from(obj.depth()).expect("Should only observe normal depth here")
             };
             let depth2 = normal_depth(parent2);
             while normal_depth(parent1) > depth2 {
@@ -1486,7 +1488,7 @@ impl TopologyObject {
     /// or when inserting a group.
     #[doc(alias = "hwloc_obj::logical_index")]
     pub fn logical_index(&self) -> usize {
-        ffi::expect_usize(self.logical_index)
+        int::expect_usize(self.logical_index)
     }
 
     /// Next object of same type and depth
@@ -1510,7 +1512,7 @@ impl TopologyObject {
     /// Index in the parent's relevant child list for this object type
     #[doc(alias = "hwloc_obj::sibling_rank")]
     pub fn sibling_rank(&self) -> usize {
-        ffi::expect_usize(self.sibling_rank)
+        int::expect_usize(self.sibling_rank)
     }
 
     /// Next object below the same parent, in the same child list
@@ -1537,7 +1539,7 @@ impl TopologyObject {
     /// Number of normal children (excluding Memory, Misc and I/O)
     #[doc(alias = "hwloc_obj::arity")]
     pub fn normal_arity(&self) -> usize {
-        ffi::expect_usize(self.arity)
+        int::expect_usize(self.arity)
     }
 
     /// Normal children of this object
@@ -1597,7 +1599,7 @@ impl TopologyObject {
     /// Number of memory children
     #[doc(alias = "hwloc_obj::memory_arity")]
     pub fn memory_arity(&self) -> usize {
-        ffi::expect_usize(self.memory_arity)
+        int::expect_usize(self.memory_arity)
     }
 
     /// Memory children of this object
@@ -1630,7 +1632,7 @@ impl TopologyObject {
     /// Number of I/O children
     #[doc(alias = "hwloc_obj::io_arity")]
     pub fn io_arity(&self) -> usize {
-        ffi::expect_usize(self.io_arity)
+        int::expect_usize(self.io_arity)
     }
 
     /// I/O children of this object
@@ -1661,7 +1663,7 @@ impl TopologyObject {
     /// Number of Misc children
     #[doc(alias = "hwloc_obj::misc_arity")]
     pub fn misc_arity(&self) -> usize {
-        ffi::expect_usize(self.misc_arity)
+        int::expect_usize(self.misc_arity)
     }
 
     /// Misc children of this object
@@ -1885,7 +1887,7 @@ impl TopologyObject {
             );
             return &[];
         }
-        unsafe { std::slice::from_raw_parts(self.infos, ffi::expect_usize(self.infos_count)) }
+        unsafe { std::slice::from_raw_parts(self.infos, int::expect_usize(self.infos_count)) }
     }
 
     /// Search the given key name in object infos and return the corresponding value

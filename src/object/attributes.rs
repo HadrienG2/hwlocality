@@ -9,7 +9,7 @@
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
 use crate::{
-    ffi,
+    ffi::int,
     object::types::{
         BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
         RawOSDeviceType,
@@ -277,14 +277,14 @@ impl CacheAttributes {
     #[doc(alias = "hwloc_cache_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::depth")]
     pub fn depth(&self) -> usize {
-        ffi::expect_usize(self.depth)
+        int::expect_usize(self.depth)
     }
 
     /// Cache line size in bytes
     #[doc(alias = "hwloc_cache_attr_s::linesize")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::linesize")]
     pub fn line_size(&self) -> Option<NonZeroUsize> {
-        NonZeroUsize::new(ffi::expect_usize(self.linesize))
+        NonZeroUsize::new(int::expect_usize(self.linesize))
     }
 
     /// Ways of associativity
@@ -296,7 +296,7 @@ impl CacheAttributes {
             0 => CacheAssociativity::Unknown,
             ways if ways > 0 => {
                 let ways = c_uint::try_from(ways).expect("int > 0 -> uint should not fail");
-                let ways = ffi::expect_usize(ways);
+                let ways = int::expect_usize(ways);
                 let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize cannot fail");
                 CacheAssociativity::Ways(ways)
             }
@@ -357,13 +357,13 @@ impl GroupAttributes {
     #[doc(alias = "hwloc_group_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::depth")]
     pub fn depth(&self) -> usize {
-        ffi::expect_usize(self.depth)
+        int::expect_usize(self.depth)
     }
 
     /// Internally-used kind of group
     #[allow(unused)]
     pub(crate) fn kind(&self) -> usize {
-        ffi::expect_usize(self.kind)
+        int::expect_usize(self.kind)
     }
 
     /// Tell hwloc that this group object should always be discarded in favor of
@@ -379,7 +379,7 @@ impl GroupAttributes {
     #[doc(alias = "hwloc_group_attr_s::subkind")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::subkind")]
     pub(crate) fn subkind(&self) -> usize {
-        ffi::expect_usize(self.subkind)
+        int::expect_usize(self.subkind)
     }
 
     /// Flag preventing groups from being automatically merged with identical
@@ -599,7 +599,7 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::depth")]
     pub fn depth(&self) -> usize {
-        ffi::expect_usize(self.depth)
+        int::expect_usize(self.depth)
     }
 }
 //

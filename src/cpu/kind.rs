@@ -17,7 +17,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi::{self, LibcString},
+    ffi::{self, int, string::LibcString},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -96,7 +96,7 @@ impl Topology {
             ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
-        NonZeroUsize::new(ffi::expect_usize(count)).ok_or(CpuKindsUnknown)
+        NonZeroUsize::new(int::expect_usize(count)).ok_or(CpuKindsUnknown)
     }
 
     /// Enumerate CPU kinds, from least efficient efficient to most efficient
@@ -167,7 +167,7 @@ impl Topology {
             -1 => None,
             other => {
                 let positive = c_uint::try_from(other).expect("Unexpected CpuEfficiency value");
-                Some(ffi::expect_usize(positive))
+                Some(int::expect_usize(positive))
             }
         };
         assert!(
@@ -180,7 +180,7 @@ impl Topology {
         //           violates Rust aliasing rules, as long as we honor these
         //           rules ourselves
         //         - Total size should not wrap around for any valid allocation
-        let infos = unsafe { std::slice::from_raw_parts(infos, ffi::expect_usize(nr_infos)) };
+        let infos = unsafe { std::slice::from_raw_parts(infos, int::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
     }
 
@@ -210,7 +210,7 @@ impl Topology {
             ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
         let kind_index = match result {
-            Ok(idx) => ffi::expect_usize(idx),
+            Ok(idx) => int::expect_usize(idx),
             Err(
                 raw_error @ RawHwlocError {
                     errno: Some(errno), ..

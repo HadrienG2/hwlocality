@@ -205,7 +205,7 @@
 pub mod bitmap;
 pub mod cpu;
 pub mod errors;
-pub(crate) mod ffi;
+pub mod ffi;
 pub mod info;
 #[cfg(any(doc, target_os = "linux"))]
 mod linux;
@@ -215,6 +215,8 @@ pub mod path;
 pub mod topology;
 #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
 mod windows;
+
+use ffi::int;
 
 /// Thread identifier (OS-specific)
 ///
@@ -252,7 +254,7 @@ pub type ProcessId = libc::pid_t;
 #[doc(alias = "hwloc_get_api_version")]
 pub fn get_api_version() -> usize {
     // SAFETY: This hwloc entry point has no safety preconditions
-    ffi::expect_usize(unsafe { ffi::hwloc_get_api_version() })
+    int::expect_usize(unsafe { ffi::hwloc_get_api_version() })
 }
 
 // Disable the alias in test builds to make sure the implementation does not

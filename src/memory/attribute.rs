@@ -19,7 +19,7 @@ use crate::{
     bitmap::{BitmapRef, RawBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObject, HybridError, NulError, RawHwlocError},
-    ffi::{self, LibcString},
+    ffi::{self, int, string::LibcString},
     object::TopologyObject,
     topology::{editor::TopologyEditor, RawTopology, Topology},
 };
@@ -165,7 +165,7 @@ impl Topology {
         //         to model it in the "nr" parameter. This will set nr to the
         //         actual buffer size we need to allocate.
         call_ffi(&mut nr, ptr::null_mut())?;
-        let len = ffi::expect_usize(nr);
+        let len = int::expect_usize(nr);
 
         // Allocate storage and fill node list
         let mut out = vec![ptr::null(); len];
@@ -1031,7 +1031,7 @@ impl<'topology> MemoryAttribute<'topology> {
         // SAFETY: 0 elements + null buffer pointers is the correct way to
         //         request the buffer size to be allocated from hwloc
         call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut())?;
-        let len = ffi::expect_usize(nr);
+        let len = int::expect_usize(nr);
         let mut endpoints = vec![placeholder; len];
         let mut values = vec![u64::MAX; len];
 

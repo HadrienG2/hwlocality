@@ -5,7 +5,7 @@
 use crate::topology::builder::TopologyBuilder;
 use crate::{
     errors::{self, RawHwlocError},
-    ffi,
+    ffi::{self, int},
     topology::Topology,
 };
 use bitflags::bitflags;
@@ -50,7 +50,7 @@ impl Topology {
                         flags.bits(),
                     )
                 })?;
-            if ffi::expect_usize(len) == buf.len() - 1 {
+            if int::expect_usize(len) == buf.len() - 1 {
                 // hwloc exactly filled the buffer, which suggests the
                 // output was truncated. Try a larget buffer.
                 buf.resize(2 * buf.len(), 0);

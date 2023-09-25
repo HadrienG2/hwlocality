@@ -49,8 +49,6 @@
 //
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
-mod index;
-
 #[cfg(doc)]
 use crate::{
     cpu::cpuset::CpuSet,
@@ -60,7 +58,7 @@ use crate::{
 };
 use crate::{
     errors,
-    ffi::{self, IncompleteType},
+    ffi::{self, IncompleteType, PositiveInt},
     Sealed,
 };
 #[cfg(any(test, feature = "quickcheck"))]
@@ -83,9 +81,8 @@ use std::{
     ptr::NonNull,
 };
 
-// Re-export BitmapIndex, the fact that it's in a separate module is an
-// implementation detail / valiant attempt to fight source file growth
-pub use index::BitmapIndex;
+/// Valid bitmap index ranging from `0` to [`c_int::MAX`]
+pub type BitmapIndex = PositiveInt;
 
 /// Opaque bitmap struct
 ///

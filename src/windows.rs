@@ -3,7 +3,7 @@
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi,
+    ffi::{self, int},
     topology::Topology,
 };
 use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
@@ -39,7 +39,7 @@ impl Topology {
             errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
                 ffi::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
             })?;
-        let count = NonZeroUsize::new(ffi::expect_usize(count))
+        let count = NonZeroUsize::new(int::expect_usize(count))
             .expect("Unexpected 0 processor group count");
         Ok(count)
     }
