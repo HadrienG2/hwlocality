@@ -326,6 +326,7 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///
     /// [`BadInitiatorsCount`]: BadAttributeValues::BadInitiatorsCount
     /// [`ForeignInitiators`]: BadAttributeValues::ForeignInitiators
+    /// [`ForeignTargets`]: BadAttributeValues::ForeignTargets
     /// [`NeedInitiators`]: BadAttributeValues::NeedInitiators
     /// [`UnwantedInitiators`]: BadAttributeValues::UnwantedInitiators
     #[doc(alias = "hwloc_memattr_set_value")]
