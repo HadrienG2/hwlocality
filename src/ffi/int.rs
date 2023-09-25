@@ -31,6 +31,7 @@ use std::{
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
+    debug_assert,
     ffi::{c_int, c_uint},
     fmt::Debug,
     iter::{FusedIterator, Product, Sum},
@@ -61,12 +62,12 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
         .expect("Expected on any platform supported by hwloc")
 }
 
-/// Integer ranging from 0 to the implementation-defined upper bound of C's
-/// `int` type
+/// Integer ranging from 0 to the implementation-defined [`c_int::MAX`] limit
 ///
 /// On all platforms currently supported by Rust, the upper limit is at least
-/// 32767 (2^15-1), and outside of exotic 16-bit hardware, it will usually be
-/// greater than or equal to 2147483647 (2^31-1).
+/// 32767 (`2^15-1`). If we leave aside the edge case of 16-bit hardware, it
+/// will usually be equal to 2147483647 (`2^31-1`), but could potentially be
+/// greater.
 ///
 /// # External operators
 ///
@@ -2147,7 +2148,11 @@ impl PositiveInt {
         end: PositiveInt,
     ) -> impl DoubleEndedIterator<Item = PositiveInt> + Clone + ExactSizeIterator + FusedIterator
     {
-        PositiveIntRangeInclusiveIter { start, end }
+        PositiveIntRangeInclusiveIter {
+            start,
+            end,
+            exhausted: self.start > self.end,
+        }
     }
 
     /// Construct a [`RangeFrom`]-like iterator of this integer type
@@ -3201,31 +3206,22 @@ struct PositiveIntRangeIter {
     end: PositiveInt,
 }
 //
-impl PositiveIntRangeIter {
-    /// Truth that this iterator contains no element
-    fn is_empty_impl(&self) -> bool {
-        self.len() == 0
-    }
-}
-//
 impl DoubleEndedIterator for PositiveIntRangeIter {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.is_empty_impl() {
-            None
-        } else {
-            self.end -= 1;
-            Some(self.end + 1)
-        }
+        self.nth_back(0)
     }
 
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        if self.len() < n {
+        if self.len() > n {
+            self.end -= PositiveInt::try_from(n + 1).expect(
+                "Cannot happen: len > n implies len >= n+1 \
+                 and len < PositiveInt::MAX by construction, \
+                 therefore n+1 < PositiveInt::MAX",
+            );
+            Some(self.end)
+        } else {
             self.end = self.start;
             None
-        } else {
-            self.end -= PositiveInt::try_from(n)
-                .expect("The iterator cannot have an out-of-range number of elements");
-            Some(self.end + 1)
         }
     }
 }
@@ -3242,12 +3238,7 @@ impl Iterator for PositiveIntRangeIter {
     type Item = PositiveInt;
 
     fn next(&mut self) -> Option<PositiveInt> {
-        if self.is_empty_impl() {
-            None
-        } else {
-            self.start += 1;
-            Some(self.start - 1)
-        }
+        self.nth(0)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -3259,17 +3250,20 @@ impl Iterator for PositiveIntRangeIter {
     }
 
     fn last(self) -> Option<PositiveInt> {
-        (!self.is_empty_impl()).then(|| self.end - 1)
+        (self.len() != 0).then_some(self.end - 1)
     }
 
     fn nth(&mut self, n: usize) -> Option<PositiveInt> {
-        if self.len() < n {
+        if self.len() > n {
+            self.start += PositiveInt::try_from(n + 1).expect(
+                "Cannot happen: len > n implies len >= n+1 \
+                 and len < PositiveInt::MAX by construction, \
+                 therefore n+1 < PositiveInt::MAX",
+            );
+            Some(self.start - 1)
+        } else {
             self.start = self.end;
             None
-        } else {
-            self.start += PositiveInt::try_from(n)
-                .expect("The iterator cannot have an out-of-range number of elements");
-            Some(self.start - 1)
         }
     }
 }
@@ -3279,42 +3273,68 @@ impl Iterator for PositiveIntRangeIter {
 struct PositiveIntRangeInclusiveIter {
     start: PositiveInt,
     end: PositiveInt,
+    exhausted: bool,
 }
 //
 impl PositiveIntRangeInclusiveIter {
-    /// Truth that this iterator contains no element
-    fn is_empty_impl(&self) -> bool {
-        self.len() == 0
+    /// Like next(), but assumes there are items left
+    fn next_unchecked(&mut self) -> PositiveInt {
+        debug_assert!(
+            !self.exhausted,
+            "Should not be called on an exhausted iterator"
+        );
+        if self.start == self.end {
+            self.exhausted = true;
+            self.start
+        } else {
+            self.start += 1;
+            self.start - 1
+        }
+    }
+
+    /// Like next_back(), but assumes there are items left
+    fn next_back_unchecked(&mut self) -> PositiveInt {
+        debug_assert!(
+            !self.exhausted,
+            "Should not be called on an exhausted iterator"
+        );
+        if self.start == self.end {
+            self.exhausted = true;
+            self.end
+        } else {
+            self.end -= 1;
+            self.end + 1
+        }
     }
 }
 //
 impl DoubleEndedIterator for PositiveIntRangeInclusiveIter {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.is_empty_impl() {
-            None
-        } else {
-            self.end -= 1;
-            Some(self.end + 1)
-        }
+        (!self.exhausted).then(|| self.next_back_unchecked())
     }
 
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        if self.len() < n {
-            self.end = self.start;
-            None
+        if self.len() > n {
+            self.end -= PositiveInt::try_from(n).expect(
+                "Cannot happen: len > n and len <= PositiveInt::MAX, \
+                 therefore n < PositiveInt::MAX",
+            );
+            Some(self.next_back_unchecked())
         } else {
-            self.end -= PositiveInt::try_from(n)
-                .expect("The iterator cannot have an out-of-range number of elements");
-            Some(self.end + 1)
+            self.end = self.start;
+            self.exhausted = true;
+            None
         }
     }
 }
 //
 impl ExactSizeIterator for PositiveIntRangeInclusiveIter {
     fn len(&self) -> usize {
-        usize::from(self.end)
-            .checked_sub(usize::from(self.start))
-            .map_or(0, |len| len + 1)
+        if self.exhausted {
+            0
+        } else {
+            usize::from(self.end) - usize::from(self.start) + 1
+        }
     }
 }
 //
@@ -3324,12 +3344,7 @@ impl Iterator for PositiveIntRangeInclusiveIter {
     type Item = PositiveInt;
 
     fn next(&mut self) -> Option<PositiveInt> {
-        if self.is_empty_impl() {
-            None
-        } else {
-            self.start += 1;
-            Some(self.start - 1)
-        }
+        (!self.exhausted).then(|| self.next_unchecked())
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -3341,17 +3356,20 @@ impl Iterator for PositiveIntRangeInclusiveIter {
     }
 
     fn last(self) -> Option<PositiveInt> {
-        (!self.is_empty_impl()).then(|| self.end - 1)
+        (!self.exhausted).then_some(self.end)
     }
 
     fn nth(&mut self, n: usize) -> Option<PositiveInt> {
-        if self.len() < n {
-            self.start = self.end;
-            None
+        if self.len() > n {
+            self.start += PositiveInt::try_from(n).expect(
+                "Cannot happen: len > n and len <= PositiveInt::MAX, \
+                 therefore n < PositiveInt::MAX",
+            );
+            Some(self.next_unchecked())
         } else {
-            self.start += PositiveInt::try_from(n)
-                .expect("The iterator cannot have an out-of-range number of elements");
-            Some(self.start - 1)
+            self.start = self.end;
+            self.exhausted = true;
+            None
         }
     }
 }
@@ -3365,6 +3383,7 @@ impl FusedIterator for PositiveIntRangeFromIter {}
 impl Iterator for PositiveIntRangeFromIter {
     type Item = PositiveInt;
 
+    #[inline]
     fn next(&mut self) -> Option<PositiveInt> {
         self.0 += 1;
         Some(self.0 - 1)
@@ -3375,17 +3394,17 @@ impl Iterator for PositiveIntRangeFromIter {
     }
 
     fn count(self) -> usize {
-        panic!("This iterator has an infinite number of elements")
+        panic!("Attempted to consume an iterator with infinite elements")
     }
 
     fn last(self) -> Option<PositiveInt> {
-        None
+        panic!("Attempted to consume an iterator with infinite elements")
     }
 
+    #[inline]
     fn nth(&mut self, n: usize) -> Option<PositiveInt> {
-        self.0 += PositiveInt::try_from(n)
-            .expect("The iterator cannot have an out-of-range number of elements");
-        Some(self.0 - 1)
+        self.0 += PositiveInt::try_from(n).expect("Increment is out of range");
+        self.next()
     }
 }
 
