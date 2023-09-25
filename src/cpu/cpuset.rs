@@ -13,7 +13,11 @@ use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
 use crate::{
     impl_bitmap_newtype,
     memory::nodeset::NodeSet,
-    object::{depth::Depth, types::ObjectType, TopologyObject},
+    object::{
+        depth::{Depth, NormalDepth},
+        types::ObjectType,
+        TopologyObject,
+    },
     topology::Topology,
 };
 #[cfg(feature = "hwloc-2_2_0")]
@@ -129,12 +133,21 @@ impl Topology {
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
-    pub fn objects_inside_cpuset_at_depth<'result>(
+    pub fn objects_inside_cpuset_at_depth<'result, DepthLike>(
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
-        depth: impl Into<Depth>,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objects_at_depth(depth.into())
+        depth: DepthLike,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // This little hack works because hwloc topologies never get anywhere
+        // close the maximum possible depth, which is c_int::MAX, so there will
+        // never be any object at that depth. We need it because impl Trait
+        // needs homogeneous return types.
+        let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
+        self.objects_at_depth(depth)
             .filter(move |object| object.is_inside_cpuset(set.borrow()))
     }
 
@@ -327,12 +340,21 @@ impl Topology {
     /// of all objects would be returned). An empty iterator will always be
     /// returned for I/O or Misc depths as those objects have no cpusets.
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
-    pub fn objects_covering_cpuset_at_depth<'result>(
+    pub fn objects_covering_cpuset_at_depth<'result, DepthLike>(
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
-        depth: impl Into<Depth>,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objects_at_depth(depth.into())
+        depth: DepthLike,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // This little hack works because hwloc topologies never get anywhere
+        // close the maximum possible depth, which is c_int::MAX, so there will
+        // never be any object at that depth. We need it because impl Trait
+        // needs homogeneous return types.
+        let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
+        self.objects_at_depth(depth)
             .filter(move |object| object.covers_cpuset(set.borrow()))
     }
 

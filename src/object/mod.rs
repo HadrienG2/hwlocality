@@ -26,7 +26,7 @@ use num_enum::TryFromPrimitiveError;
 use std::{
     borrow::Borrow,
     ffi::{c_char, c_int, c_uint, c_void, CStr},
-    fmt,
+    fmt::{self, Debug},
     iter::FusedIterator,
     ptr,
 };
@@ -354,13 +354,24 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_get_depth_type")]
-    pub fn type_at_depth(&self, depth: impl Into<Depth>) -> Option<ObjectType> {
-        let depth = depth.into();
+    pub fn type_at_depth<DepthLike>(&self, depth: DepthLike) -> Option<ObjectType>
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // There cannot be any object at a depth below the hwloc-supported max
+        let Ok(depth) = depth.try_into() else {
+            return None;
+        };
+
+        // There cannot be any normal object at a depth below the topology depth
         if let Depth::Normal(depth) = depth {
             if depth >= self.depth() {
                 return None;
             }
         }
+
+        // Otherwise, ask hwloc
         match unsafe { ffi::hwloc_get_depth_type(self.as_ptr(), depth.into()) }.try_into() {
             Ok(depth) => Some(depth),
             Err(TryFromPrimitiveError {
@@ -388,10 +399,16 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
-    pub fn num_objects_at_depth(&self, depth: impl Into<Depth>) -> usize {
-        int::expect_usize(unsafe {
-            ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
-        })
+    pub fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // There cannot be any object at a depth below the hwloc-supported max
+        let Ok(depth) = depth.try_into() else {
+            return 0;
+        };
+        int::expect_usize(unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into()) })
     }
 
     /// [`TopologyObject`]s at the given `depth`
@@ -421,12 +438,19 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_get_obj_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_by_depth")]
-    pub fn objects_at_depth(
+    pub fn objects_at_depth<DepthLike>(
         &self,
-        depth: impl Into<Depth>,
+        depth: DepthLike,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
     {
-        let depth = depth.into();
+        // This little hack works because hwloc topologies never get anywhere
+        // close the maximum possible depth, which is c_int::MAX, so there will
+        // never be any object at that depth. We need it because impl Trait
+        // needs homogeneous return types.
+        let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
         let size = self.num_objects_at_depth(depth);
         let depth = RawDepth::from(depth);
         (0..size).map(move |idx| {
@@ -1293,9 +1317,17 @@ impl TopologyObject {
     /// Will return `None` if the requested depth is deeper than the depth of
     /// the current object.
     #[doc(alias = "hwloc_get_ancestor_obj_by_depth")]
-    pub fn ancestor_at_depth(&self, depth: impl Into<Depth>) -> Option<&TopologyObject> {
+    pub fn ancestor_at_depth<DepthLike>(&self, depth: DepthLike) -> Option<&TopologyObject>
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // There cannot be any ancestor at a depth below the hwloc-supported max
+        let Ok(depth) = depth.try_into() else {
+            return None;
+        };
+
         // Fast failure path when depth is comparable
-        let depth = depth.into();
         let self_depth = self.depth();
         if let (Ok(self_depth), Ok(depth)) = (
             NormalDepth::try_from(self_depth),

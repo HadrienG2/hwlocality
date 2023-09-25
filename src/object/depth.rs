@@ -140,6 +140,7 @@ impl TryFrom<Depth> for usize {
     }
 }
 //
+#[doc(hidden)]
 impl TryFrom<RawDepth> for Depth {
     type Error = TypeToDepthError;
 
@@ -164,6 +165,7 @@ impl TryFrom<RawDepth> for Depth {
     }
 }
 //
+#[doc(hidden)]
 impl From<Depth> for RawDepth {
     fn from(value: Depth) -> Self {
         match value {

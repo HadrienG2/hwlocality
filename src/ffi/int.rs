@@ -2140,6 +2140,8 @@ impl PositiveInt {
     /// Construct a [`RangeInclusive`]-like iterator of this integer type
     ///
     /// This needs to exist for the same reason that [`iter_range()`] does.
+    ///
+    /// [`iter_range()`]: Self::iter_range()
     pub fn iter_range_inclusive(
         start: PositiveInt,
         end: PositiveInt,
@@ -2151,6 +2153,8 @@ impl PositiveInt {
     /// Construct a [`RangeFrom`]-like iterator of this integer type
     ///
     /// This needs to exist for the same reason that [`iter_range()`] does.
+    ///
+    /// [`iter_range()`]: Self::iter_range()
     pub fn iter_range_from(start: PositiveInt) -> impl FusedIterator<Item = PositiveInt> + Clone {
         PositiveIntRangeFromIter(start)
     }

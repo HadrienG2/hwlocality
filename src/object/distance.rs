@@ -75,12 +75,20 @@ impl Topology {
     /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_depth")]
-    pub fn distances_at_depth(
+    pub fn distances_at_depth<DepthLike>(
         &self,
         kind: DistancesKind,
-        depth: impl Into<Depth>,
-    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
-        let depth = depth.into();
+        depth: DepthLike,
+    ) -> Result<Vec<Distances<'_>>, RawHwlocError>
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // There cannot be any object at a depth below the hwloc-supported max
+        let Ok(depth) = depth.try_into() else {
+            return Ok(Vec::new());
+        };
+
         // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
         //           curried away behaves indeed like hwloc_distances_get
         //         - Depth only allows valid depth values to exist
@@ -518,12 +526,20 @@ impl TopologyEditor<'_> {
     /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_depth")]
-    pub fn remove_distances_at_depth(
+    pub fn remove_distances_at_depth<DepthLike>(
         &mut self,
-        depth: impl Into<Depth>,
-    ) -> Result<(), RawHwlocError> {
+        depth: DepthLike,
+    ) -> Result<(), RawHwlocError>
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // There cannot be any object at a depth below the hwloc-supported max
+        let Ok(depth) = depth.try_into() else {
+            return Ok(());
+        };
         errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
-            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
+            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into())
         })
         .map(std::mem::drop)
     }
