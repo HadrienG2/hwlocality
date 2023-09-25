@@ -2131,10 +2131,9 @@ impl PositiveInt {
     /// due to that impl's dependency on the rustc-private `Step` trait.
     /// This method is the workaround.
     pub fn iter_range(
-        start: PositiveInt,
-        end: PositiveInt,
-    ) -> impl DoubleEndedIterator<Item = PositiveInt> + Clone + ExactSizeIterator + FusedIterator
-    {
+        start: Self,
+        end: Self,
+    ) -> impl DoubleEndedIterator<Item = Self> + Clone + ExactSizeIterator + FusedIterator {
         PositiveIntRangeIter { start, end }
     }
 
@@ -2144,14 +2143,13 @@ impl PositiveInt {
     ///
     /// [`iter_range()`]: Self::iter_range()
     pub fn iter_range_inclusive(
-        start: PositiveInt,
-        end: PositiveInt,
-    ) -> impl DoubleEndedIterator<Item = PositiveInt> + Clone + ExactSizeIterator + FusedIterator
-    {
+        start: Self,
+        end: Self,
+    ) -> impl DoubleEndedIterator<Item = Self> + Clone + ExactSizeIterator + FusedIterator {
         PositiveIntRangeInclusiveIter {
             start,
             end,
-            exhausted: self.start > self.end,
+            exhausted: start > end,
         }
     }
 
@@ -2160,7 +2158,7 @@ impl PositiveInt {
     /// This needs to exist for the same reason that [`iter_range()`] does.
     ///
     /// [`iter_range()`]: Self::iter_range()
-    pub fn iter_range_from(start: PositiveInt) -> impl FusedIterator<Item = PositiveInt> + Clone {
+    pub fn iter_range_from(start: Self) -> impl FusedIterator<Item = Self> + Clone {
         PositiveIntRangeFromIter(start)
     }
 
@@ -3202,7 +3200,10 @@ try_into!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 /// [`Range`]-like iterator for [`PositiveInt`]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 struct PositiveIntRangeIter {
+    /// Start of the range
     start: PositiveInt,
+
+    /// End of the range (exclusive)
     end: PositiveInt,
 }
 //
@@ -3271,13 +3272,18 @@ impl Iterator for PositiveIntRangeIter {
 /// [`RangeInclusive`]-like iterator for [`PositiveInt`]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 struct PositiveIntRangeInclusiveIter {
+    /// Start of the range
     start: PositiveInt,
+
+    /// End of the range (inclusive)
     end: PositiveInt,
+
+    /// Truth that there are elements left
     exhausted: bool,
 }
 //
 impl PositiveIntRangeInclusiveIter {
-    /// Like next(), but assumes there are items left
+    /// Like [`Iterator::next()`], but assumes there are items left
     fn next_unchecked(&mut self) -> PositiveInt {
         debug_assert!(
             !self.exhausted,
@@ -3292,7 +3298,7 @@ impl PositiveIntRangeInclusiveIter {
         }
     }
 
-    /// Like next_back(), but assumes there are items left
+    /// Like [`DoubleEndedIterator::next_back()`], but assumes there are items left
     fn next_back_unchecked(&mut self) -> PositiveInt {
         debug_assert!(
             !self.exhausted,

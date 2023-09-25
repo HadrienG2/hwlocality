@@ -136,7 +136,7 @@ impl TryFrom<Depth> for usize {
     type Error = Depth;
 
     fn try_from(value: Depth) -> Result<Self, Depth> {
-        NormalDepth::try_from(value).map(usize::from)
+        NormalDepth::try_from(value).map(Self::from)
     }
 }
 //
