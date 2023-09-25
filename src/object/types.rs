@@ -20,7 +20,7 @@ use std::{
     ffi::{c_int, c_uint},
 };
 
-/// Rust mapping of the hwloc_obj_type_e enum
+/// Rust mapping of the `hwloc_obj_type_e` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
@@ -217,31 +217,31 @@ pub enum ObjectType {
 impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     #[doc(alias = "hwloc_obj_type_is_normal")]
-    pub fn is_normal(&self) -> bool {
+    pub fn is_normal(self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_normal", ffi::hwloc_obj_type_is_normal) }
     }
 
     /// Truth that this object type is a leaf of the normal hierarchy and
     /// cannot have non-Misc children
-    pub fn is_normal_leaf(&self) -> bool {
-        *self == Self::PU || *self == Self::NUMANode
+    pub fn is_normal_leaf(self) -> bool {
+        self == Self::PU || self == Self::NUMANode
     }
 
     /// Truth that this is a CPU-side cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_cache")]
-    pub fn is_cpu_cache(&self) -> bool {
+    pub fn is_cpu_cache(self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_cache", ffi::hwloc_obj_type_is_cache) }
     }
 
     /// Truth that this is a CPU-side data or unified cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_dcache")]
-    pub fn is_cpu_data_cache(&self) -> bool {
+    pub fn is_cpu_data_cache(self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_dcache", ffi::hwloc_obj_type_is_dcache) }
     }
 
     /// Truth that this is a CPU-side instruction cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_icache")]
-    pub fn is_cpu_instruction_cache(&self) -> bool {
+    pub fn is_cpu_instruction_cache(self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_icache", ffi::hwloc_obj_type_is_icache) }
     }
 
@@ -251,7 +251,7 @@ impl ObjectType {
     /// the dedicated memory children list. They have special depth values
     /// instead of normal depths like other objects in the main tree.
     #[doc(alias = "hwloc_obj_type_is_memory")]
-    pub fn is_memory(&self) -> bool {
+    pub fn is_memory(self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_memory", ffi::hwloc_obj_type_is_memory) }
     }
 
@@ -262,7 +262,7 @@ impl ObjectType {
     /// They are not part of the main children list, but rather reside in the
     /// dedicated I/O children list.
     #[doc(alias = "hwloc_obj_type_is_io")]
-    pub fn is_io(&self) -> bool {
+    pub fn is_io(self) -> bool {
         unsafe { self.type_predicate("hwloc_obj_type_is_io", ffi::hwloc_obj_type_is_io) }
     }
 
@@ -282,7 +282,7 @@ impl ObjectType {
     ///
     /// `pred` must be a valid object type predicate
     unsafe fn type_predicate(
-        &self,
+        self,
         api: &'static str,
         pred: unsafe extern "C" fn(RawObjectType) -> c_int,
     ) -> bool {
@@ -304,7 +304,7 @@ impl PartialOrd for ObjectType {
     }
 }
 
-/// Rust mapping of the hwloc_obj_bridge_type_e enum
+/// Rust mapping of the `hwloc_obj_bridge_type_e` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
@@ -326,7 +326,7 @@ pub enum BridgeType {
     PCI,
 }
 
-/// Rust mapping of the hwloc_obj_cache_type_e enum
+/// Rust mapping of the `hwloc_obj_cache_type_e` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
@@ -352,7 +352,7 @@ pub enum CacheType {
     Instruction,
 }
 
-/// Rust mapping of the hwloc_obj_osdev_type_e enum
+/// Rust mapping of the `hwloc_obj_osdev_type_e` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.

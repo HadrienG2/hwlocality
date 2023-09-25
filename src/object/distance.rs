@@ -29,7 +29,6 @@ use crate::{
 use crate::{object::depth::NormalDepth, topology::editor::TopologyEditor};
 use bitflags::bitflags;
 use std::{
-    debug_assert,
     ffi::{c_int, c_uint, c_ulong},
     fmt::{self, Debug},
     iter::FusedIterator,
@@ -181,7 +180,7 @@ impl Topology {
         }
     }
 
-    /// Call one of the hwloc_distances_get(_by)? APIs
+    /// Call one of the `hwloc_distances_get(_by)?` APIs
     ///
     /// # Safety
     ///
@@ -216,7 +215,8 @@ impl Topology {
         }
     }
 
-    /// Call one of the hwloc_distances_get(_by)? APIs, without the kind parameter
+    /// Call one of the `hwloc_distances_get(_by)?` APIs, without the `kind`
+    /// parameter
     ///
     /// Takes care of all parameters except for `kind`, which is not universal
     /// to these APIs and taken care of by [`get_distances()`]. So the last
@@ -230,7 +230,7 @@ impl Topology {
     ///   length, distance out-buffer pointer, flags) tuples
     ///
     /// [`get_distances()`]: Self::get_distances()
-    #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_errors_doc, clippy::unnecessary_safety_comment)]
     unsafe fn get_distances_without_kind(
         &self,
         getter_name: &'static str,
@@ -338,7 +338,7 @@ impl TopologyEditor<'_> {
             Ok(name) => name,
             Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
         };
-        let name = name.map(|lcs| lcs.borrow()).unwrap_or(ptr::null());
+        let name = name.map_or(ptr::null(), |lcs| lcs.borrow());
         //
         if !kind.is_valid(true) {
             return Err(AddDistancesError::BadKind(kind).into());
@@ -679,6 +679,7 @@ impl<'topology> Distances<'topology> {
     ///
     /// `inner` must be a valid and non-aliased `RawDistances` pointer
     /// originating from a query against `topology`
+    #[allow(clippy::unnecessary_safety_comment)]
     pub(crate) unsafe fn wrap(topology: &'topology Topology, inner: *mut RawDistances) -> Self {
         let inner = NonNull::new(inner).expect("Got null distance matrix pointer from hwloc");
         // SAFETY: inner is assumed valid & unaliased per precondition
@@ -737,7 +738,10 @@ impl<'topology> Distances<'topology> {
     #[doc(alias = "hwloc_distances_s::kind")]
     pub fn kind(&self) -> DistancesKind {
         let result = DistancesKind::from_bits_truncate(self.inner().kind);
-        debug_assert!(result.is_valid(false));
+        assert!(
+            result.is_valid(false),
+            "hwloc should not emit invalid kinds"
+        );
         result
     }
 
@@ -746,6 +750,7 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// Output can be trusted by unsafe code
+    #[allow(clippy::unnecessary_safety_doc)]
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
         int::expect_usize(self.inner().nbobj)
@@ -812,6 +817,7 @@ impl<'topology> Distances<'topology> {
     /// # Errors
     ///
     /// [`ForeignObject`] if the input object does not belong to the [`Topology`]
+    #[allow(clippy::option_if_let_else)]
     fn obj_to_checked_ptr(
         topology: &'topology Topology,
         obj: Option<&'topology TopologyObject>,
@@ -885,6 +891,7 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// Output can be trusted by unsafe code
+    #[allow(clippy::unnecessary_safety_doc)]
     fn num_distances(&self) -> usize {
         self.num_objects().pow(2)
     }
@@ -943,6 +950,7 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// Output can be trusted by unsafe code
+    #[allow(clippy::unnecessary_safety_doc)]
     pub fn enumerate_distances_mut(
         &mut self,
     ) -> impl DoubleEndedIterator<Item = ((usize, usize), &mut u64)> + ExactSizeIterator + FusedIterator
@@ -1125,7 +1133,7 @@ unsafe impl Send for Distances<'_> {}
 // SAFETY: No internal mutability
 unsafe impl Sync for Distances<'_> {}
 
-/// Rust mapping of the hwloc_distances_kind_e enum
+/// Rust mapping of the `hwloc_distances_kind_e` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
@@ -1198,7 +1206,7 @@ impl DistancesKind {
     }
 }
 
-/// Rust mapping of the hwloc_distances_transform_e enum
+/// Rust mapping of the `hwloc_distances_transform_e` enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
