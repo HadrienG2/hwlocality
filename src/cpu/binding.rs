@@ -19,6 +19,10 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
+use hwlocality_sys::{
+    hwloc_cpubind_flags_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
+    HWLOC_CPUBIND_THREAD,
+};
 use libc::{ENOSYS, EXDEV};
 use std::{borrow::Borrow, ffi::c_int, fmt::Display};
 use thiserror::Error;
@@ -492,8 +496,8 @@ bitflags! {
     /// Please check the documentation of the `Topology` method that you are
     /// trying to call for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-    #[repr(C)]
-    pub struct CpuBindingFlags: u32 {
+    #[doc(alias = "hwloc_cpubind_flags_t")]
+    pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
         /// Assume that the current process is single threaded
         ///
         /// This lets hwloc pick between thread and process binding for
@@ -515,13 +519,13 @@ bitflags! {
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
         #[doc(alias = "HWLOC_CPUBIND_THREAD")]
-        const THREAD  = (1<<1);
+        const THREAD  = HWLOC_CPUBIND_THREAD;
 
         /// Bind all threads of the current process
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `THREAD`.
         #[doc(alias = "HWLOC_CPUBIND_PROCESS")]
-        const PROCESS = (1<<0);
+        const PROCESS = HWLOC_CPUBIND_PROCESS;
 
         /// Request for strict binding from the OS
         ///
@@ -544,7 +548,7 @@ bitflags! {
         /// This flag should not be used when retrieving the binding of a
         /// thread or the CPU location of a process.
         #[doc(alias = "HWLOC_CPUBIND_STRICT")]
-        const STRICT = (1<<2);
+        const STRICT = HWLOC_CPUBIND_STRICT;
 
         /// Avoid any effect on memory binding
         ///
@@ -559,7 +563,7 @@ bitflags! {
         /// This flag should only be used with functions that set the CPU
         /// binding.
         #[doc(alias = "HWLOC_CPUBIND_NOMEMBIND")]
-        const NO_MEMORY_BINDING = (1<<3);
+        const NO_MEMORY_BINDING = HWLOC_CPUBIND_NOMEMBIND;
     }
 }
 //

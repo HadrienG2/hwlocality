@@ -63,6 +63,7 @@ use crate::{
     ffi::{self, IncompleteType},
     Sealed,
 };
+use hwlocality_sys::hwloc_bitmap_s;
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(doc)]
@@ -91,10 +92,8 @@ pub use index::BitmapIndex;
 ///
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
-#[doc(alias = "hwloc_bitmap_s")]
 #[doc(hidden)]
-#[repr(C)]
-pub struct RawBitmap(IncompleteType);
+pub type RawBitmap = hwloc_bitmap_s;
 
 /// A generic bitmap, understood by hwloc
 ///

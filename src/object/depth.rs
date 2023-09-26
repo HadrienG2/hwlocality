@@ -5,6 +5,13 @@
 use crate::ffi;
 #[cfg(doc)]
 use crate::object::types::ObjectType;
+#[cfg(feature = "hwloc-2_1_0")]
+use hwlocality_sys::HWLOC_TYPE_DEPTH_MEMCACHE;
+use hwlocality_sys::{
+    hwloc_get_type_depth_e, HWLOC_TYPE_DEPTH_BRIDGE, HWLOC_TYPE_DEPTH_MISC,
+    HWLOC_TYPE_DEPTH_MULTIPLE, HWLOC_TYPE_DEPTH_NUMANODE, HWLOC_TYPE_DEPTH_OS_DEVICE,
+    HWLOC_TYPE_DEPTH_PCI_DEVICE, HWLOC_TYPE_DEPTH_UNKNOWN,
+};
 use std::{
     ffi::{c_int, c_uint},
     fmt,
@@ -15,10 +22,11 @@ use thiserror::Error;
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
-pub(crate) type RawDepth = c_int;
+pub(crate) type RawDepth = hwloc_get_type_depth_e;
 
 /// Valid object/type depth values
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+#[doc(alias = "hwloc_get_type_depth_e")]
 pub enum Depth {
     /// Depth of a normal object (not Memory, I/O or Misc)
     Normal(usize),
@@ -107,15 +115,15 @@ impl TryFrom<RawDepth> for Depth {
                 let d = c_uint::try_from(d).expect("int >= 0 -> uint conversion can't fail");
                 Ok(Self::Normal(ffi::expect_usize(d)))
             }
-            -1 => Err(DepthError::Nonexistent),
-            -2 => Err(DepthError::Multiple),
-            -3 => Ok(Self::NUMANode),
-            -4 => Ok(Self::Bridge),
-            -5 => Ok(Self::PCIDevice),
-            -6 => Ok(Self::OSDevice),
-            -7 => Ok(Self::Misc),
+            HWLOC_TYPE_DEPTH_UNKNOWN => Err(DepthError::Nonexistent),
+            HWLOC_TYPE_DEPTH_MULTIPLE => Err(DepthError::Multiple),
+            HWLOC_TYPE_DEPTH_NUMANODE => Ok(Self::NUMANode),
+            HWLOC_TYPE_DEPTH_BRIDGE => Ok(Self::Bridge),
+            HWLOC_TYPE_DEPTH_PCI_DEVICE => Ok(Self::PCIDevice),
+            HWLOC_TYPE_DEPTH_OS_DEVICE => Ok(Self::OSDevice),
+            HWLOC_TYPE_DEPTH_MISC => Ok(Self::Misc),
             #[cfg(feature = "hwloc-2_1_0")]
-            -8 => Ok(Self::MemCache),
+            HWLOC_TYPE_DEPTH_MEMCACHE => Ok(Self::MemCache),
             other => Err(DepthError::Unexpected(other)),
         }
     }

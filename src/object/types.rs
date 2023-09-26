@@ -13,18 +13,139 @@ use crate::{
     },
 };
 use derive_more::Display;
+use hwlocality_sys::{
+    hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
+    HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI, HWLOC_OBJ_CACHE_DATA,
+    HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE, HWLOC_OBJ_GROUP,
+    HWLOC_OBJ_L1CACHE, HWLOC_OBJ_L1ICACHE, HWLOC_OBJ_L2CACHE, HWLOC_OBJ_L2ICACHE,
+    HWLOC_OBJ_L3CACHE, HWLOC_OBJ_L3ICACHE, HWLOC_OBJ_L4CACHE, HWLOC_OBJ_L5CACHE, HWLOC_OBJ_MACHINE,
+    HWLOC_OBJ_MISC, HWLOC_OBJ_NUMANODE, HWLOC_OBJ_OSDEV_COPROC, HWLOC_OBJ_OSDEV_DMA,
+    HWLOC_OBJ_OSDEV_GPU, HWLOC_OBJ_OSDEV_NETWORK, HWLOC_OBJ_OSDEV_OPENFABRICS,
+    HWLOC_OBJ_OSDEV_STORAGE, HWLOC_OBJ_OS_DEVICE, HWLOC_OBJ_PACKAGE, HWLOC_OBJ_PCI_DEVICE,
+    HWLOC_OBJ_PU, HWLOC_TYPE_UNORDERED,
+};
+#[cfg(feature = "hwloc-2_1_0")]
+use hwlocality_sys::{HWLOC_OBJ_DIE, HWLOC_OBJ_MEMCACHE};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     cmp::{Ordering, PartialOrd},
     ffi::{c_int, c_uint},
 };
 
+/// Rust mapping of the hwloc_obj_bridge_type_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawBridgeType = hwloc_obj_bridge_type_t;
+
+/// Type of one side (upstream or downstream) of an I/O bridge.
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[doc(alias = "hwloc_obj_bridge_type_e")]
+#[doc(alias = "hwloc_obj_bridge_type_t")]
+#[repr(u32)]
+pub enum BridgeType {
+    /// Host-side of a bridge, only possible upstream
+    #[doc(alias = "HWLOC_OBJ_BRIDGE_HOST")]
+    Host = HWLOC_OBJ_BRIDGE_HOST,
+
+    /// PCI-side of a bridge
+    #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
+    PCI = HWLOC_OBJ_BRIDGE_PCI,
+}
+
+/// Rust mapping of the hwloc_obj_cache_type_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawCacheType = hwloc_obj_cache_type_t;
+
+/// Cache type
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[doc(alias = "hwloc_obj_cache_type_e")]
+#[doc(alias = "hwloc_obj_cache_type_t")]
+#[repr(u32)]
+pub enum CacheType {
+    /// Unified cache
+    #[doc(alias = "HWLOC_OBJ_CACHE_UNIFIED")]
+    Unified = HWLOC_OBJ_CACHE_UNIFIED,
+
+    /// Data cache
+    #[doc(alias = "HWLOC_OBJ_CACHE_DATA")]
+    Data = HWLOC_OBJ_CACHE_DATA,
+
+    /// Instruction cache (filtered out by default)
+    #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
+    Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
+}
+
+/// Rust mapping of the hwloc_obj_osdev_type_e enum
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+///
+pub(crate) type RawOSDeviceType = hwloc_obj_osdev_type_t;
+
+/// Type of a OS device
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[doc(alias = "hwloc_obj_osdev_type_e")]
+#[doc(alias = "hwloc_obj_osdev_type_t")]
+#[repr(u32)]
+pub enum OSDeviceType {
+    /// Operating system storage device (e.g. block)
+    ///
+    /// For instance "sda" or "dax2.0" on Linux.
+    #[doc(alias = "HWLOC_OBJ_OSDEV_BLOCK")]
+    #[doc(alias = "HWLOC_OBJ_OSDEV_STORAGE")]
+    Storage = HWLOC_OBJ_OSDEV_STORAGE,
+
+    /// Operating system GPU device
+    ///
+    /// For instance ":0.0" for a GL display, "card0" for a Linux DRM device.
+    #[doc(alias = "HWLOC_OBJ_OSDEV_GPU")]
+    GPU = HWLOC_OBJ_OSDEV_GPU,
+
+    /// Operating system network device
+    ///
+    /// For instance the "eth0" interface on Linux.
+    #[doc(alias = "HWLOC_OBJ_OSDEV_NETWORK")]
+    Network = HWLOC_OBJ_OSDEV_NETWORK,
+
+    /// Operating system openfabrics device
+    ///
+    /// For instance the "mlx4_0" InfiniBand HCA, "hfi1_0" Omni-Path interface,
+    /// or "bxi0" Atos/Bull BXI HCA on Linux.
+    #[doc(alias = "HWLOC_OBJ_OSDEV_OPENFABRICS")]
+    OpenFabrics = HWLOC_OBJ_OSDEV_OPENFABRICS,
+
+    /// Operating system dma engine device
+    ///
+    /// For instance the "dma0chan0" DMA channel on Linux.
+    #[doc(alias = "HWLOC_OBJ_OSDEV_DMA")]
+    DMA = HWLOC_OBJ_OSDEV_DMA,
+
+    /// Operating system co-processor device
+    ///
+    /// For instance "opencl0d0" for a OpenCL device, "cuda0" for a CUDA device.
+    #[doc(alias = "HWLOC_OBJ_OSDEV_COPROC")]
+    CoProcessor = HWLOC_OBJ_OSDEV_COPROC,
+
+    /// Operating system memory device
+    ///
+    /// For instance DAX file for non-volatile or high-bandwidth memory, like
+    /// "dax2.0" on Linux.
+    #[cfg(feature = "hwloc-3_0_0")]
+    #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
+    Memory = HWLOC_OBJ_OSDEV_MEMORY,
+}
+
 /// Rust mapping of the hwloc_obj_type_e enum
 ///
 /// We can't use Rust enums to model C enums in FFI because that results in
 /// undefined behavior if the C API gets new enum variants and sends them to us.
 ///
-pub(crate) type RawObjectType = c_uint;
+pub(crate) type RawObjectType = hwloc_obj_type_t;
 
 /// Represents the type of a [`TopologyObject`].
 ///
@@ -51,17 +172,17 @@ pub enum ObjectType {
     /// This type is always used for the root object of a topology, and never
     /// used anywhere else. Hence it never has a parent.
     #[doc(alias = "HWLOC_OBJ_MACHINE")]
-    Machine,
+    Machine = HWLOC_OBJ_MACHINE,
 
     /// Physical package, what goes into a physical motherboard socket
     ///
     /// Usually contains multiple cores, and possibly some dies.
     #[doc(alias = "HWLOC_OBJ_PACKAGE")]
-    Package,
+    Package = HWLOC_OBJ_PACKAGE,
 
     /// A computation unit (may be shared by several PUs aka logical processors).
     #[doc(alias = "HWLOC_OBJ_CORE")]
-    Core,
+    Core = HWLOC_OBJ_CORE,
 
     /// Processing Unit, or (Logical) Processor
     ///
@@ -75,40 +196,40 @@ pub enum ObjectType {
     /// an incorrect number of PUs may be reported in the absence of
     /// [`DiscoverySupport::pu_count()`].
     #[doc(alias = "HWLOC_OBJ_PU")]
-    PU,
+    PU = HWLOC_OBJ_PU,
 
     /// Level 1 Data (or Unified) Cache
     #[doc(alias = "HWLOC_OBJ_L1CACHE")]
-    L1Cache,
+    L1Cache = HWLOC_OBJ_L1CACHE,
 
     /// Level 2 Data (or Unified) Cache
     #[doc(alias = "HWLOC_OBJ_L2CACHE")]
-    L2Cache,
+    L2Cache = HWLOC_OBJ_L2CACHE,
 
     /// Level 3 Data (or Unified) Cache
     #[doc(alias = "HWLOC_OBJ_L3CACHE")]
-    L3Cache,
+    L3Cache = HWLOC_OBJ_L3CACHE,
 
     /// Level 4 Data (or Unified) Cache
     #[doc(alias = "HWLOC_OBJ_L4CACHE")]
-    L4Cache,
+    L4Cache = HWLOC_OBJ_L4CACHE,
 
     /// Level 5 Data (or Unified) Cache
     // NOTE: If hwloc adds more cache levels, update the cache module accordingly
     #[doc(alias = "HWLOC_OBJ_L5CACHE")]
-    L5Cache,
+    L5Cache = HWLOC_OBJ_L5CACHE,
 
     /// Level 1 Instruction cache (filtered out by default)
     #[doc(alias = "HWLOC_OBJ_L1ICACHE")]
-    L1ICache,
+    L1ICache = HWLOC_OBJ_L1ICACHE,
 
     /// Level 2 Instruction cache (filtered out by default)
     #[doc(alias = "HWLOC_OBJ_L2ICACHE")]
-    L2ICache,
+    L2ICache = HWLOC_OBJ_L2ICACHE,
 
     /// Level 3 Instruction cache (filtered out by default)
     #[doc(alias = "HWLOC_OBJ_L3ICACHE")]
-    L3ICache,
+    L3ICache = HWLOC_OBJ_L3ICACHE,
 
     /// Group object
     ///
@@ -121,7 +242,7 @@ pub enum ObjectType {
     /// These objects are ignored when they do not bring any structure (see
     /// [`TypeFilter::KeepStructure`])
     #[doc(alias = "HWLOC_OBJ_GROUP")]
-    Group,
+    Group = HWLOC_OBJ_GROUP,
 
     /// NUMA node
     ///
@@ -139,9 +260,11 @@ pub enum ObjectType {
     /// reported in the absence of [`DiscoverySupport::numa_count()`].
     ///
     /// Memory objects are not listed in the main children list, but rather in
-    /// the dedicated Memory children list. They also have a special depth.
+    /// the dedicated Memory children list. They also have a special depth
+    /// [`Depth::NUMANode`] instead of a normal depth just like other objects
+    /// in the main tree.
     #[doc(alias = "HWLOC_OBJ_NUMANODE")]
-    NUMANode,
+    NUMANode = HWLOC_OBJ_NUMANODE,
 
     /// Bridge (filtered out by default)
     ///
@@ -151,10 +274,12 @@ pub enum ObjectType {
     /// (see [`TopologyBuilder::with_type_filter()`] and
     /// [`TopologyBuilder::with_io_type_filter()`]).
     ///
-    /// I/O objects are not listed in the main children list, but rather in
-    /// the dedicated Memory children list. They also have a special depth.
+    /// I/O objects are not listed in the main children list, but rather in the
+    /// dedicated Memory children list. They don't have CPU and node sets. They
+    /// also have a special depth [`Depth::Bridge`] instead of a normal depth
+    /// just like other objects in the main tree.
     #[doc(alias = "HWLOC_OBJ_BRIDGE")]
-    Bridge,
+    Bridge = HWLOC_OBJ_BRIDGE,
 
     /// PCI device (filtered out by default)
     ///
@@ -162,10 +287,12 @@ pub enum ObjectType {
     /// changed (see [`TopologyBuilder::with_type_filter()`] and
     /// [`TopologyBuilder::with_io_type_filter()`]).
     ///
-    /// I/O objects are not listed in the main children list, but rather in
-    /// the dedicated I/O children list. They also have a special depth.
+    /// I/O objects are not listed in the main children list, but rather in the
+    /// dedicated I/O children list. They don't have CPU and node sets. They
+    /// also have a special depth [`Depth::PCIDevice`] instead of a normal depth
+    /// just like other objects in the main tree.
     #[doc(alias = "HWLOC_OBJ_PCI_DEVICE")]
-    PCIDevice,
+    PCIDevice = HWLOC_OBJ_PCI_DEVICE,
 
     /// Operating system device (filtered out by default)
     ///
@@ -173,10 +300,12 @@ pub enum ObjectType {
     /// changed (see [`TopologyBuilder::with_type_filter()`] and
     /// [`TopologyBuilder::with_io_type_filter()`]).
     ///
-    /// I/O objects are not listed in the main children list, but rather in
-    /// the dedicated I/O children list. They also have a special depth.
+    /// I/O objects are not listed in the main children list, but rather in the
+    /// dedicated I/O children list. They don't have CPU and node sets. They
+    /// also have a special depth [`Depth::OSDevice`] instead of a normal depth
+    /// just like other objects in the main tree.
     #[doc(alias = "HWLOC_OBJ_OS_DEVICE")]
-    OSDevice,
+    OSDevice = HWLOC_OBJ_OS_DEVICE,
 
     /// Miscellaneous object (filtered out by default)
     ///
@@ -189,9 +318,11 @@ pub enum ObjectType {
     ///
     /// Misc objects have no CPU and node sets, and may only have other Misc
     /// objects as children. They are not part of the main children list, but
-    /// rather reside in the dedicated Misc children list.
+    /// rather reside in the dedicated Misc children list. They don't have CPU
+    /// and node sets. They also have a special depth [`Depth::Misc`] instead
+    /// of a normal depth just like other objects in the main tree.
     #[doc(alias = "HWLOC_OBJ_MISC")]
-    Misc,
+    Misc = HWLOC_OBJ_MISC,
 
     /// Memory-side cache (filtered out by default)
     ///
@@ -199,17 +330,19 @@ pub enum ObjectType {
     /// least one NUMA node as a memory child.
     ///
     /// Memory objects are not listed in the main children list, but rather in
-    /// the dedicated Memory children list. They also have a special depth.
+    /// the dedicated Memory children list. They also have a special depth
+    /// [`Depth::MemCache`] instead of a normal depth just like other objects
+    /// in the main tree.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_MEMCACHE")]
-    MemCache,
+    MemCache = HWLOC_OBJ_MEMCACHE,
 
     /// Die within a physical package
     ///
     /// A subpart of the physical package, that contains multiple cores.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_DIE")]
-    Die,
+    Die = HWLOC_OBJ_DIE,
 }
 
 impl ObjectType {
@@ -293,120 +426,13 @@ impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let result = unsafe { ffi::hwloc_compare_types(self.to_raw(), other.to_raw()) };
         match result {
-            c_int::MAX => None,
+            HWLOC_TYPE_UNORDERED => None,
             c if c > 0 => Some(Ordering::Greater),
             0 => Some(Ordering::Equal),
             c if c < 0 => Some(Ordering::Less),
             _ => unreachable!(),
         }
     }
-}
-
-/// Rust mapping of the hwloc_obj_bridge_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawBridgeType = c_uint;
-
-/// Type of one side (upstream or downstream) of an I/O bridge.
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
-#[doc(alias = "hwloc_obj_bridge_type_e")]
-#[doc(alias = "hwloc_obj_bridge_type_t")]
-#[repr(u32)]
-pub enum BridgeType {
-    /// Host-side of a bridge, only possible upstream
-    #[doc(alias = "HWLOC_OBJ_BRIDGE_HOST")]
-    Host,
-
-    /// PCI-side of a bridge
-    #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
-    PCI,
-}
-
-/// Rust mapping of the hwloc_obj_cache_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawCacheType = c_uint;
-
-/// Cache type
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
-#[doc(alias = "hwloc_obj_cache_type_e")]
-#[doc(alias = "hwloc_obj_cache_type_t")]
-#[repr(u32)]
-pub enum CacheType {
-    /// Unified cache
-    #[doc(alias = "HWLOC_OBJ_CACHE_UNIFIED")]
-    Unified,
-
-    /// Data cache
-    #[doc(alias = "HWLOC_OBJ_CACHE_DATA")]
-    Data,
-
-    /// Instruction cache (filtered out by default
-    #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
-    Instruction,
-}
-
-/// Rust mapping of the hwloc_obj_osdev_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawOSDeviceType = c_uint;
-
-/// Type of a OS device
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
-#[doc(alias = "hwloc_obj_osdev_type_e")]
-#[doc(alias = "hwloc_obj_osdev_type_t")]
-#[repr(u32)]
-pub enum OSDeviceType {
-    /// Operating system storage device (e.g. block)
-    ///
-    /// For instance "sda" or "dax2.0" on Linux.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_BLOCK")]
-    #[doc(alias = "HWLOC_OBJ_OSDEV_STORAGE")]
-    Storage,
-
-    /// Operating system GPU device
-    ///
-    /// For instance ":0.0" for a GL display, "card0" for a Linux DRM device.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_GPU")]
-    GPU,
-
-    /// Operating system network device
-    ///
-    /// For instance the "eth0" interface on Linux.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_NETWORK")]
-    Network,
-
-    /// Operating system openfabrics device
-    ///
-    /// For instance the "mlx4_0" InfiniBand HCA, "hfi1_0" Omni-Path interface,
-    /// or "bxi0" Atos/Bull BXI HCA on Linux.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_OPENFABRICS")]
-    OpenFabrics,
-
-    /// Operating system dma engine device
-    ///
-    /// For instance the "dma0chan0" DMA channel on Linux.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_DMA")]
-    DMA,
-
-    /// Operating system co-processor device
-    ///
-    /// For instance "opencl0d0" for a OpenCL device, "cuda0" for a CUDA device.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_COPROC")]
-    CoProcessor,
-
-    /// Operating system memory device
-    ///
-    /// For instance DAX file for non-volatile or high-bandwidth memory, like
-    /// "dax2.0" on Linux.
-    #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
-    Memory,
 }
 
 #[cfg(test)]

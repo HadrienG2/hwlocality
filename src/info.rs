@@ -1,6 +1,7 @@
 //! Textual key-value information
 
 use crate::ffi::{self, LibcString};
+use hwlocality_sys::hwloc_info_s;
 use std::{
     ffi::{c_char, CStr},
     fmt,
@@ -12,11 +13,8 @@ use std::{
 /// Used in multiple places of the hwloc API for extensible metadata.
 #[derive(Eq)]
 #[doc(alias = "hwloc_info_s")]
-#[repr(C)]
-pub struct TextualInfo {
-    name: *mut c_char,
-    value: *mut c_char,
-}
+#[repr(transparent)]
+pub struct TextualInfo(hwloc_info_s);
 //
 impl TextualInfo {
     /// Build a TextualInfo struct
@@ -28,22 +26,22 @@ impl TextualInfo {
     /// pointer fields should not be treated as read-only by unsafe code.
     #[allow(unused)]
     pub(crate) fn new(name: &LibcString, value: &LibcString) -> Self {
-        Self {
+        Self(hwloc_info_s {
             name: name.borrow().cast_mut(),
             value: value.borrow().cast_mut(),
-        }
+        })
     }
 
     /// Info name
     #[doc(alias = "hwloc_info_s::name")]
     pub fn name(&self) -> &CStr {
-        unsafe { ffi::deref_str(&self.name) }.expect("Infos should have names")
+        unsafe { ffi::deref_str(&self.0.name) }.expect("Infos should have names")
     }
 
     /// Info value
     #[doc(alias = "hwloc_info_s::value")]
     pub fn value(&self) -> &CStr {
-        unsafe { ffi::deref_str(&self.value) }.expect("Infos should have values")
+        unsafe { ffi::deref_str(&self.0.value) }.expect("Infos should have values")
     }
 }
 //

@@ -22,6 +22,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::Errno;
+use hwlocality_sys::hwloc_topology;
 use libc::EINVAL;
 use std::{
     convert::TryInto,
@@ -36,8 +37,7 @@ use thiserror::Error;
 ///
 /// Represents the private `hwloc_topology` type that `hwloc_topology_t` API
 /// pointers map to.
-#[repr(C)]
-pub(crate) struct RawTopology(IncompleteType);
+pub(crate) type RawTopology = hwloc_topology;
 
 /// Main entry point to the hwloc API
 ///
