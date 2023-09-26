@@ -896,15 +896,17 @@ pub const HWLOC_TYPE_DEPTH_MEMCACHE: hwloc_get_type_depth_e = -8;
 /// Process/Thread binding flags
 ///
 /// These bit flags can be used to refine the binding policy. All flags can be
-/// OR'ed together with the exception of the binding targets flags `THREAD` and
-/// `PROCESS`, which are mutually exclusive.
+/// OR'ed together with the exception of the binding targets flags
+/// [`HWLOC_CPUBIND_THREAD`] and [`HWLOC_CPUBIND_PROCESS`], which are mutually
+/// exclusive.
 ///
 /// When using one of the functions that target the active process, you must use
 /// at most one of these flags. The most portable binding targets are no flags,
 /// which is interpreted as "assume a single-threaded process", followed by
-/// `THREAD` and `PROCESS` in this order. These flags must generally not be
-/// used with any other function, except on Linux where flag `THREAD` can also
-/// be used to turn process-binding functions into thread-binding functions.
+/// [`HWLOC_CPUBIND_THREAD`] and [`HWLOC_CPUBIND_PROCESS`] in this order. These
+/// flags must generally not be used with any other function, except on Linux
+/// where flag [`HWLOC_CPUBIND_THREAD`] can also be used to turn
+/// process-binding functions into thread-binding functions.
 ///
 /// Individual CPU binding functions may not support all of these flags.
 /// Please check the documentation of the function that you are
@@ -919,12 +921,12 @@ pub type hwloc_cpubind_flags_t = c_int;
 /// On Linux, this flag can also be used to turn process-binding
 /// functions into thread-binding functions.
 ///
-/// This is mutually exclusive with `PROCESS`.
+/// This is mutually exclusive with [`HWLOC_CPUBIND_PROCESS`].
 pub const HWLOC_CPUBIND_THREAD: hwloc_cpubind_flags_t = 1 << 1;
 
 /// Bind all threads of the current process
 ///
-/// This is mutually exclusive with `THREAD`.
+/// This is mutually exclusive with [`HWLOC_CPUBIND_THREAD`].
 pub const HWLOC_CPUBIND_PROCESS: hwloc_cpubind_flags_t = 1 << 0;
 
 /// Request for strict binding from the OS
