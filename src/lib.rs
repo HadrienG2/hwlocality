@@ -17,42 +17,25 @@ pub mod topology;
 #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
 mod windows;
 
-/// Thread identifier (OS-specific)
-///
-/// This is `HANDLE` on Windows and `libc::pthread_t` on all other platforms.
-#[cfg(target_os = "windows")]
-#[cfg_attr(docsrs, doc(cfg(all())))]
-pub type ThreadId = windows_sys::Win32::Foundation::HANDLE;
-
-/// Process identifier (OS-specific)
-///
-/// This is `u32` on Windows and `libc::pid_t` on all other platforms.
-#[cfg(target_os = "windows")]
-#[cfg_attr(docsrs, doc(cfg(all())))]
-pub type ProcessId = u32;
+use hwlocality_sys::{hwloc_pid_t, hwloc_thread_t};
 
 /// Thread identifier (OS-specific)
 ///
 /// This is `HANDLE` on Windows and `libc::pthread_t` on all other platforms.
-#[cfg(not(target_os = "windows"))]
-#[cfg_attr(docsrs, doc(cfg(all())))]
-pub type ThreadId = libc::pthread_t;
+pub type ThreadId = hwloc_thread_t;
 
 /// Process identifier (OS-specific)
 ///
 /// This is `u32` on Windows and `libc::pid_t` on all other platforms.
-#[cfg(not(target_os = "windows"))]
-#[cfg_attr(docsrs, doc(cfg(all())))]
-pub type ProcessId = libc::pid_t;
+pub type ProcessId = hwloc_pid_t;
 
-/// Indicate at runtime which hwloc API version was used at build time.
+/// Indicate at runtime which hwloc API version was used at build time
+///
 /// This number is updated to `(X<<16)+(Y<<8)+Z` when a new release X.Y.Z
 /// actually modifies the API.
-///
-/// Users may check for available features at build time using this number
 #[doc(alias = "hwloc_get_api_version")]
 pub fn get_api_version() -> usize {
-    ffi::expect_usize(unsafe { ffi::hwloc_get_api_version() })
+    ffi::expect_usize(unsafe { hwlocality_sys::hwloc_get_api_version() })
 }
 
 // Disable the alias in test builds to make sure the implementation does not

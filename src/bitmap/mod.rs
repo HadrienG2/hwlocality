@@ -58,11 +58,8 @@ use crate::{
     object::TopologyObject,
     topology::{builder::BuildFlags, Topology},
 };
-use crate::{
-    errors,
-    ffi::{self, IncompleteType},
-    Sealed,
-};
+use crate::{errors, ffi, Sealed};
+use hwlocality_sys::hwloc_bitmap_s;
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(doc)]
@@ -86,15 +83,6 @@ use std::{
 // Re-export BitmapIndex, the fact that it's in a separate module is an
 // implementation detail / valiant attempt to fight source file growth
 pub use index::BitmapIndex;
-
-/// Opaque bitmap struct
-///
-/// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
-/// pointers map to.
-#[doc(alias = "hwloc_bitmap_s")]
-#[doc(hidden)]
-#[repr(C)]
-pub struct RawBitmap(IncompleteType);
 
 /// A generic bitmap, understood by hwloc
 ///
@@ -159,20 +147,20 @@ pub struct RawBitmap(IncompleteType);
 #[doc(alias = "hwloc_bitmap_t")]
 #[doc(alias = "hwloc_const_bitmap_t")]
 #[repr(transparent)]
-pub struct Bitmap(NonNull<RawBitmap>);
+pub struct Bitmap(NonNull<hwloc_bitmap_s>);
 
 // NOTE: Remember to keep the method signatures and first doc lines in
 //       impl_newtype_ops in sync with what's going on below.
 impl Bitmap {
     // === FFI interoperability ===
 
-    /// Wraps an owned hwloc_bitmap_t
+    /// Wraps an owned nullable hwloc bitmap
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a valid bitmap that we will acquire
     /// ownership of and automatically free on Drop.
-    pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut RawBitmap) -> Option<Self> {
+    pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut hwloc_bitmap_s) -> Option<Self> {
         NonNull::new(bitmap).map(|ptr| unsafe { Self::from_owned_nonnull(ptr) })
     }
 
@@ -182,30 +170,30 @@ impl Bitmap {
     ///
     /// The pointer must target a valid bitmap that we will acquire ownership of
     /// and automatically free on Drop.
-    pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<RawBitmap>) -> Self {
+    pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<hwloc_bitmap_s>) -> Self {
         Self(bitmap)
     }
 
-    /// Wraps a borrowed hwloc_const_bitmap_t
+    /// Wraps a borrowed nullable hwloc bitmap
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a bitmap that is valid for 'target.
     /// Unlike with from_raw, it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_raw<'target>(
-        bitmap: *const RawBitmap,
+        bitmap: *const hwloc_bitmap_s,
     ) -> Option<BitmapRef<'target, Self>> {
         unsafe { Self::borrow_from_raw_mut(bitmap.cast_mut()) }
     }
 
-    /// Wraps a borrowed hwloc_bitmap_t
+    /// Wraps a borrowed nullable hwloc bitmap
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a bitmap that is valid for 'target.
     /// Unlike with from_raw, it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_raw_mut<'target>(
-        bitmap: *mut RawBitmap,
+        bitmap: *mut hwloc_bitmap_s,
     ) -> Option<BitmapRef<'target, Self>> {
         NonNull::new(bitmap).map(|ptr| unsafe { Self::borrow_from_nonnull(ptr) })
     }
@@ -217,7 +205,7 @@ impl Bitmap {
     /// The pointer must target a bitmap that is valid for 'target.
     /// Unlike with from_raw, it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_nonnull<'target>(
-        bitmap: NonNull<RawBitmap>,
+        bitmap: NonNull<hwloc_bitmap_s>,
     ) -> BitmapRef<'target, Self> {
         BitmapRef(bitmap, PhantomData)
     }
@@ -226,12 +214,12 @@ impl Bitmap {
     //       you expose an &mut Bitmap, the user can trigger Drop.
 
     /// Contained bitmap pointer (for interaction with hwloc)
-    pub(crate) fn as_ptr(&self) -> *const RawBitmap {
+    pub(crate) fn as_ptr(&self) -> *const hwloc_bitmap_s {
         self.0.as_ptr()
     }
 
     /// Contained mutable bitmap pointer (for interaction with hwloc)
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut hwloc_bitmap_s {
         self.0.as_ptr()
     }
 
@@ -250,9 +238,10 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_alloc")]
     pub fn new() -> Self {
         unsafe {
-            let ptr =
-                errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || ffi::hwloc_bitmap_alloc())
-                    .expect("Bitmap operation failures are handled via panics");
+            let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc", || {
+                hwlocality_sys::hwloc_bitmap_alloc()
+            })
+            .expect("Bitmap operation failures are handled via panics");
             Self::from_owned_nonnull(ptr)
         }
     }
@@ -271,7 +260,7 @@ impl Bitmap {
     pub fn full() -> Self {
         unsafe {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_alloc_full", || {
-                ffi::hwloc_bitmap_alloc_full()
+                hwlocality_sys::hwloc_bitmap_alloc_full()
             })
             .expect("Bitmap operation failures are handled via panics");
             Self::from_owned_nonnull(ptr)
@@ -320,7 +309,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_copy")]
     pub fn copy_from(&mut self, other: &Self) {
         errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
-            ffi::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
+            hwlocality_sys::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -338,7 +327,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_zero")]
     pub fn clear(&mut self) {
-        unsafe { ffi::hwloc_bitmap_zero(self.as_mut_ptr()) }
+        unsafe { hwlocality_sys::hwloc_bitmap_zero(self.as_mut_ptr()) }
     }
 
     /// Set all indices
@@ -354,7 +343,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_fill")]
     pub fn fill(&mut self) {
-        unsafe { ffi::hwloc_bitmap_fill(self.as_mut_ptr()) }
+        unsafe { hwlocality_sys::hwloc_bitmap_fill(self.as_mut_ptr()) }
     }
 
     /// Clear all indices except for `idx`, which is set
@@ -381,7 +370,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
-            ffi::hwloc_bitmap_only(self.as_mut_ptr(), idx.into_c_uint())
+            hwlocality_sys::hwloc_bitmap_only(self.as_mut_ptr(), idx.into_c_uint())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -410,7 +399,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
-            ffi::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.into_c_uint())
+            hwlocality_sys::hwloc_bitmap_allbut(self.as_mut_ptr(), idx.into_c_uint())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -439,7 +428,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
-            ffi::hwloc_bitmap_set(self.as_mut_ptr(), idx.into_c_uint())
+            hwlocality_sys::hwloc_bitmap_set(self.as_mut_ptr(), idx.into_c_uint())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -476,7 +465,7 @@ impl Bitmap {
 
         let (begin, end) = Self::hwloc_range(range);
         errors::call_hwloc_int_normal("hwloc_bitmap_set_range", || unsafe {
-            ffi::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end)
+            hwlocality_sys::hwloc_bitmap_set_range(self.as_mut_ptr(), begin, end)
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -505,7 +494,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
-            ffi::hwloc_bitmap_clr(self.as_mut_ptr(), idx.into_c_uint())
+            hwlocality_sys::hwloc_bitmap_clr(self.as_mut_ptr(), idx.into_c_uint())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -542,7 +531,7 @@ impl Bitmap {
 
         let (begin, end) = Self::hwloc_range(range);
         errors::call_hwloc_int_normal("hwloc_bitmap_clr_range", || unsafe {
-            ffi::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end)
+            hwlocality_sys::hwloc_bitmap_clr_range(self.as_mut_ptr(), begin, end)
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -575,7 +564,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_singlify")]
     pub fn singlify(&mut self) {
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify", || unsafe {
-            ffi::hwloc_bitmap_singlify(self.as_mut_ptr())
+            hwlocality_sys::hwloc_bitmap_singlify(self.as_mut_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -605,7 +594,7 @@ impl Bitmap {
     {
         let idx = idx.try_into().expect("Unsupported bitmap index");
         errors::call_hwloc_bool("hwloc_bitmap_isset", || unsafe {
-            ffi::hwloc_bitmap_isset(self.as_ptr(), idx.into_c_uint())
+            hwlocality_sys::hwloc_bitmap_isset(self.as_ptr(), idx.into_c_uint())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -624,7 +613,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_iszero")]
     pub fn is_empty(&self) -> bool {
         errors::call_hwloc_bool("hwloc_bitmap_iszero", || unsafe {
-            ffi::hwloc_bitmap_iszero(self.as_ptr())
+            hwlocality_sys::hwloc_bitmap_iszero(self.as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -643,7 +632,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_isfull")]
     pub fn is_full(&self) -> bool {
         errors::call_hwloc_bool("hwloc_bitmap_isfull", || unsafe {
-            ffi::hwloc_bitmap_isfull(self.as_ptr())
+            hwlocality_sys::hwloc_bitmap_isfull(self.as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -664,7 +653,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_first")]
     pub fn first_set(&self) -> Option<BitmapIndex> {
-        let result = unsafe { ffi::hwloc_bitmap_first(self.as_ptr()) };
+        let result = unsafe { hwlocality_sys::hwloc_bitmap_first(self.as_ptr()) };
         assert!(
             result >= -1,
             "hwloc_bitmap_first returned error code {result}"
@@ -704,7 +693,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_last")]
     pub fn last_set(&self) -> Option<BitmapIndex> {
-        let result = unsafe { ffi::hwloc_bitmap_last(self.as_ptr()) };
+        let result = unsafe { hwlocality_sys::hwloc_bitmap_last(self.as_ptr()) };
         assert!(
             result >= -1,
             "hwloc_bitmap_last returned error code {result}"
@@ -727,7 +716,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_weight")]
     pub fn weight(&self) -> Option<usize> {
-        let result = unsafe { ffi::hwloc_bitmap_weight(self.as_ptr()) };
+        let result = unsafe { hwlocality_sys::hwloc_bitmap_weight(self.as_ptr()) };
         assert!(
             result >= -1,
             "hwloc_bitmap_weight returned error code {result}"
@@ -751,7 +740,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_first_unset")]
     pub fn first_unset(&self) -> Option<BitmapIndex> {
-        let result = unsafe { ffi::hwloc_bitmap_first_unset(self.as_ptr()) };
+        let result = unsafe { hwlocality_sys::hwloc_bitmap_first_unset(self.as_ptr()) };
         assert!(
             result >= -1,
             "hwloc_bitmap_first_unset returned error code {result}"
@@ -789,7 +778,7 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_last_unset")]
     pub fn last_unset(&self) -> Option<BitmapIndex> {
-        let result = unsafe { ffi::hwloc_bitmap_last_unset(self.as_ptr()) };
+        let result = unsafe { hwlocality_sys::hwloc_bitmap_last_unset(self.as_ptr()) };
         assert!(
             result >= -1,
             "hwloc_bitmap_last_unset returned error code {result}"
@@ -810,7 +799,7 @@ impl Bitmap {
     /// ```
     pub fn invert(&mut self) {
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
-            ffi::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
+            hwlocality_sys::hwloc_bitmap_not(self.as_mut_ptr(), self.as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -833,7 +822,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_intersects")]
     pub fn intersects(&self, rhs: &Self) -> bool {
         errors::call_hwloc_bool("hwloc_bitmap_intersects", || unsafe {
-            ffi::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr())
+            hwlocality_sys::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -855,7 +844,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_isincluded")]
     pub fn includes(&self, inner: &Self) -> bool {
         errors::call_hwloc_bool("hwloc_bitmap_isincluded", || unsafe {
-            ffi::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr())
+            hwlocality_sys::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -907,7 +896,7 @@ impl Bitmap {
     fn next(
         &self,
         index: Option<BitmapIndex>,
-        next_fn: impl FnOnce(*const RawBitmap, c_int) -> c_int,
+        next_fn: impl FnOnce(*const hwloc_bitmap_s, c_int) -> c_int,
     ) -> Option<BitmapIndex> {
         let result = next_fn(
             self.as_ptr(),
@@ -923,14 +912,14 @@ impl Bitmap {
     /// Set index iterator building block
     fn next_set(&self, index: Option<BitmapIndex>) -> Option<BitmapIndex> {
         self.next(index, |bitmap, prev| unsafe {
-            ffi::hwloc_bitmap_next(bitmap, prev)
+            hwlocality_sys::hwloc_bitmap_next(bitmap, prev)
         })
     }
 
     /// Unset index iterator building block
     fn next_unset(&self, index: Option<BitmapIndex>) -> Option<BitmapIndex> {
         self.next(index, |bitmap, prev| unsafe {
-            ffi::hwloc_bitmap_next_unset(bitmap, prev)
+            hwlocality_sys::hwloc_bitmap_next_unset(bitmap, prev)
         })
     }
 }
@@ -974,7 +963,11 @@ impl<B: Borrow<Bitmap>> BitAnd<B> for &Bitmap {
     fn bitand(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
-            ffi::hwloc_bitmap_and(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_and(
+                result.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
         result
@@ -993,7 +986,11 @@ impl<B: Borrow<Bitmap>> BitAnd<B> for Bitmap {
 impl<B: Borrow<Bitmap>> BitAndAssign<B> for Bitmap {
     fn bitand_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_and", || unsafe {
-            ffi::hwloc_bitmap_and(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_and(
+                self.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -1006,7 +1003,11 @@ impl<B: Borrow<Bitmap>> BitOr<B> for &Bitmap {
     fn bitor(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
-            ffi::hwloc_bitmap_or(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_or(
+                result.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
         result
@@ -1025,7 +1026,7 @@ impl<B: Borrow<Bitmap>> BitOr<B> for Bitmap {
 impl<B: Borrow<Bitmap>> BitOrAssign<B> for Bitmap {
     fn bitor_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_or", || unsafe {
-            ffi::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_or(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -1038,7 +1039,11 @@ impl<B: Borrow<Bitmap>> BitXor<B> for &Bitmap {
     fn bitxor(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
-            ffi::hwloc_bitmap_xor(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_xor(
+                result.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
         result
@@ -1057,7 +1062,11 @@ impl<B: Borrow<Bitmap>> BitXor<B> for Bitmap {
 impl<B: Borrow<Bitmap>> BitXorAssign<B> for Bitmap {
     fn bitxor_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_xor", || unsafe {
-            ffi::hwloc_bitmap_xor(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_xor(
+                self.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -1068,7 +1077,7 @@ impl Clone for Bitmap {
     fn clone(&self) -> Bitmap {
         unsafe {
             let ptr = errors::call_hwloc_ptr_mut("hwloc_bitmap_dup", || {
-                ffi::hwloc_bitmap_dup(self.as_ptr())
+                hwlocality_sys::hwloc_bitmap_dup(self.as_ptr())
             })
             .expect("Bitmap operation failures are handled via panics");
             Self::from_owned_nonnull(ptr)
@@ -1092,7 +1101,7 @@ impl Display for Bitmap {
     #[doc(alias = "hwloc_bitmap_list_snprintf")]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         ffi::write_snprintf(f, |buf, len| unsafe {
-            ffi::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
+            hwlocality_sys::hwloc_bitmap_list_snprintf(buf, len, self.as_ptr())
         })
     }
 }
@@ -1100,7 +1109,7 @@ impl Display for Bitmap {
 impl Drop for Bitmap {
     #[doc(alias = "hwloc_bitmap_free")]
     fn drop(&mut self) {
-        unsafe { ffi::hwloc_bitmap_free(self.as_mut_ptr()) }
+        unsafe { hwlocality_sys::hwloc_bitmap_free(self.as_mut_ptr()) }
     }
 }
 
@@ -1187,7 +1196,7 @@ impl Not for &Bitmap {
     fn not(self) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_not", || unsafe {
-            ffi::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr())
+            hwlocality_sys::hwloc_bitmap_not(result.as_mut_ptr(), self.as_ptr())
         })
         .expect("Bitmap operation failures are handled via panics");
         result
@@ -1206,7 +1215,7 @@ impl Not for Bitmap {
 impl Ord for Bitmap {
     #[doc(alias = "hwloc_bitmap_compare")]
     fn cmp(&self, other: &Self) -> Ordering {
-        let result = unsafe { ffi::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
+        let result = unsafe { hwlocality_sys::hwloc_bitmap_compare(self.as_ptr(), other.as_ptr()) };
         match result {
             -1 => Ordering::Less,
             0 => Ordering::Equal,
@@ -1220,7 +1229,7 @@ impl<B: Borrow<Bitmap>> PartialEq<B> for Bitmap {
     #[doc(alias = "hwloc_bitmap_isequal")]
     fn eq(&self, other: &B) -> bool {
         errors::call_hwloc_bool("hwloc_bitmap_isequal", || unsafe {
-            ffi::hwloc_bitmap_isequal(self.as_ptr(), other.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_isequal(self.as_ptr(), other.borrow().as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -1241,7 +1250,11 @@ impl<B: Borrow<Bitmap>> Sub<B> for &Bitmap {
     fn sub(self, rhs: B) -> Bitmap {
         let mut result = Bitmap::new();
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
-            ffi::hwloc_bitmap_andnot(result.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_andnot(
+                result.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
         result
@@ -1260,7 +1273,11 @@ impl<B: Borrow<Bitmap>> Sub<B> for Bitmap {
 impl<B: Borrow<Bitmap>> SubAssign<B> for Bitmap {
     fn sub_assign(&mut self, rhs: B) {
         errors::call_hwloc_int_normal("hwloc_bitmap_andnot", || unsafe {
-            ffi::hwloc_bitmap_andnot(self.as_mut_ptr(), self.as_ptr(), rhs.borrow().as_ptr())
+            hwlocality_sys::hwloc_bitmap_andnot(
+                self.as_mut_ptr(),
+                self.as_ptr(),
+                rhs.borrow().as_ptr(),
+            )
         })
         .expect("Bitmap operation failures are handled via panics");
     }
@@ -1279,7 +1296,7 @@ unsafe impl Sync for Bitmap {}
 // # Safety
 //
 // Implementations of this type must effectively be a `repr(transparent)`
-// wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
+// wrapper of `NonNull<hwloc_bitmap_s>`, possibly with some ZSTs added.
 pub unsafe trait OwnedBitmap:
     Borrow<Bitmap>
     + BorrowMut<Bitmap>
@@ -1291,15 +1308,15 @@ pub unsafe trait OwnedBitmap:
     + Sealed
     + 'static
 {
-    /// Access the inner `NonNull<RawBitmap>`
+    /// Access the inner `NonNull<hwloc_bitmap_s>`
     #[doc(hidden)]
-    fn as_raw(&self) -> NonNull<RawBitmap>;
+    fn as_raw(&self) -> NonNull<hwloc_bitmap_s>;
 }
 //
 impl Sealed for Bitmap {}
 //
 unsafe impl OwnedBitmap for Bitmap {
-    fn as_raw(&self) -> NonNull<RawBitmap> {
+    fn as_raw(&self) -> NonNull<hwloc_bitmap_s> {
         self.0
     }
 }
@@ -1316,24 +1333,24 @@ unsafe impl OwnedBitmap for Bitmap {
 //
 // - In the underlying hwloc API, everything is done using `hwloc_bitmap_t`,
 //   which is actually a pointer to `hwloc_bitmap_s`, that is itself an opaque
-//   incomplete type that is modeled on the Rust side via `RawBitmap`.
-// - We can't directly expose `RawBitmap` to user code because if they move it
+//   incomplete type that is modeled on the Rust side via `hwloc_bitmap_s`.
+// - We can't directly expose `hwloc_bitmap_s` to user code because if they move it
 //   around it won't do what they want (and if you have an `&mut` or an owned
 //   value you can always move in Rust). Therefore, hwlocality functions that
 //   return bitmaps like hwloc would return an `hwloc_bitmap_t` cannot return
-//   standard Rust pointers/refs like `&RawBitmap`, `&mut RawBitmap`,
-//   `Box<RawBitmap>`, they must instead return some kind of
-//   `NonNull<RawBitmap>` wrapper that implements the bitmap API without
-//   exposing the inner RawBitmap.
+//   standard Rust pointers/refs like `&hwloc_bitmap_s`, `&mut hwloc_bitmap_s`,
+//   `Box<hwloc_bitmap_s>`, they must instead return some kind of
+//   `NonNull<hwloc_bitmap_s>` wrapper that implements the bitmap API without
+//   exposing the inner hwloc_bitmap_s.
 // - We need two such wrappers because sometimes we need to return an owned
 //   bitmap that must be liberated, and sometimes we need to return a borrowed
 //   bitmap that must not outlive its parent.
 //
-// Technically, we could also have a `BitmapMut` that models `&mut RawBitmap`,
+// Technically, we could also have a `BitmapMut` that models `&mut hwloc_bitmap_s`,
 // but so far the need for this has not materialized.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
+pub struct BitmapRef<'target, Target>(NonNull<hwloc_bitmap_s>, PhantomData<&'target Target>);
 
 impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
     /// Make a copy of the target bitmap
@@ -1356,7 +1373,7 @@ impl<'target, Target: OwnedBitmap> AsRef<Target> for BitmapRef<'target, Target> 
     fn as_ref(&self) -> &Target {
         // This is safe because...
         // - Both Target and BitmapRef are effectively repr(transparent)
-        //   newtypes of NonNull<RawBitmap>, so &Target and &BitmapRef are
+        //   newtypes of NonNull<hwloc_bitmap_s>, so &Target and &BitmapRef are
         //   effectively the same thing after compilation.
         // - The borrow checker ensures that one cannot construct an
         //   &'a BitmapRef<'target> which does not verify 'target: 'a, so one
@@ -1569,7 +1586,7 @@ where
 
 impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <NonNull<RawBitmap> as fmt::Pointer>::fmt(&self.0, f)
+        <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
 }
 
@@ -1700,12 +1717,12 @@ macro_rules! impl_bitmap_newtype {
         /// Only documentation headers are repeated here, you will find most of
         /// the documentation attached to identically named `Bitmap` methods.
         impl $newtype {
-            /// Wraps an owned hwloc_bitmap_t
+            /// Wraps an owned nullable hwloc bitmap
             ///
             /// See [`Bitmap::from_owned_raw_mut`](crate::bitmap::Bitmap::from_owned_raw_mut).
             #[allow(unused)]
             pub(crate) unsafe fn from_owned_raw_mut(
-                bitmap: *mut $crate::bitmap::RawBitmap
+                bitmap: *mut hwlocality_sys::hwloc_bitmap_s
             ) -> Option<Self> {
                 $crate::bitmap::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
             }
@@ -1715,28 +1732,28 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::from_owned_nonnull`](crate::bitmap::Bitmap::from_owned_nonnull).
             #[allow(unused)]
             pub(crate) unsafe fn from_owned_nonnull(
-                bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
+                bitmap: std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s>
             ) -> Self {
                 Self::from($crate::bitmap::Bitmap::from_owned_nonnull(bitmap))
             }
 
-            /// Wraps a borrowed hwloc_const_bitmap_t
+            /// Wraps a borrowed nullable hwloc bitmap
             ///
             /// See [`Bitmap::borrow_from_raw`](crate::bitmap::Bitmap::borrow_from_raw).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw<'target>(
-                bitmap: *const $crate::bitmap::RawBitmap
+                bitmap: *const hwlocality_sys::hwloc_bitmap_s
             ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
                 $crate::bitmap::Bitmap::borrow_from_raw(bitmap)
                     .map(|bitmap_ref| bitmap_ref.cast())
             }
 
-            /// Wraps a borrowed hwloc_bitmap_t
+            /// Wraps a borrowed nullable hwloc bitmap
             ///
             /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmap::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw_mut<'target>(
-                bitmap: *mut $crate::bitmap::RawBitmap
+                bitmap: *mut hwlocality_sys::hwloc_bitmap_s
             ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
                 $crate::bitmap::Bitmap::borrow_from_raw_mut(bitmap)
                     .map(|bitmap_ref| bitmap_ref.cast())
@@ -1747,7 +1764,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::borrow_from_nonnull`](crate::bitmap::Bitmap::borrow_from_nonnull).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_nonnull<'target>(
-                bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
+                bitmap: std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s>
             ) -> $crate::bitmap::BitmapRef<'target, Self> {
                 $crate::bitmap::Bitmap::borrow_from_nonnull(bitmap).cast()
             }
@@ -1756,7 +1773,7 @@ macro_rules! impl_bitmap_newtype {
             ///
             /// See [`Bitmap::as_ptr`](crate::bitmap::Bitmap::as_ptr).
             #[allow(unused)]
-            pub(crate) fn as_ptr(&self) -> *const $crate::bitmap::RawBitmap {
+            pub(crate) fn as_ptr(&self) -> *const hwlocality_sys::hwloc_bitmap_s {
                 self.0.as_ptr()
             }
 
@@ -1764,7 +1781,7 @@ macro_rules! impl_bitmap_newtype {
             ///
             /// See [`Bitmap::as_mut_ptr`](crate::bitmap::Bitmap::as_mut_ptr).
             #[allow(unused)]
-            pub(crate) fn as_mut_ptr(&mut self) -> *mut $crate::bitmap::RawBitmap {
+            pub(crate) fn as_mut_ptr(&mut self) -> *mut hwlocality_sys::hwloc_bitmap_s {
                 self.0.as_mut_ptr()
             }
 
@@ -2128,7 +2145,7 @@ macro_rules! impl_bitmap_newtype {
         }
 
         unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
-            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
+            fn as_raw(&self) -> std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s> {
                 self.0.as_raw()
             }
         }

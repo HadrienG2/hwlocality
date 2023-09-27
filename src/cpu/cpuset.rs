@@ -367,7 +367,11 @@ impl CpuSet {
             return;
         };
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
-            crate::ffi::hwloc_bitmap_singlify_per_core(topology.as_ptr(), self.as_mut_ptr(), which)
+            hwlocality_sys::hwloc_bitmap_singlify_per_core(
+                topology.as_ptr(),
+                self.as_mut_ptr(),
+                which,
+            )
         })
         .expect("Per hwloc documentation, this function should not fail");
     }

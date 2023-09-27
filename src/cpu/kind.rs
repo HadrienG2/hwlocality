@@ -88,7 +88,7 @@ impl Topology {
     #[doc(alias = "hwloc_cpukinds_get_nr")]
     pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindsUnknown> {
         let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
-            ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
+            hwlocality_sys::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
         NonZeroUsize::new(ffi::expect_usize(count)).ok_or(CpuKindsUnknown)
@@ -132,7 +132,7 @@ impl Topology {
         let mut nr_infos: c_uint = 0;
         let mut infos = ptr::null_mut();
         errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
-            ffi::hwloc_cpukinds_get_info(
+            hwlocality_sys::hwloc_cpukinds_get_info(
                 self.as_ptr(),
                 kind_index,
                 cpuset.as_mut_ptr(),
@@ -156,7 +156,9 @@ impl Topology {
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
-        let infos = unsafe { std::slice::from_raw_parts(infos, ffi::expect_usize(nr_infos)) };
+        let infos = unsafe {
+            std::slice::from_raw_parts(infos.cast::<TextualInfo>(), ffi::expect_usize(nr_infos))
+        };
         (cpuset, efficiency, infos)
     }
 
@@ -179,7 +181,7 @@ impl Topology {
         set: impl Borrow<CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
         let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
-            ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
+            hwlocality_sys::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
         let kind_index = match result {
             Ok(idx) => ffi::expect_usize(idx),
@@ -255,14 +257,14 @@ impl<'topology> TopologyEditor<'topology> {
             let new_string =
                 |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
-            infos_ptrs.push(TextualInfo::new(&name, &value));
+            infos_ptrs.push(TextualInfo::new_raw(&name, &value));
             infos.push((name, value));
         }
         let num_infos =
             c_uint::try_from(infos_ptrs.len()).map_err(|_| CpuKindRegisterError::TooManyInfos)?;
 
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
-            ffi::hwloc_cpukinds_register(
+            hwlocality_sys::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),
                 cpuset.borrow().as_ptr(),
                 forced_efficiency,

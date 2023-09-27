@@ -6,14 +6,14 @@ pub mod distance;
 pub mod types;
 
 use self::{
-    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain, RawObjectAttributes},
-    depth::{Depth, DepthError, DepthResult, RawDepth},
-    types::{CacheType, ObjectType, RawObjectType},
+    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain},
+    depth::{Depth, DepthError, DepthResult},
+    types::{CacheType, ObjectType},
 };
 #[cfg(doc)]
 use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
-    bitmap::{BitmapRef, RawBitmap},
+    bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
     ffi::{self, LibcString},
@@ -21,10 +21,11 @@ use crate::{
     memory::nodeset::NodeSet,
     topology::Topology,
 };
+use hwlocality_sys::{hwloc_get_type_depth_e, hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
 use std::{
     borrow::Borrow,
-    ffi::{c_char, c_int, c_uint, c_void, CStr},
+    ffi::{c_char, c_uint, CStr},
     fmt,
     iter::FusedIterator,
     ptr,
@@ -64,7 +65,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
     pub fn depth(&self) -> usize {
-        unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
+        unsafe { hwlocality_sys::hwloc_topology_get_depth(self.as_ptr()) }
             .try_into()
             .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
@@ -95,7 +96,7 @@ impl Topology {
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
     pub fn memory_parents_depth(&self) -> Result<usize, DepthError> {
-        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
+        Depth::try_from(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
 
@@ -131,7 +132,9 @@ impl Topology {
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
-        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
+        Depth::try_from(unsafe {
+            hwlocality_sys::hwloc_get_type_depth(self.as_ptr(), object_type.into())
+        })
     }
 
     /// Depth for the given [`ObjectType`] or below
@@ -359,10 +362,12 @@ impl Topology {
                 return None;
             }
         }
-        match unsafe { ffi::hwloc_get_depth_type(self.as_ptr(), depth.into()) }.try_into() {
+        match unsafe { hwlocality_sys::hwloc_get_depth_type(self.as_ptr(), depth.into()) }
+            .try_into()
+        {
             Ok(depth) => Some(depth),
             Err(TryFromPrimitiveError {
-                number: RawObjectType::MAX,
+                number: hwloc_obj_type_t::MAX,
             }) => None,
             Err(unknown) => {
                 unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
@@ -388,7 +393,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
     pub fn num_objects_at_depth(&self, depth: impl Into<Depth>) -> usize {
         ffi::expect_usize(unsafe {
-            ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
         })
     }
 
@@ -426,15 +431,15 @@ impl Topology {
     {
         let depth = depth.into();
         let size = self.num_objects_at_depth(depth);
-        let depth = RawDepth::from(depth);
+        let depth = hwloc_get_type_depth_e::from(depth);
         (0..size).map(move |idx| {
             let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
-            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
+            let ptr = unsafe { hwlocality_sys::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
             assert!(
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
             );
-            unsafe { &*ptr }
+            unsafe { ffi::as_newtype(&*ptr) }
         })
     }
 
@@ -823,16 +828,16 @@ impl Topology {
             opt.as_ref().map(|s| s.borrow()).unwrap_or(ptr::null())
         };
         let ptr = unsafe {
-            ffi::hwloc_get_obj_with_same_locality(
+            hwlocality_sys::hwloc_get_obj_with_same_locality(
                 self.as_ptr(),
-                src,
+                &src.0,
                 ty.into(),
                 borrow_pchar(&subtype),
                 borrow_pchar(&name_prefix),
                 0,
             )
         };
-        Ok((!ptr.is_null()).then(|| unsafe { &*ptr }))
+        Ok((!ptr.is_null()).then(|| unsafe { ffi::as_newtype(&*ptr) }))
     }
 }
 
@@ -958,52 +963,15 @@ impl Topology {
 // - https://hwloc.readthedocs.io/en/v2.9/attributes.html
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
-#[repr(C)]
-pub struct TopologyObject {
-    // See the matching method names for more details on field semantics
-    object_type: RawObjectType,
-    subtype: *mut c_char,
-    os_index: c_uint,
-    name: *mut c_char,
-    total_memory: u64,
-    attr: *mut RawObjectAttributes,
-    depth: RawDepth,
-    logical_index: c_uint,
-    next_cousin: *mut TopologyObject,
-    prev_cousin: *mut TopologyObject,
-    parent: *mut TopologyObject,
-    sibling_rank: c_uint,
-    next_sibling: *mut TopologyObject,
-    prev_sibling: *mut TopologyObject,
-    arity: c_uint,
-    children: *mut *mut TopologyObject,
-    first_child: *mut TopologyObject,
-    last_child: *mut TopologyObject,
-    symmetric_subtree: c_int,
-    memory_arity: c_uint,
-    memory_first_child: *mut TopologyObject,
-    io_arity: c_uint,
-    io_first_child: *mut TopologyObject,
-    misc_arity: c_uint,
-    misc_first_child: *mut TopologyObject,
-    cpuset: *mut RawBitmap,
-    complete_cpuset: *mut RawBitmap,
-    nodeset: *mut RawBitmap,
-    complete_nodeset: *mut RawBitmap,
-    infos: *mut TextualInfo,
-    infos_count: c_uint,
-    _userdata: *mut c_void, // BEWARE: Topology duplication blindly duplicates this!
-    gp_index: u64,
-}
+#[repr(transparent)]
+pub struct TopologyObject(pub(crate) hwloc_obj);
 
 /// # Basic identity
 impl TopologyObject {
-    /// Type of object.
+    /// Type of object
     #[doc(alias = "hwloc_obj::type")]
     pub fn object_type(&self) -> ObjectType {
-        self.object_type
-            .try_into()
-            .expect("Got unexpected object type")
+        self.0.ty.try_into().expect("Got unexpected object type")
     }
 
     /// Subtype string to better describe the type field
@@ -1012,7 +980,7 @@ impl TopologyObject {
     /// for a list of subtype strings that hwloc can emit.
     #[doc(alias = "hwloc_obj::subtype")]
     pub fn subtype(&self) -> Option<&CStr> {
-        unsafe { ffi::deref_str(&self.subtype) }
+        unsafe { ffi::deref_str(&self.0.subtype) }
     }
 
     /// Set the subtype string
@@ -1024,7 +992,7 @@ impl TopologyObject {
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
-        self.subtype = LibcString::new(subtype)?.into_raw();
+        self.0.subtype = LibcString::new(subtype)?.into_raw();
         Ok(())
     }
 
@@ -1034,19 +1002,13 @@ impl TopologyObject {
     /// string is more useful than numerical indices.
     #[doc(alias = "hwloc_obj::name")]
     pub fn name(&self) -> Option<&CStr> {
-        unsafe { ffi::deref_str(&self.name) }
+        unsafe { ffi::deref_str(&self.0.name) }
     }
 
-    /// Object type-specific attributes (if any)
+    /// Object type-specific attributes, if any
     #[doc(alias = "hwloc_obj::attr")]
     pub fn attributes(&self) -> Option<ObjectAttributes> {
-        unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
-    }
-
-    /// Unsafe access to object type-specific attributes
-    #[cfg(feature = "hwloc-2_3_0")]
-    pub(crate) fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
-        unsafe { ffi::deref_mut_ptr(&mut self.attr) }
+        unsafe { ObjectAttributes::new(self.object_type(), &self.0.attr) }
     }
 
     /// The OS-provided physical index number
@@ -1057,8 +1019,7 @@ impl TopologyObject {
     /// Not specified if unknown or irrelevant for this object.
     #[doc(alias = "hwloc_obj::os_index")]
     pub fn os_index(&self) -> Option<usize> {
-        const HWLOC_UNKNOWN_INDEX: c_uint = c_uint::MAX;
-        (self.os_index != HWLOC_UNKNOWN_INDEX).then(|| ffi::expect_usize(self.os_index))
+        (self.0.os_index != HWLOC_UNKNOWN_INDEX).then(|| ffi::expect_usize(self.0.os_index))
     }
 
     /// Global persistent index
@@ -1075,7 +1036,7 @@ impl TopologyObject {
     /// [`os_index()`]: TopologyObject::os_index()
     #[doc(alias = "hwloc_obj::gp_index")]
     pub fn global_persistent_index(&self) -> u64 {
-        self.gp_index
+        self.0.gp_index
     }
 }
 
@@ -1094,7 +1055,7 @@ impl TopologyObject {
     /// tree, this is a special value that is unique to their type.
     #[doc(alias = "hwloc_obj::depth")]
     pub fn depth(&self) -> Depth {
-        self.depth.try_into().expect("Got unexpected depth value")
+        self.0.depth.try_into().expect("Got unexpected depth value")
     }
 
     /// Parent object
@@ -1102,7 +1063,7 @@ impl TopologyObject {
     /// Only `None` for the root `Machine` object.
     #[doc(alias = "hwloc_obj::parent")]
     pub fn parent(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.parent) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.parent) }
     }
 
     /// Chain of parent objects up to the topology root
@@ -1220,7 +1181,7 @@ impl TopologyObject {
             // as hwloc topology may "skip" depths on hybrid plaforms like
             // Adler Lake or in the presence of complicated allowed cpusets), or
             // we reached cousin objects and must go up one level.
-            if parent1.depth == parent2.depth {
+            if parent1.depth() == parent2.depth() {
                 parent1 = parent1.parent()?;
                 parent2 = parent2.parent()?;
             }
@@ -1297,7 +1258,7 @@ impl FusedIterator for Ancestors<'_> {}
 /// # Cousins and siblings
 impl TopologyObject {
     /// Horizontal index in the whole list of similar objects, hence guaranteed
-    /// unique across the entire machine.
+    /// unique across the entire machine
     ///
     /// Could be a "cousin_rank" since it's the rank within the "cousin" list.
     ///
@@ -1305,37 +1266,37 @@ impl TopologyObject {
     /// or when inserting a group.
     #[doc(alias = "hwloc_obj::logical_index")]
     pub fn logical_index(&self) -> usize {
-        ffi::expect_usize(self.logical_index)
+        ffi::expect_usize(self.0.logical_index)
     }
 
     /// Next object of same type and depth
     #[doc(alias = "hwloc_obj::next_cousin")]
     pub fn next_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_cousin) }
     }
 
     /// Previous object of same type and depth
     #[doc(alias = "hwloc_obj::prev_cousin")]
     pub fn prev_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_cousin) }
     }
 
     /// Index in the parent's relevant child list for this object type
     #[doc(alias = "hwloc_obj::sibling_rank")]
     pub fn sibling_rank(&self) -> usize {
-        ffi::expect_usize(self.sibling_rank)
+        ffi::expect_usize(self.0.sibling_rank)
     }
 
     /// Next object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::next_sibling")]
     pub fn next_sibling(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.next_sibling) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_sibling) }
     }
 
     /// Previous object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::prev_sibling")]
     pub fn prev_sibling(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.prev_sibling) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_sibling) }
     }
 }
 
@@ -1344,7 +1305,7 @@ impl TopologyObject {
     /// Number of normal children (excluding Memory, Misc and I/O)
     #[doc(alias = "hwloc_obj::arity")]
     pub fn normal_arity(&self) -> usize {
-        ffi::expect_usize(self.arity)
+        ffi::expect_usize(self.0.arity)
     }
 
     /// Normal children of this object
@@ -1355,7 +1316,7 @@ impl TopologyObject {
         &self,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
     {
-        if self.children.is_null() {
+        if self.0.children.is_null() {
             assert_eq!(
                 self.normal_arity(),
                 0,
@@ -1363,9 +1324,9 @@ impl TopologyObject {
             );
         }
         (0..self.normal_arity()).map(move |offset| {
-            let child = unsafe { *self.children.add(offset) };
+            let child = unsafe { *self.0.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
-            unsafe { &*child }
+            unsafe { ffi::as_newtype(&*child) }
         })
     }
 
@@ -1376,7 +1337,7 @@ impl TopologyObject {
     //       If you do, please submit an issue to the repository!
 
     /// Truth that this object is symmetric, which means all normal children and
-    /// their children have identical subtrees.
+    /// their children have identical subtrees
     ///
     /// Memory, I/O and Misc children are ignored.
     ///
@@ -1384,7 +1345,7 @@ impl TopologyObject {
     /// as a synthetic string](Topology::export_synthetic()).
     #[doc(alias = "hwloc_obj::symmetric_subtree")]
     pub fn symmetric_subtree(&self) -> bool {
-        self.symmetric_subtree != 0
+        self.0.symmetric_subtree != 0
     }
 
     /// Get the child covering at least the given cpuset `set`
@@ -1404,7 +1365,7 @@ impl TopologyObject {
     /// Number of memory children
     #[doc(alias = "hwloc_obj::memory_arity")]
     pub fn memory_arity(&self) -> usize {
-        ffi::expect_usize(self.memory_arity)
+        ffi::expect_usize(self.0.memory_arity)
     }
 
     /// Memory children of this object
@@ -1422,7 +1383,7 @@ impl TopologyObject {
     pub fn memory_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        self.singly_linked_children(self.memory_first_child, self.memory_arity())
+        self.singly_linked_children(self.0.memory_first_child, self.memory_arity())
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -1430,13 +1391,13 @@ impl TopologyObject {
     /// Requires [`DiscoverySupport::numa_memory()`].
     #[doc(alias = "hwloc_obj::total_memory")]
     pub fn total_memory(&self) -> u64 {
-        self.total_memory
+        self.0.total_memory
     }
 
     /// Number of I/O children
     #[doc(alias = "hwloc_obj::io_arity")]
     pub fn io_arity(&self) -> usize {
-        ffi::expect_usize(self.io_arity)
+        ffi::expect_usize(self.0.io_arity)
     }
 
     /// I/O children of this object
@@ -1448,7 +1409,7 @@ impl TopologyObject {
     pub fn io_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        self.singly_linked_children(self.io_first_child, self.io_arity())
+        self.singly_linked_children(self.0.io_first_child, self.io_arity())
     }
 
     /// Truth that this is a bridge covering the specified PCI bus
@@ -1466,7 +1427,7 @@ impl TopologyObject {
     /// Number of Misc children
     #[doc(alias = "hwloc_obj::misc_arity")]
     pub fn misc_arity(&self) -> usize {
-        ffi::expect_usize(self.misc_arity)
+        ffi::expect_usize(self.0.misc_arity)
     }
 
     /// Misc children of this object
@@ -1477,7 +1438,7 @@ impl TopologyObject {
     pub fn misc_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        self.singly_linked_children(self.misc_first_child, self.misc_arity())
+        self.singly_linked_children(self.0.misc_first_child, self.misc_arity())
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
@@ -1492,14 +1453,14 @@ impl TopologyObject {
     /// Iterator over singly linked lists of child TopologyObjects with arity
     fn singly_linked_children(
         &self,
-        first: *mut TopologyObject,
+        first: *mut hwloc_obj,
         arity: usize,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
-            let result = unsafe { &*current };
-            current = result.next_sibling;
+            let result: &TopologyObject = unsafe { ffi::as_newtype(&*current) };
+            current = result.0.next_sibling;
             result
         })
     }
@@ -1535,7 +1496,7 @@ impl TopologyObject {
     /// ```
     #[doc(alias = "hwloc_obj::cpuset")]
     pub fn cpuset(&self) -> Option<BitmapRef<CpuSet>> {
-        unsafe { CpuSet::borrow_from_raw_mut(self.cpuset) }
+        unsafe { CpuSet::borrow_from_raw_mut(self.0.cpuset) }
     }
 
     /// Truth that this object is inside of the given cpuset `set`
@@ -1587,7 +1548,7 @@ impl TopologyObject {
     /// [`cpuset()`]: TopologyObject::cpuset()
     #[doc(alias = "hwloc_obj::complete_cpuset")]
     pub fn complete_cpuset(&self) -> Option<BitmapRef<CpuSet>> {
-        unsafe { CpuSet::borrow_from_raw_mut(self.complete_cpuset) }
+        unsafe { CpuSet::borrow_from_raw_mut(self.0.complete_cpuset) }
     }
 }
 
@@ -1631,7 +1592,7 @@ impl TopologyObject {
     /// ```
     #[doc(alias = "hwloc_obj::nodeset")]
     pub fn nodeset(&self) -> Option<BitmapRef<NodeSet>> {
-        unsafe { NodeSet::borrow_from_raw_mut(self.nodeset) }
+        unsafe { NodeSet::borrow_from_raw_mut(self.0.nodeset) }
     }
 
     /// The complete NUMA node set of this object
@@ -1663,7 +1624,7 @@ impl TopologyObject {
     /// [`nodeset()`]: TopologyObject::nodeset()
     #[doc(alias = "hwloc_obj::complete_nodeset")]
     pub fn complete_nodeset(&self) -> Option<BitmapRef<NodeSet>> {
-        unsafe { NodeSet::borrow_from_raw_mut(self.complete_nodeset) }
+        unsafe { NodeSet::borrow_from_raw_mut(self.0.complete_nodeset) }
     }
 }
 
@@ -1678,14 +1639,19 @@ impl TopologyObject {
     /// exist, although no sane programs should leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
-        if self.children.is_null() {
+        if self.0.children.is_null() {
             assert_eq!(
-                self.infos_count, 0,
+                self.0.infos_count, 0,
                 "Got null infos pointer with nonzero info count"
             );
             return &[];
         }
-        unsafe { std::slice::from_raw_parts(self.infos, ffi::expect_usize(self.infos_count)) }
+        unsafe {
+            std::slice::from_raw_parts(
+                self.0.infos.cast::<TextualInfo>(),
+                ffi::expect_usize(self.0.infos_count),
+            )
+        }
     }
 
     /// Search the given key name in object infos and return the corresponding value
@@ -1727,7 +1693,7 @@ impl TopologyObject {
         let name = LibcString::new(name)?;
         let value = LibcString::new(value)?;
         errors::call_hwloc_int_normal("hwloc_obj_add_info", || unsafe {
-            ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow())
+            hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
         })
         .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
@@ -1739,7 +1705,7 @@ impl TopologyObject {
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
         let type_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
+            hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &self.0, verbose.into())
         });
 
         let separator = if f.alternate() {
@@ -1749,7 +1715,7 @@ impl TopologyObject {
         }
         .cast::<c_char>();
         let attr_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
+            hwlocality_sys::hwloc_obj_attr_snprintf(buf, len, &self.0, separator, verbose.into())
         });
 
         unsafe {

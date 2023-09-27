@@ -6,7 +6,7 @@ use crate::{
     errors::{self, RawHwlocError},
     ffi,
     object::{depth::Depth, types::ObjectType, TopologyObject},
-    topology::{RawTopology, Topology},
+    topology::Topology,
 };
 #[cfg(feature = "hwloc-2_1_0")]
 use crate::{
@@ -14,6 +14,20 @@ use crate::{
     ffi::LibcString,
 };
 use bitflags::bitflags;
+#[cfg(feature = "hwloc-2_1_0")]
+use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
+use hwlocality_sys::{
+    hwloc_const_topology_t, hwloc_distances_kind_e, hwloc_distances_s,
+    HWLOC_DISTANCES_KIND_FROM_OS, HWLOC_DISTANCES_KIND_FROM_USER,
+    HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH, HWLOC_DISTANCES_KIND_MEANS_LATENCY,
+};
+#[cfg(feature = "hwloc-2_5_0")]
+use hwlocality_sys::{
+    hwloc_distances_add_flag_e, hwloc_obj, HWLOC_DISTANCES_ADD_FLAG_GROUP,
+    HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE, HWLOC_DISTANCES_TRANSFORM_LINKS,
+    HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
+    HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
+};
 use std::{
     debug_assert,
     ffi::{c_int, c_uint, c_ulong},
@@ -39,7 +53,7 @@ impl Topology {
     pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances>, RawHwlocError> {
         unsafe {
             self.get_distances("hwloc_distances_get", |topology, nr, distances, flags| {
-                ffi::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
+                hwlocality_sys::hwloc_distances_get(topology, nr, distances, kind.bits(), flags)
             })
         }
     }
@@ -60,7 +74,7 @@ impl Topology {
             self.get_distances(
                 "hwloc_distances_get_by_depth",
                 |topology, nr, distances, flags| {
-                    ffi::hwloc_distances_get_by_depth(
+                    hwlocality_sys::hwloc_distances_get_by_depth(
                         topology,
                         depth.into(),
                         nr,
@@ -88,7 +102,7 @@ impl Topology {
             self.get_distances(
                 "hwloc_distances_get_by_type",
                 |topology, nr, distances, flags| {
-                    ffi::hwloc_distances_get_by_type(
+                    hwlocality_sys::hwloc_distances_get_by_type(
                         topology,
                         ty.into(),
                         nr,
@@ -119,7 +133,13 @@ impl Topology {
             self.get_distances(
                 "hwloc_distances_get_by_name",
                 |topology, nr, distances, flags| {
-                    ffi::hwloc_distances_get_by_name(topology, name.borrow(), nr, distances, flags)
+                    hwlocality_sys::hwloc_distances_get_by_name(
+                        topology,
+                        name.borrow(),
+                        nr,
+                        distances,
+                        flags,
+                    )
                 },
             )
             .map_err(HybridError::Hwloc)
@@ -138,9 +158,9 @@ impl Topology {
         &self,
         getter_name: &'static str,
         mut getter: impl FnMut(
-            *const RawTopology,
+            hwloc_const_topology_t,
             *mut c_uint,
-            *mut *mut RawDistances,
+            *mut *mut hwloc_distances_s,
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances>, RawHwlocError> {
@@ -248,18 +268,23 @@ impl TopologyEditor<'_> {
             }
             .into());
         }
-        let objs = objects.as_ptr().cast::<*const TopologyObject>();
+        let objs = objects.as_ptr().cast::<*const hwloc_obj>();
         let values = distances.as_ptr();
 
         // Create new empty distances structure
         let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
-            ffi::hwloc_distances_add_create(self.topology_mut_ptr(), name, kind, create_add_flags)
+            hwlocality_sys::hwloc_distances_add_create(
+                self.topology_mut_ptr(),
+                name,
+                kind,
+                create_add_flags,
+            )
         })
         .map_err(HybridError::Hwloc)?;
 
         // Add objects to the distance structure
         errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
-            ffi::hwloc_distances_add_values(
+            hwlocality_sys::hwloc_distances_add_values(
                 self.topology_mut_ptr(),
                 handle.as_ptr(),
                 nbobjs,
@@ -272,7 +297,11 @@ impl TopologyEditor<'_> {
 
         // Finalize the distance structure and insert it into the topology
         errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
-            ffi::hwloc_distances_add_commit(self.topology_mut_ptr(), handle.as_ptr(), commit_flags)
+            hwlocality_sys::hwloc_distances_add_commit(
+                self.topology_mut_ptr(),
+                handle.as_ptr(),
+                commit_flags,
+            )
         })
         .map_err(HybridError::Hwloc)?;
         Ok(())
@@ -282,30 +311,23 @@ impl TopologyEditor<'_> {
 #[cfg(feature = "hwloc-2_5_0")]
 bitflags! {
     /// Flags to be given to [`TopologyEditor::add_distances()`]
-    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_add_flag_e")]
-    #[repr(C)]
-    pub struct AddDistancesFlags: c_ulong {
+    #[repr(transparent)]
+    pub struct AddDistancesFlags: hwloc_distances_add_flag_e {
         /// Try to group objects based on the newly provided distance information
         ///
         /// This is ignored for distances between objects of different types.
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
-        const GROUP = (1<<0);
+        const GROUP = HWLOC_DISTANCES_ADD_FLAG_GROUP;
 
-        /// Like Group, but consider the distance values as inaccurate and relax
-        /// the comparisons during the grouping algorithms. The actual accuracy
-        /// may be modified through the HWLOC_GROUPING_ACCURACY environment
-        /// variable (see
-        /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+        /// Like `GROUP`, but consider the distance values as inaccurate and
+        /// relax the comparisons during the grouping algorithms. The actual
+        /// accuracy may be modified through the HWLOC_GROUPING_ACCURACY
+        /// environment variable (see [Environment
+        /// Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
-        const GROUP_INACCURATE = (1<<0) | (1<<1);
-    }
-}
-
-#[cfg(feature = "hwloc-2_5_0")]
-impl Default for AddDistancesFlags {
-    fn default() -> Self {
-        Self::empty()
+        const GROUP_INACCURATE = HWLOC_DISTANCES_ADD_FLAG_GROUP | HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE;
     }
 }
 
@@ -351,10 +373,6 @@ impl From<NulError> for AddDistancesError {
     }
 }
 
-/// Handle to a new distances structure during its addition to the topology
-#[cfg(feature = "hwloc-2_5_0")]
-pub(crate) type DistancesAddHandle = *mut std::ffi::c_void;
-
 /// # Remove distances between objects
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
@@ -371,7 +389,7 @@ impl TopologyEditor<'_> {
     ) -> Result<(), RawHwlocError> {
         let distances = find_distances(self.topology()).into_inner();
         errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
-            ffi::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
+            hwlocality_sys::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
         })
         .map(std::mem::drop)
     }
@@ -383,7 +401,7 @@ impl TopologyEditor<'_> {
     #[doc(alias = "hwloc_distances_remove")]
     pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
-            ffi::hwloc_distances_remove(self.topology_mut_ptr())
+            hwlocality_sys::hwloc_distances_remove(self.topology_mut_ptr())
         })
         .map(std::mem::drop)
     }
@@ -400,7 +418,10 @@ impl TopologyEditor<'_> {
         depth: impl Into<Depth>,
     ) -> Result<(), RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
-            ffi::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into().into())
+            hwlocality_sys::hwloc_distances_remove_by_depth(
+                self.topology_mut_ptr(),
+                depth.into().into(),
+            )
         })
         .map(std::mem::drop)
     }
@@ -434,32 +455,6 @@ impl TopologyEditor<'_> {
     }
 }
 
-/// Direct mapping of `hwloc_distances_s`. Cannot be exposed to safe code as it
-/// needs a special liberation procedure.
-#[repr(C)]
-pub(crate) struct RawDistances {
-    // Pointers objs and values should not be replaced, reallocated, freed, etc
-    // and thus nbobj should not be changed either.
-    nbobj: c_uint,
-    objs: *mut *const TopologyObject,
-    kind: c_ulong,
-    values: *mut u64,
-}
-//
-impl RawDistances {
-    /// Check that the inner raw distance matrix upholds this crate's invariants
-    fn check(&self) {
-        assert!(
-            !self.objs.is_null(),
-            "Got unexpected null object list in distances"
-        );
-        assert!(
-            !self.values.is_null(),
-            "Got unexpected null matrix in distances"
-        );
-    }
-}
-
 /// Matrix of distances between a set of objects
 ///
 /// This matrix often contains latencies between NUMA nodes (as reported in the
@@ -475,8 +470,7 @@ impl RawDistances {
 /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
 ///
 /// The matrix may also contain bandwidths between random sets of objects,
-/// possibly provided by the user, as specified in the `kind` attribute provided
-/// to [`Topology::distances()`].
+/// possibly provided by the user, as specified in the [`kind()`] attribute.
 ///
 /// Resizing a distance matrix is not allowed, however users may freely change
 /// their kind and contents.
@@ -500,11 +494,13 @@ impl RawDistances {
     doc = "See also [`Distances::transform()`] for applying some"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
+///
+/// [`kind()`]: Self::kind()
 //
 // Upstream inspiration: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
-    inner: NonNull<RawDistances>,
+    inner: NonNull<hwloc_distances_s>,
     topology: &'topology Topology,
 }
 //
@@ -514,29 +510,40 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// `inner` must originate from `topology`
-    pub(crate) unsafe fn wrap(topology: &'topology Topology, inner: *mut RawDistances) -> Self {
+    pub(crate) unsafe fn wrap(
+        topology: &'topology Topology,
+        inner: *mut hwloc_distances_s,
+    ) -> Self {
         let inner = NonNull::new(inner).expect("Got null distance matrix pointer from hwloc");
-        inner.as_ref().check();
+        let inner_ref = inner.as_ref();
+        assert!(
+            !inner_ref.objs.is_null(),
+            "Got unexpected null object list in distances"
+        );
+        assert!(
+            !inner_ref.values.is_null(),
+            "Got unexpected null matrix in distances"
+        );
         Self { inner, topology }
     }
 
-    /// Access the inner `RawDistances` (& version)
-    fn inner(&self) -> &RawDistances {
+    /// Access the inner `hwloc_distances_s` (& version)
+    fn inner(&self) -> &hwloc_distances_s {
         unsafe { self.inner.as_ref() }
     }
 
-    /// Get the inner `RawDistances` (&mut version)
-    fn inner_mut(&mut self) -> &mut RawDistances {
+    /// Get the inner `hwloc_distances_s` (&mut version)
+    fn inner_mut(&mut self) -> &mut hwloc_distances_s {
         unsafe { self.inner.as_mut() }
     }
 
-    /// Release the inner `RawDistances` pointer
+    /// Release the inner `hwloc_distances_s` pointer
     ///
     /// This will result in a resource leak unless the pointer is subsequently
     /// liberated through `hwloc_distances_release` or
     /// `hwloc_distances_release_remove`.
     #[allow(unused)]
-    pub(crate) fn into_inner(self) -> *mut RawDistances {
+    pub(crate) fn into_inner(self) -> *mut hwloc_distances_s {
         let inner = self.inner.as_ptr();
         std::mem::forget(self);
         inner
@@ -550,7 +557,8 @@ impl<'topology> Distances<'topology> {
     #[doc(alias = "hwloc_distances_get_name")]
     pub fn name(&self) -> Option<&std::ffi::CStr> {
         unsafe {
-            let name = ffi::hwloc_distances_get_name(self.topology.as_ptr(), self.inner());
+            let name =
+                hwlocality_sys::hwloc_distances_get_name(self.topology.as_ptr(), self.inner());
             (!name.is_null()).then(|| std::ffi::CStr::from_ptr(name))
         }
     }
@@ -581,7 +589,8 @@ impl<'topology> Distances<'topology> {
            + ExactSizeIterator
            + FusedIterator {
         unsafe {
-            let objs = std::slice::from_raw_parts(self.inner().objs, self.num_objects());
+            let objs = self.inner().objs.cast::<*const TopologyObject>();
+            let objs = std::slice::from_raw_parts(objs.cast_const(), self.num_objects());
             objs.iter().map(|ptr| ffi::deref_ptr(ptr))
         }
     }
@@ -601,7 +610,8 @@ impl<'topology> Distances<'topology> {
 
     /// Access the raw array of object pointers
     fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
-        unsafe { std::slice::from_raw_parts_mut(self.inner_mut().objs, self.num_objects()) }
+        let objs = self.inner().objs.cast::<*const TopologyObject>();
+        unsafe { std::slice::from_raw_parts_mut(objs, self.num_objects()) }
     }
 
     /// Convert Option<&'topology TopologyObject> to a *const TopologyObject for
@@ -719,7 +729,8 @@ impl<'topology> Distances<'topology> {
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
     {
-        let objects = unsafe { std::slice::from_raw_parts(self.inner().objs, self.num_objects()) };
+        let objs = self.inner().objs.cast::<*const TopologyObject>();
+        let objects = unsafe { std::slice::from_raw_parts(objs, self.num_objects()) };
         self.enumerate_distances_mut()
             .map(move |((sender_idx, receiver_idx), distance)| {
                 let obj = |idx| unsafe {
@@ -785,7 +796,7 @@ impl<'topology> Distances<'topology> {
         use errno::Errno;
         use libc::EINVAL;
         errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
-            ffi::hwloc_distances_transform(
+            hwlocality_sys::hwloc_distances_transform(
                 self.topology.as_ptr(),
                 self.inner_mut(),
                 transform.into(),
@@ -816,7 +827,9 @@ impl Debug for Distances<'_> {
 impl Drop for Distances<'_> {
     #[doc(alias = "hwloc_distances_release")]
     fn drop(&mut self) {
-        unsafe { ffi::hwloc_distances_release(self.topology.as_ptr(), self.inner.as_ptr()) }
+        unsafe {
+            hwlocality_sys::hwloc_distances_release(self.topology.as_ptr(), self.inner.as_ptr())
+        }
     }
 }
 //
@@ -850,15 +863,15 @@ bitflags! {
     /// Only one of the "FROM_" and "MEANS_" kinds should be present.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
-    #[repr(C)]
-    pub struct DistancesKind: c_ulong {
+    #[repr(transparent)]
+    pub struct DistancesKind: hwloc_distances_kind_e {
         /// These distances were obtained from the operating system or hardware
         #[doc(alias = "HWLOC_DISTANCES_KIND_FROM_OS")]
-        const FROM_OS = (1<<0);
+        const FROM_OS = HWLOC_DISTANCES_KIND_FROM_OS;
 
         /// These distances were provided by the user
         #[doc(alias = "HWLOC_DISTANCES_KIND_FROM_USER")]
-        const FROM_USER = (1<<1);
+        const FROM_USER = HWLOC_DISTANCES_KIND_FROM_USER;
 
         /// Distance values are similar to latencies between objects
         ///
@@ -867,7 +880,7 @@ bitflags! {
         ///
         /// It could also be the number of network hops between objects, etc.
         #[doc(alias = "HWLOC_DISTANCES_KIND_MEANS_LATENCY")]
-        const MEANS_LATENCY = (1<<2);
+        const MEANS_LATENCY = HWLOC_DISTANCES_KIND_MEANS_LATENCY;
 
         /// Distance values are similar to bandwidths between objects
         ///
@@ -876,7 +889,7 @@ bitflags! {
         ///
         /// Such values are currently ignored for distance-based grouping.
         #[doc(alias = "HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH")]
-        const MEANS_BANDWIDTH = (1<<3);
+        const MEANS_BANDWIDTH = HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH;
 
         /// This distances structure covers objects of different types
         ///
@@ -884,7 +897,7 @@ bitflags! {
         /// NVSwitch or POWER processor NVLink port.
         #[cfg(feature = "hwloc-2_1_0")]
         #[doc(alias = "HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES")]
-        const HETEROGENEOUS_TYPES = (1<<4);
+        const HETEROGENEOUS_TYPES = HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
     }
 }
 //
@@ -903,14 +916,6 @@ impl DistancesKind {
         result
     }
 }
-
-/// Rust mapping of the hwloc_distances_transform_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-#[cfg(feature = "hwloc-2_5_0")]
-pub(crate) type RawDistancesTransform = c_uint;
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
@@ -936,17 +941,12 @@ pub enum DistancesTransform {
     /// At least 2 objects must remain, otherwise [`Distances::transform()`]
     /// will fail.
     ///
-    #[cfg_attr(
-        feature = "hwloc-2_1_0",
-        doc = "On hwloc 2.1+, [`Distances::kind()`] will be updated with or without"
-    )]
-    #[cfg_attr(
-        feature = "hwloc-2_1_0",
-        doc = "[`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES) according to"
-    )]
-    #[cfg_attr(feature = "hwloc-2_1_0", doc = "the remaining objects.")]
+    /// [`Distances::kind()`] will be updated with or without
+    /// [`HETEROGENEOUS_TYPES`] according to the remaining objects.
+    ///
+    /// [`HETEROGENEOUS_TYPES`]: DistancesKind::HETEROGENEOUS_TYPES
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL")]
-    RemoveNone = 0,
+    RemoveNone = HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
 
     /// Replace bandwidth values with a number of links
     ///
@@ -958,7 +958,7 @@ pub enum DistancesTransform {
     ///
     /// This transformation only applies to bandwidth matrices.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_LINKS")]
-    BandwidthToLinkCount = 1,
+    BandwidthToLinkCount = HWLOC_DISTANCES_TRANSFORM_LINKS,
 
     /// Merge switches with multiple ports into a single object
     ///
@@ -971,7 +971,7 @@ pub enum DistancesTransform {
     /// Other ports are removed by applying the `RemoveNone` transformation
     /// internally.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS")]
-    MergeSwitchPorts = 2,
+    MergeSwitchPorts = HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
 
     /// Apply a transitive closure to the matrix to connect objects across
     /// switches.
@@ -981,7 +981,7 @@ pub enum DistancesTransform {
     ///
     /// All pairs of GPUs will be reported as directly connected.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
-    TransitiveSwitchClosure = 3,
+    TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 }
 
 /// Error returned when attempting to remove all distances using

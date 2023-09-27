@@ -7,21 +7,22 @@ pub mod export;
 pub mod support;
 
 use self::{
-    builder::{BuildFlags, RawTypeFilter, TopologyBuilder, TypeFilter},
+    builder::{BuildFlags, TopologyBuilder, TypeFilter},
     support::FeatureSupport,
 };
 #[cfg(all(feature = "hwloc-2_3_0", doc))]
 use crate::topology::support::MiscSupport;
 use crate::{
-    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap, RawBitmap},
+    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi::{self, IncompleteType},
+    ffi,
     memory::nodeset::NodeSet,
     object::{types::ObjectType, TopologyObject},
 };
 use bitflags::bitflags;
 use errno::Errno;
+use hwlocality_sys::{hwloc_bitmap_s, hwloc_topology, hwloc_type_filter_e};
 use libc::EINVAL;
 use std::{
     convert::TryInto,
@@ -31,13 +32,6 @@ use std::{
     ptr::{self, NonNull},
 };
 use thiserror::Error;
-
-/// Opaque topology struct
-///
-/// Represents the private `hwloc_topology` type that `hwloc_topology_t` API
-/// pointers map to.
-#[repr(C)]
-pub(crate) struct RawTopology(IncompleteType);
 
 /// Main entry point to the hwloc API
 ///
@@ -88,7 +82,7 @@ pub(crate) struct RawTopology(IncompleteType);
 #[derive(Debug)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
-pub struct Topology(NonNull<RawTopology>);
+pub struct Topology(NonNull<hwloc_topology>);
 
 /// # Topology building
 //
@@ -172,7 +166,7 @@ impl Topology {
     #[doc(alias = "hwloc_topology_abi_check")]
     pub fn is_abi_compatible(&self) -> bool {
         let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
-            ffi::hwloc_topology_abi_check(self.as_ptr())
+            hwlocality_sys::hwloc_topology_abi_check(self.as_ptr())
         });
         match result {
             Ok(_) => true,
@@ -195,8 +189,9 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_flags")]
     pub fn build_flags(&self) -> BuildFlags {
-        let result =
-            BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) });
+        let result = BuildFlags::from_bits_truncate(unsafe {
+            hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
+        });
         debug_assert!(result.is_valid());
         result
     }
@@ -216,7 +211,7 @@ impl Topology {
     #[doc(alias = "hwloc_topology_is_thissystem")]
     pub fn is_this_system(&self) -> bool {
         errors::call_hwloc_bool("hwloc_topology_is_thissystem", || unsafe {
-            ffi::hwloc_topology_is_thissystem(self.as_ptr())
+            hwlocality_sys::hwloc_topology_is_thissystem(self.as_ptr())
         })
         .expect("Should not involve faillible syscalls")
     }
@@ -255,13 +250,13 @@ impl Topology {
     #[doc(alias = "hwloc_topology_get_support")]
     pub fn feature_support(&self) -> &FeatureSupport {
         let ptr = errors::call_hwloc_ptr("hwloc_topology_get_support", || unsafe {
-            ffi::hwloc_topology_get_support(self.as_ptr())
+            hwlocality_sys::hwloc_topology_get_support(self.as_ptr())
         })
         .expect("Unexpected hwloc error");
 
         // This is correct because the output reference will be bound the the
         // lifetime of &self by the borrow checker.
-        unsafe { ptr.as_ref() }
+        unsafe { ffi::as_newtype(ptr.as_ref()) }
     }
 
     /// Quickly check a support flag
@@ -315,9 +310,9 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_type_filter")]
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
-        let mut filter = RawTypeFilter::MAX;
+        let mut filter = hwloc_type_filter_e::MAX;
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
-            ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
+            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
         Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
     }
@@ -507,7 +502,7 @@ impl Topology {
 bitflags! {
     /// Flags to be given to [`Topology::distribute_items()`]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-    #[repr(C)]
+    #[repr(transparent)]
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
         const REVERSE = (1<<0);
@@ -551,7 +546,7 @@ impl Topology {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_cpuset",
-                ffi::hwloc_topology_get_topology_cpuset,
+                hwlocality_sys::hwloc_topology_get_topology_cpuset,
             )
         }
     }
@@ -577,7 +572,7 @@ impl Topology {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_cpuset",
-                ffi::hwloc_topology_get_complete_cpuset,
+                hwlocality_sys::hwloc_topology_get_complete_cpuset,
             )
         }
     }
@@ -608,7 +603,7 @@ impl Topology {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_cpuset",
-                ffi::hwloc_topology_get_allowed_cpuset,
+                hwlocality_sys::hwloc_topology_get_allowed_cpuset,
             )
         }
     }
@@ -631,7 +626,7 @@ impl Topology {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_nodeset",
-                ffi::hwloc_topology_get_topology_nodeset,
+                hwlocality_sys::hwloc_topology_get_topology_nodeset,
             )
         }
     }
@@ -657,7 +652,7 @@ impl Topology {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_nodeset",
-                ffi::hwloc_topology_get_complete_nodeset,
+                hwlocality_sys::hwloc_topology_get_complete_nodeset,
             )
         }
     }
@@ -688,7 +683,7 @@ impl Topology {
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_nodeset",
-                ffi::hwloc_topology_get_allowed_nodeset,
+                hwlocality_sys::hwloc_topology_get_allowed_nodeset,
             )
         }
     }
@@ -707,7 +702,7 @@ impl Topology {
     unsafe fn topology_set<'topology, Set: OwnedSpecializedBitmap>(
         &'topology self,
         getter_name: &'static str,
-        getter: unsafe extern "C" fn(*const RawTopology) -> *const RawBitmap,
+        getter: unsafe extern "C" fn(*const hwloc_topology) -> *const hwloc_bitmap_s,
     ) -> BitmapRef<'topology, Set> {
         let bitmap_ref = unsafe {
             let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))
@@ -721,17 +716,17 @@ impl Topology {
 // # General-purpose internal utilities
 impl Topology {
     /// Contained hwloc topology pointer (for interaction with hwloc)
-    pub(crate) fn as_ptr(&self) -> *const RawTopology {
+    pub(crate) fn as_ptr(&self) -> *const hwloc_topology {
         self.0.as_ptr()
     }
 
     /// Contained mutable hwloc topology pointer (for interaction with hwloc)
     ///
     /// Be warned that as a result of hwloc employing lazy caching techniques,
-    /// almost every interaction that requires `*mut RawTopology` is unsafe
+    /// almost every interaction that requires `*mut hwloc_topology` is unsafe
     /// unless followed by `hwloc_topology_refresh()`. This subtlety is handled
     /// by the [`Topology::edit()`] mechanism.
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut RawTopology {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut hwloc_topology {
         self.0.as_ptr()
     }
 }
@@ -741,7 +736,7 @@ impl Clone for Topology {
     fn clone(&self) -> Self {
         let mut clone = ptr::null_mut();
         errors::call_hwloc_int_normal("hwloc_topology_dup", || unsafe {
-            ffi::hwloc_topology_dup(&mut clone, self.as_ptr())
+            hwlocality_sys::hwloc_topology_dup(&mut clone, self.as_ptr())
         })
         .expect("Failed to clone topology");
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
@@ -751,7 +746,7 @@ impl Clone for Topology {
 impl Drop for Topology {
     #[doc(alias = "hwloc_topology_destroy")]
     fn drop(&mut self) {
-        unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
+        unsafe { hwlocality_sys::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 

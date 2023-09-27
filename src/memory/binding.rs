@@ -1,11 +1,17 @@
 //! Memory binding
+//!
+//! This module is all about checking and changing the binding of memory
+//! allocations to hardware NUMA nodes.
+//!
+//! Most of this module's functionality is exposed via [methods of the Topology
+//! struct](../../topology/struct.Topology.html#memory-binding). The module
+//! itself only hosts type definitions that are related to this functionality.
 
 use crate::{
-    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, RawBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},
-    ffi,
-    memory::{self, nodeset::NodeSet},
-    topology::{RawTopology, Topology},
+    memory::nodeset::NodeSet,
+    topology::Topology,
     ProcessId,
 };
 #[cfg(doc)]
@@ -13,6 +19,13 @@ use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};
+use hwlocality_sys::{
+    hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
+    hwloc_membind_policy_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET, HWLOC_MEMBIND_DEFAULT,
+    HWLOC_MEMBIND_FIRSTTOUCH, HWLOC_MEMBIND_INTERLEAVE, HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED,
+    HWLOC_MEMBIND_NEXTTOUCH, HWLOC_MEMBIND_NOCPUBIND, HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT,
+    HWLOC_MEMBIND_THREAD,
+};
 use libc::{ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use std::{
@@ -30,7 +43,7 @@ use thiserror::Error;
 /// Memory binding can be done three ways:
 ///
 /// - Explicit memory allocation through [`allocate_bound_memory()`] and friends:
-///   the binding will have effect on the memory allocated by these functions.
+///   the binding will have effect on the memory allocated by these methods.
 /// - Implicit memory binding through process/thread binding policy through
 ///   [`bind_memory()`] and friends: the binding will be applied to subsequent
 ///   memory allocations by the target process/thread.
@@ -41,7 +54,7 @@ use thiserror::Error;
 /// Not all operating systems support all three ways.
 /// [`Topology::feature_support()`] may be used to query about the actual memory
 /// binding support in the currently used operating system. Individual memory
-/// binding functions will clarify which support flags they require. The most
+/// binding methods will clarify which support flags they require. The most
 /// portable operation, where usable, is [`binding_allocate_memory()`].
 ///
 /// By default, when the requested binding operation is not available, hwloc
@@ -53,10 +66,10 @@ use thiserror::Error;
 /// CPU set cannot work for CPU-less NUMA memory nodes. Binding by node set
 /// should therefore be preferred whenever possible.
 ///
-/// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`THREAD`] and
-/// [`PROCESS`] flags (listed in order of decreasing portability) when using any
-/// of the functions that target a process, but some functions may only support
-/// a subset of these flags.
+/// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and
+/// [`THREAD`] flags (the former being best for portability) when using any of
+/// the methods that target a process, but some methods may only support a
+/// subset of these flags.
 ///
 /// On some operating systems, memory binding affects CPU binding. You can avoid
 /// this at the cost of reducing portability by specifying the
@@ -72,6 +85,8 @@ use thiserror::Error;
 /// [`STRICT`]: MemoryBindingFlags::STRICT
 /// [`THREAD`]: MemoryBindingFlags::THREAD
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
 impl Topology {
     /// Allocate some memory
@@ -81,25 +96,30 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`Unsupported`] if the system cannot allocate page-aligned memory
     /// - [`AllocationFailed`] if memory allocation failed
+    /// - [`Unsupported`] if the system cannot allocate page-aligned memory
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc")]
-    pub fn allocate_memory(&self, len: usize) -> Result<Bytes, MemoryAllocationError<NodeSet>> {
-        self.allocate_memory_impl::<NodeSet>(len)
+    pub fn allocate_memory(&self, len: usize) -> Result<Bytes<'_>, MemoryAllocationError<NodeSet>> {
+        self.allocate_memory_generic::<NodeSet>(len)
     }
 
-    /// Like allocate_memory, but polymorphic on Set
-    fn allocate_memory_impl<Set: SpecializedBitmap>(
+    /// Like [`allocate_memory()`], but polymorphic on `Set`
+    ///
+    /// [`allocate_memory`]: Topology::allocate_memory
+    fn allocate_memory_generic<Set: SpecializedBitmap>(
         &self,
         len: usize,
-    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
-        memory::binding::call_hwloc_allocate::<Set>("hwloc_alloc", None, || unsafe {
-            ffi::hwloc_alloc(self.as_ptr(), len)
-        })
-        .map(|base| unsafe { Bytes::wrap(self, base, len) })
+    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
+        // SAFETY: - hwloc_alloc is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, len)
+        unsafe {
+            self.allocate_memory_impl::<Set>("hwloc_alloc", None, len, |topology, len| {
+                hwlocality_sys::hwloc_alloc(topology, len)
+            })
+        }
     }
 
     /// Allocate some memory on NUMA nodes specified by `set`
@@ -112,19 +132,18 @@ impl Topology {
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
     ///
-    /// Flags [`ASSUME_SINGLE_THREAD`], [`PROCESS`], [`THREAD`] and [`MIGRATE`]
-    /// should not be used with this function.
+    /// Binding target flags [`ASSUME_SINGLE_THREAD`], [`PROCESS`],
+    /// [`THREAD`] and [`MIGRATE`] should not be used with this method.
     ///
     /// Requires [`MemoryBindingSupport::alloc()`].
     ///
     /// # Errors
     ///
+    /// - [`AllocationFailed`] if memory allocation failed
+    /// - [`BadFlags`] if binding target flags were specified
+    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`Unsupported`] if the system cannot allocate bound memory with the
     ///   requested policy
-    /// - [`BadFlags`] if one of the flags [`MIGRATE`], [`PROCESS`] and
-    ///   [`THREAD`] is specified
-    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`AllocationFailed`] if memory allocation failed
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
@@ -141,21 +160,35 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         mut flags: MemoryBindingFlags,
-    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
+    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
         Self::adjust_flags_for::<Set>(&mut flags);
-        if !flags.is_valid(MemoryBoundObject::Area, MemoryBindingOperation::Allocate) {
-            return Err(MemoryAllocationError::BadFlags(flags.into()));
-        }
-        memory::binding::call_hwloc_allocate("hwloc_alloc_membind", Some(set), || unsafe {
-            ffi::hwloc_alloc_membind(
-                self.as_ptr(),
+        let Some(flags) = flags.validate(MemoryBoundObject::Area, MemoryBindingOperation::Allocate)
+        else {
+            return Err(MemoryBindingError::BadFlags(flags.into()));
+        };
+        // SAFETY: - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc_alloc_membind with set, policy and flags
+        //           arguments curried away behaves like hwloc_alloc
+        //         - FFI is guaranteed to be passed valid (topology, len)
+        //         - All user-visible policies are accepted by hwloc
+        //         - flags are validated to be correct
+        unsafe {
+            self.allocate_memory_impl::<Set>(
+                "hwloc_alloc_membind",
+                Some(set),
                 len,
-                set.as_ref().as_ptr(),
-                policy.into(),
-                flags.bits(),
+                |topology, len| {
+                    hwlocality_sys::hwloc_alloc_membind(
+                        topology,
+                        len,
+                        set.as_ref().as_ptr(),
+                        policy.into(),
+                        flags.bits(),
+                    )
+                },
             )
-        })
-        .map(|base| unsafe { Bytes::wrap(self, base, len) })
+        }
     }
 
     /// Allocate some memory on NUMA nodes specified by `set` and `flags`,
@@ -170,8 +203,8 @@ impl Topology {
     /// is supported on more operating systems, so this is the most portable way
     /// to obtain a bound memory buffer.
     ///
-    /// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and
-    /// [`THREAD`] flags when using this function.
+    /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
+    /// [`PROCESS`] and [`THREAD`] binding target flags when using this method.
     ///
     /// Requires either [`MemoryBindingSupport::alloc()`], or one of
     /// [`MemoryBindingSupport::set_current_process()`] and
@@ -179,11 +212,12 @@ impl Topology {
     ///
     /// # Errors
     ///
+    /// - [`AllocationFailed`] if memory allocation failed
+    /// - [`BadFlags`] if the number of specified binding target flags is not
+    ///   exactly one
+    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`Unsupported`] if the system can neither allocate bound memory
     ///   nor rebind the current thread/process with the requested policy
-    /// - [`BadFlags`] if flags [`PROCESS`] and [`THREAD`] were both specified
-    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`AllocationFailed`] if memory allocation failed
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
@@ -199,7 +233,7 @@ impl Topology {
         set: &Set,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<Bytes, MemoryAllocationError<Set::Owned>> {
+    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
         // Try allocate_bound_memory first
         if let Ok(bytes) = self.allocate_bound_memory(len, set, policy, flags) {
             return Ok(bytes);
@@ -209,16 +243,18 @@ impl Topology {
         self.bind_memory(set, policy, flags)?;
 
         // If that succeeds, try allocating more memory
-        let mut bytes = self.allocate_memory_impl::<Set>(len)?;
+        let mut bytes = self.allocate_memory_generic::<Set>(len)?;
 
         // Depending on policy, we may or may not need to touch the memory to
         // enforce the binding
         match policy {
+            // Nothing to do, user expects first/next-touch lazy behavior
             MemoryBindingPolicy::FirstTouch | MemoryBindingPolicy::NextTouch => {}
+
+            // All other cases expect eager binding, which may require touching
+            // to enforce
             MemoryBindingPolicy::Bind | MemoryBindingPolicy::Interleave => {
-                for b in &mut bytes[..] {
-                    *b = MaybeUninit::new(0);
-                }
+                bytes.fill(MaybeUninit::new(0));
             }
         }
         Ok(bytes)
@@ -231,18 +267,19 @@ impl Topology {
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
     /// to CPUs, and thus cannot be bound by [`CpuSet`].
     ///
-    /// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and
-    /// [`THREAD`] flags when using this function.
+    /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
+    /// [`PROCESS`] and [`THREAD`] binding target flags when using this method.
     ///
     /// Requires [`MemoryBindingSupport::set_current_process()`] or
     /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
     ///
     /// # Errors
     ///
+    /// - [`BadFlags`] if the number of specified binding target flags is not
+    ///   exactly one
+    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`Unsupported`] if the system cannot bind the current
     ///   thread/process with the requested policy
-    /// - [`BadFlags`] if flags [`PROCESS`] and [`THREAD`] were both specified
-    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
@@ -257,16 +294,22 @@ impl Topology {
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
-        self.bind_memory_impl(
-            "hwloc_set_membind",
-            set,
-            policy,
-            flags,
-            MemoryBoundObject::ThisProgram,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_membind(topology, set, policy, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - hwloc_set_membind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        unsafe {
+            self.bind_memory_impl(
+                "hwloc_set_membind",
+                set,
+                policy,
+                flags,
+                MemoryBoundObject::ThisProgram,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_membind(topology, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Reset the memory allocation policy of the current process or thread to
@@ -276,18 +319,20 @@ impl Topology {
     /// [`MemoryBindingPolicy::FirstTouch`] (Linux, FreeBSD) or
     /// [`MemoryBindingPolicy::Bind`] (AIX, HP-UX, Solaris, Windows).
     ///
-    /// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and
-    /// [`THREAD`] flags when using this function, but the [`STRICT`] and
-    /// [`MIGRATE`] flags should **not** be used with this function.
+    /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
+    /// [`PROCESS`] and [`THREAD`] binding target flags when using this method,
+    /// but the [`STRICT`] and [`MIGRATE`] flags should **not** be used with
+    /// this method.
     ///
     /// Requires [`MemoryBindingSupport::set_current_process()`] or
     /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
     ///
     /// # Errors
     ///
-    /// - [`Unsupported`] if the system cannot unbind the current thread/process
     /// - [`BadFlags`] if one of flags [`STRICT`] and [`MIGRATE`] was specified,
-    ///   or if flags [`PROCESS`] and [`THREAD`] were both specified
+    ///   or if the number of specified binding target flags is not exactly
+    ///   one
+    /// - [`Unsupported`] if the system cannot unbind the current thread/process
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
@@ -301,22 +346,29 @@ impl Topology {
         &self,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
-        self.unbind_memory_impl(
-            "hwloc_set_membind",
-            flags,
-            MemoryBoundObject::ThisProgram,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_membind(topology, set, policy, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - hwloc_set_membind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        unsafe {
+            self.unbind_memory_impl(
+                "hwloc_set_membind",
+                flags,
+                MemoryBoundObject::ThisProgram,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_membind(topology, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Query the default memory binding policy and physical locality of the
     /// current process or thread
     ///
-    /// You should specify one of the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and
-    /// [`THREAD`] flags when using this function. However, flags [`MIGRATE`]
-    /// and [`NO_CPU_BINDING`] should **not** be used with this function.
+    /// You must specify one of the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and
+    /// [`THREAD`] binding target flags when using this method. However, flags
+    /// [`MIGRATE`] and [`NO_CPU_BINDING`] should **not** be used with this
+    /// method.
     ///
     /// The [`STRICT`] flag is only meaningful when [`PROCESS`] is also
     /// specified. In this case, hwloc will check the default memory policies
@@ -341,13 +393,13 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`Unsupported`] if the system cannot query the current thread/process
-    ///   binding
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
-    ///   specified, if flags [`PROCESS`] and [`THREAD`] were both specified,
-    ///   or if flag [`STRICT`] was specified without [`PROCESS`]
+    ///   specified, if flag [`STRICT`] was specified without [`PROCESS`], or
+    ///   if the number of specified binding target flags is not exactly one
     /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
     ///   and memory binding is inhomogeneous across threads in the process
+    /// - [`Unsupported`] if the system cannot query the current thread/process
+    ///   binding
     ///
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
@@ -363,33 +415,41 @@ impl Topology {
         &self,
         flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
-        self.memory_binding_impl(
-            "hwloc_get_membind",
-            flags,
-            MemoryBoundObject::ThisProgram,
-            MemoryBindingOperation::GetBinding,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_get_membind(topology, set, policy, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - GetBinding is the correct operation for this FFI
+        //         - hwloc_get_membind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_membind",
+                flags,
+                MemoryBoundObject::ThisProgram,
+                MemoryBindingOperation::GetBinding,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_get_membind(topology, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Set the default memory binding policy of the specified process to prefer
     /// the NUMA node(s) specified by `set`.
     ///
-    /// See also [`Topology::bind_memory()`] for general semantics, except this
-    /// function requires [`MemoryBindingSupport::set_process()`].
+    /// See also [`Topology::bind_memory()`] for general semantics, except
+    /// binding target flag [`THREAD`] should not be used with this method, and
+    /// it requires [`MemoryBindingSupport::set_process()`].
     ///
     /// # Errors
     ///
+    /// - [`BadFlags`] if flag [`THREAD`] was specified, or if the number of
+    ///   specified binding target flags is not exactly one
+    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`Unsupported`] if the system cannot bind the specified
     ///   thread/process with the requested policy
-    /// - [`BadFlags`] if flags [`PROCESS`] and [`THREAD`] were both specified
-    /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
-    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_proc_membind")]
@@ -400,34 +460,44 @@ impl Topology {
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
-        self.bind_memory_impl(
-            "hwloc_set_proc_membind",
-            set,
-            policy,
-            flags,
-            MemoryBoundObject::Process,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
-            },
-        )
+        // SAFETY: - Process is the correct target for this FFI
+        //         - hwloc_set_proc_membind with pid argument curried away
+        //           behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.bind_memory_impl(
+                "hwloc_set_proc_membind",
+                set,
+                policy,
+                flags,
+                MemoryBoundObject::Process,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Reset the memory allocation policy of the specified process to the
     /// system default
     ///
     /// See also [`Topology::unbind_memory()`] for general semantics, except
-    /// this function requires [`MemoryBindingSupport::set_process()`].
+    /// binding target flag [`THREAD`] should not be used with this method, and
+    /// it requires [`MemoryBindingSupport::set_process()`].
     ///
     /// # Errors
     ///
+    /// - [`BadFlags`] if one of flags [`MIGRATE`], [`STRICT`] and [`THREAD`]
+    ///   was specified,  or if the number of specified binding target flags is
+    ///   not exactly one
     /// - [`Unsupported`] if the system cannot unbind the specified
     ///   thread/process
-    /// - [`BadFlags`] if one of flags [`STRICT`] and [`MIGRATE`] was specified,
-    ///   or if flags [`PROCESS`] and [`THREAD`] were both specified
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
@@ -436,31 +506,42 @@ impl Topology {
         pid: ProcessId,
         flags: MemoryBindingFlags,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
-        self.unbind_memory_impl(
-            "hwloc_set_proc_membind",
-            flags,
-            MemoryBoundObject::Process,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
-            },
-        )
+        // SAFETY: - Process is the correct target for this FFI
+        //         - hwloc_set_proc_membind with pid argument curried away
+        //           behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.unbind_memory_impl(
+                "hwloc_set_proc_membind",
+                flags,
+                MemoryBoundObject::Process,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Query the default memory binding policy and physical locality of the
     /// specified process
     ///
-    /// See [`Topology::memory_binding()`] for general semantics, except this
-    /// function requires [`MemoryBindingSupport::get_process()`].
+    /// See [`Topology::memory_binding()`] for general semantics, except binding
+    /// target flag [`THREAD`] should not be used with this method, and it
+    /// requires [`MemoryBindingSupport::get_process()`].
     ///
     /// # Errors
     ///
-    /// - [`Unsupported`] if the system cannot query the specified
-    ///   thread/process' binding
-    /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
-    ///   specified, if flags [`PROCESS`] and [`THREAD`] were both specified,
-    ///   or if flag [`STRICT`] was specified without [`PROCESS`]
+    /// - [`BadFlags`] if one of flags [`MIGRATE`], [`NO_CPU_BINDING`] and
+    ///   [`THREAD`] was specified, if flag [`STRICT`] was specified without
+    ///   [`PROCESS`], or if the number of specified binding target flags is
+    ///   not exactly one
     /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
     ///   and memory binding is inhomogeneous across threads in the process
+    /// - [`Unsupported`] if the system cannot query the specified
+    ///   thread/process' binding
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
@@ -476,15 +557,25 @@ impl Topology {
         pid: ProcessId,
         flags: MemoryBindingFlags,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
-        self.memory_binding_impl(
-            "hwloc_get_proc_membind",
-            flags,
-            MemoryBoundObject::Process,
-            MemoryBindingOperation::GetBinding,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_get_proc_membind(topology, pid, set, policy, flags)
-            },
-        )
+        // SAFETY: - Process is the correct target for this FFI
+        //         - GetBinding is the correct operation for this FFI
+        //         - hwloc_get_proc_membind with pid argument curried away
+        //           behaves like hwloc_get_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_proc_membind",
+                flags,
+                MemoryBoundObject::Process,
+                MemoryBindingOperation::GetBinding,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_get_proc_membind(topology, pid, set, policy, flags)
+                },
+            )
+        }
     }
 
     /// Bind the memory identified by `target` to the NUMA node(s) specified by
@@ -497,25 +588,21 @@ impl Topology {
     /// to manually specify the `Target` type via turbofish to make sure that
     /// you don't get tripped up by references of references like `&&[T]`.
     ///
-    /// See also [`Topology::bind_memory()`] for general semantics, except the
-    /// [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and [`THREAD`] flags should not be
-    /// used with this function, and it requires
-    /// [`MemoryBindingSupport::set_area()`].
+    /// See also [`Topology::bind_memory()`] for general semantics, except
+    /// binding target flags should not be used with this method, and it
+    /// requires [`MemoryBindingSupport::set_area()`].
     ///
     /// # Errors
     ///
-    /// - [`Unsupported`] if the system cannot bind the specified memory area
-    ///   with the requested policy
-    /// - [`BadFlags`] if one of flags [`PROCESS`] and [`THREAD`] was specified
+    /// - [`BadFlags`] if a binding target flag was specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`Unsupported`] if the system cannot bind the specified memory area
+    ///   with the requested policy
     ///
-    /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`BadTarget`]: MemoryBindingError::BadTarget
-    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
-    /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_area_membind")]
     pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
@@ -530,23 +617,32 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.bind_memory_impl(
-            "hwloc_set_area_membind",
-            set,
-            policy,
-            flags,
-            MemoryBoundObject::Area,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_area_membind(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    policy,
-                    flags,
-                )
-            },
-        )
+        // SAFETY: - Area is the correct target for this FFI
+        //         - hwloc_set_area_membind with target_ptr and target_size
+        //           arguments curried away behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.bind_memory_impl(
+                "hwloc_set_area_membind",
+                set,
+                policy,
+                flags,
+                MemoryBoundObject::Area,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_area_membind(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        policy,
+                        flags,
+                    )
+                },
+            )
+        }
     }
 
     /// Reset the memory allocation policy of the memory identified by `target`
@@ -555,25 +651,21 @@ impl Topology {
     /// The warning about `Target` coverage in the documentation of
     /// [`Topology::bind_memory_area()`] also applies here.
     ///
-    /// See also [`Topology::unbind_memory()`] for general semantics, except the
-    /// [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and [`THREAD`] flags should not be
-    /// used with this function, and it requires
-    /// [`MemoryBindingSupport::set_area()`].
+    /// See also [`Topology::unbind_memory()`] for general semantics, except
+    /// binding target flags should not be used with this method, and it
+    /// requires[`MemoryBindingSupport::set_area()`].
     ///
     /// # Errors
     ///
-    /// - [`Unsupported`] if the system cannot unbind the specified memory area
-    /// - [`BadFlags`] if one of flags [`PROCESS`], [`THREAD`], [`STRICT`]
-    ///   and [`MIGRATE`] was specified
+    /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`STRICT`] was specified,
+    ///   or if a binding target flag was specified.
     /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`Unsupported`] if the system cannot unbind the specified memory area
     ///
-    /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
-    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
-    /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     pub fn unbind_memory_area<Target: ?Sized>(
         &self,
@@ -585,21 +677,30 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.unbind_memory_impl(
-            "hwloc_set_area_membind",
-            flags,
-            MemoryBoundObject::Area,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_set_area_membind(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    policy,
-                    flags,
-                )
-            },
-        )
+        // SAFETY: - Area is the correct target for this FFI
+        //         - hwloc_set_area_membind with target_ptr and target_size
+        //           arguments curried away behaves like hwloc_set_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           set, policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.unbind_memory_impl(
+                "hwloc_set_area_membind",
+                flags,
+                MemoryBoundObject::Area,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_area_membind(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        policy,
+                        flags,
+                    )
+                },
+            )
+        }
     }
 
     /// Query the memory binding policy and physical locality of the
@@ -620,31 +721,27 @@ impl Topology {
     ///
     /// See also [`Topology::memory_binding()`] for general semantics, except...
     ///
-    /// - The [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and [`THREAD`] flags should
-    ///   not be used with this function
+    /// - Binding target flags should not be used with this method
     /// - As mentioned above, [`STRICT`] has a specific meaning in the context
-    ///   of this function.
-    /// - This function requires [`MemoryBindingSupport::get_area()`].
+    ///   of this method.
+    /// - This method requires [`MemoryBindingSupport::get_area()`].
     ///
     /// # Errors
     ///
+    /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
+    ///   specified, or if a binding target flag was specified.
+    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`MixedResults`] if flag [`STRICT`] was specified and memory binding
+    ///   is inhomogeneous across target memory pages
     /// - [`Unsupported`] if the system cannot query the specified
     ///   memory area's binding
-    /// - [`BadFlags`] if one of flags [`PROCESS`], [`THREAD`], [`MIGRATE`]
-    ///   and [`NO_CPU_BINDING`] was specified
-    /// - [`BadTarget`] if `target` is a zero-sized object
-    /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
-    ///   and memory binding is inhomogeneous across target memory pages
     ///
-    /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
-    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
-    /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_area_membind")]
     pub fn area_memory_binding<Target: ?Sized, Set: OwnedSpecializedBitmap>(
@@ -657,22 +754,32 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.memory_binding_impl(
-            "hwloc_get_area_membind",
-            flags,
-            MemoryBoundObject::Area,
-            MemoryBindingOperation::GetBinding,
-            |topology, set, policy, flags| unsafe {
-                ffi::hwloc_get_area_membind(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    policy,
-                    flags,
-                )
-            },
-        )
+        // SAFETY: - Area is the correct target for this FFI
+        //         - GetBinding is the correct operation for this FFI
+        //         - hwloc_get_area_membind with target_ptr and target_size
+        //           arguments curried away behaves like hwloc_get_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_area_membind",
+                flags,
+                MemoryBoundObject::Area,
+                MemoryBindingOperation::GetBinding,
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_get_area_membind(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        policy,
+                        flags,
+                    )
+                },
+            )
+        }
     }
 
     /// Get the NUMA nodes where the memory identified by `target` is physically
@@ -685,33 +792,29 @@ impl Topology {
     /// spread equitably, or whether most of them are on a single node, etc.
     ///
     /// The operating system may move memory pages from one processor to another
-    /// at any time according to their binding, so this function may return
+    /// at any time according to their binding, so this method may return
     /// something that is already outdated.
     ///
     /// See also [`Topology::memory_binding()`] for general semantics, except
-    /// the [`ASSUME_SINGLE_THREAD`], [`PROCESS`] and [`THREAD`] flags should
-    /// not be used with this function, and it requires
-    /// [`MemoryBindingSupport::get_area_memory_location()`].
+    /// binding target flags should not be used with this method, and it
+    /// requires [`MemoryBindingSupport::get_area_memory_location()`].
     ///
     /// # Errors
     ///
+    /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
+    ///   specified, or if a binding target flag was specified.
+    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`MixedResults`] if flag [`STRICT`] was specified and memory binding
+    ///   is inhomogeneous across target memory pages
     /// - [`Unsupported`] if the system cannot query the specified
     ///   memory area's location
-    /// - [`BadFlags`] if one of flags [`PROCESS`], [`THREAD`], [`MIGRATE`]
-    ///   and [`NO_CPU_BINDING`] was specified
-    /// - [`BadTarget`] if `target` is a zero-sized object
-    /// - [`MixedResults`] if flags [`STRICT`] and [`PROCESS`] were specified
-    ///   and memory binding is inhomogeneous across target memory pages
     ///
-    /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
-    /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
-    /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_area_memlocation")]
     pub fn area_memory_location<Target: ?Sized, Set: OwnedSpecializedBitmap>(
@@ -724,23 +827,34 @@ impl Topology {
             return Err(MemoryBindingError::BadTarget);
         }
         let target_ptr: *const Target = target;
-        self.memory_binding_impl(
-            "hwloc_get_area_memlocation",
-            flags,
-            MemoryBoundObject::ThisProgram,
-            MemoryBindingOperation::GetLastLocation,
-            |topology, set, policy, flags| unsafe {
-                *policy = -1;
-                ffi::hwloc_get_area_memlocation(
-                    topology,
-                    target_ptr.cast::<c_void>(),
-                    target_size,
-                    set,
-                    flags,
-                )
-            },
-        )
-        .map(|(set, _policy)| set)
+        // SAFETY: - ThisProgram is the correct target for this FFI
+        //         - GetLastLocation is the correct operation for this FFI
+        //         - hwloc_get_area_memlocation with target_ptr and target_size
+        //           arguments curried away and policy placeholder'd behaves
+        //           like hwloc_get_membind
+        //         - FFI is guaranteed to be passed valid (topology,
+        //           out set, out policy, flags)
+        //         - target_ptr is valid as it originates from a & reference
+        //         - target_size has been checked not to be zero
+        unsafe {
+            self.memory_binding_impl(
+                "hwloc_get_area_memlocation",
+                flags,
+                MemoryBoundObject::ThisProgram,
+                MemoryBindingOperation::GetLastLocation,
+                |topology, set, policy, flags| {
+                    *policy = -1;
+                    hwlocality_sys::hwloc_get_area_memlocation(
+                        topology,
+                        target_ptr.cast::<c_void>(),
+                        target_size,
+                        set,
+                        flags,
+                    )
+                },
+            )
+            .map(|(set, _policy)| set)
+        }
     }
 
     /// Adjust binding flags for a certain kind of Set
@@ -751,28 +865,80 @@ impl Topology {
         }
     }
 
-    /// Call an hwloc memory binding function to bind some memory
-    fn bind_memory_impl<Set: SpecializedBitmap>(
+    /// Binding for `hwloc_alloc`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_alloc`
+    /// - If so, this is guaranteed to call `ffi` with a valid (topology, size)
+    ///   tuple
+    #[allow(clippy::unnecessary_safety_comment)]
+    unsafe fn allocate_memory_impl<Set: SpecializedBitmap>(
+        &self,
+        api: &'static str,
+        set: Option<&Set>,
+        len: usize,
+        ffi: impl FnOnce(hwloc_const_topology_t, usize) -> *mut c_void,
+    ) -> Result<Bytes<'_>, MemoryBindingError<Set::Owned>> {
+        if len > 0 {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - len was checked to be nonzero above
+            errors::call_hwloc_ptr_mut(api, || ffi(self.as_ptr(), len))
+                .map_err(|raw_err| {
+                    decode_errno(
+                        MemoryBoundObject::Area,
+                        MemoryBindingOperation::Allocate,
+                        set,
+                        raw_err.errno.expect("Unexpected hwloc error without errno"),
+                    )
+                    .expect("Unexpected errno value")
+                })
+                // SAFETY: If hwloc allocation successfully returns, this is
+                //         assumed to be a valid allocation pointer
+                .map(|base| unsafe { Bytes::wrap(self, base, len) })
+        } else {
+            // SAFETY: Bytes accepts any pointer for zero-sized allocations
+            Ok(unsafe { Bytes::wrap(self, NonNull::dangling(), 0) })
+        }
+    }
+
+    /// Memory-binding interface for `hwloc_set_membind`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_set_membind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, bitmap, policy, flags) tuple
+    #[allow(clippy::unnecessary_safety_comment)]
+    unsafe fn bind_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
         set: &Set,
         policy: MemoryBindingPolicy,
         mut flags: MemoryBindingFlags,
         target: MemoryBoundObject,
-        set_membind_like: impl FnOnce(
-            *const RawTopology,
-            *const RawBitmap,
-            RawMemoryBindingPolicy,
-            c_int,
+        ffi: impl FnOnce(
+            hwloc_const_topology_t,
+            hwloc_const_bitmap_t,
+            hwloc_membind_policy_t,
+            hwloc_membind_flags_t,
         ) -> c_int,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
         let operation = MemoryBindingOperation::Bind;
         Self::adjust_flags_for::<Set>(&mut flags);
-        if !flags.is_valid(target, operation) {
+        let Some(flags) = flags.validate(target, operation) else {
             return Err(MemoryBindingError::BadFlags(flags.into()));
-        }
-        memory::binding::call_hwloc_int(api, target, operation, Some(set), || {
-            set_membind_like(
+        };
+        call_hwloc_int(api, target, operation, Some(set), || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - All user-visible policies are accepted by hwloc
+            //         - flags should be valid if target is valid
+            ffi(
                 self.as_ptr(),
                 set.as_ref().as_ptr(),
                 policy.into(),
@@ -781,50 +947,87 @@ impl Topology {
         })
     }
 
-    /// Call an hwloc memory binding function to unbind some memory
-    fn unbind_memory_impl(
+    /// Memory-unbinding interface for `hwloc_set_membind`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_set_membind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, bitmap, policy, flags) tuple
+    #[allow(clippy::unnecessary_safety_comment)]
+    unsafe fn unbind_memory_impl(
         &self,
         api: &'static str,
         flags: MemoryBindingFlags,
         target: MemoryBoundObject,
-        set_membind_like: impl FnOnce(
-            *const RawTopology,
-            *const RawBitmap,
-            RawMemoryBindingPolicy,
-            c_int,
+        ffi: impl FnOnce(
+            hwloc_const_topology_t,
+            hwloc_const_bitmap_t,
+            hwloc_membind_policy_t,
+            hwloc_membind_flags_t,
         ) -> c_int,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
         let operation = MemoryBindingOperation::Unbind;
-        if !flags.is_valid(target, operation) {
+        let Some(flags) = flags.validate(target, operation) else {
             return Err(MemoryBindingError::BadFlags(flags.into()));
-        }
-        memory::binding::call_hwloc_int::<NodeSet>(api, target, operation, None, || {
-            set_membind_like(self.as_ptr(), ptr::null(), 0, flags.bits())
+        };
+        call_hwloc_int::<NodeSet>(api, target, operation, None, || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Passing a null set and the default policy is an
+            //           hwloc-accepted way to reset the binding policy
+            //         - All user-visible policies are accepted by hwloc
+            //         - flags should be valid if target is valid
+            ffi(
+                self.as_ptr(),
+                ptr::null(),
+                HWLOC_MEMBIND_DEFAULT,
+                flags.bits(),
+            )
         })
     }
 
-    /// Call an hwloc memory binding query function
-    fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
+    /// Binding for `hwloc_get_membind`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_get_membind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - `operation` should accurately reflect the kind of operation being
+    ///   performed, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, out policy, flags) tuple
+    #[allow(clippy::unnecessary_safety_comment)]
+    unsafe fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
         &self,
         api: &'static str,
         mut flags: MemoryBindingFlags,
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
-        get_membind_like: impl FnOnce(
-            *const RawTopology,
-            *mut RawBitmap,
-            *mut RawMemoryBindingPolicy,
-            c_int,
+        ffi: impl FnOnce(
+            hwloc_const_topology_t,
+            hwloc_bitmap_t,
+            *mut hwloc_membind_policy_t,
+            hwloc_membind_flags_t,
         ) -> c_int,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
         Self::adjust_flags_for::<Set>(&mut flags);
-        if !flags.is_valid(target, operation) {
+        let Some(flags) = flags.validate(target, operation) else {
             return Err(MemoryBindingError::BadFlags(flags.into()));
-        }
+        };
         let mut set = Bitmap::new();
-        let mut raw_policy = 0;
-        memory::binding::call_hwloc_int::<Set>(api, target, operation, None, || {
-            get_membind_like(
+        let mut raw_policy = hwloc_membind_policy_t::MAX;
+        call_hwloc_int::<Set>(api, target, operation, None, || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a valid state
+            //         - As a pure out parameter, policy shouldn't be read by hwloc
+            //         - flags should be valid if target & operation are valid
+            ffi(
                 self.as_ptr(),
                 set.as_mut_ptr(),
                 &mut raw_policy,
@@ -834,7 +1037,9 @@ impl Topology {
         .map(|()| {
             let policy = match MemoryBindingPolicy::try_from(raw_policy) {
                 Ok(policy) => Some(policy),
-                Err(TryFromPrimitiveError { number: -1 }) => None,
+                Err(TryFromPrimitiveError {
+                    number: HWLOC_MEMBIND_MIXED,
+                }) => None,
                 Err(TryFromPrimitiveError { number }) => {
                     panic!("Got unexpected memory policy #{number}")
                 }
@@ -848,48 +1053,60 @@ bitflags! {
     /// Memory binding flags.
     ///
     /// These bit flags can be used to refine the binding policy. All flags can
-    /// be OR'ed together with the exception of `ASSUME_SINGLE_THREAD`, `THREAD`
-    /// and `PROCESS`, of which at most one must be specified. The most portable
-    /// option is `ASSUME_SINGLE_THREAD`, when it is applicable.
+    /// be OR'ed together with the exception of the binding target flags
+    /// `ASSUME_SINGLE_THREAD`, `THREAD` and `PROCESS`, which are mutually
+    /// exclusive.
     ///
-    /// Not all systems support all kinds of binding,
-    /// [`Topology::feature_support()`] may be used to query the
-    /// actual memory binding support in the currently used operating system.
+    /// When using one of the methods that target a process, you must use
+    /// exactly one of these flags. The most portable option is
+    /// `ASSUME_SINGLE_THREAD`, when it is applicable. These
+    /// flags must not be used with any other method.
+    ///
+    /// Individual memory binding methods may not support all of these flags.
+    /// Please check the documentation of the [memory binding
+    /// method](../../topology/struct.Topology.html#memory-binding) that you are
+    /// calling for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_membind_flags_t")]
-    #[repr(C)]
-    pub struct MemoryBindingFlags: c_int {
+    #[repr(transparent)]
+    pub struct MemoryBindingFlags: hwloc_membind_flags_t {
         /// Assume that the target process is single threaded
         ///
         /// This lets hwloc pick between thread and process binding for
         /// increased portability.
         ///
         /// This is mutually exclusive with `PROCESS` and `THREAD`.
-        const ASSUME_SINGLE_THREAD = 0;
+        //
+        // --- Implementation details ---
+        //
+        // This is not an actual hwloc flag, it is only used to detect
+        // incompatible configurations and must be cleared before invoking
+        // hwloc. validate() will clear the flag for you.
+        const ASSUME_SINGLE_THREAD = 1 << (hwloc_membind_flags_t::BITS - 2);
 
-        /// Set policy for all threads of the specified process
-        ///
-        /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
-        #[doc(alias = "HWLOC_MEMBIND_PROCESS")]
-        const PROCESS = (1<<0);
-
-        /// Set policy for a specific thread of the specified process
+        /// Apply command to all threads of the specified process
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `THREAD`.
+        #[doc(alias = "HWLOC_MEMBIND_PROCESS")]
+        const PROCESS = HWLOC_MEMBIND_PROCESS;
+
+        /// Apply command to the current thread of the current process
+        ///
+        /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
         #[doc(alias = "HWLOC_MEMBIND_THREAD")]
-        const THREAD = (1<<1);
+        const THREAD = HWLOC_MEMBIND_THREAD;
 
         /// Request strict binding from the OS
         ///
-        /// If this flag is set, a binding function will fail if the binding can
+        /// If this flag is set, a binding method will fail if the binding can
         /// not be guaranteed or completely enforced. Otherwise, hwloc will
         /// attempt to achieve an approximation of the requested binding (e.g.
         /// targeting more or less threads and NUMA nodes).
         ///
         /// This flag has slightly different meanings depending on which
-        /// function it is used with.
+        /// method it is used with.
         #[doc(alias = "HWLOC_MEMBIND_STRICT")]
-        const STRICT = (1<<2);
+        const STRICT = HWLOC_MEMBIND_STRICT;
 
         /// Migrate existing allocated memory
         ///
@@ -898,21 +1115,21 @@ bitflags! {
         ///
         /// This flag is only meaningful on operations that bind memory.
         ///
-        /// Requires [`MemoryBindingSupport::migrate()`].
+        /// Requires [`MemoryBindingSupport::migrate_flag()`].
         #[doc(alias = "HWLOC_MEMBIND_MIGRATE")]
-        const MIGRATE = (1<<3);
+        const MIGRATE = HWLOC_MEMBIND_MIGRATE;
 
         /// Avoid any effect on CPU binding
         ///
         /// On some operating systems, some underlying memory binding
-        /// functions also bind the application to the corresponding CPU(s).
+        /// methods also bind the application to the corresponding CPU(s).
         /// Using this flag will cause hwloc to avoid using OS functions that
         /// could potentially affect CPU bindings.
         ///
         /// Note, however, that using this flag may reduce hwloc's overall
         /// memory binding support.
         #[doc(alias = "HWLOC_MEMBIND_NOCPUBIND")]
-        const NO_CPU_BINDING = (1<<4);
+        const NO_CPU_BINDING = HWLOC_MEMBIND_NOCPUBIND;
 
         /// Consider the bitmap argument as a nodeset.
         ///
@@ -922,53 +1139,77 @@ bitflags! {
         /// Memory binding by CPU set cannot work for CPU-less NUMA memory nodes.
         /// Binding by nodeset should therefore be preferred whenever possible.
         //
-        // NOTE: This flag is automatically set by the implementation
+        // --- Implementation details ---
+        //
+        // This flag does not need to be visible as it is automatically set and
+        // cleared by the implementation as appropriate.
         #[doc(hidden)]
         #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
-        const BY_NODE_SET = (1<<5);
+        const BY_NODE_SET = HWLOC_MEMBIND_BYNODESET;
     }
 }
 //
 impl MemoryBindingFlags {
     /// Truth that these flags are in a valid state
-    pub(crate) fn is_valid(
-        self,
+    pub(crate) fn validate(
+        mut self,
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
-    ) -> bool {
-        // Intrinsically incompatible flag combination
-        if self.contains(Self::PROCESS | Self::THREAD) {
-            return false;
+    ) -> Option<Self> {
+        // Target flags should be specified for the Area and Process targets
+        // and only for these targets
+        let num_target_flags = (self & (Self::PROCESS | Self::THREAD | Self::ASSUME_SINGLE_THREAD))
+            .bits()
+            .count_ones();
+        let expected_num_target_flags = match target {
+            MemoryBoundObject::Area | MemoryBoundObject::Process => 1,
+            MemoryBoundObject::ThisProgram => 0,
+        };
+        if num_target_flags != expected_num_target_flags {
+            return None;
         }
 
-        // Support for PROCESS and THREAD
-        let good_for_target = match target {
-            MemoryBoundObject::Area => !self.intersects(Self::PROCESS | Self::THREAD),
-            MemoryBoundObject::Process => !self.contains(Self::THREAD),
-            MemoryBoundObject::ThisProgram => true,
-        };
+        // The THREAD target flag should not be used when targeting other processes
+        if target == MemoryBoundObject::Process && self.contains(Self::THREAD) {
+            return None;
+        }
 
-        // Support fo STRICT, MIGRATE and NO_CPU_BINDING
-        good_for_target
-            && match operation {
-                MemoryBindingOperation::GetLastLocation => {
-                    !self.intersects(Self::STRICT | Self::MIGRATE | Self::NO_CPU_BINDING)
+        // Operation-specific considerations
+        match operation {
+            MemoryBindingOperation::GetLastLocation => {
+                if self.intersects(Self::STRICT | Self::MIGRATE | Self::NO_CPU_BINDING) {
+                    return None;
                 }
-                MemoryBindingOperation::GetBinding => {
-                    if self.intersects(Self::MIGRATE | Self::NO_CPU_BINDING) {
-                        return false;
-                    }
-                    match target {
-                        MemoryBoundObject::Area | MemoryBoundObject::Process => true,
-                        MemoryBoundObject::ThisProgram => {
-                            !self.contains(Self::STRICT) || self.contains(Self::PROCESS)
+            }
+            MemoryBindingOperation::GetBinding => {
+                if self.intersects(Self::MIGRATE | Self::NO_CPU_BINDING) {
+                    return None;
+                }
+                match target {
+                    MemoryBoundObject::Area | MemoryBoundObject::Process => {}
+                    MemoryBoundObject::ThisProgram => {
+                        if self.contains(Self::STRICT) && !self.contains(Self::PROCESS) {
+                            return None;
                         }
                     }
                 }
-                MemoryBindingOperation::Unbind => !self.intersects(Self::STRICT | Self::MIGRATE),
-                MemoryBindingOperation::Allocate => !self.contains(Self::MIGRATE),
-                MemoryBindingOperation::Bind => true,
             }
+            MemoryBindingOperation::Unbind => {
+                if self.intersects(Self::STRICT | Self::MIGRATE) {
+                    return None;
+                }
+            }
+            MemoryBindingOperation::Allocate => {
+                if self.contains(Self::MIGRATE) {
+                    return None;
+                }
+            }
+            MemoryBindingOperation::Bind => {}
+        }
+
+        // Clear virtual ASSUME_SINGLE_THREAD flag, which served its purpose
+        self.remove(Self::ASSUME_SINGLE_THREAD);
+        Some(self)
     }
 }
 //
@@ -1001,18 +1242,21 @@ impl Display for MemoryBoundObject {
 /// Binding operation
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub(crate) enum MemoryBindingOperation {
-    GetBinding,
-    Bind,
-    Unbind,
+    /// Allocate memory
     Allocate,
-    GetLastLocation,
-}
 
-/// Rust mapping of the hwloc_membind_policy_t enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-pub(crate) type RawMemoryBindingPolicy = c_int;
+    /// Bind memory to some NUMA nodes
+    Bind,
+
+    /// Query the current binding of some memory
+    GetBinding,
+
+    /// Query on which NUMA node(s) memory was last resident
+    GetLastLocation,
+
+    /// Un-bind memory
+    Unbind,
+}
 
 /// Memory binding policy.
 ///
@@ -1035,9 +1279,9 @@ pub enum MemoryBindingPolicy {
     /// On AIX, if the nodeset is smaller, pages are allocated locally (if the
     /// local node is in the nodeset) or from a random non-local node (otherwise).
     ///
-    /// Requires [`MemoryBindingSupport::first_touch()`].
+    /// Requires [`MemoryBindingSupport::first_touch_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_FIRSTTOUCH")]
-    FirstTouch = 1,
+    FirstTouch = HWLOC_MEMBIND_FIRSTTOUCH,
 
     /// Allocate memory on the specified nodes (most portable option)
     ///
@@ -1047,12 +1291,12 @@ pub enum MemoryBindingPolicy {
     /// However, if the [`STRICT`] flag is also given, the Linux `MPOL_BIND`
     /// policy is rather used.
     ///
-    /// Requires [`MemoryBindingSupport::bind()`].
+    /// Requires [`MemoryBindingSupport::bind_policy()`].
     ///
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     #[default]
     #[doc(alias = "HWLOC_MEMBIND_BIND")]
-    Bind = 2,
+    Bind = HWLOC_MEMBIND_BIND,
 
     /// Allocate memory on the given nodes in an interleaved round-robin manner
     ///
@@ -1063,9 +1307,9 @@ pub enum MemoryBindingPolicy {
     /// NUMA nodes will all be accessing the whole memory range concurrently,
     /// since the interleave will then balance the memory references.
     ///
-    /// Requires [`MemoryBindingSupport::interleave()`].
+    /// Requires [`MemoryBindingSupport::interleave_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_INTERLEAVE")]
-    Interleave = 3,
+    Interleave = HWLOC_MEMBIND_INTERLEAVE,
 
     /// Migrate pages on next touch
     ///
@@ -1074,33 +1318,27 @@ pub enum MemoryBindingPolicy {
     /// node of the thread where the memory reference occurred (if it needs to
     /// be moved at all).
     ///
-    /// Requires [`MemoryBindingSupport::next_touch()`].
+    /// Requires [`MemoryBindingSupport::next_touch_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
-    NextTouch = 4,
+    NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
 }
 
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum MemoryBindingError<Set: SpecializedBitmap> {
-    /// The system does not support the specified action or policy
+    /// Memory allocation failed even before trying to bind
     ///
-    /// For example, some systems only allow binding memory on a per-thread
-    /// basis, whereas other systems only allow binding memory for all threads
-    /// in a process.
-    ///
-    /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
-    /// not set. Instead, the implementation is allowed to try to use a slightly
-    /// different operation (with side-effects, binding more objects, etc.) when
-    /// the requested operation is not exactly supported.
-    #[error("requested memory binding action or policy is not supported")]
-    Unsupported,
+    /// This error may only be returned by [`Topology::allocate_bound_memory()`]
+    /// and [`Topology::binding_allocate_memory()`].
+    #[error("failed to allocate memory")]
+    AllocationFailed,
 
     /// Requested memory binding flags are not valid in this context
     ///
     /// Not all memory binding flag combinations make sense, either in isolation
-    /// or in the context of a particular binding function. Please cross-check
-    /// the documentation of [`MemoryBindingFlags`] and the function you were
+    /// or in the context of a particular binding method. Please cross-check
+    /// the documentation of [`MemoryBindingFlags`] and the method you were
     /// trying to call for more information.
     #[error(transparent)]
     BadFlags(FlagsError<MemoryBindingFlags>),
@@ -1118,16 +1356,9 @@ pub enum MemoryBindingError<Set: SpecializedBitmap> {
     #[error("cannot bind {0} to {1}")]
     BadSet(MemoryBoundObject, Set),
 
-    /// Cannot query the memory location of zero-sized target
+    /// Cannot get/set the memory binding of a zero-sized memory region
     #[error("cannot query the memory location of zero-sized target")]
     BadTarget,
-
-    /// Memory allocation failed even before trying to bind
-    ///
-    /// This error may only be returned by [`Topology::allocate_bound_memory()`]
-    /// and [`Topology::binding_allocate_memory()`].
-    #[error("failed to allocate memory")]
-    AllocationFailed,
 
     /// Memory policies and nodesets vary from one thread to another
     ///
@@ -1141,6 +1372,19 @@ pub enum MemoryBindingError<Set: SpecializedBitmap> {
     #[error("binding varies from one thread of the process to another")]
     #[doc(alias = "HWLOC_MEMBIND_MIXED")]
     MixedResults,
+
+    /// The system does not support the specified action or policy
+    ///
+    /// For example, some systems only allow binding memory on a per-thread
+    /// basis, whereas other systems only allow binding memory for all threads
+    /// in a process.
+    ///
+    /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
+    /// not set. Instead, the implementation is allowed to try to use a slightly
+    /// different operation (with side-effects, binding more objects, etc.) when
+    /// the requested operation is not exactly supported.
+    #[error("requested memory binding action or policy is not supported")]
+    Unsupported,
 }
 //
 impl<Set: SpecializedBitmap> From<MemoryBindingFlags> for MemoryBindingError<Set> {
@@ -1176,27 +1420,6 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
 /// Errors that can occur when allocating memory
 pub type MemoryAllocationError<Set> = MemoryBindingError<Set>;
 
-/// Call an hwloc API that allocates (possibly bound) memory and translate
-/// known errors into higher-level `MemoryBindingError`s.
-///
-/// Validating flags is left up to the caller, to avoid allocating result
-/// objects when it can be proved upfront that the request is invalid.
-pub(crate) fn call_hwloc_allocate<Set: SpecializedBitmap>(
-    api: &'static str,
-    set: Option<&Set>,
-    ffi: impl FnOnce() -> *mut c_void,
-) -> Result<NonNull<c_void>, MemoryAllocationError<Set::Owned>> {
-    errors::call_hwloc_ptr_mut(api, ffi).map_err(|raw_err| {
-        decode_errno(
-            MemoryBoundObject::Area,
-            MemoryBindingOperation::Allocate,
-            set,
-            raw_err.errno.expect("Unexpected hwloc error without errno"),
-        )
-        .expect("Unexpected errno value")
-    })
-}
-
 /// Translating hwloc errno into high-level errors
 fn decode_errno<Set: SpecializedBitmap>(
     object: MemoryBoundObject,
@@ -1230,6 +1453,16 @@ fn decode_errno<Set: SpecializedBitmap>(
 ///
 /// This behaves like a `Box<[MaybeUninit<u8>]>` and will similarly
 /// automatically liberate the allocated memory when it goes out of scope.
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// - If the size is nonzero, `data` is an owned (valid, non-aliased)
+//   hwloc-originated allocation from `topology`, with correct size metadata,
+//   that should be freed on Drop
+// - If the size is zero, `data` is a zero-sized slice with a dangling base
+//   pointer, that should not be freed on Drop
 pub struct Bytes<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,
@@ -1237,53 +1470,58 @@ pub struct Bytes<'topology> {
     /// Previously allocated data pointer
     data: NonNull<[MaybeUninit<u8>]>,
 }
-
+//
 impl<'topology> Bytes<'topology> {
     /// Wrap an hwloc allocation
+    ///
+    /// # Safety
+    ///
+    /// If the size is nonzero, `base` must originate from an hwloc memory
+    /// allocation function that was called on `topology` for `size` bytes.
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
         base: NonNull<c_void>,
-        len: usize,
+        size: usize,
     ) -> Self {
-        let base = base.as_ptr().cast::<MaybeUninit<u8>>();
-        let data = std::ptr::slice_from_raw_parts_mut(base, len);
         Self {
             topology,
-            data: NonNull::new_unchecked(data),
+            data: NonNull::slice_from_raw_parts(base.cast::<MaybeUninit<u8>>(), size),
         }
     }
 }
-
+//
 impl AsRef<[MaybeUninit<u8>]> for Bytes<'_> {
     fn as_ref(&self) -> &[MaybeUninit<u8>] {
+        // SAFETY: Per type invariant
         unsafe { self.data.as_ref() }
     }
 }
-
+//
 impl AsMut<[MaybeUninit<u8>]> for Bytes<'_> {
     fn as_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        // SAFETY: Per type invariant
         unsafe { self.data.as_mut() }
     }
 }
-
+//
 impl Borrow<[MaybeUninit<u8>]> for Bytes<'_> {
     fn borrow(&self) -> &[MaybeUninit<u8>] {
         self.as_ref()
     }
 }
-
+//
 impl BorrowMut<[MaybeUninit<u8>]> for Bytes<'_> {
     fn borrow_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         self.as_mut()
     }
 }
-
+//
 impl Debug for Bytes<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.as_ref(), f)
     }
 }
-
+//
 impl Deref for Bytes<'_> {
     type Target = [MaybeUninit<u8>];
 
@@ -1291,27 +1529,41 @@ impl Deref for Bytes<'_> {
         self.as_ref()
     }
 }
-
+//
 impl DerefMut for Bytes<'_> {
     fn deref_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         self.as_mut()
     }
 }
-
+//
 impl Drop for Bytes<'_> {
     #[doc(alias = "hwloc_free")]
     fn drop(&mut self) {
-        let addr = self.data.as_ptr().cast::<c_void>();
         let len = self.data.len();
-        let result = unsafe { ffi::hwloc_free(self.topology.as_ptr(), addr, len) };
-        assert_eq!(
-            result,
-            0,
-            "Got unexpected result from hwloc_free with errno {}",
-            errno()
-        );
+        if len > 0 {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - self.data is trusted to be valid (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Bytes will not be usable again after Drop
+            let result = unsafe {
+                hwlocality_sys::hwloc_free(
+                    self.topology.as_ptr(),
+                    self.data.as_ptr().cast::<c_void>(),
+                    len,
+                )
+            };
+            assert_eq!(
+                result,
+                0,
+                "Got unexpected result from hwloc_free with errno {}",
+                errno()
+            );
+        }
     }
 }
-
+//
+// SAFETY: Exposes no internal mutability
 unsafe impl Send for Bytes<'_> {}
+//
+// SAFETY: Exposes no internal mutability
 unsafe impl Sync for Bytes<'_> {}
