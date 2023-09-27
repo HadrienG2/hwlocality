@@ -1,6 +1,6 @@
 [package]
 name = "hwlocality-sys"
-version = "0.1.3"
+version = "0.1.4"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -35,5 +35,5 @@ cmake = { version = "0.1.50", optional = true }
 pkg-config = "0.3.8"
 
 [package.metadata.docs.rs]
-features = ["hwloc-latest"]
+all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
