@@ -1118,9 +1118,11 @@ pub const HWLOC_MEMBIND_MIXED: hwloc_membind_policy_t = -1;
 // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 
 /// Flags to be passed to [`hwloc_topology_set_components()`]
+#[cfg(feature = "hwloc-2_1_0")]
 pub type hwloc_topology_components_flag_e = c_ulong;
 
 /// Blacklist the target component from being used
+#[cfg(feature = "hwloc-2_1_0")]
 pub const HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST: hwloc_topology_components_flag_e = 1 << 0;
 
 // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
@@ -1152,10 +1154,19 @@ pub type hwloc_topology_flags_e = c_ulong;
 /// this flag should be set again in the reimported topology so that
 /// disallowed resources are reimported as well.
 ///
-/// What additional objects could be detected with this flag depends on
-/// [`hwloc_topology_discovery_support::disallowed_pu`] and
-/// [`hwloc_topology_discovery_support::disallowed_numa`], which can be checked
-/// after building the topology.
+#[cfg_attr(
+    feature = "hwloc-2_1_0",
+    doc = "What additional objects could be detected with this flag depends on"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_1_0",
+    doc = "[`hwloc_topology_discovery_support::disallowed_pu`] and"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_1_0",
+    doc = "[`hwloc_topology_discovery_support::disallowed_numa`], which can be checked"
+)]
+#[cfg_attr(feature = "hwloc-2_1_0", doc = "after building the topology.")]
 #[doc(alias = "HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM")]
 pub const HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED: hwloc_topology_flags_e = 1 << 0;
 
@@ -1523,59 +1534,66 @@ pub const HWLOC_TYPE_FILTER_KEEP_IMPORTANT: hwloc_type_filter_e = 3;
 
 // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 
-/// Flags to be given to [`hwloc_topology_restrict()`]
-pub type hwloc_restrict_flags_e = c_ulong;
+#[cfg(feature = "hwloc-2_3_0")]
+mod topology_editing {
+    use super::*;
 
-/// Remove all objects that became CPU-less
-///
-/// By default, only objects that contain no PU and no memory are removed. This
-/// flag allows you to remove all objects that do not have access to any CPU
-/// anymore when restricting by CPU set.
-pub const HWLOC_RESTRICT_FLAG_REMOVE_CPULESS: hwloc_restrict_flags_e = 1 << 0;
+    /// Flags to be given to [`hwloc_topology_restrict()`]
+    pub type hwloc_restrict_flags_e = c_ulong;
 
-/// Restrict by NUMA node set insted of by CPU set
-pub const HWLOC_RESTRICT_FLAG_BYNODESET: hwloc_restrict_flags_e = 1 << 3;
+    /// Remove all objects that became CPU-less
+    ///
+    /// By default, only objects that contain no PU and no memory are removed. This
+    /// flag allows you to remove all objects that do not have access to any CPU
+    /// anymore when restricting by CPU set.
+    pub const HWLOC_RESTRICT_FLAG_REMOVE_CPULESS: hwloc_restrict_flags_e = 1 << 0;
 
-/// Remove all objects that became memory-less
-///
-/// By default, only objects that contain no PU and no memory are removed. This
-/// flag allows you to remove all objects that do not have access to any memory
-/// anymore when restricting by NUMA node set.
-pub const HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS: hwloc_restrict_flags_e = 1 << 4;
+    /// Restrict by NUMA node set insted of by CPU set
+    pub const HWLOC_RESTRICT_FLAG_BYNODESET: hwloc_restrict_flags_e = 1 << 3;
 
-/// Move Misc objects to ancestors if their parents are removed during
-/// restriction
-///
-/// If this flag is not set, Misc objects are removed when their parents
-/// are removed.
-pub const HWLOC_RESTRICT_FLAG_ADAPT_MISC: hwloc_restrict_flags_e = 1 << 1;
+    /// Remove all objects that became memory-less
+    ///
+    /// By default, only objects that contain no PU and no memory are removed. This
+    /// flag allows you to remove all objects that do not have access to any memory
+    /// anymore when restricting by NUMA node set.
+    pub const HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS: hwloc_restrict_flags_e = 1 << 4;
 
-/// Move I/O objects to ancestors if their parents are removed
-/// during restriction
-///
-/// If this flag is not set, I/O devices and bridges are removed when
-/// their parents are removed.
-pub const HWLOC_RESTRICT_FLAG_ADAPT_IO: hwloc_restrict_flags_e = 1 << 2;
+    /// Move Misc objects to ancestors if their parents are removed during
+    /// restriction
+    ///
+    /// If this flag is not set, Misc objects are removed when their parents
+    /// are removed.
+    pub const HWLOC_RESTRICT_FLAG_ADAPT_MISC: hwloc_restrict_flags_e = 1 << 1;
 
-/// Flags to be given to [`hwloc_topology_allow()`]
-pub type hwloc_allow_flags_e = c_ulong;
+    /// Move I/O objects to ancestors if their parents are removed
+    /// during restriction
+    ///
+    /// If this flag is not set, I/O devices and bridges are removed when
+    /// their parents are removed.
+    pub const HWLOC_RESTRICT_FLAG_ADAPT_IO: hwloc_restrict_flags_e = 1 << 2;
 
-/// Mark all objects as allowed in the topology
-///
-/// `cpuset` and `nodeset` given to [`hwloc_topology_allow()`] must be NULL.
-pub const HWLOC_ALLOW_FLAG_ALL: hwloc_allow_flags_e = 1 << 0;
+    /// Flags to be given to [`hwloc_topology_allow()`]
+    pub type hwloc_allow_flags_e = c_ulong;
 
-/// Only allow objects that are available to the current process
-///
-/// Requires [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`] so that the set of available
-/// resources can actually be retrieved from the operating system.
-///
-/// `cpuset` and `nodeset` given to [`hwloc_topology_allow()`] must be NULL.
-pub const HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS: hwloc_allow_flags_e = 1 << 1;
+    /// Mark all objects as allowed in the topology
+    ///
+    /// `cpuset` and `nodeset` given to [`hwloc_topology_allow()`] must be NULL.
+    pub const HWLOC_ALLOW_FLAG_ALL: hwloc_allow_flags_e = 1 << 0;
 
-/// Allow a custom set of objects, given to [`hwloc_topology_allow()`] as
-/// `cpuset` and/or `nodeset` parameters.
-pub const HWLOC_ALLOW_FLAG_CUSTOM: hwloc_allow_flags_e = 1 << 2;
+    /// Only allow objects that are available to the current process
+    ///
+    /// Requires [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`] so that the set of available
+    /// resources can actually be retrieved from the operating system.
+    ///
+    /// `cpuset` and `nodeset` given to [`hwloc_topology_allow()`] must be NULL.
+    pub const HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS: hwloc_allow_flags_e = 1 << 1;
+
+    /// Allow a custom set of objects, given to [`hwloc_topology_allow()`] as
+    /// `cpuset` and/or `nodeset` parameters.
+    pub const HWLOC_ALLOW_FLAG_CUSTOM: hwloc_allow_flags_e = 1 << 2;
+}
+#[cfg(feature = "hwloc-2_3_0")]
+pub use topology_editing::*;
 
 // === The bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 

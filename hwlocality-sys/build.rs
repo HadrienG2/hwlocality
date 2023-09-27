@@ -107,7 +107,8 @@ fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
     config.always_configure(false).build()
 }
 
-fn main() {
+#[cfg(not(doc))]
+fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current featurees
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
@@ -202,4 +203,9 @@ fn main() {
     // If asked to use system hwloc, we configure it using pkg-config
     #[cfg(not(feature = "bundled"))]
     use_pkgconfig(required_version);
+}
+
+fn main() {
+    #[cfg(not(doc))]
+    setup_hwloc();
 }

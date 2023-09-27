@@ -18,11 +18,13 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::Errno;
+
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
+#[cfg(feature = "hwloc-2_1_0")]
+use hwlocality_sys::{hwloc_topology_components_flag_e, HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST};
 use hwlocality_sys::{
-    hwloc_topology_components_flag_e, hwloc_topology_flags_e, hwloc_type_filter_e,
-    HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST, HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED,
+    hwloc_topology_flags_e, hwloc_type_filter_e, HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED,
     HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM, HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES,
     HWLOC_TYPE_FILTER_KEEP_ALL, HWLOC_TYPE_FILTER_KEEP_IMPORTANT, HWLOC_TYPE_FILTER_KEEP_NONE,
     HWLOC_TYPE_FILTER_KEEP_STRUCTURE,
@@ -331,6 +333,7 @@ pub enum XMLFileInputError {
     Invalid,
 }
 
+#[cfg(feature = "hwloc-2_1_0")]
 bitflags! {
     /// Flags to be passed to `hwloc_topology_set_components()`
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
