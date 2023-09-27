@@ -381,7 +381,7 @@ impl TopologyEditor<'_> {
         //   trigger UB consequences linked to the fact that we modified
         //   something that we accessed via &T while the compiler is allowed to
         //   assume that what's behind said &T doesn't change.
-        // - We hand over to hwloc a honestly acquired *mut RawTopology that
+        // - We hand over to hwloc a honestly acquired *mut hwloc_topology that
         //   legally allows it to modify anything behind it, including the
         //   *mut TopologyObject that `parent` points to.
         //

@@ -91,7 +91,7 @@ impl TopologyBuilder {
             hwlocality_sys::hwloc_topology_load(self.as_mut_ptr())
         })?;
 
-        // If that was successful, transfer RawTopology ownership to a Topology
+        // If that was successful, transfer hwloc_topology ownership to a Topology
         if cfg!(debug_assertions) {
             unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }

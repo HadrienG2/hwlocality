@@ -84,13 +84,6 @@ use std::{
 // implementation detail / valiant attempt to fight source file growth
 pub use index::BitmapIndex;
 
-/// Opaque bitmap struct
-///
-/// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
-/// pointers map to.
-#[doc(hidden)]
-pub type RawBitmap = hwloc_bitmap_s;
-
 /// A generic bitmap, understood by hwloc
 ///
 /// The `Bitmap` type represents a set of integers (positive or null). A bitmap
@@ -161,13 +154,13 @@ pub struct Bitmap(NonNull<hwloc_bitmap_s>);
 impl Bitmap {
     // === FFI interoperability ===
 
-    /// Wraps an owned hwloc_bitmap_t
+    /// Wraps an owned nullable hwloc bitmap
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a valid bitmap that we will acquire
     /// ownership of and automatically free on Drop.
-    pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut RawBitmap) -> Option<Self> {
+    pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut hwloc_bitmap_s) -> Option<Self> {
         NonNull::new(bitmap).map(|ptr| unsafe { Self::from_owned_nonnull(ptr) })
     }
 
@@ -177,30 +170,30 @@ impl Bitmap {
     ///
     /// The pointer must target a valid bitmap that we will acquire ownership of
     /// and automatically free on Drop.
-    pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<RawBitmap>) -> Self {
+    pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<hwloc_bitmap_s>) -> Self {
         Self(bitmap)
     }
 
-    /// Wraps a borrowed hwloc_const_bitmap_t
+    /// Wraps a borrowed nullable hwloc bitmap
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a bitmap that is valid for 'target.
     /// Unlike with from_raw, it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_raw<'target>(
-        bitmap: *const RawBitmap,
+        bitmap: *const hwloc_bitmap_s,
     ) -> Option<BitmapRef<'target, Self>> {
         unsafe { Self::borrow_from_raw_mut(bitmap.cast_mut()) }
     }
 
-    /// Wraps a borrowed hwloc_bitmap_t
+    /// Wraps a borrowed nullable hwloc bitmap
     ///
     /// # Safety
     ///
     /// If non-null, the pointer must target a bitmap that is valid for 'target.
     /// Unlike with from_raw, it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_raw_mut<'target>(
-        bitmap: *mut RawBitmap,
+        bitmap: *mut hwloc_bitmap_s,
     ) -> Option<BitmapRef<'target, Self>> {
         NonNull::new(bitmap).map(|ptr| unsafe { Self::borrow_from_nonnull(ptr) })
     }
@@ -212,7 +205,7 @@ impl Bitmap {
     /// The pointer must target a bitmap that is valid for 'target.
     /// Unlike with from_raw, it will not be automatically freed on Drop.
     pub(crate) unsafe fn borrow_from_nonnull<'target>(
-        bitmap: NonNull<RawBitmap>,
+        bitmap: NonNull<hwloc_bitmap_s>,
     ) -> BitmapRef<'target, Self> {
         BitmapRef(bitmap, PhantomData)
     }
@@ -221,12 +214,12 @@ impl Bitmap {
     //       you expose an &mut Bitmap, the user can trigger Drop.
 
     /// Contained bitmap pointer (for interaction with hwloc)
-    pub(crate) fn as_ptr(&self) -> *const RawBitmap {
+    pub(crate) fn as_ptr(&self) -> *const hwloc_bitmap_s {
         self.0.as_ptr()
     }
 
     /// Contained mutable bitmap pointer (for interaction with hwloc)
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut RawBitmap {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut hwloc_bitmap_s {
         self.0.as_ptr()
     }
 
@@ -903,7 +896,7 @@ impl Bitmap {
     fn next(
         &self,
         index: Option<BitmapIndex>,
-        next_fn: impl FnOnce(*const RawBitmap, c_int) -> c_int,
+        next_fn: impl FnOnce(*const hwloc_bitmap_s, c_int) -> c_int,
     ) -> Option<BitmapIndex> {
         let result = next_fn(
             self.as_ptr(),
@@ -1303,7 +1296,7 @@ unsafe impl Sync for Bitmap {}
 // # Safety
 //
 // Implementations of this type must effectively be a `repr(transparent)`
-// wrapper of `NonNull<RawBitmap>`, possibly with some ZSTs added.
+// wrapper of `NonNull<hwloc_bitmap_s>`, possibly with some ZSTs added.
 pub unsafe trait OwnedBitmap:
     Borrow<Bitmap>
     + BorrowMut<Bitmap>
@@ -1315,15 +1308,15 @@ pub unsafe trait OwnedBitmap:
     + Sealed
     + 'static
 {
-    /// Access the inner `NonNull<RawBitmap>`
+    /// Access the inner `NonNull<hwloc_bitmap_s>`
     #[doc(hidden)]
-    fn as_raw(&self) -> NonNull<RawBitmap>;
+    fn as_raw(&self) -> NonNull<hwloc_bitmap_s>;
 }
 //
 impl Sealed for Bitmap {}
 //
 unsafe impl OwnedBitmap for Bitmap {
-    fn as_raw(&self) -> NonNull<RawBitmap> {
+    fn as_raw(&self) -> NonNull<hwloc_bitmap_s> {
         self.0
     }
 }
@@ -1340,24 +1333,24 @@ unsafe impl OwnedBitmap for Bitmap {
 //
 // - In the underlying hwloc API, everything is done using `hwloc_bitmap_t`,
 //   which is actually a pointer to `hwloc_bitmap_s`, that is itself an opaque
-//   incomplete type that is modeled on the Rust side via `RawBitmap`.
-// - We can't directly expose `RawBitmap` to user code because if they move it
+//   incomplete type that is modeled on the Rust side via `hwloc_bitmap_s`.
+// - We can't directly expose `hwloc_bitmap_s` to user code because if they move it
 //   around it won't do what they want (and if you have an `&mut` or an owned
 //   value you can always move in Rust). Therefore, hwlocality functions that
 //   return bitmaps like hwloc would return an `hwloc_bitmap_t` cannot return
-//   standard Rust pointers/refs like `&RawBitmap`, `&mut RawBitmap`,
-//   `Box<RawBitmap>`, they must instead return some kind of
-//   `NonNull<RawBitmap>` wrapper that implements the bitmap API without
-//   exposing the inner RawBitmap.
+//   standard Rust pointers/refs like `&hwloc_bitmap_s`, `&mut hwloc_bitmap_s`,
+//   `Box<hwloc_bitmap_s>`, they must instead return some kind of
+//   `NonNull<hwloc_bitmap_s>` wrapper that implements the bitmap API without
+//   exposing the inner hwloc_bitmap_s.
 // - We need two such wrappers because sometimes we need to return an owned
 //   bitmap that must be liberated, and sometimes we need to return a borrowed
 //   bitmap that must not outlive its parent.
 //
-// Technically, we could also have a `BitmapMut` that models `&mut RawBitmap`,
+// Technically, we could also have a `BitmapMut` that models `&mut hwloc_bitmap_s`,
 // but so far the need for this has not materialized.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct BitmapRef<'target, Target>(NonNull<RawBitmap>, PhantomData<&'target Target>);
+pub struct BitmapRef<'target, Target>(NonNull<hwloc_bitmap_s>, PhantomData<&'target Target>);
 
 impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
     /// Make a copy of the target bitmap
@@ -1380,7 +1373,7 @@ impl<'target, Target: OwnedBitmap> AsRef<Target> for BitmapRef<'target, Target> 
     fn as_ref(&self) -> &Target {
         // This is safe because...
         // - Both Target and BitmapRef are effectively repr(transparent)
-        //   newtypes of NonNull<RawBitmap>, so &Target and &BitmapRef are
+        //   newtypes of NonNull<hwloc_bitmap_s>, so &Target and &BitmapRef are
         //   effectively the same thing after compilation.
         // - The borrow checker ensures that one cannot construct an
         //   &'a BitmapRef<'target> which does not verify 'target: 'a, so one
@@ -1593,7 +1586,7 @@ where
 
 impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <NonNull<RawBitmap> as fmt::Pointer>::fmt(&self.0, f)
+        <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
 }
 
@@ -1724,12 +1717,12 @@ macro_rules! impl_bitmap_newtype {
         /// Only documentation headers are repeated here, you will find most of
         /// the documentation attached to identically named `Bitmap` methods.
         impl $newtype {
-            /// Wraps an owned hwloc_bitmap_t
+            /// Wraps an owned nullable hwloc bitmap
             ///
             /// See [`Bitmap::from_owned_raw_mut`](crate::bitmap::Bitmap::from_owned_raw_mut).
             #[allow(unused)]
             pub(crate) unsafe fn from_owned_raw_mut(
-                bitmap: *mut $crate::bitmap::RawBitmap
+                bitmap: *mut hwlocality_sys::hwloc_bitmap_s
             ) -> Option<Self> {
                 $crate::bitmap::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
             }
@@ -1739,28 +1732,28 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::from_owned_nonnull`](crate::bitmap::Bitmap::from_owned_nonnull).
             #[allow(unused)]
             pub(crate) unsafe fn from_owned_nonnull(
-                bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
+                bitmap: std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s>
             ) -> Self {
                 Self::from($crate::bitmap::Bitmap::from_owned_nonnull(bitmap))
             }
 
-            /// Wraps a borrowed hwloc_const_bitmap_t
+            /// Wraps a borrowed nullable hwloc bitmap
             ///
             /// See [`Bitmap::borrow_from_raw`](crate::bitmap::Bitmap::borrow_from_raw).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw<'target>(
-                bitmap: *const $crate::bitmap::RawBitmap
+                bitmap: *const hwlocality_sys::hwloc_bitmap_s
             ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
                 $crate::bitmap::Bitmap::borrow_from_raw(bitmap)
                     .map(|bitmap_ref| bitmap_ref.cast())
             }
 
-            /// Wraps a borrowed hwloc_bitmap_t
+            /// Wraps a borrowed nullable hwloc bitmap
             ///
             /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmap::Bitmap::borrow_from_raw_mut).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_raw_mut<'target>(
-                bitmap: *mut $crate::bitmap::RawBitmap
+                bitmap: *mut hwlocality_sys::hwloc_bitmap_s
             ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
                 $crate::bitmap::Bitmap::borrow_from_raw_mut(bitmap)
                     .map(|bitmap_ref| bitmap_ref.cast())
@@ -1771,7 +1764,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::borrow_from_nonnull`](crate::bitmap::Bitmap::borrow_from_nonnull).
             #[allow(unused)]
             pub(crate) unsafe fn borrow_from_nonnull<'target>(
-                bitmap: std::ptr::NonNull<$crate::bitmap::RawBitmap>
+                bitmap: std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s>
             ) -> $crate::bitmap::BitmapRef<'target, Self> {
                 $crate::bitmap::Bitmap::borrow_from_nonnull(bitmap).cast()
             }
@@ -1780,7 +1773,7 @@ macro_rules! impl_bitmap_newtype {
             ///
             /// See [`Bitmap::as_ptr`](crate::bitmap::Bitmap::as_ptr).
             #[allow(unused)]
-            pub(crate) fn as_ptr(&self) -> *const $crate::bitmap::RawBitmap {
+            pub(crate) fn as_ptr(&self) -> *const hwlocality_sys::hwloc_bitmap_s {
                 self.0.as_ptr()
             }
 
@@ -1788,7 +1781,7 @@ macro_rules! impl_bitmap_newtype {
             ///
             /// See [`Bitmap::as_mut_ptr`](crate::bitmap::Bitmap::as_mut_ptr).
             #[allow(unused)]
-            pub(crate) fn as_mut_ptr(&mut self) -> *mut $crate::bitmap::RawBitmap {
+            pub(crate) fn as_mut_ptr(&mut self) -> *mut hwlocality_sys::hwloc_bitmap_s {
                 self.0.as_mut_ptr()
             }
 
@@ -2152,7 +2145,7 @@ macro_rules! impl_bitmap_newtype {
         }
 
         unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
-            fn as_raw(&self) -> std::ptr::NonNull<$crate::bitmap::RawBitmap> {
+            fn as_raw(&self) -> std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s> {
                 self.0.as_raw()
             }
         }

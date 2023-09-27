@@ -1,8 +1,8 @@
-//! Raw access to the hwloc C API
+//! Useful tools for interacting with the hwloc C API
 //!
-//! In addition to hwloc entry points, this module contains a bunch of small
-//! utilities that proved convenient when interacting with said entry points,
-//! but do not clearly belong in any other module.
+//! This module contains a bunch of small utilities that proved convenient when
+//! interacting with hwloc entry points, but do not clearly belong in any other
+//! module.
 
 use crate::errors::NulError;
 use std::{

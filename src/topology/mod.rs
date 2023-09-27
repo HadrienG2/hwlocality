@@ -13,7 +13,7 @@ use self::{
 #[cfg(all(feature = "hwloc-2_3_0", doc))]
 use crate::topology::support::MiscSupport;
 use crate::{
-    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap, RawBitmap},
+    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
     ffi,
@@ -22,7 +22,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::Errno;
-use hwlocality_sys::{hwloc_topology, hwloc_type_filter_e};
+use hwlocality_sys::{hwloc_bitmap_s, hwloc_topology, hwloc_type_filter_e};
 use libc::EINVAL;
 use std::{
     convert::TryInto,
@@ -702,7 +702,7 @@ impl Topology {
     unsafe fn topology_set<'topology, Set: OwnedSpecializedBitmap>(
         &'topology self,
         getter_name: &'static str,
-        getter: unsafe extern "C" fn(*const hwloc_topology) -> *const RawBitmap,
+        getter: unsafe extern "C" fn(*const hwloc_topology) -> *const hwloc_bitmap_s,
     ) -> BitmapRef<'topology, Set> {
         let bitmap_ref = unsafe {
             let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))
@@ -723,7 +723,7 @@ impl Topology {
     /// Contained mutable hwloc topology pointer (for interaction with hwloc)
     ///
     /// Be warned that as a result of hwloc employing lazy caching techniques,
-    /// almost every interaction that requires `*mut RawTopology` is unsafe
+    /// almost every interaction that requires `*mut hwloc_topology` is unsafe
     /// unless followed by `hwloc_topology_refresh()`. This subtlety is handled
     /// by the [`Topology::edit()`] mechanism.
     pub(crate) fn as_mut_ptr(&mut self) -> *mut hwloc_topology {
