@@ -507,7 +507,7 @@ bitflags! {
         //
         // NOTE: This is not an actual hwloc flag, and must be cleared before
         //       invoking hwloc. Please let validate() do this for you.
-        const ASSUME_SINGLE_THREAD = (1<<31);
+        const ASSUME_SINGLE_THREAD = 1 << (hwloc_cpubind_flags_t::BITS - 2);
 
         /// Bind the current thread of the current process
         ///
