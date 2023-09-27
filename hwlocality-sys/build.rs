@@ -107,7 +107,7 @@ fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
     config.always_configure(false).build()
 }
 
-#[cfg(not(doc))]
+#[cfg(not(docsrs))]
 fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current featurees
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
@@ -206,6 +206,6 @@ fn setup_hwloc() {
 }
 
 fn main() {
-    #[cfg(not(doc))]
+    #[cfg(not(docsrs))]
     setup_hwloc();
 }
