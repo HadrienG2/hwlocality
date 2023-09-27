@@ -1,4 +1,6 @@
 #![allow(non_camel_case_types)]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
+#![cfg_attr(docsrs, doc(cfg_hide(doc)))]
 // FIXME: Bring back #![deny(missing_docs)]
 
 #[cfg(target_os = "linux")]
