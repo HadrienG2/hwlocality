@@ -1904,10 +1904,12 @@ mod memory_attributes {
 
     /// Read bandwidth in MiB/s, as seen from the given initiator location
     #[cfg(feature = "hwloc-2_8_0")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "hwloc-2_8_0")))]
     pub const HWLOC_MEMATTR_ID_READ_BANDWIDTH: hwloc_memattr_id_t = 4;
 
     /// Write bandwidth in MiB/s, as seen from the given initiator location
     #[cfg(feature = "hwloc-2_8_0")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "hwloc-2_8_0")))]
     pub const HWLOC_MEMATTR_ID_WRITE_BANDWIDTH: hwloc_memattr_id_t = 5;
 
     /// Latency in nanoseconds, as seen from the given initiator location
@@ -1919,10 +1921,12 @@ mod memory_attributes {
 
     /// Read latency in nanoseconds, as seen from the given initiator location
     #[cfg(feature = "hwloc-2_8_0")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "hwloc-2_8_0")))]
     pub const HWLOC_MEMATTR_ID_READ_LATENCY: hwloc_memattr_id_t = 6;
 
     /// Write latency in nanoseconds, as seen from the given initiator location
     #[cfg(feature = "hwloc-2_8_0")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "hwloc-2_8_0")))]
     pub const HWLOC_MEMATTR_ID_WRITE_LATENCY: hwloc_memattr_id_t = 7;
     // NOTE: If you add new attributes, add support to hwlocality's
     //       hwloc_memattr_id_t, static_flags and MemoryAttribute constructors

@@ -1,6 +1,6 @@
 [package]
 name = "hwlocality-sys"
-version = "0.1.6"
+version = "0.1.7"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
