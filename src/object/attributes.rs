@@ -543,7 +543,7 @@ impl<'attr> DownstreamAttributes<'attr> {
 /// [`OSDevice`]-specific attributes
 ///
 /// [`OSDevice`]: ObjectType::OSDevice
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_osdev_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s")]
 #[repr(C)]

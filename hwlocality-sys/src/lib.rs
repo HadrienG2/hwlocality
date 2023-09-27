@@ -6,6 +6,7 @@ use libc::pid_t;
 use std::{
     ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulong, c_ushort, c_void},
     marker::{PhantomData, PhantomPinned},
+    ptr,
 };
 
 // === Things which are not part of the main hwloc documentation
@@ -13,8 +14,12 @@ use std::{
 /// Rust model of a C incomplete type (struct declaration without a definition)
 ///
 /// From <https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs>
+///
+/// This type purposely implements no traits, not even Debug, because you should
+/// never, ever deal with it directly, only with raw pointers to it that you
+/// blindly pass to the hwloc API.
 #[repr(C)]
-pub(crate) struct IncompleteType {
+struct IncompleteType {
     _data: [u8; 0],
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
@@ -323,17 +328,18 @@ pub const HWLOC_OBJ_DIE: hwloc_obj_type_t = 19;
 
 // === Object Structure and Attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__objects.html
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct hwloc_obj {
     /// Type of object
     #[doc(alias = "hwloc_obj::type")]
-    ty: hwloc_obj_type_t,
+    pub ty: hwloc_obj_type_t,
 
     /// Subtype string to better describe the type field
     ///
     /// See <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal>
     /// for a list of subtype strings that hwloc can emit.
-    subtype: *mut c_char,
+    pub subtype: *mut c_char,
 
     /// The OS-provided physical index number
     ///
@@ -341,21 +347,22 @@ pub struct hwloc_obj {
     /// except for PUs and NUMA nodes.
     ///
     /// Set to [`HWLOC_UNKNOWN_INDEX`] if unknown or irrelevant for this object.
-    os_index: c_uint,
+    pub os_index: c_uint,
 
     /// Object-specific name, if any
     ///
     /// Mostly used for identifying OS devices and Misc objects where a name
     /// string is more useful than numerical indices.
-    name: *mut c_char,
+    pub name: *mut c_char,
 
     /// Total memory (in bytes) in NUMA nodes below this object
     ///
-    /// Requires [`hwloc_topology_discovery_support::numa_memory`].
-    total_memory: u64,
+    /// May not be accurate if
+    /// [`hwloc_topology_discovery_support::numa_memory`] is not set.
+    pub total_memory: u64,
 
     /// Object type-specific attributes, if any
-    attr: *mut hwloc_obj_attr_u,
+    pub attr: *mut hwloc_obj_attr_u,
 
     /// Vertical index in the hierarchy
     ///
@@ -366,7 +373,7 @@ pub struct hwloc_obj {
     ///
     /// For special objects (NUMA nodes, I/O and Misc) that are not in the main
     /// tree, this is a special value that is unique to their type.
-    depth: c_int,
+    pub depth: c_int,
 
     /// Horizontal index in the whole list of similar objects, hence guaranteed
     /// unique across the entire machine
@@ -375,39 +382,39 @@ pub struct hwloc_obj {
     ///
     /// Note that this index may change when restricting the topology
     /// or when inserting a group.
-    logical_index: c_uint,
+    pub logical_index: c_uint,
 
     /// Next object of same type and depth
-    next_cousin: hwloc_obj_t,
+    pub next_cousin: hwloc_obj_t,
 
     /// Previous object of same type and depth
-    prev_cousin: hwloc_obj_t,
+    pub prev_cousin: hwloc_obj_t,
 
     /// Parent object
     ///
     /// Only NULL for the root [`HWLOC_OBJ_MACHINE`] object.
-    parent: hwloc_obj_t,
+    pub parent: hwloc_obj_t,
 
     /// Index in the parent's relevant child list for this object type
-    sibling_rank: c_uint,
+    pub sibling_rank: c_uint,
 
     /// Next object below the same parent, in the same child list
-    next_sibling: hwloc_obj_t,
+    pub next_sibling: hwloc_obj_t,
 
     /// Previous object below the same parent, in the same child list
-    prev_sibling: hwloc_obj_t,
+    pub prev_sibling: hwloc_obj_t,
 
     /// Number of normal children (excluding Memory, Misc and I/O)
-    arity: c_uint,
+    pub arity: c_uint,
 
     /// Normal children of this object
-    children: *mut hwloc_obj_t,
+    pub children: *mut hwloc_obj_t,
 
     /// First normal child of this object
-    first_child: hwloc_obj_t,
+    pub first_child: hwloc_obj_t,
 
     /// Last normal child of this object
-    last_child: hwloc_obj_t,
+    pub last_child: hwloc_obj_t,
 
     /// Truth that this object is symmetric, which means all normal children and
     /// their children have identical subtrees
@@ -416,10 +423,10 @@ pub struct hwloc_obj {
     ///
     /// If this is true of the root object, then the topology may be exported
     /// as a synthetic string.
-    symmetric_subtree: c_int,
+    pub symmetric_subtree: c_int,
 
     /// Number of memory children
-    memory_arity: c_uint,
+    pub memory_arity: c_uint,
 
     /// First memory child of this object
     ///
@@ -432,10 +439,10 @@ pub struct hwloc_obj {
     /// subtree.
     ///
     /// [`children`]: Self::children
-    memory_first_child: hwloc_obj_t,
+    pub memory_first_child: hwloc_obj_t,
 
     /// Number of I/O children
-    io_arity: c_uint,
+    pub io_arity: c_uint,
 
     /// First I/O child of this object
     ///
@@ -443,17 +450,17 @@ pub struct hwloc_obj {
     /// [`children`] list. See also [`hwloc_obj_type_is_io()`].
     ///
     /// [`children`]: Self::children
-    io_first_child: hwloc_obj_t,
+    pub io_first_child: hwloc_obj_t,
 
     /// Number of Misc children
-    misc_arity: c_uint,
+    pub misc_arity: c_uint,
 
     /// First Misc child of this object
     ///
     /// Misc objects are listed here instead of in the normal [`children`] list.
     ///
     /// [`children`]: Self::children
-    misc_first_child: hwloc_obj_t,
+    pub misc_first_child: hwloc_obj_t,
 
     /// CPUs covered by this object
     ///
@@ -471,7 +478,7 @@ pub struct hwloc_obj {
     /// assume this pointer to be non-NULL.
     ///
     /// [`allowed_cpuset`]: Self::allowed_cpuset
-    cpuset: hwloc_cpuset_t,
+    pub cpuset: hwloc_cpuset_t,
 
     /// The complete CPU set of this object
     ///
@@ -485,7 +492,7 @@ pub struct hwloc_obj {
     /// somewhere under this object.
     ///
     /// [`cpuset`]: Self::cpuset
-    complete_cpuset: hwloc_cpuset_t,
+    pub complete_cpuset: hwloc_cpuset_t,
 
     /// NUMA nodes covered by this object or containing this object.
     ///
@@ -513,7 +520,7 @@ pub struct hwloc_obj {
     /// assume this pointer to be non-NULL.
     ///
     /// [`allowed_nodeset`]: Self::allowed_nodeset
-    nodeset: hwloc_nodeset_t,
+    pub nodeset: hwloc_nodeset_t,
 
     /// The complete NUMA node set of this object
     ///
@@ -531,7 +538,7 @@ pub struct hwloc_obj {
     /// this object, so complete_nodeset is full.
     ///
     /// [`nodeset`]: Self::nodeset
-    complete_nodeset: hwloc_nodeset_t,
+    pub complete_nodeset: hwloc_nodeset_t,
 
     /// Complete list of (key, value) textual info pairs
     ///
@@ -540,12 +547,12 @@ pub struct hwloc_obj {
     ///
     /// Beware that hwloc allows multiple informations with the same key to
     /// exist, although no sane programs should leverage this possibility.
-    infos: *mut hwloc_info_s,
+    pub infos: *mut hwloc_info_s,
 
     /// Number of (key, value) pairs in [`infos`]
     ///
     /// [`infos`]: Self::infos
-    infos_count: c_uint,
+    pub infos_count: c_uint,
 
     /// Application-given private data pointer, initialized to NULL, use it as
     /// you wish
@@ -553,7 +560,7 @@ pub struct hwloc_obj {
     // TODO: Add once support is ready: "See
     // [`hwloc_topology_set_userdata_export_callback()`] if you wish to export
     // this field to XML."
-    userdata: *mut c_void,
+    pub userdata: *mut c_void,
 
     /// Global persistent index
     ///
@@ -567,7 +574,7 @@ pub struct hwloc_obj {
     ///
     /// [`logical_index`]: Self::logical_index
     /// [`os_index()`]: Self::os_index
-    gp_index: u64,
+    pub gp_index: u64,
 }
 
 /// Value of [`hwloc_obj::os_index`] when unknown or irrelevant for this object
@@ -606,7 +613,8 @@ pub union hwloc_obj_attr_u {
 pub struct hwloc_numanode_attr_s {
     /// Local memory in bytes
     ///
-    /// Requires [`hwloc_topology_discovery_support::numa_memory`].
+    /// May not be accurate if
+    /// [`hwloc_topology_discovery_support::numa_memory`] is not set.
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::local_memory")]
     pub local_memory: u64,
 
@@ -817,7 +825,7 @@ pub union RawDownstreamAttributes {
 }
 
 /// [`HWLOC_OBJ_OS_DEVICE`]-specific attributes
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s")]
 #[repr(C)]
 pub struct hwloc_osdev_attr_s {
@@ -833,13 +841,14 @@ pub struct hwloc_osdev_attr_s {
 ///
 /// See also [Consulting and Adding Info
 /// Attributes](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html).
+#[derive(Debug)]
 #[repr(C)]
 pub struct hwloc_info_s {
     /// Info name
-    name: *mut c_char,
+    pub name: *mut c_char,
 
     /// Info value
-    value: *mut c_char,
+    pub value: *mut c_char,
 }
 
 // === Topology Creation and Destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
@@ -847,6 +856,10 @@ pub struct hwloc_info_s {
 /// Opaque topology struct
 ///
 /// Models the incomplete type that [`hwloc_topology_t`] API pointers map to.
+///
+/// This type purposely implements no traits, not even Debug, because you should
+/// never, ever deal with it directly, only with raw pointers to it that you
+/// blindly pass to the hwloc API.
 #[repr(C)]
 pub struct hwloc_topology(IncompleteType);
 
@@ -964,7 +977,611 @@ pub const HWLOC_CPUBIND_STRICT: hwloc_cpubind_flags_t = 1 << 2;
 /// binding.
 pub const HWLOC_CPUBIND_NOMEMBIND: hwloc_cpubind_flags_t = 1 << 3;
 
-// === TODO: More sections
+// === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
+
+/// Memory binding flags.
+///
+/// These bit flags can be used to refine the binding policy. All flags can
+/// be OR'ed together with the exception of the binding target flags
+/// [`HWLOC_MEMBIND_THREAD`] and [`HWLOC_MEMBIND_PROCESS`], which are mutually
+/// exclusive.
+///
+/// When using one of the methods that target a process, you must use
+/// at most one of these flags. The most portable option is to specify no flags,
+/// which means "assume the target process is single-threaded". These
+/// flags must not be used with any other method.
+///
+/// Individual memory binding methods may not support all of these flags. Please
+/// check the documentation of the function that you are trying to call for
+/// more information.
+pub type hwloc_membind_flags_t = c_int;
+
+/// Apply command to all threads of the specified process
+///
+/// This is mutually exclusive with [`HWLOC_MEMBIND_THREAD`]
+pub const HWLOC_MEMBIND_PROCESS: hwloc_membind_flags_t = 1 << 0;
+
+/// Apply command to the current thread of the current process
+///
+/// This is mutually exclusive with [`HWLOC_MEMBIND_PROCESS`]
+pub const HWLOC_MEMBIND_THREAD: hwloc_membind_flags_t = 1 << 1;
+
+/// Request strict binding from the OS
+///
+/// If this flag is set, a binding method will fail if the binding can
+/// not be guaranteed or completely enforced. Otherwise, hwloc will
+/// attempt to achieve an approximation of the requested binding (e.g.
+/// targeting more or less threads and NUMA nodes).
+///
+/// This flag has slightly different meanings depending on which
+/// method it is used with.
+pub const HWLOC_MEMBIND_STRICT: hwloc_membind_flags_t = 1 << 2;
+
+/// Migrate existing allocated memory
+///
+/// If the memory cannot be migrated and the [`HWLOC_MEMBIND_STRICT`] flag is
+/// set, an error will be returned.
+///
+/// This flag is only meaningful on operations that bind memory.
+///
+/// Only available if [`hwloc_topology_membind_support::migrate_membind`] is set.
+pub const HWLOC_MEMBIND_MIGRATE: hwloc_membind_flags_t = 1 << 3;
+
+/// Avoid any effect on CPU binding
+///
+/// On some operating systems, some underlying memory binding
+/// methods also bind the application to the corresponding CPU(s).
+/// Using this flag will cause hwloc to avoid using OS functions that
+/// could potentially affect CPU bindings.
+///
+/// Note, however, that using this flag may reduce hwloc's overall
+/// memory binding support.
+pub const HWLOC_MEMBIND_NOCPUBIND: hwloc_membind_flags_t = 1 << 4;
+
+/// Consider the bitmap argument as a nodeset.
+///
+/// The bitmap argument is considered a nodeset if this flag is given,
+/// or a cpuset otherwise by default.
+///
+/// Memory binding by CPU set cannot work for CPU-less NUMA memory nodes.
+/// Binding by nodeset should therefore be preferred whenever possible.
+pub const HWLOC_MEMBIND_BYNODESET: hwloc_membind_flags_t = 1 << 5;
+
+/// Memory binding policy.
+///
+/// Not all systems support all kinds of binding.
+/// [`hwloc_topology_get_support()`] may be used to query the
+/// actual memory binding support in the currently used operating system.
+pub type hwloc_membind_policy_t = c_int;
+
+/// Reset the memory allocation policy of the current process or thread to
+/// the system default
+///
+/// Depending on the operating system, this may correspond to
+/// [`HWLOC_MEMBIND_FIRSTTOUCH`] (Linux, FreeBSD) or [`HWLOC_MEMBIND_BIND`]
+/// (AIX, HP-UX, Solaris, Windows).
+///
+/// This policy is never returned by get membind functions. The `nodeset`
+/// argument is ignored.
+pub const HWLOC_MEMBIND_DEFAULT: hwloc_membind_policy_t = 0;
+
+/// Allocate each memory page individually on the local NUMA
+/// node of the thread that touches it
+///
+/// The given nodeset should usually be
+/// [`hwloc_topology_get_topology_nodeset()`] so that the touching thread may
+/// run and allocate on any node in the system.
+///
+/// On AIX, if the nodeset is smaller, pages are allocated locally (if the
+/// local node is in the nodeset) or from a random non-local node (otherwise).
+///
+/// Only available if [`hwloc_topology_membind_support::firsttouch_membind`] is
+/// set.
+pub const HWLOC_MEMBIND_FIRSTTOUCH: hwloc_membind_policy_t = 1;
+
+/// Allocate memory on the specified nodes (most portable option)
+///
+/// The actual behavior may slightly vary between operating systems, especially
+/// when (some of) the requested nodes are full. On Linux, by default, the
+/// `MPOL_PREFERRED_MANY` (or `MPOL_PREFERRED`) policy is used. However, if
+/// the [`HWLOC_MEMBIND_STRICT`] flag is also given, the Linux `MPOL_BIND`
+/// policy is rather used.
+///
+/// Only available if [`hwloc_topology_membind_support::bind_membind`] is set.
+pub const HWLOC_MEMBIND_BIND: hwloc_membind_policy_t = 2;
+
+/// Allocate memory on the given nodes in an interleaved round-robin manner
+///
+/// The precise layout of the memory across multiple NUMA nodes is OS/system
+/// specific.
+///
+/// Interleaving can be useful when threads distributed across the specified
+/// NUMA nodes will all be accessing the whole memory range concurrently,
+/// since the interleave will then balance the memory references.
+///
+/// Only available if [`hwloc_topology_membind_support::interleave_membind`] is
+/// set.
+pub const HWLOC_MEMBIND_INTERLEAVE: hwloc_membind_policy_t = 3;
+
+/// Migrate pages on next touch
+///
+/// For each page bound with this policy, by next time it is touched (and
+/// next time only), it is moved from its current location to the local NUMA
+/// node of the thread where the memory reference occurred (if it needs to
+/// be moved at all).
+///
+/// Only available if [`hwloc_topology_membind_support::nexttouch_membind`] is
+/// set.
+pub const HWLOC_MEMBIND_NEXTTOUCH: hwloc_membind_policy_t = 4;
+
+/// Mixture of memory binding policies
+///
+/// Returned by `get_membind()` functions when multiple threads or parts of a
+/// memory area have differing memory binding policies. Also returned when
+/// binding is unknown because binding hooks are empty when the topology is
+/// loaded from XML without `HWLOC_THISSYSTEM=1`, etc.
+pub const HWLOC_MEMBIND_MIXED: hwloc_membind_policy_t = -1;
+
+// === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
+
+/// Flags to be passed to [`hwloc_topology_set_components()`]
+pub type hwloc_topology_components_flag_e = c_ulong;
+
+/// Blacklist the target component from being used
+pub const HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST: hwloc_topology_components_flag_e = 1 << 0;
+
+// === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+
+/// Topology building configuration flags
+pub type hwloc_topology_flags_e = c_ulong;
+
+/// Detect the whole system, ignore reservations, include disallowed objects
+///
+/// Gather all online resources, even if some were disabled by the
+/// administrator. For instance, ignore Linux Cgroup/Cpusets and gather
+/// all processors and memory nodes. However offline PUs and NUMA nodes
+/// are still ignored.
+///
+/// When this flag is not set, PUs and NUMA nodes that are disallowed
+/// are not added to the topology. Parent objects (package, core, cache,
+/// etc.) are added only if some of their children are allowed. All
+/// existing PUs and NUMA nodes in the topology are allowed.
+/// [`hwloc_topology_get_allowed_cpuset()`] and
+/// [`hwloc_topology_get_allowed_nodeset()`] are equal to the root object cpuset
+/// and nodeset.
+///
+/// When this flag is set, the actual sets of allowed PUs and NUMA nodes
+/// are given by [`hwloc_topology_get_allowed_cpuset()`] and
+/// [`hwloc_topology_get_allowed_nodeset()`]. They may be smaller than the root
+/// object cpuset and nodeset.
+///
+/// If the current topology is exported to XML and reimported later,
+/// this flag should be set again in the reimported topology so that
+/// disallowed resources are reimported as well.
+///
+/// What additional objects could be detected with this flag depends on
+/// [`hwloc_topology_discovery_support::disallowed_pu`] and
+/// [`hwloc_topology_discovery_support::disallowed_numa`], which can be checked
+/// after building the topology.
+#[doc(alias = "HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM")]
+pub const HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED: hwloc_topology_flags_e = 1 << 0;
+
+/// Assume that the selected backend provides the topology for the
+/// system on which we are running
+///
+/// This forces [`hwloc_topology_is_thissystem()`] to return true, i.e. makes
+/// hwloc assume that the selected backend provides the topology for the system
+/// on which we are running, even if it is not the OS-specific backend but the
+/// XML backend for instance. This means making the binding functions actually
+/// call the OS-specific system calls and really do binding, while the XML
+/// backend would otherwise provide empty hooks just returning success.
+///
+/// Setting the environment variable `HWLOC_THISSYSTEM` may also result
+/// in the same behavior.
+///
+/// This can be used for efficiency reasons to first detect the topology
+/// once, save it to an XML file, and quickly reload it later through
+/// the XML backend, but still having binding functions actually do bind.
+pub const HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM: hwloc_topology_flags_e = 1 << 1;
+
+/// Get the set of allowed resources from the local operating system
+/// even if the topology was loaded from XML or synthetic description
+///
+/// If the topology was loaded from XML or from a synthetic string,
+/// restrict it by applying the current process restrictions such as
+/// Linux Cgroup/Cpuset.
+///
+/// This is useful when the topology is not loaded directly from the
+/// local machine (e.g. for performance reason) and it comes with all
+/// resources, while the running process is restricted to only parts of
+/// the machine.
+///
+/// If this flag is set, [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`] must also be set,
+/// since the loaded topology must match the underlying machine where
+/// restrictions will be gathered from.
+///
+/// Setting the environment variable `HWLOC_THISSYSTEM_ALLOWED_RESOURCES`
+/// would result in the same behavior.
+pub const HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES: hwloc_topology_flags_e = 1 << 2;
+
+/// Import support from the imported topology
+///
+/// When importing a XML topology from a remote machine, binding is disabled by
+/// default (see [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`]). This disabling is also
+/// marked by putting zeroes in the corresponding supported feature bits
+/// reported by [`hwloc_topology_get_support()`].
+///
+/// This flag allows you to actually import support bits from the remote
+/// machine. It also sets the [`hwloc_topology_misc_support::imported`] support
+/// flag. If the imported XML did not contain any support information
+/// (exporter hwloc is too old), this flag is not set.
+///
+/// Note that these supported features are only relevant for the hwloc
+/// installation that actually exported the XML topology (it may vary
+/// with the operating system, or with how hwloc was compiled).
+///
+/// Note that setting this flag however does not enable binding for the
+/// locally imported hwloc topology, it only reports what the remote
+/// hwloc and machine support.
+#[cfg(feature = "hwloc-2_3_0")]
+pub const HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT: hwloc_topology_flags_e = 1 << 3;
+
+/// Do not consider resources outside of the process CPU binding
+///
+/// If the binding of the process is limited to a subset of cores,
+/// ignore the other cores during discovery.
+///
+/// The resulting topology is identical to what a call to
+/// [`hwloc_topology_restrict()`] would generate, but this flag also
+/// prevents hwloc from ever touching other resources during the
+/// discovery.
+///
+/// This flag especially tells the x86 backend to never temporarily
+/// rebind a thread on any excluded core. This is useful on Windows
+/// because such temporary rebinding can change the process binding.
+/// Another use-case is to avoid cores that would not be able to perform
+/// the hwloc discovery anytime soon because they are busy executing
+/// some high-priority real-time tasks.
+///
+/// If process CPU binding is not supported, the thread CPU binding is
+/// considered instead if supported, or the flag is ignored.
+///
+/// This flag requires [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`] as well since
+/// binding support is required.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING: hwloc_topology_flags_e = 1 << 4;
+
+/// Do not consider resources outside of the process memory binding
+///
+/// If the binding of the process is limited to a subset of NUMA nodes,
+/// ignore the other NUMA nodes during discovery.
+///
+/// The resulting topology is identical to what a call to
+/// [`hwloc_topology_restrict()`] would generate, but this flag also
+/// prevents hwloc from ever touching other resources during the
+/// discovery.
+///
+/// This flag is meant to be used together with
+/// `RESTRICT_CPU_TO_THIS_PROCESS` when both cores and NUMA nodes should
+/// be ignored outside of the process binding.
+///
+/// If process memory binding is not supported, the thread memory
+/// binding is considered instead if supported, or the flag is ignored.
+///
+/// This flag requires [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`] as well since
+/// binding support is required.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_MEMBINDING: hwloc_topology_flags_e = 1 << 5;
+
+/// Do not ever modify the process or thread binding during discovery
+///
+/// This flag disables all hwloc discovery steps that require a change
+/// of the process or thread binding. This currently only affects the
+/// x86 backend which gets entirely disabled.
+///
+/// This is useful when a topology is loaded while the application also creates
+/// additional threads or modifies the binding.
+///
+/// This flag is also a strict way to make sure the process binding will
+/// not change to due thread binding changes on Windows (see
+/// `RESTRICT_CPU_TO_THIS_PROCESS`).
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_TOPOLOGY_FLAG_DONT_CHANGE_BINDING: hwloc_topology_flags_e = 1 << 6;
+
+/// Ignore distance information from the operating system (and from
+/// XML)
+///
+/// Distances will not be used for grouping topology objects.
+#[cfg(feature = "hwloc-2_8_0")]
+pub const HWLOC_TOPOLOGY_FLAG_NO_DISTANCES: hwloc_topology_flags_e = 1 << 7;
+
+/// Ignore memory attribues from the operating system (and from XML)
+#[cfg(feature = "hwloc-2_8_0")]
+pub const HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS: hwloc_topology_flags_e = 1 << 8;
+
+/// Ignore CPU kind information from the operating system (and from
+/// XML)
+#[cfg(feature = "hwloc-2_8_0")]
+pub const HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS: hwloc_topology_flags_e = 1 << 9;
+
+/// Set of flags describing actual hwloc feature support for this topology
+#[derive(Debug)]
+#[repr(C)]
+pub struct hwloc_topology_support {
+    /// Support for discovering information about the topology
+    pub discovery: *const hwloc_topology_discovery_support,
+
+    /// Support for getting and setting thread/process CPU bindings
+    pub cpubind: *const hwloc_topology_cpubind_support,
+
+    /// Support for getting and setting thread/process NUMA node bindings
+    pub membind: *const hwloc_topology_membind_support,
+
+    /// Miscellaneous support information
+    #[cfg(feature = "hwloc-2_3_0")]
+    pub misc: *const hwloc_topology_misc_support,
+}
+//
+impl Default for hwloc_topology_support {
+    fn default() -> Self {
+        Self {
+            discovery: ptr::null(),
+            cpubind: ptr::null(),
+            membind: ptr::null(),
+            #[cfg(feature = "hwloc-2_3_0")]
+            misc: ptr::null(),
+        }
+    }
+}
+
+/// Support for discovering information about the topology
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
+pub struct hwloc_topology_discovery_support {
+    /// Detecting the number of PU objects is supported
+    pub pu: c_uchar,
+
+    /// Detecting the number of NUMA nodes is supported
+    pub numa: c_uchar,
+
+    /// Detecting the amount of memory in NUMA nodes is supported
+    pub numa_memory: c_uchar,
+
+    /// Detecting and identifying PU objects that are not available to the
+    /// current process is supported
+    #[cfg(feature = "hwloc-2_1_0")]
+    pub disallowed_pu: c_uchar,
+
+    /// Detecting and identifying NUMA nodes that are not available to the
+    /// current process is supported
+    #[cfg(feature = "hwloc-2_1_0")]
+    pub disallowed_numa: c_uchar,
+
+    /// Detecting the efficiency of CPU kinds is supported
+    ///
+    /// See also [Kinds of CPU cores](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html).
+    #[cfg(feature = "hwloc-2_4_0")]
+    pub cpukind_efficiency: c_uchar,
+}
+
+/// Support for getting and setting thread/process CPU bindings
+///
+/// A flag may be set even if the feature isn't supported in all cases
+/// (e.g. binding to random sets of non-contiguous objects).
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
+pub struct hwloc_topology_cpubind_support {
+    /// Binding the whole current process is supported
+    pub set_thisproc_cpubind: c_uchar,
+
+    /// Getting the binding of the whole current process is supported
+    pub get_thisproc_cpubind: c_uchar,
+
+    /// Binding a whole given process is supported
+    pub set_proc_cpubind: c_uchar,
+
+    /// Getting the binding of a whole given process is supported
+    pub get_proc_cpubind: c_uchar,
+
+    /// Binding the current thread only is supported
+    pub set_thisthread_cpubind: c_uchar,
+
+    /// Getting the binding of the current thread only is supported
+    pub get_thisthread_cpubind: c_uchar,
+
+    /// Binding a given thread only is supported
+    pub set_thread_cpubind: c_uchar,
+
+    /// Getting the binding of a given thread only is supported
+    pub get_thread_cpubind: c_uchar,
+
+    /// Getting the last processors where the whole current process ran is supported
+    pub get_thisproc_last_cpu_location: c_uchar,
+
+    /// Getting the last processors where a whole process ran is supported
+    pub get_proc_last_cpu_location: c_uchar,
+
+    /// Getting the last processors where the current thread ran is supported
+    pub get_thisthread_last_cpu_location: c_uchar,
+}
+
+/// Support for getting and setting thread/process NUMA node bindings
+///
+/// A flag may be set even if the feature isn't supported in all cases
+/// (e.g. binding to random sets of non-contiguous objects).
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
+pub struct hwloc_topology_membind_support {
+    /// Binding the whole current process is supported
+    pub set_thisproc_membind: c_uchar,
+
+    /// Getting the binding of the whole current process is supported
+    pub get_thisproc_membind: c_uchar,
+
+    /// Binding a whole given process is supported
+    pub set_proc_membind: c_uchar,
+
+    /// Getting the binding of a whole given process is supported
+    pub get_proc_membind: c_uchar,
+
+    /// Binding the current thread only is supported
+    pub set_thisthread_membind: c_uchar,
+
+    /// Getting the binding of the current thread only is supported
+    pub get_thisthread_membind: c_uchar,
+
+    /// Binding a given memory area is supported
+    pub set_area_membind: c_uchar,
+
+    /// Getting the binding of a given memory area is supported
+    pub get_area_membind: c_uchar,
+
+    /// Allocating a bound memory area is supported
+    pub alloc_membind: c_uchar,
+
+    /// First-touch policy is supported
+    pub firsttouch_membind: c_uchar,
+
+    /// Bind policy is supported
+    pub bind_membind: c_uchar,
+
+    /// Interleave policy is supported
+    pub interleave_membind: c_uchar,
+
+    /// Next-touch migration policy is supported
+    pub nexttouch_membind: c_uchar,
+
+    /// Migration flag is supported
+    pub migrate_membind: c_uchar,
+
+    /// Getting the last NUMA nodes where a memory area was allocated is supported
+    pub get_area_memlocation: c_uchar,
+}
+
+/// Miscellaneous support information
+#[cfg(feature = "hwloc-2_3_0")]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[repr(C)]
+pub struct hwloc_topology_misc_support {
+    /// Support was imported when importing another topology
+    ///
+    /// See also [`HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT`].
+    pub imported_support: c_uchar,
+}
+
+/// Type filtering flags
+///
+/// By default...
+///
+/// - Most objects are kept ([`HWLOC_TYPE_FILTER_KEEP_ALL`])
+/// - Instruction caches, I/O and Misc objects are ignored (
+///   [`HWLOC_TYPE_FILTER_KEEP_NONE`]).
+/// - Die and Group levels are ignored unless they bring structure (
+///   [`HWLOC_TYPE_FILTER_KEEP_STRUCTURE`]).
+///
+/// Note that group objects are also ignored individually (without the entire
+/// level) when they do not bring structure.
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+pub type hwloc_type_filter_e = c_int;
+
+/// Keep all objects of this type
+///
+/// Cannot be set for [`HWLOC_OBJ_GROUP`] (groups are designed only to add
+/// more structure to the topology).
+pub const HWLOC_TYPE_FILTER_KEEP_ALL: hwloc_type_filter_e = 0;
+
+/// Ignore all objects of this type
+///
+/// The bottom-level type [`HWLOC_OBJ_PU`], the [`HWLOC_OBJ_NUMANODE`] type
+/// and the top-level type [`HWLOC_OBJ_MACHINE`] may not be ignored.
+pub const HWLOC_TYPE_FILTER_KEEP_NONE: hwloc_type_filter_e = 1;
+
+/// Only ignore objects if their entire level does not bring any structure
+///
+/// Keep the entire level of objects if at least one of these objects adds
+/// structure to the topology. An object brings structure when it has
+/// multiple children and it is not the only child of its parent.
+///
+/// If all objects in the level are the only child of their parent, and if
+/// none of them has multiple children, the entire level is removed.
+///
+/// Cannot be set for I/O and Misc objects since the topology structure does
+/// not matter there.
+pub const HWLOC_TYPE_FILTER_KEEP_STRUCTURE: hwloc_type_filter_e = 2;
+
+/// Only keep likely-important objects of the given type.
+///
+/// This is only useful for I/O object types.
+///
+/// For [`HWLOC_OBJ_PCI_DEVICE`] and [`HWLOC_OBJ_OS_DEVICE`], it means that
+/// only objects of major/common kinds are kept (storage, network,
+/// OpenFabrics, CUDA, OpenCL, RSMI, NVML, and displays).
+/// Also, only OS devices directly attached on PCI (e.g. no USB) are reported.
+///
+/// For [`HWLOC_OBJ_BRIDGE`], it means that bridges are kept only if they
+/// have children.
+///
+/// This flag is equivalent to [`HWLOC_TYPE_FILTER_KEEP_ALL`] for Normal, Memory
+/// and Misc types since they are likely important.
+pub const HWLOC_TYPE_FILTER_KEEP_IMPORTANT: hwloc_type_filter_e = 3;
+
+// === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+
+/// Flags to be given to [`hwloc_topology_restrict()`]
+pub type hwloc_restrict_flags_e = c_ulong;
+
+/// Remove all objects that became CPU-less
+///
+/// By default, only objects that contain no PU and no memory are removed. This
+/// flag allows you to remove all objects that do not have access to any CPU
+/// anymore when restricting by CPU set.
+pub const HWLOC_RESTRICT_FLAG_REMOVE_CPULESS: hwloc_restrict_flags_e = 1 << 0;
+
+/// Restrict by NUMA node set insted of by CPU set
+pub const HWLOC_RESTRICT_FLAG_BYNODESET: hwloc_restrict_flags_e = 1 << 3;
+
+/// Remove all objects that became memory-less
+///
+/// By default, only objects that contain no PU and no memory are removed. This
+/// flag allows you to remove all objects that do not have access to any memory
+/// anymore when restricting by NUMA node set.
+pub const HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS: hwloc_restrict_flags_e = 1 << 4;
+
+/// Move Misc objects to ancestors if their parents are removed during
+/// restriction
+///
+/// If this flag is not set, Misc objects are removed when their parents
+/// are removed.
+pub const HWLOC_RESTRICT_FLAG_ADAPT_MISC: hwloc_restrict_flags_e = 1 << 1;
+
+/// Move I/O objects to ancestors if their parents are removed
+/// during restriction
+///
+/// If this flag is not set, I/O devices and bridges are removed when
+/// their parents are removed.
+pub const HWLOC_RESTRICT_FLAG_ADAPT_IO: hwloc_restrict_flags_e = 1 << 2;
+
+/// Flags to be given to [`hwloc_topology_allow()`]
+pub type hwloc_allow_flags_e = c_ulong;
+
+/// Mark all objects as allowed in the topology
+///
+/// `cpuset` and `nodeset` given to [`hwloc_topology_allow()`] must be NULL.
+pub const HWLOC_ALLOW_FLAG_ALL: hwloc_allow_flags_e = 1 << 0;
+
+/// Only allow objects that are available to the current process
+///
+/// Requires [`HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM`] so that the set of available
+/// resources can actually be retrieved from the operating system.
+///
+/// `cpuset` and `nodeset` given to [`hwloc_topology_allow()`] must be NULL.
+pub const HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS: hwloc_allow_flags_e = 1 << 1;
+
+/// Allow a custom set of objects, given to [`hwloc_topology_allow()`] as
+/// `cpuset` and/or `nodeset` parameters.
+pub const HWLOC_ALLOW_FLAG_CUSTOM: hwloc_allow_flags_e = 1 << 2;
 
 // === The bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
@@ -972,6 +1589,10 @@ pub const HWLOC_CPUBIND_NOMEMBIND: hwloc_cpubind_flags_t = 1 << 3;
 ///
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
+///
+/// This type purposely implements no traits, not even Debug, because you should
+/// never, ever deal with it directly, only with raw pointers to it that you
+/// blindly pass to the hwloc API.
 #[repr(C)]
 pub struct hwloc_bitmap_s(IncompleteType);
 
@@ -1266,14 +1887,14 @@ macro_rules! extern_c_block {
             pub fn hwloc_set_membind(
                 topology: hwloc_const_topology_t,
                 set: hwloc_const_bitmap_t,
-                policy: RawMemoryBindingPolicy,
+                policy: hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> c_int;
             #[must_use]
             pub fn hwloc_get_membind(
                 topology: hwloc_const_topology_t,
                 set: hwloc_bitmap_t,
-                policy: *mut RawMemoryBindingPolicy,
+                policy: *mut hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> c_int;
             #[must_use]
@@ -1281,7 +1902,7 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 pid: hwloc_pid_t,
                 set: hwloc_const_bitmap_t,
-                policy: RawMemoryBindingPolicy,
+                policy: hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> c_int;
             #[must_use]
@@ -1289,7 +1910,7 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 pid: hwloc_pid_t,
                 set: hwloc_bitmap_t,
-                policy: *mut RawMemoryBindingPolicy,
+                policy: *mut hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> c_int;
             #[must_use]
@@ -1298,7 +1919,7 @@ macro_rules! extern_c_block {
                 addr: *const c_void,
                 len: usize,
                 set: hwloc_const_bitmap_t,
-                policy: RawMemoryBindingPolicy,
+                policy: hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> c_int;
             #[must_use]
@@ -1307,7 +1928,7 @@ macro_rules! extern_c_block {
                 addr: *const c_void,
                 len: usize,
                 set: hwloc_bitmap_t,
-                policy: *mut RawMemoryBindingPolicy,
+                policy: *mut hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> c_int;
             #[must_use]
@@ -1325,7 +1946,7 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 len: usize,
                 set: hwloc_const_bitmap_t,
-                policy: RawMemoryBindingPolicy,
+                policy: hwloc_membind_policy_t,
                 flags: hwloc_membind_flags_t,
             ) -> *mut c_void;
             #[must_use]
@@ -1379,38 +2000,38 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_topology_get_support(
                 topology: hwloc_const_topology_t,
-            ) -> *const FeatureSupport;
+            ) -> *const hwloc_topology_support;
             #[must_use]
             pub fn hwloc_topology_set_type_filter(
                 topology: hwloc_topology_t,
                 ty: hwloc_obj_type_t,
-                filter: RawTypeFilter,
+                filter: hwloc_type_filter_e,
             ) -> c_int;
             #[must_use]
             pub fn hwloc_topology_get_type_filter(
                 topology: hwloc_const_topology_t,
                 ty: hwloc_obj_type_t,
-                filter: *mut RawTypeFilter,
+                filter: *mut hwloc_type_filter_e,
             ) -> c_int;
             #[must_use]
             pub fn hwloc_topology_set_all_types_filter(
                 topology: hwloc_topology_t,
-                filter: RawTypeFilter,
+                filter: hwloc_type_filter_e,
             ) -> c_int;
             #[must_use]
             pub fn hwloc_topology_set_cache_types_filter(
                 topology: hwloc_topology_t,
-                filter: RawTypeFilter,
+                filter: hwloc_type_filter_e,
             ) -> c_int;
             #[must_use]
             pub fn hwloc_topology_set_icache_types_filter(
                 topology: hwloc_topology_t,
-                filter: RawTypeFilter,
+                filter: hwloc_type_filter_e,
             ) -> c_int;
             #[must_use]
             pub fn hwloc_topology_set_io_types_filter(
                 topology: hwloc_topology_t,
-                filter: RawTypeFilter,
+                filter: hwloc_type_filter_e,
             ) -> c_int;
             // NOTE: set_userdata and get_userdata are NOT exposed because they
             //       are hard to make work with copying, persistence and thread
@@ -1900,7 +2521,7 @@ macro_rules! extern_c_block {
                 cpuset: hwloc_cpuset_t,
                 efficiency: *mut c_int,
                 nr_infos: *mut c_uint,
-                infos: *mut *mut TextualInfo,
+                infos: *mut *mut hwloc_info_s,
                 flags: c_ulong,
             ) -> c_int;
             #[cfg(feature = "hwloc-2_4_0")]
@@ -1910,7 +2531,7 @@ macro_rules! extern_c_block {
                 cpuset: hwloc_const_cpuset_t,
                 forced_efficiency: c_int,
                 nr_infos: c_uint,
-                infos: *const TextualInfo,
+                infos: *const hwloc_info_s,
                 flags: c_ulong,
             ) -> c_int;
 

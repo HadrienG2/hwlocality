@@ -236,8 +236,12 @@ impl TopologyEditor<'_> {
     pub fn allow(&mut self, allow_set: AllowSet) -> Result<(), HybridError<BadAllowSet>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
-            AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
-            AllowSet::LocalRestrictions => (ptr::null(), ptr::null(), 1 << 1),
+            AllowSet::All => (ptr::null(), ptr::null(), HWLOC_ALLOW_FLAG_ALL),
+            AllowSet::LocalRestrictions => (
+                ptr::null(),
+                ptr::null(),
+                HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS,
+            ),
             AllowSet::Custom { cpuset, nodeset } => {
                 let cpuset = cpuset.map(|cpuset| cpuset.as_ptr()).unwrap_or(ptr::null());
                 let nodeset = nodeset
@@ -246,7 +250,7 @@ impl TopologyEditor<'_> {
                 if cpuset.is_null() && nodeset.is_null() {
                     return Err(BadAllowSet.into());
                 }
-                (cpuset, nodeset, 1 << 2)
+                (cpuset, nodeset, HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS)
             }
         };
 
@@ -395,10 +399,10 @@ impl TopologyEditor<'_> {
 
 bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
-    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_restrict_flags_e")]
     #[repr(C)]
-    pub struct RestrictFlags: c_ulong {
+    pub struct RestrictFlags: hwloc_restrict_flags_e {
         /// Remove all objects that lost all resources of the target type
         ///
         /// By default, only objects that contain no PU and no memory are
@@ -417,19 +421,19 @@ bitflags! {
         //
         // NOTE: This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
         #[doc(hidden)]
-        const REMOVE_CPULESS = (1<<0);
+        const REMOVE_CPULESS = HWLOC_RESTRICT_FLAG_REMOVE_CPULESS;
 
         /// Restrict by NodeSet insted of by `CpuSet`
         //
         // NOTE: This flag is automatically set when restricting by `NodeSet`.
         #[doc(hidden)]
-        const BY_NODE_SET = (1<<3);
+        const BY_NODE_SET = HWLOC_RESTRICT_FLAG_BYNODESET;
 
         /// Remove all objects that became memory-less
         //
         // NOTE: This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
         #[doc(hidden)]
-        const REMOVE_MEMLESS = (1<<4);
+        const REMOVE_MEMLESS = HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS;
 
         /// Move Misc objects to ancestors if their parents are removed during
         /// restriction
@@ -437,7 +441,7 @@ bitflags! {
         /// If this flag is not set, Misc objects are removed when their parents
         /// are removed.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_MISC")]
-        const ADAPT_MISC = (1<<1);
+        const ADAPT_MISC = HWLOC_RESTRICT_FLAG_ADAPT_MISC;
 
         /// Move I/O objects to ancestors if their parents are removed
         /// during restriction
@@ -445,13 +449,7 @@ bitflags! {
         /// If this flag is not set, I/O devices and bridges are removed when
         /// their parents are removed.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_IO")]
-        const ADAPT_IO = (1<<2);
-    }
-}
-//
-impl Default for RestrictFlags {
-    fn default() -> Self {
-        Self::empty()
+        const ADAPT_IO = HWLOC_RESTRICT_FLAG_ADAPT_IO;
     }
 }
 
