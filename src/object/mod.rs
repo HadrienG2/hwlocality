@@ -6,14 +6,14 @@ pub mod distance;
 pub mod types;
 
 use self::{
-    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain, RawObjectAttributes},
-    depth::{Depth, DepthError, DepthResult, RawDepth},
-    types::{CacheType, ObjectType, RawObjectType},
+    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain},
+    depth::{Depth, DepthError, DepthResult},
+    types::{CacheType, ObjectType},
 };
 #[cfg(doc)]
 use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
-    bitmap::{BitmapRef, RawBitmap},
+    bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
     ffi::{self, LibcString},
@@ -21,11 +21,13 @@ use crate::{
     memory::nodeset::NodeSet,
     topology::Topology,
 };
-use hwlocality_sys::{hwloc_obj, HWLOC_UNKNOWN_INDEX};
+#[cfg(feature = "hwloc-2_3_0")]
+use hwlocality_sys::hwloc_obj_attr_u;
+use hwlocality_sys::{hwloc_get_type_depth_e, hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
 use std::{
     borrow::Borrow,
-    ffi::{c_char, c_int, c_uint, c_void, CStr},
+    ffi::{c_char, c_uint, CStr},
     fmt,
     iter::FusedIterator,
     ptr,
@@ -65,7 +67,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
     pub fn depth(&self) -> usize {
-        unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) }
+        unsafe { hwlocality_sys::hwloc_topology_get_depth(self.as_ptr()) }
             .try_into()
             .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
@@ -96,7 +98,7 @@ impl Topology {
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
     pub fn memory_parents_depth(&self) -> Result<usize, DepthError> {
-        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
+        Depth::try_from(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
 
@@ -132,7 +134,9 @@ impl Topology {
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
     pub fn depth_for_type(&self, object_type: ObjectType) -> DepthResult {
-        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
+        Depth::try_from(unsafe {
+            hwlocality_sys::hwloc_get_type_depth(self.as_ptr(), object_type.into())
+        })
     }
 
     /// Depth for the given [`ObjectType`] or below
@@ -360,10 +364,12 @@ impl Topology {
                 return None;
             }
         }
-        match unsafe { ffi::hwloc_get_depth_type(self.as_ptr(), depth.into()) }.try_into() {
+        match unsafe { hwlocality_sys::hwloc_get_depth_type(self.as_ptr(), depth.into()) }
+            .try_into()
+        {
             Ok(depth) => Some(depth),
             Err(TryFromPrimitiveError {
-                number: RawObjectType::MAX,
+                number: hwloc_obj_type_t::MAX,
             }) => None,
             Err(unknown) => {
                 unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
@@ -389,7 +395,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
     pub fn num_objects_at_depth(&self, depth: impl Into<Depth>) -> usize {
         ffi::expect_usize(unsafe {
-            ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into().into())
         })
     }
 
@@ -427,15 +433,15 @@ impl Topology {
     {
         let depth = depth.into();
         let size = self.num_objects_at_depth(depth);
-        let depth = RawDepth::from(depth);
+        let depth = hwloc_get_type_depth_e::from(depth);
         (0..size).map(move |idx| {
             let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
-            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
+            let ptr = unsafe { hwlocality_sys::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
             assert!(
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
             );
-            unsafe { &*ptr }
+            unsafe { &*ptr.cast() }
         })
     }
 
@@ -824,7 +830,7 @@ impl Topology {
             opt.as_ref().map(|s| s.borrow()).unwrap_or(ptr::null())
         };
         let ptr = unsafe {
-            ffi::hwloc_get_obj_with_same_locality(
+            hwlocality_sys::hwloc_get_obj_with_same_locality(
                 self.as_ptr(),
                 src,
                 ty.into(),
@@ -1009,7 +1015,7 @@ impl TopologyObject {
 
     /// Unsafe access to object type-specific attributes
     #[cfg(feature = "hwloc-2_3_0")]
-    pub(crate) fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
+    pub(crate) fn raw_attributes(&mut self) -> Option<&mut hwloc_obj_attr_u> {
         unsafe { ffi::deref_mut_ptr(&mut self.0.attr) }
     }
 
@@ -1065,7 +1071,7 @@ impl TopologyObject {
     /// Only `None` for the root `Machine` object.
     #[doc(alias = "hwloc_obj::parent")]
     pub fn parent(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.0.parent) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.parent) }
     }
 
     /// Chain of parent objects up to the topology root
@@ -1183,7 +1189,7 @@ impl TopologyObject {
             // as hwloc topology may "skip" depths on hybrid plaforms like
             // Adler Lake or in the presence of complicated allowed cpusets), or
             // we reached cousin objects and must go up one level.
-            if parent1.depth == parent2.depth {
+            if parent1.depth() == parent2.depth() {
                 parent1 = parent1.parent()?;
                 parent2 = parent2.parent()?;
             }
@@ -1274,13 +1280,13 @@ impl TopologyObject {
     /// Next object of same type and depth
     #[doc(alias = "hwloc_obj::next_cousin")]
     pub fn next_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.0.next_cousin) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_cousin) }
     }
 
     /// Previous object of same type and depth
     #[doc(alias = "hwloc_obj::prev_cousin")]
     pub fn prev_cousin(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.0.prev_cousin) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_cousin) }
     }
 
     /// Index in the parent's relevant child list for this object type
@@ -1292,13 +1298,13 @@ impl TopologyObject {
     /// Next object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::next_sibling")]
     pub fn next_sibling(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.0.next_sibling) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_sibling) }
     }
 
     /// Previous object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::prev_sibling")]
     pub fn prev_sibling(&self) -> Option<&TopologyObject> {
-        unsafe { ffi::deref_ptr_mut(&self.0.prev_sibling) }
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_sibling) }
     }
 }
 
@@ -1328,7 +1334,7 @@ impl TopologyObject {
         (0..self.normal_arity()).map(move |offset| {
             let child = unsafe { *self.0.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
-            unsafe { &*child }
+            unsafe { &*child.cast() }
         })
     }
 
@@ -1455,14 +1461,14 @@ impl TopologyObject {
     /// Iterator over singly linked lists of child TopologyObjects with arity
     fn singly_linked_children(
         &self,
-        first: *mut TopologyObject,
+        first: *mut hwloc_obj,
         arity: usize,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
-            let result = unsafe { &*current };
-            current = result.next_sibling;
+            let result: &TopologyObject = unsafe { &*current.cast() };
+            current = result.0.next_sibling;
             result
         })
     }
@@ -1648,7 +1654,9 @@ impl TopologyObject {
             );
             return &[];
         }
-        unsafe { std::slice::from_raw_parts(self.0.infos, ffi::expect_usize(self.0.infos_count)) }
+        unsafe {
+            std::slice::from_raw_parts(self.0.infos.cast(), ffi::expect_usize(self.0.infos_count))
+        }
     }
 
     /// Search the given key name in object infos and return the corresponding value
@@ -1690,7 +1698,7 @@ impl TopologyObject {
         let name = LibcString::new(name)?;
         let value = LibcString::new(value)?;
         errors::call_hwloc_int_normal("hwloc_obj_add_info", || unsafe {
-            ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow())
+            hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
         })
         .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
@@ -1702,7 +1710,7 @@ impl TopologyObject {
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter, verbose: bool) -> fmt::Result {
         let type_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
+            hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &self.0, verbose.into())
         });
 
         let separator = if f.alternate() {
@@ -1712,7 +1720,7 @@ impl TopologyObject {
         }
         .cast::<c_char>();
         let attr_chars = ffi::call_snprintf(|buf, len| unsafe {
-            ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
+            hwlocality_sys::hwloc_obj_attr_snprintf(buf, len, &self.0, separator, verbose.into())
         });
 
         unsafe {

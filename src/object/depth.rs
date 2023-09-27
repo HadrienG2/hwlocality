@@ -18,12 +18,6 @@ use std::{
 };
 use thiserror::Error;
 
-/// Rust mapping of the hwloc_get_type_depth_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-pub(crate) type RawDepth = hwloc_get_type_depth_e;
-
 /// Valid object/type depth values
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_get_type_depth_e")]
@@ -106,10 +100,10 @@ impl TryFrom<Depth> for usize {
     }
 }
 
-impl TryFrom<RawDepth> for Depth {
+impl TryFrom<hwloc_get_type_depth_e> for Depth {
     type Error = DepthError;
 
-    fn try_from(value: RawDepth) -> Result<Self, DepthError> {
+    fn try_from(value: hwloc_get_type_depth_e) -> Result<Self, DepthError> {
         match value {
             d if d >= 0 => {
                 let d = c_uint::try_from(d).expect("int >= 0 -> uint conversion can't fail");
@@ -129,7 +123,7 @@ impl TryFrom<RawDepth> for Depth {
     }
 }
 
-impl From<Depth> for RawDepth {
+impl From<Depth> for hwloc_get_type_depth_e {
     fn from(value: Depth) -> Self {
         match value {
             Depth::Normal(value) => value.try_into().expect("Depth is too high for hwloc"),

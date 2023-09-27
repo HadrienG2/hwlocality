@@ -7,25 +7,14 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     ffi,
-    object::types::{
-        BridgeType, CacheType, OSDeviceType, ObjectType, RawBridgeType, RawCacheType,
-        RawOSDeviceType,
-    },
+    object::types::{BridgeType, CacheType, OSDeviceType, ObjectType},
 };
 use hwlocality_sys::{
     hwloc_bridge_attr_s, hwloc_cache_attr_s, hwloc_group_attr_s, hwloc_memory_page_type_s,
     hwloc_numanode_attr_s, hwloc_obj_attr_u, hwloc_osdev_attr_s, hwloc_pcidev_attr_s,
     RawDownstreamAttributes, RawDownstreamPCIAttributes, RawUpstreamAttributes,
 };
-use std::{
-    ffi::{c_float, c_int, c_uchar, c_uint, c_ushort},
-    fmt,
-    hash::Hash,
-    num::NonZeroUsize,
-};
-
-/// hwloc FFI for the hwloc_obj_attr_u union
-pub(crate) type RawObjectAttributes = hwloc_obj_attr_u;
+use std::{ffi::c_uint, fmt, hash::Hash, num::NonZeroUsize};
 
 /// ObjectType-specific attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -71,24 +60,21 @@ impl<'attr> ObjectAttributes<'attr> {
     ///
     /// # Safety
     ///
-    /// If non-null, the `attr` pointer must target `RawObjectAttributes` that
+    /// If non-null, the `attr` pointer must target `hwloc_obj_attr_u` that
     /// are valid for lifetime `'attr` and consistent with object type `ty`.
-    pub(crate) unsafe fn new(
-        ty: ObjectType,
-        attr: &'attr *mut RawObjectAttributes,
-    ) -> Option<Self> {
+    pub(crate) unsafe fn new(ty: ObjectType, attr: &'attr *mut hwloc_obj_attr_u) -> Option<Self> {
         if attr.is_null() {
             return None;
         }
-        let attr: &RawObjectAttributes = unsafe { &**attr };
+        let attr: &hwloc_obj_attr_u = unsafe { &**attr };
 
         match ty {
-            ObjectType::NUMANode => Some(Self::NUMANode(&attr.numa)),
-            ObjectType::Group => Some(Self::Group(&attr.group)),
-            ObjectType::PCIDevice => Some(Self::PCIDevice(&attr.pcidev)),
-            ObjectType::Bridge => Some(Self::Bridge(&attr.bridge)),
-            ObjectType::OSDevice => Some(Self::OSDevice(&attr.osdev)),
-            _ if ty.is_cpu_cache() => Some(Self::Cache(&attr.cache)),
+            ObjectType::NUMANode => Some(Self::NUMANode(ffi::as_newtype(&attr.numa))),
+            ObjectType::Group => Some(Self::Group(ffi::as_newtype(&attr.group))),
+            ObjectType::PCIDevice => Some(Self::PCIDevice(ffi::as_newtype(&attr.pcidev))),
+            ObjectType::Bridge => Some(Self::Bridge(ffi::as_newtype(&attr.bridge))),
+            ObjectType::OSDevice => Some(Self::OSDevice(ffi::as_newtype(&attr.osdev))),
+            _ if ty.is_cpu_cache() => Some(Self::Cache(ffi::as_newtype(&attr.cache))),
             _ => None,
         }
     }
@@ -97,7 +83,7 @@ impl<'attr> ObjectAttributes<'attr> {
 /// [`NUMANode`]-specific attributes
 ///
 /// [`NUMANode`]: ObjectType::NUMANode
-#[derive(Copy, Clone, Debug, Default, Eq)]
+#[derive(Copy, Clone, Debug, Default)]
 #[doc(alias = "hwloc_numanode_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s")]
 #[repr(transparent)]
@@ -122,7 +108,7 @@ impl NUMANodeAttributes {
         }
         unsafe {
             std::slice::from_raw_parts(
-                self.0.page_types,
+                self.0.page_types.cast(),
                 // If this fails, it means pages_types_len does not fit in a
                 // size_t, but by definition of size_t that cannot happen...
                 self.0.page_types_len.try_into().expect("Should not happen"),
@@ -130,6 +116,8 @@ impl NUMANodeAttributes {
         }
     }
 }
+//
+impl Eq for NUMANodeAttributes {}
 //
 impl Hash for NUMANodeAttributes {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -458,7 +446,7 @@ impl fmt::Debug for BridgeAttributes {
             .field("upstream_attributes", &self.upstream_attributes())
             .field("downstream_type", &self.downstream_type())
             .field("downstream_attributes", &self.downstream_attributes())
-            .field("depth", &self.depth)
+            .field("depth", &self.0.depth)
             .finish()
     }
 }
@@ -488,7 +476,7 @@ impl<'attr> UpstreamAttributes<'attr> {
     pub(crate) unsafe fn new(ty: BridgeType, attr: &'attr RawUpstreamAttributes) -> Option<Self> {
         unsafe {
             match ty {
-                BridgeType::PCI => Some(Self::PCI(&attr.pci)),
+                BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),
                 BridgeType::Host => None,
             }
         }
@@ -533,7 +521,7 @@ impl<'attr> DownstreamAttributes<'attr> {
     pub(crate) unsafe fn new(ty: BridgeType, attr: &'attr RawDownstreamAttributes) -> Option<Self> {
         unsafe {
             match ty {
-                BridgeType::PCI => Some(Self::PCI(&attr.pci)),
+                BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),
                 BridgeType::Host => unreachable!("Host bridge type should not appear downstream"),
             }
         }

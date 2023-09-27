@@ -4,26 +4,16 @@
 //! utilities that proved convenient when interacting with said entry points,
 //! but do not clearly belong in any other module.
 
+use crate::errors::NulError;
 #[cfg(feature = "hwloc-2_4_0")]
 use crate::info::TextualInfo;
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::memory::attribute::{MemoryAttributeID, RawLocation};
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::object::distance::{DistancesAddHandle, RawDistancesTransform};
-use crate::{
-    bitmap::RawBitmap,
-    errors::NulError,
-    memory::binding::RawMemoryBindingPolicy,
-    object::{depth::RawDepth, distance::RawDistances, types::RawObjectType, TopologyObject},
-    topology::{builder::RawTypeFilter, support::FeatureSupport, RawTopology},
-    ProcessId, ThreadId,
-};
-#[cfg(target_os = "linux")]
-use libc::pid_t;
 use std::{
-    ffi::{c_char, c_int, c_uint, c_ulong, c_void, CStr},
+    ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
-    marker::{PhantomData, PhantomPinned},
     ptr::{self, NonNull},
 };
 
@@ -45,6 +35,17 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
         .expect("Expected on any platform supported by hwloc")
 }
 
+/// Translate a reference to an hwloc type into one to the matching wrapper
+/// type
+///
+/// # Safety
+///
+/// `NewT` must be a `repr(transparent)` newtype of `T`
+pub(crate) unsafe fn as_newtype<T, NewT>(raw: &T) -> &NewT {
+    let ptr: *const T = raw;
+    &*ptr.cast()
+}
+
 /// Dereference a C pointer with correct lifetime (*const -> & version)
 pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     if p.is_null() {
@@ -53,12 +54,39 @@ pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     Some(unsafe { &**p })
 }
 
+/// Like [`deref_ptr()`], but performs a cast to a newtype along the way
+///
+/// # Safety
+///
+/// - `NewT` must be a `repr(transparent)` newtype of `T`
+pub(crate) unsafe fn deref_ptr_newtype<T, NewT>(p: &*const T) -> Option<&NewT> {
+    if p.is_null() {
+        return None;
+    }
+    let casted = (*p).cast::<NewT>();
+    Some(unsafe { &*casted })
+}
+
 /// Dereference a C pointer with correct lifetime (*mut -> & version)
+#[allow(unused)]
 pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
     if p.is_null() {
         return None;
     }
     Some(unsafe { &**p })
+}
+
+/// Like [`deref_ptr_mut()`], but performs a cast to a newtype along the way
+///
+/// # Safety
+///
+/// - `NewT` must be a `repr(transparent)` newtype of `T`
+pub(crate) unsafe fn deref_ptr_mut_newtype<T, NewT>(p: &*mut T) -> Option<&NewT> {
+    if p.is_null() {
+        return None;
+    }
+    let casted = (*p).cast::<NewT>();
+    Some(unsafe { &*casted })
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> &mut version)

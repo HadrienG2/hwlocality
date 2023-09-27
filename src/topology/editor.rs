@@ -73,14 +73,14 @@ impl Topology {
     /// undefined behavior (mutation which the compiler assumes will not happen).
     pub(crate) fn refresh(&mut self) {
         let result = errors::call_hwloc_int_normal("hwloc_topology_refresh", || unsafe {
-            ffi::hwloc_topology_refresh(self.as_mut_ptr())
+            hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
         if let Err(e) = result {
             eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
             std::process::abort()
         }
         if cfg!(debug_assertions) {
-            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+            unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
     }
 }
@@ -190,7 +190,7 @@ impl TopologyEditor<'_> {
 
         // Apply requested restriction
         let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
-            ffi::hwloc_topology_restrict(
+            hwlocality_sys::hwloc_topology_restrict(
                 self.topology_mut_ptr(),
                 set.as_ref().as_ptr(),
                 flags.bits(),
@@ -256,7 +256,7 @@ impl TopologyEditor<'_> {
 
         // Call hwloc
         errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
-            ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
+            hwlocality_sys::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
         })
         .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
@@ -294,7 +294,7 @@ impl TopologyEditor<'_> {
     ) -> GroupInsertResult {
         // Allocate group object
         let group = errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
-            ffi::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
+            hwlocality_sys::hwloc_topology_alloc_group_object(self.topology_mut_ptr())
         });
         let mut group = match group {
             Ok(group) => group,
@@ -307,7 +307,7 @@ impl TopologyEditor<'_> {
         let children = find_children(self.topology());
         for child in children {
             let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
-                ffi::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
+                hwlocality_sys::hwloc_obj_add_other_obj_sets(group.as_ptr(), child)
             });
             if let Err(e) = result {
                 return GroupInsertResult::Failed(e);
@@ -331,7 +331,10 @@ impl TopologyEditor<'_> {
 
         // Insert the group object into the topology
         let result = errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
-            ffi::hwloc_topology_insert_group_object(self.topology_mut_ptr(), group.as_ptr())
+            hwlocality_sys::hwloc_topology_insert_group_object(
+                self.topology_mut_ptr(),
+                group.as_ptr(),
+            )
         });
         match result {
             Ok(result) if result == group => GroupInsertResult::New(unsafe { group.as_mut() }),
@@ -390,7 +393,11 @@ impl TopologyEditor<'_> {
         let parent = parent.cast_mut();
         let name = LibcString::new(name)?;
         let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
-            ffi::hwloc_topology_insert_misc_object(self.topology_mut_ptr(), parent, name.borrow())
+            hwlocality_sys::hwloc_topology_insert_misc_object(
+                self.topology_mut_ptr(),
+                parent,
+                name.borrow(),
+            )
         })
         .map_err(HybridError::Hwloc)?;
         Ok(unsafe { ptr.as_mut() })
@@ -401,7 +408,7 @@ bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_restrict_flags_e")]
-    #[repr(C)]
+    #[repr(transparent)]
     pub struct RestrictFlags: hwloc_restrict_flags_e {
         /// Remove all objects that lost all resources of the target type
         ///

@@ -8,11 +8,10 @@
 //! itself only hosts type definitions that are related to this functionality.
 
 use crate::{
-    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, RawBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     errors::{self, FlagsError, RawHwlocError},
-    ffi,
     memory::nodeset::NodeSet,
-    topology::{RawTopology, Topology},
+    topology::Topology,
     ProcessId,
 };
 #[cfg(doc)]
@@ -21,10 +20,11 @@ use bitflags::bitflags;
 use derive_more::Display;
 use errno::{errno, Errno};
 use hwlocality_sys::{
-    hwloc_membind_flags_t, hwloc_membind_policy_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET,
-    HWLOC_MEMBIND_DEFAULT, HWLOC_MEMBIND_FIRSTTOUCH, HWLOC_MEMBIND_INTERLEAVE,
-    HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED, HWLOC_MEMBIND_NEXTTOUCH, HWLOC_MEMBIND_NOCPUBIND,
-    HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT, HWLOC_MEMBIND_THREAD,
+    hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
+    hwloc_membind_policy_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET, HWLOC_MEMBIND_DEFAULT,
+    HWLOC_MEMBIND_FIRSTTOUCH, HWLOC_MEMBIND_INTERLEAVE, HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED,
+    HWLOC_MEMBIND_NEXTTOUCH, HWLOC_MEMBIND_NOCPUBIND, HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT,
+    HWLOC_MEMBIND_THREAD,
 };
 use libc::{ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
@@ -117,7 +117,7 @@ impl Topology {
         //         - FFI is guaranteed to be passed valid (topology, len)
         unsafe {
             self.allocate_memory_impl::<Set>("hwloc_alloc", None, len, |topology, len| {
-                ffi::hwloc_alloc(topology, len)
+                hwlocality_sys::hwloc_alloc(topology, len)
             })
         }
     }
@@ -179,7 +179,7 @@ impl Topology {
                 Some(set),
                 len,
                 |topology, len| {
-                    ffi::hwloc_alloc_membind(
+                    hwlocality_sys::hwloc_alloc_membind(
                         topology,
                         len,
                         set.as_ref().as_ptr(),
@@ -305,7 +305,9 @@ impl Topology {
                 policy,
                 flags,
                 MemoryBoundObject::ThisProgram,
-                |topology, set, policy, flags| ffi::hwloc_set_membind(topology, set, policy, flags),
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_membind(topology, set, policy, flags)
+                },
             )
         }
     }
@@ -353,7 +355,9 @@ impl Topology {
                 "hwloc_set_membind",
                 flags,
                 MemoryBoundObject::ThisProgram,
-                |topology, set, policy, flags| ffi::hwloc_set_membind(topology, set, policy, flags),
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_set_membind(topology, set, policy, flags)
+                },
             )
         }
     }
@@ -422,7 +426,9 @@ impl Topology {
                 flags,
                 MemoryBoundObject::ThisProgram,
                 MemoryBindingOperation::GetBinding,
-                |topology, set, policy, flags| ffi::hwloc_get_membind(topology, set, policy, flags),
+                |topology, set, policy, flags| {
+                    hwlocality_sys::hwloc_get_membind(topology, set, policy, flags)
+                },
             )
         }
     }
@@ -469,7 +475,7 @@ impl Topology {
                 flags,
                 MemoryBoundObject::Process,
                 |topology, set, policy, flags| {
-                    ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                    hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
                 },
             )
         }
@@ -513,7 +519,7 @@ impl Topology {
                 flags,
                 MemoryBoundObject::Process,
                 |topology, set, policy, flags| {
-                    ffi::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                    hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
                 },
             )
         }
@@ -566,7 +572,7 @@ impl Topology {
                 MemoryBoundObject::Process,
                 MemoryBindingOperation::GetBinding,
                 |topology, set, policy, flags| {
-                    ffi::hwloc_get_proc_membind(topology, pid, set, policy, flags)
+                    hwlocality_sys::hwloc_get_proc_membind(topology, pid, set, policy, flags)
                 },
             )
         }
@@ -626,7 +632,7 @@ impl Topology {
                 flags,
                 MemoryBoundObject::Area,
                 |topology, set, policy, flags| {
-                    ffi::hwloc_set_area_membind(
+                    hwlocality_sys::hwloc_set_area_membind(
                         topology,
                         target_ptr.cast::<c_void>(),
                         target_size,
@@ -684,7 +690,7 @@ impl Topology {
                 flags,
                 MemoryBoundObject::Area,
                 |topology, set, policy, flags| {
-                    ffi::hwloc_set_area_membind(
+                    hwlocality_sys::hwloc_set_area_membind(
                         topology,
                         target_ptr.cast::<c_void>(),
                         target_size,
@@ -763,7 +769,7 @@ impl Topology {
                 MemoryBoundObject::Area,
                 MemoryBindingOperation::GetBinding,
                 |topology, set, policy, flags| {
-                    ffi::hwloc_get_area_membind(
+                    hwlocality_sys::hwloc_get_area_membind(
                         topology,
                         target_ptr.cast::<c_void>(),
                         target_size,
@@ -838,7 +844,7 @@ impl Topology {
                 MemoryBindingOperation::GetLastLocation,
                 |topology, set, policy, flags| {
                     *policy = -1;
-                    ffi::hwloc_get_area_memlocation(
+                    hwlocality_sys::hwloc_get_area_memlocation(
                         topology,
                         target_ptr.cast::<c_void>(),
                         target_size,
@@ -872,7 +878,7 @@ impl Topology {
         api: &'static str,
         set: Option<&Set>,
         len: usize,
-        ffi: impl FnOnce(*const RawTopology, usize) -> *mut c_void,
+        ffi: impl FnOnce(hwloc_const_topology_t, usize) -> *mut c_void,
     ) -> Result<Bytes<'_>, MemoryBindingError<Set::Owned>> {
         if len > 0 {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
@@ -914,7 +920,12 @@ impl Topology {
         policy: MemoryBindingPolicy,
         mut flags: MemoryBindingFlags,
         target: MemoryBoundObject,
-        ffi: impl FnOnce(*const RawTopology, *const RawBitmap, RawMemoryBindingPolicy, c_int) -> c_int,
+        ffi: impl FnOnce(
+            hwloc_const_topology_t,
+            hwloc_const_bitmap_t,
+            hwloc_membind_policy_t,
+            hwloc_membind_flags_t,
+        ) -> c_int,
     ) -> Result<(), MemoryBindingError<Set::Owned>> {
         let operation = MemoryBindingOperation::Bind;
         Self::adjust_flags_for::<Set>(&mut flags);
@@ -951,7 +962,12 @@ impl Topology {
         api: &'static str,
         flags: MemoryBindingFlags,
         target: MemoryBoundObject,
-        ffi: impl FnOnce(*const RawTopology, *const RawBitmap, RawMemoryBindingPolicy, c_int) -> c_int,
+        ffi: impl FnOnce(
+            hwloc_const_topology_t,
+            hwloc_const_bitmap_t,
+            hwloc_membind_policy_t,
+            hwloc_membind_flags_t,
+        ) -> c_int,
     ) -> Result<(), MemoryBindingError<NodeSet>> {
         let operation = MemoryBindingOperation::Unbind;
         let Some(flags) = flags.validate(target, operation) else {
@@ -992,10 +1008,10 @@ impl Topology {
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
         ffi: impl FnOnce(
-            *const RawTopology,
-            *mut RawBitmap,
-            *mut RawMemoryBindingPolicy,
-            c_int,
+            hwloc_const_topology_t,
+            hwloc_bitmap_t,
+            *mut hwloc_membind_policy_t,
+            hwloc_membind_flags_t,
         ) -> c_int,
     ) -> Result<(Set, Option<MemoryBindingPolicy>), MemoryBindingError<Set>> {
         Self::adjust_flags_for::<Set>(&mut flags);
@@ -1003,7 +1019,7 @@ impl Topology {
             return Err(MemoryBindingError::BadFlags(flags.into()));
         };
         let mut set = Bitmap::new();
-        let mut raw_policy = RawMemoryBindingPolicy::MAX;
+        let mut raw_policy = hwloc_membind_policy_t::MAX;
         call_hwloc_int::<Set>(api, target, operation, None, || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
@@ -1052,7 +1068,7 @@ bitflags! {
     /// calling for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_membind_flags_t")]
-    #[repr(C)]
+    #[repr(transparent)]
     pub struct MemoryBindingFlags: hwloc_membind_flags_t {
         /// Assume that the target process is single threaded
         ///
@@ -1241,12 +1257,6 @@ pub(crate) enum MemoryBindingOperation {
     /// Un-bind memory
     Unbind,
 }
-
-/// Rust mapping of the `hwloc_membind_policy_t` enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-pub(crate) type RawMemoryBindingPolicy = hwloc_membind_policy_t;
 
 /// Memory binding policy.
 ///
@@ -1536,7 +1546,7 @@ impl Drop for Bytes<'_> {
             //         - hwloc ops are trusted not to modify *const parameters
             //         - Bytes will not be usable again after Drop
             let result = unsafe {
-                ffi::hwloc_free(
+                hwlocality_sys::hwloc_free(
                     self.topology.as_ptr(),
                     self.data.as_ptr().cast::<c_void>(),
                     len,

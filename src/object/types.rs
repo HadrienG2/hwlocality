@@ -3,7 +3,7 @@
 // - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
 // - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
-use crate::{errors, ffi};
+use crate::errors;
 #[cfg(doc)]
 use crate::{
     object::TopologyObject,
@@ -14,10 +14,9 @@ use crate::{
 };
 use derive_more::Display;
 use hwlocality_sys::{
-    hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
-    HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI, HWLOC_OBJ_CACHE_DATA,
-    HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE, HWLOC_OBJ_GROUP,
-    HWLOC_OBJ_L1CACHE, HWLOC_OBJ_L1ICACHE, HWLOC_OBJ_L2CACHE, HWLOC_OBJ_L2ICACHE,
+    hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
+    HWLOC_OBJ_CACHE_DATA, HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE,
+    HWLOC_OBJ_GROUP, HWLOC_OBJ_L1CACHE, HWLOC_OBJ_L1ICACHE, HWLOC_OBJ_L2CACHE, HWLOC_OBJ_L2ICACHE,
     HWLOC_OBJ_L3CACHE, HWLOC_OBJ_L3ICACHE, HWLOC_OBJ_L4CACHE, HWLOC_OBJ_L5CACHE, HWLOC_OBJ_MACHINE,
     HWLOC_OBJ_MISC, HWLOC_OBJ_NUMANODE, HWLOC_OBJ_OSDEV_COPROC, HWLOC_OBJ_OSDEV_DMA,
     HWLOC_OBJ_OSDEV_GPU, HWLOC_OBJ_OSDEV_NETWORK, HWLOC_OBJ_OSDEV_OPENFABRICS,
@@ -29,15 +28,8 @@ use hwlocality_sys::{HWLOC_OBJ_DIE, HWLOC_OBJ_MEMCACHE};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{
     cmp::{Ordering, PartialOrd},
-    ffi::{c_int, c_uint},
+    ffi::c_int,
 };
-
-/// Rust mapping of the hwloc_obj_bridge_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawBridgeType = hwloc_obj_bridge_type_t;
 
 /// Type of one side (upstream or downstream) of an I/O bridge.
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
@@ -53,13 +45,6 @@ pub enum BridgeType {
     #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 }
-
-/// Rust mapping of the hwloc_obj_cache_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawCacheType = hwloc_obj_cache_type_t;
 
 /// Cache type
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
@@ -79,13 +64,6 @@ pub enum CacheType {
     #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
 }
-
-/// Rust mapping of the hwloc_obj_osdev_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawOSDeviceType = hwloc_obj_osdev_type_t;
 
 /// Type of a OS device
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
@@ -139,13 +117,6 @@ pub enum OSDeviceType {
     #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
 }
-
-/// Rust mapping of the hwloc_obj_type_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-///
-pub(crate) type RawObjectType = hwloc_obj_type_t;
 
 /// Represents the type of a [`TopologyObject`].
 ///
@@ -349,7 +320,12 @@ impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     #[doc(alias = "hwloc_obj_type_is_normal")]
     pub fn is_normal(&self) -> bool {
-        unsafe { self.type_predicate("hwloc_obj_type_is_normal", ffi::hwloc_obj_type_is_normal) }
+        unsafe {
+            self.type_predicate(
+                "hwloc_obj_type_is_normal",
+                hwlocality_sys::hwloc_obj_type_is_normal,
+            )
+        }
     }
 
     /// Truth that this object type is a leaf of the normal hierarchy and
@@ -361,19 +337,34 @@ impl ObjectType {
     /// Truth that this is a CPU-side cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_cache")]
     pub fn is_cpu_cache(&self) -> bool {
-        unsafe { self.type_predicate("hwloc_obj_type_is_cache", ffi::hwloc_obj_type_is_cache) }
+        unsafe {
+            self.type_predicate(
+                "hwloc_obj_type_is_cache",
+                hwlocality_sys::hwloc_obj_type_is_cache,
+            )
+        }
     }
 
     /// Truth that this is a CPU-side data or unified cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_dcache")]
     pub fn is_cpu_data_cache(&self) -> bool {
-        unsafe { self.type_predicate("hwloc_obj_type_is_dcache", ffi::hwloc_obj_type_is_dcache) }
+        unsafe {
+            self.type_predicate(
+                "hwloc_obj_type_is_dcache",
+                hwlocality_sys::hwloc_obj_type_is_dcache,
+            )
+        }
     }
 
     /// Truth that this is a CPU-side instruction cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_icache")]
     pub fn is_cpu_instruction_cache(&self) -> bool {
-        unsafe { self.type_predicate("hwloc_obj_type_is_icache", ffi::hwloc_obj_type_is_icache) }
+        unsafe {
+            self.type_predicate(
+                "hwloc_obj_type_is_icache",
+                hwlocality_sys::hwloc_obj_type_is_icache,
+            )
+        }
     }
 
     /// Truth that this is a memory object type (not Normal, I/O or Misc)
@@ -383,7 +374,12 @@ impl ObjectType {
     /// instead of normal depths like other objects in the main tree.
     #[doc(alias = "hwloc_obj_type_is_memory")]
     pub fn is_memory(&self) -> bool {
-        unsafe { self.type_predicate("hwloc_obj_type_is_memory", ffi::hwloc_obj_type_is_memory) }
+        unsafe {
+            self.type_predicate(
+                "hwloc_obj_type_is_memory",
+                hwlocality_sys::hwloc_obj_type_is_memory,
+            )
+        }
     }
 
     /// Truth that this is an I/O object type (not Normal, Memory or Misc)
@@ -394,14 +390,14 @@ impl ObjectType {
     /// dedicated I/O children list.
     #[doc(alias = "hwloc_obj_type_is_io")]
     pub fn is_io(&self) -> bool {
-        unsafe { self.type_predicate("hwloc_obj_type_is_io", ffi::hwloc_obj_type_is_io) }
+        unsafe { self.type_predicate("hwloc_obj_type_is_io", hwlocality_sys::hwloc_obj_type_is_io) }
     }
 
     /// Convert to the internal representation used by hwloc
     ///
     /// Used to avoid Into/From type inference ambiguities.
-    fn to_raw(self) -> RawObjectType {
-        RawObjectType::from(self)
+    fn to_raw(self) -> hwloc_obj_type_t {
+        hwloc_obj_type_t::from(self)
     }
 
     /// Query the type of some hwloc object
@@ -415,7 +411,7 @@ impl ObjectType {
     unsafe fn type_predicate(
         &self,
         api: &'static str,
-        pred: unsafe extern "C" fn(RawObjectType) -> c_int,
+        pred: unsafe extern "C" fn(hwloc_obj_type_t) -> c_int,
     ) -> bool {
         errors::call_hwloc_bool(api, || unsafe { pred(self.to_raw()) })
             .expect("Object type queries should not fail")
@@ -424,7 +420,7 @@ impl ObjectType {
 
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let result = unsafe { ffi::hwloc_compare_types(self.to_raw(), other.to_raw()) };
+        let result = unsafe { hwlocality_sys::hwloc_compare_types(self.to_raw(), other.to_raw()) };
         match result {
             HWLOC_TYPE_UNORDERED => None,
             c if c > 0 => Some(Ordering::Greater),

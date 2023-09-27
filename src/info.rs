@@ -2,16 +2,11 @@
 
 use crate::ffi::{self, LibcString};
 use hwlocality_sys::hwloc_info_s;
-use std::{
-    ffi::{c_char, CStr},
-    fmt,
-    hash::Hash,
-};
+use std::{ffi::CStr, fmt, hash::Hash};
 
 /// Key-value string attributes
 ///
 /// Used in multiple places of the hwloc API for extensible metadata.
-#[derive(Eq)]
 #[doc(alias = "hwloc_info_s")]
 #[repr(transparent)]
 pub struct TextualInfo(hwloc_info_s);
@@ -53,6 +48,8 @@ impl fmt::Debug for TextualInfo {
             .finish()
     }
 }
+//
+impl Eq for TextualInfo {}
 //
 impl Hash for TextualInfo {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

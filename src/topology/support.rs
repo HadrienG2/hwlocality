@@ -6,11 +6,13 @@
 #[cfg(doc)]
 use super::builder::BuildFlags;
 use crate::ffi;
+#[cfg(feature = "hwloc-2_3_0")]
+use hwlocality_sys::hwloc_topology_misc_support;
 use hwlocality_sys::{
     hwloc_topology_cpubind_support, hwloc_topology_discovery_support,
-    hwloc_topology_membind_support, hwloc_topology_misc_support, hwloc_topology_support,
+    hwloc_topology_membind_support, hwloc_topology_support,
 };
-use std::{ffi::c_uchar, fmt, hash::Hash, ptr};
+use std::{ffi::c_uchar, fmt, hash::Hash};
 
 /// Set of flags describing actual hwloc feature support for this topology
 #[derive(Default)]
@@ -22,26 +24,26 @@ impl FeatureSupport {
     /// Support for discovering information about the topology
     #[doc(alias = "hwloc_topology_support::discovery")]
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
-        unsafe { ffi::deref_ptr(&self.0.discovery) }
+        unsafe { ffi::deref_ptr_newtype(&self.0.discovery) }
     }
 
     /// Support for getting and setting thread/process CPU bindings
     #[doc(alias = "hwloc_topology_support::cpubind")]
     pub fn cpu_binding(&self) -> Option<&CpuBindingSupport> {
-        unsafe { ffi::deref_ptr(&self.0.cpubind) }
+        unsafe { ffi::deref_ptr_newtype(&self.0.cpubind) }
     }
 
     /// Support for getting and setting thread/process NUMA node bindings
     #[doc(alias = "hwloc_topology_support::membind")]
     pub fn memory_binding(&self) -> Option<&MemoryBindingSupport> {
-        unsafe { ffi::deref_ptr(&self.0.membind) }
+        unsafe { ffi::deref_ptr_newtype(&self.0.membind) }
     }
 
     /// Miscellaneous support information
     #[cfg(feature = "hwloc-2_3_0")]
     #[doc(alias = "hwloc_topology_support::misc")]
     pub fn misc(&self) -> Option<&MiscSupport> {
-        unsafe { ffi::deref_ptr(&self.0.misc) }
+        unsafe { ffi::deref_ptr_newtype(&self.0.misc) }
     }
 }
 //
@@ -91,35 +93,25 @@ unsafe impl Sync for FeatureSupport {}
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_discovery_support")]
 #[repr(transparent)]
-pub struct DiscoverySupport {
-    pu: c_uchar,
-    numa: c_uchar,
-    numa_memory: c_uchar,
-    #[cfg(feature = "hwloc-2_1_0")]
-    disallowed_pu: c_uchar,
-    #[cfg(feature = "hwloc-2_1_0")]
-    disallowed_numa: c_uchar,
-    #[cfg(feature = "hwloc-2_4_0")]
-    cpukind_efficiency: c_uchar,
-}
+pub struct DiscoverySupport(hwloc_topology_discovery_support);
 //
 impl DiscoverySupport {
     /// Detecting the number of PU objects is supported
     #[doc(alias = "hwloc_topology_discovery_support::pu")]
     pub fn pu_count(&self) -> bool {
-        support_flag(self.pu)
+        support_flag(self.0.pu)
     }
 
     /// Detecting the number of NUMA nodes is supported
     #[doc(alias = "hwloc_topology_discovery_support::numa")]
     pub fn numa_count(&self) -> bool {
-        support_flag(self.numa)
+        support_flag(self.0.numa)
     }
 
     /// Detecting the amount of memory in NUMA nodes is supported
     #[doc(alias = "hwloc_topology_discovery_support::numa_memory")]
     pub fn numa_memory(&self) -> bool {
-        support_flag(self.numa_memory)
+        support_flag(self.0.numa_memory)
     }
 
     /// Detecting and identifying PU objects that are not available to the
@@ -127,7 +119,7 @@ impl DiscoverySupport {
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_topology_discovery_support::disallowed_pu")]
     pub fn disallowed_pu(&self) -> bool {
-        support_flag(self.disallowed_pu)
+        support_flag(self.0.disallowed_pu)
     }
 
     /// Detecting and identifying NUMA nodes that are not available to the
@@ -135,7 +127,7 @@ impl DiscoverySupport {
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_topology_discovery_support::disallowed_numa")]
     pub fn disallowed_numa(&self) -> bool {
-        support_flag(self.disallowed_numa)
+        support_flag(self.0.disallowed_numa)
     }
 
     /// Detecting the efficiency of CPU kinds is supported
@@ -144,7 +136,7 @@ impl DiscoverySupport {
     #[cfg(feature = "hwloc-2_4_0")]
     #[doc(alias = "hwloc_topology_discovery_support::cpukind_efficiency")]
     pub fn cpukind_efficiency(&self) -> bool {
-        support_flag(self.cpukind_efficiency)
+        support_flag(self.0.cpukind_efficiency)
     }
 }
 

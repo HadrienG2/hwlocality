@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types)]
-#![deny(missing_docs)]
+// FIXME: Bring back #![deny(missing_docs)]
 
 #[cfg(target_os = "linux")]
 use libc::pid_t;
@@ -373,7 +373,7 @@ pub struct hwloc_obj {
     ///
     /// For special objects (NUMA nodes, I/O and Misc) that are not in the main
     /// tree, this is a special value that is unique to their type.
-    pub depth: c_int,
+    pub depth: hwloc_get_type_depth_e,
 
     /// Horizontal index in the whole list of similar objects, hence guaranteed
     /// unique across the entire machine
@@ -1602,11 +1602,252 @@ pub type hwloc_bitmap_t = *mut hwloc_bitmap_s;
 /// A non-modifiable [`hwloc_bitmap_t`]
 pub type hwloc_const_bitmap_t = *const hwloc_bitmap_s;
 
+// === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+
+/// Flags to be given to [`hwloc_topology_export_xml()`]
+pub type hwloc_topology_export_xml_flags_e = c_ulong;
+
+/// Export XML that is loadable by hwloc v1.x
+///
+/// The export may miss some details about the topology.
+pub const HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1: hwloc_topology_export_xml_flags_e = 1 << 0;
+
+// === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+
+/// Flags to be given to [`hwloc_topology_export_synthetic()`]
+pub type hwloc_topology_export_synthetic_flags_e = c_ulong;
+
+/// Export extended types such as L2dcache as basic types such as Cache
+///
+/// This is required if loading the synthetic description with hwloc < 1.9.
+pub const HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_EXTENDED_TYPES:
+    hwloc_topology_export_synthetic_flags_e = 1 << 0;
+
+/// Do not export level attributes
+///
+/// Ignore level attributes such as memory/cache sizes or PU indices.
+///
+/// This is required if loading the synthetic description with hwloc < 1.10.
+pub const HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_ATTRS: hwloc_topology_export_synthetic_flags_e =
+    1 << 1;
+
+/// Export the memory hierarchy as expected in hwloc 1.x
+///
+/// Instead of attaching memory children to levels, export single NUMA
+/// node children as normal intermediate levels, when possible.
+///
+/// This is required if loading the synthetic description with hwloc 1.x.
+/// However this may fail if some objects have multiple local NUMA nodes.
+pub const HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_V1: hwloc_topology_export_synthetic_flags_e = 1 << 2;
+
+/// Do not export memory information
+///
+/// Only export the actual hierarchy of normal CPU-side objects and
+/// ignore where memory is attached.
+///
+/// This is useful for when the hierarchy of CPUs is what really matters,
+/// but it behaves as if there was a single machine-wide NUMA node.
+pub const HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_IGNORE_MEMORY:
+    hwloc_topology_export_synthetic_flags_e = 1 << 3;
+
+// === Retrieve distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+
+/// Kinds of distance matrices
+///
+/// A kind with a name starting with "FROM_" specifies where the distance
+/// information comes from, if known.
+///
+/// A kind with a name starting with "MEANS_" specifies whether values are
+/// latencies or bandwidths, if applicable.
+///
+/// Only one of the "FROM_" and "MEANS_" kinds should be present.
+pub type hwloc_distances_kind_e = c_ulong;
+
+/// These distances were obtained from the operating system or hardware
+pub const HWLOC_DISTANCES_KIND_FROM_OS: hwloc_distances_kind_e = 1 << 0;
+
+/// These distances were provided by the user
+pub const HWLOC_DISTANCES_KIND_FROM_USER: hwloc_distances_kind_e = 1 << 1;
+
+/// Distance values are similar to latencies between objects
+///
+/// Values are smaller for closer objects, hence minimal on the diagonal
+/// of the matrix (distance between an object and itself).
+///
+/// It could also be the number of network hops between objects, etc.
+pub const HWLOC_DISTANCES_KIND_MEANS_LATENCY: hwloc_distances_kind_e = 1 << 2;
+
+/// Distance values are similar to bandwidths between objects
+///
+/// Values are higher for closer objects, hence maximal on the diagonal
+/// of the matrix (distance between an object and itself).
+///
+/// Such values are currently ignored for distance-based grouping.
+pub const HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH: hwloc_distances_kind_e = 1 << 3;
+
+/// This distances structure covers objects of different types
+///
+/// This may apply to the "NVLinkBandwidth" structure in presence of a
+/// NVSwitch or POWER processor NVLink port.
+#[cfg(feature = "hwloc-2_1_0")]
+pub const HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES: hwloc_distances_kind_e = 1 << 4;
+
+/// Transformations of distances structures
+///
+/// We can't use Rust enums to model C enums in FFI because that results in
+/// undefined behavior if the C API gets new enum variants and sends them to us.
+#[cfg(feature = "hwloc-2_5_0")]
+pub type hwloc_distances_transform_e = c_uint;
+
+/// Remove NULL objects from the distances structure.
+///
+/// Every object that was replaced with NULL in [`hwloc_distances_s::objects`]
+/// is removed and the matrix is updated accordingly.
+///
+/// At least 2 objects must remain, otherwise [`hwloc_distances_transform()`]
+/// will fail.
+///
+/// [`hwloc_distances_s::kind`] will be updated with or without
+/// [`HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES`] according to the remaining
+/// objects.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL: hwloc_distances_transform_e = 0;
+
+/// Replace bandwidth values with a number of links
+///
+/// Usually all values will be either 0 (no link) or 1 (one link).
+/// However some matrices could get larger values if some pairs of
+/// peers are connected by different numbers of links.
+///
+/// Values on the diagonal are set to 0.
+///
+/// This transformation only applies to bandwidth matrices.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_DISTANCES_TRANSFORM_LINKS: hwloc_distances_transform_e = 1;
+
+/// Merge switches with multiple ports into a single object
+///
+/// This currently only applies to NVSwitches where GPUs seem connected to
+/// different separate switch ports in the NVLinkBandwidth matrix.
+///
+/// This transformation will replace all switch ports with the same port
+/// connected to all GPUs.
+///
+/// Other ports are removed by applying the
+/// [`HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL`] transformation internally.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS: hwloc_distances_transform_e = 2;
+
+/// Apply a transitive closure to the matrix to connect objects across
+/// switches.
+///
+/// This currently only applies to GPUs and NVSwitches in the
+/// NVLinkBandwidth matrix.
+///
+/// All pairs of GPUs will be reported as directly connected.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE: hwloc_distances_transform_e = 3;
+
+/// Matrix of distances between a set of objects
+///
+/// This matrix often contains latencies between NUMA nodes (as reported in the
+/// System Locality Distance Information Table (SLIT) in the ACPI
+/// specification), which may or may not be physically accurate. It corresponds
+/// to the latency for accessing the memory of one node from a core in another
+/// node. The corresponding kind is [`HWLOC_DISTANCES_KIND_FROM_OS`] |
+/// [`HWLOC_DISTANCES_KIND_FROM_USER`]. The name of this distances structure is
+/// "NUMALatency".
+///
+/// The names and semantics of other distances matrices currently created by
+/// hwloc may be found
+/// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+///
+/// The matrix may also contain bandwidths between random sets of objects,
+/// possibly provided by the user, as specified in the `kind` attribute.
+///
+/// Pointers `objs` and `values` should not be replaced, reallocated, freed, etc.
+/// However callers are allowed to modify `kind` as well as the contents of `objs`
+/// and `values` arrays.
+///
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "For instance, on hwloc 2.5+, if there is a single NUMA node per Package,"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "[`hwloc_get_obj_with_same_locality()`] may be used to convert"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "between them and replace NUMA nodes in the objs array with the corresponding"
+)]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "Packages.")]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "See also [`hwloc_distances_transform()`] for applying some"
+)]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
+#[derive(Debug)]
+#[repr(C)]
+pub struct hwloc_distances_s {
+    /// Number of objects described by the distance matrix
+    pub nbobj: c_uint,
+
+    /// Array of `nbobj` objects described by the distance matrix
+    ///
+    /// These objects are not in any particular order
+    pub objs: *mut hwloc_obj_t,
+
+    /// OR'ed set of [`hwloc_distances_kind_e`].
+    pub kind: c_ulong,
+
+    /// Matrix of distances between objects, stored as a
+    /// one-dimension array of length `nbobj*nbobj`
+    ///
+    /// Distance from i-th to j-th object is stored in slot `i*nbobjs+j`. The
+    /// meaning of the value depends on the `kind` attribute.
+    pub values: *mut u64,
+}
+//
+impl Default for hwloc_distances_s {
+    fn default() -> Self {
+        Self {
+            nbobj: 0,
+            objs: ptr::null_mut(),
+            kind: 0,
+            values: ptr::null_mut(),
+        }
+    }
+}
+
+// === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+
+/// Handle to a new distances structure during its addition to the topology
+#[cfg(feature = "hwloc-2_5_0")]
+pub type hwloc_distances_add_handle_t = *mut c_void;
+
+/// Flags to be given to [`hwloc_distances_add_commit()`]
+#[cfg(feature = "hwloc-2_5_0")]
+pub type hwloc_distances_add_flag_e = c_ulong;
+
+/// Try to group objects based on the newly provided distance information
+///
+/// This is ignored for distances between objects of different types.
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_DISTANCES_ADD_FLAG_GROUP: hwloc_distances_add_flag_e = 1 << 0;
+
+/// If grouping, consider the distance values as inaccurate and relax
+/// the comparisons during the grouping algorithms. The actual accuracy
+/// may be modified through the HWLOC_GROUPING_ACCURACY environment
+/// variable (see
+/// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+#[cfg(feature = "hwloc-2_5_0")]
+pub const HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE: hwloc_distances_add_flag_e = 1 << 1;
+
 // === TODO: Remaining sections
 
 // === Entry points
-
-// TODO: More docs
 
 macro_rules! extern_c_block {
     ($link_name:literal) => {
@@ -2297,7 +2538,7 @@ macro_rules! extern_c_block {
             pub fn hwloc_distances_get(
                 topology: hwloc_const_topology_t,
                 nr: *mut c_uint,
-                distances: *mut *mut RawDistances,
+                distances: *mut *mut hwloc_distances_s,
                 kind: hwloc_distances_kind_e,
                 flags: c_ulong,
             ) -> c_int;
@@ -2306,7 +2547,7 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 depth: c_int,
                 nr: *mut c_uint,
-                distances: *mut *mut RawDistances,
+                distances: *mut *mut hwloc_distances_s,
                 kind: hwloc_distances_kind_e,
                 flags: c_ulong,
             ) -> c_int;
@@ -2315,7 +2556,7 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 ty: hwloc_obj_type_t,
                 nr: *mut c_uint,
-                distances: *mut *mut RawDistances,
+                distances: *mut *mut hwloc_distances_s,
                 kind: hwloc_distances_kind_e,
                 flags: c_ulong,
             ) -> c_int;
@@ -2325,24 +2566,24 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 name: *const c_char,
                 nr: *mut c_uint,
-                distances: *mut *mut RawDistances,
+                distances: *mut *mut hwloc_distances_s,
                 flags: c_ulong,
             ) -> c_int;
             #[cfg(feature = "hwloc-2_1_0")]
             #[must_use]
             pub fn hwloc_distances_get_name(
                 topology: hwloc_const_topology_t,
-                distances: *const RawDistances,
+                distances: *const hwloc_distances_s,
             ) -> *const c_char;
             pub fn hwloc_distances_release(
                 topology: hwloc_const_topology_t,
-                distances: *const RawDistances,
+                distances: *const hwloc_distances_s,
             );
             #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub fn hwloc_distances_transform(
                 topology: hwloc_const_topology_t,
-                distances: *mut RawDistances,
+                distances: *mut hwloc_distances_s,
                 transform: hwloc_distances_transform_e,
                 transform_attr: *mut c_void,
                 flags: c_ulong,
@@ -2357,12 +2598,12 @@ macro_rules! extern_c_block {
                 name: *const c_char,
                 kind: hwloc_distances_kind_e,
                 flags: c_ulong,
-            ) -> DistancesAddHandle;
+            ) -> hwloc_distances_add_handle_t;
             #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
             pub fn hwloc_distances_add_values(
                 topology: hwloc_topology_t,
-                handle: DistancesAddHandle,
+                handle: hwloc_distances_add_handle_t,
                 nbobjs: c_uint,
                 objs: *const *const hwloc_obj,
                 values: *const u64,
@@ -2372,7 +2613,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_distances_add_commit(
                 topology: hwloc_topology_t,
-                handle: DistancesAddHandle,
+                handle: hwloc_distances_add_handle_t,
                 flags: hwloc_distances_add_flag_e,
             ) -> c_int;
 
@@ -2391,7 +2632,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_distances_release_remove(
                 topology: hwloc_topology_t,
-                distances: *mut RawDistances,
+                distances: *mut hwloc_distances_s,
             ) -> c_int;
 
             // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html

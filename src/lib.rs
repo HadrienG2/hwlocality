@@ -35,7 +35,7 @@ pub type ProcessId = hwloc_pid_t;
 /// actually modifies the API.
 #[doc(alias = "hwloc_get_api_version")]
 pub fn get_api_version() -> usize {
-    ffi::expect_usize(unsafe { ffi::hwloc_get_api_version() })
+    ffi::expect_usize(unsafe { hwlocality_sys::hwloc_get_api_version() })
 }
 
 // Disable the alias in test builds to make sure the implementation does not

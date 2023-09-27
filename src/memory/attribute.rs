@@ -73,7 +73,7 @@ impl Topology {
         let name = LibcString::new(name)?;
         let mut id = MaybeUninit::uninit();
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
-            ffi::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
+            hwlocality_sys::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
         });
         match res {
             Ok(_positive) => Ok(Some(MemoryAttribute::wrap(self, unsafe {
@@ -111,7 +111,7 @@ impl Topology {
         let mut nr = 0;
         let call_ffi = |nr_mut, out_ptr| {
             errors::call_hwloc_int_normal("hwloc_get_local_numanode_objs", || unsafe {
-                ffi::hwloc_get_local_numanode_objs(
+                hwlocality_sys::hwloc_get_local_numanode_objs(
                     self.as_ptr(),
                     &location,
                     nr_mut,
@@ -172,7 +172,7 @@ impl<'topology> TopologyEditor<'topology> {
         let name = LibcString::new(name)?;
         let mut id = MemoryAttributeID::default();
         let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
-            ffi::hwloc_memattr_register(
+            hwlocality_sys::hwloc_memattr_register(
                 self.topology_mut_ptr(),
                 name.borrow(),
                 flags.bits(),
@@ -298,7 +298,7 @@ impl MemoryAttributeBuilder<'_, '_> {
         // Set memory attribute values
         for (initiator_ptr, (target_ptr, value)) in initiator_ptrs.zip(target_ptrs_and_values) {
             errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
-                ffi::hwloc_memattr_set_value(
+                hwlocality_sys::hwloc_memattr_set_value(
                     self.editor.topology_mut_ptr(),
                     self.id,
                     target_ptr,
@@ -481,7 +481,7 @@ impl<'topology> MemoryAttribute<'topology> {
     pub fn name(&self) -> Result<&CStr, MemoryAttributeQueryError> {
         let mut name = ptr::null();
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
-            ffi::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
+            hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
         match res {
             Ok(_positive) => {}
@@ -526,7 +526,7 @@ impl<'topology> MemoryAttribute<'topology> {
     fn dynamic_flags(&self) -> Result<MemoryAttributeFlags, MemoryAttributeQueryError> {
         let mut flags = 0;
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
-            ffi::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
+            hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
         match res {
             Ok(_positive) => Ok(MemoryAttributeFlags::from_bits_truncate(flags)),
@@ -565,7 +565,7 @@ impl<'topology> MemoryAttribute<'topology> {
         let initiator = self.checked_initiator(initiator.map(Into::into), false)?;
         let mut value = u64::MAX;
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
-            ffi::hwloc_memattr_get_value(
+            hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
                 target_node,
@@ -613,7 +613,7 @@ impl<'topology> MemoryAttribute<'topology> {
         let opt = self.get_best(
             "hwloc_memattr_get_best_target",
             |topology, attribute, flags, value| unsafe {
-                ffi::hwloc_memattr_get_best_target(
+                hwlocality_sys::hwloc_memattr_get_best_target(
                     topology,
                     attribute,
                     &initiator,
@@ -657,7 +657,7 @@ impl<'topology> MemoryAttribute<'topology> {
         let opt = self.get_best(
             "hwloc_memattr_get_best_initiator",
             |topology, attribute, flags, value| unsafe {
-                ffi::hwloc_memattr_get_best_initiator(
+                hwlocality_sys::hwloc_memattr_get_best_initiator(
                     topology,
                     attribute,
                     target,
@@ -705,7 +705,7 @@ impl<'topology> MemoryAttribute<'topology> {
             "hwloc_memattr_get_targets",
             ptr::null(),
             |topology, attribute, flags, nr, targets, values| unsafe {
-                ffi::hwloc_memattr_get_targets(
+                hwlocality_sys::hwloc_memattr_get_targets(
                     topology, attribute, &initiator, flags, nr, targets, values,
                 )
             },
@@ -748,7 +748,7 @@ impl<'topology> MemoryAttribute<'topology> {
             "hwloc_memattr_get_initiators",
             RawLocation::null(),
             |topology, attribute, flags, nr, initiators, values| unsafe {
-                ffi::hwloc_memattr_get_initiators(
+                hwlocality_sys::hwloc_memattr_get_initiators(
                     topology,
                     attribute,
                     target_node,
@@ -1044,7 +1044,7 @@ bitflags! {
     /// are selected.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_local_numanode_flag_e")]
-    #[repr(C)]
+    #[repr(transparent)]
     pub struct LocalNUMANodeFlags: c_ulong {
         /// Select NUMA nodes whose locality is larger than the given cpuset
         ///
@@ -1121,7 +1121,7 @@ bitflags! {
     /// At least one of `HIGHER_IS_BEST` and `LOWER_IS_BEST` must be set.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_memattr_flag_e")]
-    #[repr(C)]
+    #[repr(transparent)]
     pub struct MemoryAttributeFlags: c_ulong {
         /// The best nodes for this memory attribute are those with the higher
         /// values

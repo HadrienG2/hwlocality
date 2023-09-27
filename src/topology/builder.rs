@@ -1,6 +1,6 @@
 //! Building a topology with a custom configuration
 
-use super::{RawTopology, Topology};
+use super::{hwloc_topology, Topology};
 #[cfg(all(doc, feature = "hwloc-2_8_0"))]
 use crate::object::TopologyObject;
 #[cfg(all(doc, feature = "hwloc-2_5_0"))]
@@ -11,7 +11,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::topology::support::MiscSupport;
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError},
-    ffi::{self, LibcString},
+    ffi::LibcString,
     object::types::ObjectType,
     path::{self, PathError},
     ProcessId,
@@ -39,17 +39,12 @@ use hwlocality_sys::{
 };
 use libc::{EINVAL, ENOSYS};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::{
-    ffi::{c_int, c_ulong},
-    fmt::Debug,
-    path::Path,
-    ptr::NonNull,
-};
+use std::{fmt::Debug, path::Path, ptr::NonNull};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
 #[derive(Debug)]
-pub struct TopologyBuilder(NonNull<RawTopology>);
+pub struct TopologyBuilder(NonNull<hwloc_topology>);
 
 /// # Topology building
 //
@@ -67,9 +62,9 @@ impl TopologyBuilder {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn new() -> Self {
-        let mut topology: *mut RawTopology = std::ptr::null_mut();
+        let mut topology: *mut hwloc_topology = std::ptr::null_mut();
         errors::call_hwloc_int_normal("hwloc_topology_init", || unsafe {
-            ffi::hwloc_topology_init(&mut topology)
+            hwlocality_sys::hwloc_topology_init(&mut topology)
         })
         .expect("Failed to allocate topology");
         Self(NonNull::new(topology).expect("Got null pointer from hwloc_topology_init"))
@@ -93,12 +88,12 @@ impl TopologyBuilder {
     pub fn build(mut self) -> Result<Topology, RawHwlocError> {
         // Finalize the topology building
         errors::call_hwloc_int_normal("hwloc_topology_load", || unsafe {
-            ffi::hwloc_topology_load(self.as_mut_ptr())
+            hwlocality_sys::hwloc_topology_load(self.as_mut_ptr())
         })?;
 
         // If that was successful, transfer RawTopology ownership to a Topology
         if cfg!(debug_assertions) {
-            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+            unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
         let result = Topology(self.0);
         std::mem::forget(self);
@@ -139,7 +134,7 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_pid")]
     pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, HybridError<ProcessIDError>> {
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_pid", || unsafe {
-            ffi::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
+            hwlocality_sys::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
         });
         match result {
             Ok(_) => Ok(self),
@@ -174,7 +169,7 @@ impl TopologyBuilder {
     pub fn from_synthetic(mut self, description: impl AsRef<str>) -> Result<Self, TextInputError> {
         let description = LibcString::new(description)?;
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_synthetic", || unsafe {
-            ffi::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow())
+            hwlocality_sys::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow())
         });
         match result {
             Ok(_) => Ok(self),
@@ -208,7 +203,7 @@ impl TopologyBuilder {
     pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, TextInputError> {
         let xml = LibcString::new(xml)?;
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_xmlbuffer", || unsafe {
-            ffi::hwloc_topology_set_xmlbuffer(
+            hwlocality_sys::hwloc_topology_set_xmlbuffer(
                 self.as_mut_ptr(),
                 xml.borrow(),
                 xml.len()
@@ -250,7 +245,7 @@ impl TopologyBuilder {
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
         let path = path::make_hwloc_path(path)?;
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
-            ffi::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow())
+            hwlocality_sys::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow())
         });
         match result {
             Ok(_) => Ok(self),
@@ -284,7 +279,7 @@ impl TopologyBuilder {
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, HybridError<NulError>> {
         let name = LibcString::new(name)?;
         errors::call_hwloc_int_normal("hwloc_topology_set_components", || unsafe {
-            ffi::hwloc_topology_set_components(
+            hwlocality_sys::hwloc_topology_set_components(
                 self.as_mut_ptr(),
                 ComponentsFlags::BLACKLIST.bits(),
                 name.borrow(),
@@ -340,7 +335,7 @@ bitflags! {
     /// Flags to be passed to `hwloc_topology_set_components()`
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_components_flag_e")]
-    #[repr(C)]
+    #[repr(transparent)]
     pub(crate) struct ComponentsFlags: hwloc_topology_components_flag_e {
         /// Blacklist the target component from being used
         const BLACKLIST = HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST;
@@ -381,7 +376,7 @@ impl TopologyBuilder {
             return Err(HybridError::Rust(flags.into()));
         }
         errors::call_hwloc_int_normal("hwloc_topology_set_flags", || unsafe {
-            ffi::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits())
+            hwlocality_sys::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits())
         })
         .map_err(HybridError::Hwloc)?;
         Ok(self)
@@ -389,8 +384,9 @@ impl TopologyBuilder {
 
     /// Check current topology building flags (empty by default)
     pub fn flags(&self) -> BuildFlags {
-        let result =
-            BuildFlags::from_bits_truncate(unsafe { ffi::hwloc_topology_get_flags(self.as_ptr()) });
+        let result = BuildFlags::from_bits_truncate(unsafe {
+            hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
+        });
         debug_assert!(result.is_valid());
         result
     }
@@ -436,7 +432,11 @@ impl TopologyBuilder {
             _ => {}
         }
         errors::call_hwloc_int_normal("hwloc_topology_set_type_filter", || unsafe {
-            ffi::hwloc_topology_set_type_filter(self.as_mut_ptr(), ty.into(), filter.into())
+            hwlocality_sys::hwloc_topology_set_type_filter(
+                self.as_mut_ptr(),
+                ty.into(),
+                filter.into(),
+            )
         })
         .map_err(HybridError::Hwloc)?;
         Ok(self)
@@ -448,7 +448,7 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_all_types_filter")]
     pub fn with_common_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_topology_set_all_types_filter", || unsafe {
-            ffi::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into())
+            hwlocality_sys::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into())
         })?;
         Ok(self)
     }
@@ -459,7 +459,7 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_cache_types_filter")]
     pub fn with_cpu_cache_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_topology_set_cache_types_filter", || unsafe {
-            ffi::hwloc_topology_set_cache_types_filter(self.as_mut_ptr(), filter.into())
+            hwlocality_sys::hwloc_topology_set_cache_types_filter(self.as_mut_ptr(), filter.into())
         })?;
         Ok(self)
     }
@@ -473,7 +473,7 @@ impl TopologyBuilder {
         filter: TypeFilter,
     ) -> Result<Self, RawHwlocError> {
         errors::call_hwloc_int_normal("hwloc_topology_set_icache_types_filter", || unsafe {
-            ffi::hwloc_topology_set_icache_types_filter(self.as_mut_ptr(), filter.into())
+            hwlocality_sys::hwloc_topology_set_icache_types_filter(self.as_mut_ptr(), filter.into())
         })?;
         Ok(self)
     }
@@ -496,7 +496,7 @@ impl TopologyBuilder {
             return Err(TypeFilterError::StructureIrrelevant.into());
         }
         errors::call_hwloc_int_normal("hwloc_topology_set_io_types_filter", || unsafe {
-            ffi::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into())
+            hwlocality_sys::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into())
         })
         .map_err(HybridError::Hwloc)?;
         Ok(self)
@@ -504,9 +504,9 @@ impl TopologyBuilder {
 
     /// Current filtering for the given object type
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
-        let mut filter = RawTypeFilter::MAX;
+        let mut filter = hwloc_type_filter_e::MAX;
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
-            ffi::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
+            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
         Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
     }
@@ -514,9 +514,9 @@ impl TopologyBuilder {
 
 bitflags! {
     /// Topology building configuration flags
-    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_flags_e")]
-    #[repr(C)]
+    #[repr(transparent)]
     pub struct BuildFlags: hwloc_topology_flags_e {
         /// Detect the whole system, ignore reservations, include disallowed objects
         ///
@@ -715,18 +715,6 @@ impl BuildFlags {
         valid
     }
 }
-//
-impl Default for BuildFlags {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
-/// Rust mapping of the hwloc_type_filter_e enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-pub(crate) type RawTypeFilter = hwloc_type_filter_e;
 
 /// Type filtering flags
 ///
@@ -809,12 +797,12 @@ pub enum TypeFilterError {
 /// # General-purpose internal utilities
 impl TopologyBuilder {
     /// Contained hwloc topology pointer (for interaction with hwloc)
-    fn as_ptr(&self) -> *const RawTopology {
+    fn as_ptr(&self) -> *const hwloc_topology {
         self.0.as_ptr()
     }
 
     /// Contained mutable hwloc topology pointer (for interaction with hwloc)
-    fn as_mut_ptr(&mut self) -> *mut RawTopology {
+    fn as_mut_ptr(&mut self) -> *mut hwloc_topology {
         self.0.as_ptr()
     }
 }
@@ -828,9 +816,9 @@ impl Default for TopologyBuilder {
 impl Drop for TopologyBuilder {
     fn drop(&mut self) {
         if cfg!(debug_assertions) {
-            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+            unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
-        unsafe { ffi::hwloc_topology_destroy(self.as_mut_ptr()) }
+        unsafe { hwlocality_sys::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 

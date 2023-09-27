@@ -10,18 +10,16 @@
 #[cfg(doc)]
 use crate::{bitmap::Bitmap, object::types::ObjectType, topology::support::CpuBindingSupport};
 use crate::{
-    bitmap::RawBitmap,
     cpu::cpuset::CpuSet,
     errors::{self, FlagsError, HybridError, RawHwlocError},
-    ffi,
-    topology::{RawTopology, Topology},
+    topology::Topology,
     ProcessId, ThreadId,
 };
 use bitflags::bitflags;
 use derive_more::Display;
 use hwlocality_sys::{
-    hwloc_cpubind_flags_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
-    HWLOC_CPUBIND_THREAD,
+    hwloc_const_cpuset_t, hwloc_const_topology_t, hwloc_cpubind_flags_t, hwloc_cpuset_t,
+    HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT, HWLOC_CPUBIND_THREAD,
 };
 use libc::{ENOSYS, EXDEV};
 use std::{borrow::Borrow, ffi::c_int, fmt::Display};
@@ -104,7 +102,9 @@ impl Topology {
             flags,
             CpuBoundObject::ThisProgram,
             "hwloc_set_cpubind",
-            |topology, cpuset, flags| unsafe { ffi::hwloc_set_cpubind(topology, cpuset, flags) },
+            |topology, cpuset, flags| unsafe {
+                hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
+            },
         );
         match res {
             Ok(()) => Ok(()),
@@ -149,7 +149,9 @@ impl Topology {
             flags,
             CpuBoundObject::ThisProgram,
             "hwloc_get_cpubind",
-            |topology, cpuset, flags| unsafe { ffi::hwloc_get_cpubind(topology, cpuset, flags) },
+            |topology, cpuset, flags| unsafe {
+                hwlocality_sys::hwloc_get_cpubind(topology, cpuset, flags)
+            },
         )
     }
 
@@ -192,7 +194,7 @@ impl Topology {
             CpuBoundObject::ProcessOrThread,
             "hwloc_set_proc_cpubind",
             |topology, cpuset, flags| unsafe {
-                ffi::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
+                hwlocality_sys::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
             },
         )
     }
@@ -233,7 +235,7 @@ impl Topology {
             CpuBoundObject::ProcessOrThread,
             "hwloc_get_proc_cpubind",
             |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
+                hwlocality_sys::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
             },
         )
     }
@@ -268,7 +270,7 @@ impl Topology {
             CpuBoundObject::Thread,
             "hwloc_set_thread_cpubind",
             |topology, cpuset, flags| unsafe {
-                ffi::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
+                hwlocality_sys::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
             },
         )
     }
@@ -307,7 +309,7 @@ impl Topology {
             CpuBoundObject::Thread,
             "hwloc_get_thread_cpubind",
             |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
+                hwlocality_sys::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
             },
         )
     }
@@ -358,7 +360,7 @@ impl Topology {
             CpuBoundObject::ThisProgram,
             "hwloc_get_last_cpu_location",
             |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_last_cpu_location(topology, cpuset, flags)
+                hwlocality_sys::hwloc_get_last_cpu_location(topology, cpuset, flags)
             },
         )
     }
@@ -399,7 +401,7 @@ impl Topology {
             CpuBoundObject::ProcessOrThread,
             "hwloc_get_proc_last_cpu_location",
             |topology, cpuset, flags| unsafe {
-                ffi::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
+                hwlocality_sys::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
             },
         )
     }
@@ -411,7 +413,7 @@ impl Topology {
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *const RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_const_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
             return Err(CpuBindingError::from(flags).into());
@@ -431,7 +433,7 @@ impl Topology {
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.get_cpuset(flags, target, CpuBindingOperation::GetBinding, api, ffi)
     }
@@ -442,7 +444,7 @@ impl Topology {
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         self.get_cpuset(
             flags,
@@ -460,7 +462,7 @@ impl Topology {
         target: CpuBoundObject,
         operation: CpuBindingOperation,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         let Some(flags) = flags.validate(target, operation) else {
             return Err(CpuBindingError::from(flags).into());
@@ -497,6 +499,7 @@ bitflags! {
     /// trying to call for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
+    #[repr(transparent)]
     pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
         /// Assume that the current process is single threaded
         ///
