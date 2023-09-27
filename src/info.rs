@@ -12,19 +12,19 @@ use std::{ffi::CStr, fmt, hash::Hash};
 pub struct TextualInfo(hwloc_info_s);
 //
 impl TextualInfo {
-    /// Build a TextualInfo struct
+    /// Build a `hwloc_info_s` struct for hwloc consumption
     ///
     /// # Safety
     ///
     /// The resulting `TextualInfo` struct may not be used after the end of the
     /// lifetime of underlying strings `name` and `value`, and its `*mut c_char`
-    /// pointer fields should not be treated as read-only by unsafe code.
+    /// pointer fields should be treated as read-only by unsafe code.
     #[allow(unused)]
-    pub(crate) fn new(name: &LibcString, value: &LibcString) -> Self {
-        Self(hwloc_info_s {
+    pub(crate) fn new_raw(name: &LibcString, value: &LibcString) -> hwloc_info_s {
+        hwloc_info_s {
             name: name.borrow().cast_mut(),
             value: value.borrow().cast_mut(),
-        })
+        }
     }
 
     /// Info name

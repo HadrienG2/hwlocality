@@ -6,7 +6,7 @@
 use crate::errors;
 #[cfg(doc)]
 use crate::{
-    object::TopologyObject,
+    object::{depth::Depth, TopologyObject},
     topology::{
         builder::{TopologyBuilder, TypeFilter},
         support::DiscoverySupport,

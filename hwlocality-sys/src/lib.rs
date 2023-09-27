@@ -63,16 +63,13 @@ pub type hwloc_const_nodeset_t = hwloc_const_bitmap_t;
 /// A CPU set is a bitmap whose bits are set according to CPU physical OS indexes
 ///
 /// It may be consulted and modified with the bitmap API as any [`hwloc_bitmap_t`].
-///
-/// Each bit may be converted into a PU object using [`hwloc_get_pu_obj_by_os_index()`].
 pub type hwloc_cpuset_t = hwloc_bitmap_t;
 
 /// A node set is a bitmap whose bits are set according to NUMA memory node
 /// physical OS indexes
 ///
 /// It may be consulted and modified with the bitmap API as any
-/// [`hwloc_bitmap_t`]. Each bit may be converted into a NUMA node object using
-/// [`hwloc_get_numanode_obj_by_os_index()`].
+/// [`hwloc_bitmap_t`].
 ///
 /// When binding memory on a system without any NUMA node, the single main
 /// memory bank is considered as NUMA node `#0`.
@@ -433,8 +430,8 @@ pub struct hwloc_obj {
     /// NUMA nodes and Memory-side caches are listed here instead of in the
     /// normal [`children`] list. See also [`hwloc_obj_type_is_memory()`].
     ///
-    /// A memory hierarchy starts from a normal CPU-side object (e.g.[`Package`]
-    /// (HWLOC_OBJ_PACKAGE)) and ends with NUMA nodes as leaves. There might
+    /// A memory hierarchy starts from a normal CPU-side object (e.g.
+    /// [`HWLOC_OBJ_PACKAGE`]) and ends with NUMA nodes as leaves. There might
     /// exist some memory-side caches between them in the middle of the memory
     /// subtree.
     ///
@@ -471,13 +468,11 @@ pub struct hwloc_obj {
     ///
     /// If the [`HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED`] topology building
     /// configuration flag is set, some of these CPUs may be online but not
-    /// allowed for binding, see [`allowed_cpuset`].
+    /// allowed for binding, see [`hwloc_topology_get_allowed_cpuset()`].
     ///
     /// All objects have CPU and node sets except Misc and I/O objects, so if
     /// you know this object to be a normal or Memory object, you can safely
     /// assume this pointer to be non-NULL.
-    ///
-    /// [`allowed_cpuset`]: Self::allowed_cpuset
     pub cpuset: hwloc_cpuset_t,
 
     /// The complete CPU set of this object
@@ -510,7 +505,7 @@ pub struct hwloc_obj {
     ///
     /// If the [`HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED`] topology building
     /// configuration flag is set, some of these nodes may not be allowed for
-    /// allocation, see [`allowed_nodeset`].
+    /// allocation, see [`hwloc_topology_get_allowed_nodeset()`].
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to
     /// this object, so the nodeset is full.
@@ -518,8 +513,6 @@ pub struct hwloc_obj {
     /// All objects have CPU and node sets except Misc and I/O objects, so if
     /// you know this object to be a normal or Memory object, you can safely
     /// assume this pointer to be non-NULL.
-    ///
-    /// [`allowed_nodeset`]: Self::allowed_nodeset
     pub nodeset: hwloc_nodeset_t,
 
     /// The complete NUMA node set of this object
@@ -573,7 +566,7 @@ pub struct hwloc_obj {
     /// [`hwloc_obj`]s originating from a single [`hwloc_topology`].
     ///
     /// [`logical_index`]: Self::logical_index
-    /// [`os_index()`]: Self::os_index
+    /// [`os_index`]: Self::os_index
     pub gp_index: u64,
 }
 
@@ -894,7 +887,7 @@ pub const HWLOC_TYPE_DEPTH_BRIDGE: hwloc_get_type_depth_e = -4;
 /// Virtual depth for [`HWLOC_OBJ_PCI_DEVICE`]
 pub const HWLOC_TYPE_DEPTH_PCI_DEVICE: hwloc_get_type_depth_e = -5;
 
-/// Virtual depth for [`HWLOC_OS_DEVICE`]
+/// Virtual depth for [`HWLOC_OBJ_OS_DEVICE`]
 pub const HWLOC_TYPE_DEPTH_OS_DEVICE: hwloc_get_type_depth_e = -6;
 
 /// Virtual depth for [`HWLOC_OBJ_MISC`]
@@ -1212,9 +1205,10 @@ pub const HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES: hwloc_topology_flags
 /// reported by [`hwloc_topology_get_support()`].
 ///
 /// This flag allows you to actually import support bits from the remote
-/// machine. It also sets the [`hwloc_topology_misc_support::imported`] support
-/// flag. If the imported XML did not contain any support information
-/// (exporter hwloc is too old), this flag is not set.
+/// machine. It also sets the
+/// [`hwloc_topology_misc_support::imported_support`] support flag. If the
+/// imported XML did not contain any support information(exporter hwloc is too
+/// old), this flag is not set.
 ///
 /// Note that these supported features are only relevant for the hwloc
 /// installation that actually exported the XML topology (it may vary
@@ -1692,61 +1686,63 @@ pub const HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH: hwloc_distances_kind_e = 1 << 3;
 #[cfg(feature = "hwloc-2_1_0")]
 pub const HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES: hwloc_distances_kind_e = 1 << 4;
 
-/// Transformations of distances structures
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
 #[cfg(feature = "hwloc-2_5_0")]
-pub type hwloc_distances_transform_e = c_uint;
+mod distances_transform {
+    use super::*;
 
-/// Remove NULL objects from the distances structure.
-///
-/// Every object that was replaced with NULL in [`hwloc_distances_s::objects`]
-/// is removed and the matrix is updated accordingly.
-///
-/// At least 2 objects must remain, otherwise [`hwloc_distances_transform()`]
-/// will fail.
-///
-/// [`hwloc_distances_s::kind`] will be updated with or without
-/// [`HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES`] according to the remaining
-/// objects.
-#[cfg(feature = "hwloc-2_5_0")]
-pub const HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL: hwloc_distances_transform_e = 0;
+    /// Transformations of distances structures
+    ///
+    /// We can't use Rust enums to model C enums in FFI because that results in
+    /// undefined behavior if the C API gets new enum variants and sends them to us.
+    pub type hwloc_distances_transform_e = c_uint;
 
-/// Replace bandwidth values with a number of links
-///
-/// Usually all values will be either 0 (no link) or 1 (one link).
-/// However some matrices could get larger values if some pairs of
-/// peers are connected by different numbers of links.
-///
-/// Values on the diagonal are set to 0.
-///
-/// This transformation only applies to bandwidth matrices.
-#[cfg(feature = "hwloc-2_5_0")]
-pub const HWLOC_DISTANCES_TRANSFORM_LINKS: hwloc_distances_transform_e = 1;
+    /// Remove NULL objects from the distances structure.
+    ///
+    /// Every object that was replaced with NULL in [`hwloc_distances_s::objs`]
+    /// is removed and the matrix is updated accordingly.
+    ///
+    /// At least 2 objects must remain, otherwise [`hwloc_distances_transform()`]
+    /// will fail.
+    ///
+    /// [`hwloc_distances_s::kind`] will be updated with or without
+    /// [`HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES`] according to the remaining
+    /// objects.
+    pub const HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL: hwloc_distances_transform_e = 0;
 
-/// Merge switches with multiple ports into a single object
-///
-/// This currently only applies to NVSwitches where GPUs seem connected to
-/// different separate switch ports in the NVLinkBandwidth matrix.
-///
-/// This transformation will replace all switch ports with the same port
-/// connected to all GPUs.
-///
-/// Other ports are removed by applying the
-/// [`HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL`] transformation internally.
-#[cfg(feature = "hwloc-2_5_0")]
-pub const HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS: hwloc_distances_transform_e = 2;
+    /// Replace bandwidth values with a number of links
+    ///
+    /// Usually all values will be either 0 (no link) or 1 (one link).
+    /// However some matrices could get larger values if some pairs of
+    /// peers are connected by different numbers of links.
+    ///
+    /// Values on the diagonal are set to 0.
+    ///
+    /// This transformation only applies to bandwidth matrices.
+    pub const HWLOC_DISTANCES_TRANSFORM_LINKS: hwloc_distances_transform_e = 1;
 
-/// Apply a transitive closure to the matrix to connect objects across
-/// switches.
-///
-/// This currently only applies to GPUs and NVSwitches in the
-/// NVLinkBandwidth matrix.
-///
-/// All pairs of GPUs will be reported as directly connected.
+    /// Merge switches with multiple ports into a single object
+    ///
+    /// This currently only applies to NVSwitches where GPUs seem connected to
+    /// different separate switch ports in the NVLinkBandwidth matrix.
+    ///
+    /// This transformation will replace all switch ports with the same port
+    /// connected to all GPUs.
+    ///
+    /// Other ports are removed by applying the
+    /// [`HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL`] transformation internally.
+    pub const HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS: hwloc_distances_transform_e = 2;
+
+    /// Apply a transitive closure to the matrix to connect objects across
+    /// switches.
+    ///
+    /// This currently only applies to GPUs and NVSwitches in the
+    /// NVLinkBandwidth matrix.
+    ///
+    /// All pairs of GPUs will be reported as directly connected.
+    pub const HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE: hwloc_distances_transform_e = 3;
+}
 #[cfg(feature = "hwloc-2_5_0")]
-pub const HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE: hwloc_distances_transform_e = 3;
+pub use distances_transform::*;
 
 /// Matrix of distances between a set of objects
 ///
@@ -1844,6 +1840,164 @@ pub const HWLOC_DISTANCES_ADD_FLAG_GROUP: hwloc_distances_add_flag_e = 1 << 0;
 /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
 #[cfg(feature = "hwloc-2_5_0")]
 pub const HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE: hwloc_distances_add_flag_e = 1 << 1;
+
+// === Memory attributes
+
+#[cfg(feature = "hwloc-2_3_0")]
+mod memory_attributes {
+    use super::*;
+
+    // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+
+    /// Memory attribute identifier
+    ///
+    /// May be one of the `HWLOC_MEMATTR_ID_` constants or a new id returned by
+    /// [`hwloc_memattr_register()`].
+    #[doc(alias = "hwloc_memattr_id_e")]
+    pub type hwloc_memattr_id_t = c_uint;
+
+    /// Node capacity in bytes (see [`hwloc_obj::total_memory`])
+    ///
+    /// This attribute involves no initiator.
+    ///
+    /// Requires [`hwloc_topology_discovery_support::numa_memory`] to be set.
+    pub const HWLOC_MEMATTR_ID_CAPACITY: hwloc_memattr_id_t = 0;
+
+    /// Number of PUs in that locality (i.e. cpuset weight)
+    ///
+    /// Smaller locality is better. This attribute involves no initiator.
+    ///
+    /// Requires [`hwloc_topology_discovery_support::pu`] to be set.
+    pub const HWLOC_MEMATTR_ID_LOCALITY: hwloc_memattr_id_t = 1;
+
+    /// Average bandwidth in MiB/s, as seen from the given initiator location
+    ///
+    /// This is the average bandwidth for read and write accesses. If the
+    /// platform provides individual read and write bandwidths but no
+    /// explicit average value, hwloc computes and returns the average.
+    pub const HWLOC_MEMATTR_ID_BANDWIDTH: hwloc_memattr_id_t = 2;
+
+    /// Read bandwidth in MiB/s, as seen from the given initiator location
+    #[cfg(feature = "hwloc-2_8_0")]
+    pub const HWLOC_MEMATTR_ID_READ_BANDWIDTH: hwloc_memattr_id_t = 4;
+
+    /// Write bandwidth in MiB/s, as seen from the given initiator location
+    #[cfg(feature = "hwloc-2_8_0")]
+    pub const HWLOC_MEMATTR_ID_WRITE_BANDWIDTH: hwloc_memattr_id_t = 5;
+
+    /// Latency in nanoseconds, as seen from the given initiator location
+    ///
+    /// This is the average latency for read and write accesses. If the
+    /// platform value provides individual read and write latencies but no
+    /// explicit average, hwloc computes and returns the average.
+    pub const HWLOC_MEMATTR_ID_LATENCY: hwloc_memattr_id_t = 3;
+
+    /// Read latency in nanoseconds, as seen from the given initiator location
+    #[cfg(feature = "hwloc-2_8_0")]
+    pub const HWLOC_MEMATTR_ID_READ_LATENCY: hwloc_memattr_id_t = 6;
+
+    /// Write latency in nanoseconds, as seen from the given initiator location
+    #[cfg(feature = "hwloc-2_8_0")]
+    pub const HWLOC_MEMATTR_ID_WRITE_LATENCY: hwloc_memattr_id_t = 7;
+    // NOTE: If you add new attributes, add support to hwlocality's
+    //       hwloc_memattr_id_t, static_flags and MemoryAttribute constructors
+
+    /// Flags for selecting more target NUMA nodes
+    ///
+    /// By default only NUMA nodes whose locality is exactly the given location
+    /// are selected.
+    pub type hwloc_local_numanode_flag_e = c_ulong;
+
+    /// Select NUMA nodes whose locality is larger than the given cpuset
+    ///
+    /// For instance, if a single PU (or its cpuset) is given in `initiator`,
+    /// select all nodes close to the package that contains this PU.
+    pub const HWLOC_LOCAL_NUMANODE_FLAG_LARGER_LOCALITY: hwloc_local_numanode_flag_e = 1 << 0;
+
+    /// Select NUMA nodes whose locality is smaller than the given cpuset
+    ///
+    /// For instance, if a package (or its cpuset) is given in `initiator`,
+    /// also select nodes that are attached to only a half of that package.
+    pub const HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY: hwloc_local_numanode_flag_e = 1 << 1;
+
+    /// Select all NUMA nodes in the topology
+    ///
+    /// The initiator is ignored.
+    pub const HWLOC_LOCAL_NUMANODE_FLAG_ALL: hwloc_local_numanode_flag_e = 1 << 2;
+
+    /// Where to measure attributes from
+    #[derive(Copy, Clone)]
+    #[repr(C)]
+    pub struct hwloc_location {
+        /// Type of location
+        #[doc(alias = "hwloc_location::type")]
+        pub ty: hwloc_location_type_e,
+
+        /// Actual location
+        pub location: hwloc_location_u,
+    }
+
+    /// Type of location
+    ///
+    /// C enums can't be modeled as Rust enums because new variants would be UB
+    pub type hwloc_location_type_e = c_int;
+
+    /// Location is given as a cpuset, in the [`Location.cpuset`] union field
+    pub const HWLOC_LOCATION_TYPE_CPUSET: hwloc_location_type_e = 1;
+
+    /// Location is given as an object, in the [`Location.object`] union field
+    pub const HWLOC_LOCATION_TYPE_OBJECT: hwloc_location_type_e = 0;
+
+    /// Actual location
+    #[derive(Copy, Clone)]
+    #[doc(alias = "hwloc_location::hwloc_location_u")]
+    #[repr(C)]
+    pub union hwloc_location_u {
+        /// Directly provide CPU set to find NUMA nodes with corresponding
+        /// locality
+        ///
+        /// This is the only initiator type supported by most memory attribute
+        /// queries on hwloc-defined memory attributes, though `object` remains
+        /// an option for user-defined memory attributes.
+        pub cpuset: hwloc_const_cpuset_t,
+
+        /// Use a topology object as an initiator
+        ///
+        /// Most memory attribute queries on hwloc-defined memory attributes do
+        /// not support this initiator type, or translate it to a cpuset
+        /// (going up the ancestor chain if necessary). But user-defined memory
+        /// attributes may for instance use it to provide custom information
+        /// about host memory accesses performed by GPUs.
+        pub object: *const hwloc_obj,
+    }
+
+    /// Memory attribute flags
+    ///
+    /// At least one of [`HWLOC_MEMATTR_FLAG_HIGHER_FIRST`] and
+    /// [`HWLOC_MEMATTR_FLAG_LOWER_FIRST`] must be set.
+    pub type hwloc_memattr_flag_e = c_ulong;
+
+    /// The best nodes for this memory attribute are those with the higher
+    /// values
+    ///
+    /// For instance [`HWLOC_MEMATTR_ID_BANDWIDTH`].
+    pub const HWLOC_MEMATTR_FLAG_HIGHER_FIRST: hwloc_memattr_flag_e = 1 << 0;
+
+    /// The best nodes for this memory attribute are those with the lower
+    /// values
+    ///
+    /// For instance [`HWLOC_MEMATTR_ID_LATENCY`].
+    pub const HWLOC_MEMATTR_FLAG_LOWER_FIRST: hwloc_memattr_flag_e = 1 << 1;
+
+    /// The value returned for this memory attribute depends on the given
+    /// initiator
+    ///
+    /// For instance [`HWLOC_MEMATTR_ID_BANDWIDTH`] and
+    /// [`HWLOC_MEMATTR_ID_LATENCY`], but not[`HWLOC_MEMATTR_ID_CAPACITY`].
+    pub const HWLOC_MEMATTR_FLAG_NEED_INITIATOR: hwloc_memattr_flag_e = 1 << 2;
+}
+#[cfg(feature = "hwloc-2_3_0")]
+pub use memory_attributes::*;
 
 // === TODO: Remaining sections
 
@@ -2642,13 +2796,13 @@ macro_rules! extern_c_block {
             pub fn hwloc_memattr_get_by_name(
                 topology: hwloc_const_topology_t,
                 name: *const c_char,
-                id: *mut MemoryAttributeID,
+                id: *mut hwloc_memattr_id_t,
             ) -> c_int;
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_get_local_numanode_objs(
                 topology: hwloc_const_topology_t,
-                location: *const RawLocation,
+                location: *const hwloc_location,
                 nr: *mut c_uint,
                 nodes: *mut *const hwloc_obj,
                 flags: hwloc_local_numanode_flag_e,
@@ -2657,9 +2811,9 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_memattr_get_value(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
+                attribute: hwloc_memattr_id_t,
                 target_node: *const hwloc_obj,
-                initiator: *const RawLocation,
+                initiator: *const hwloc_location,
                 flags: c_ulong,
                 value: *mut u64,
             ) -> c_int;
@@ -2667,8 +2821,8 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_memattr_get_best_target(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
-                initiator: *const RawLocation,
+                attribute: hwloc_memattr_id_t,
+                initiator: *const hwloc_location,
                 flags: c_ulong,
                 best_target: *mut *const hwloc_obj,
                 value: *mut u64,
@@ -2677,10 +2831,10 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_memattr_get_best_initiator(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
+                attribute: hwloc_memattr_id_t,
                 target: *const hwloc_obj,
                 flags: c_ulong,
-                best_initiator: *mut RawLocation,
+                best_initiator: *mut hwloc_location,
                 value: *mut u64,
             ) -> c_int;
 
@@ -2690,14 +2844,14 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_memattr_get_name(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
+                attribute: hwloc_memattr_id_t,
                 name: *mut *const c_char,
             ) -> c_int;
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_memattr_get_flags(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
+                attribute: hwloc_memattr_id_t,
                 flags: *mut hwloc_memattr_flag_e,
             ) -> c_int;
             #[cfg(feature = "hwloc-2_3_0")]
@@ -2706,15 +2860,15 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
                 name: *const c_char,
                 flags: hwloc_memattr_flag_e,
-                id: *mut MemoryAttributeID,
+                id: *mut hwloc_memattr_id_t,
             ) -> c_int;
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_memattr_set_value(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
+                attribute: hwloc_memattr_id_t,
                 target_node: *const hwloc_obj,
-                initiator: *const RawLocation,
+                initiator: *const hwloc_location,
                 flags: c_ulong,
                 value: u64,
             ) -> c_int;
@@ -2722,8 +2876,8 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_memattr_get_targets(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
-                initiator: *const RawLocation,
+                attribute: hwloc_memattr_id_t,
+                initiator: *const hwloc_location,
                 flags: c_ulong,
                 nr: *mut c_uint,
                 targets: *mut *const hwloc_obj,
@@ -2733,11 +2887,11 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_memattr_get_initiators(
                 topology: hwloc_const_topology_t,
-                attribute: MemoryAttributeID,
+                attribute: hwloc_memattr_id_t,
                 target_node: *const hwloc_obj,
                 flags: c_ulong,
                 nr: *mut c_uint,
-                initiators: *mut RawLocation,
+                initiators: *mut hwloc_location,
                 values: *mut u64,
             ) -> c_int;
 

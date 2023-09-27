@@ -21,8 +21,6 @@ use crate::{
     memory::nodeset::NodeSet,
     topology::Topology,
 };
-#[cfg(feature = "hwloc-2_3_0")]
-use hwlocality_sys::hwloc_obj_attr_u;
 use hwlocality_sys::{hwloc_get_type_depth_e, hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
 use std::{
@@ -441,7 +439,7 @@ impl Topology {
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
             );
-            unsafe { &*ptr.cast() }
+            unsafe { ffi::as_newtype(&*ptr) }
         })
     }
 
@@ -832,14 +830,14 @@ impl Topology {
         let ptr = unsafe {
             hwlocality_sys::hwloc_get_obj_with_same_locality(
                 self.as_ptr(),
-                src,
+                &src.0,
                 ty.into(),
                 borrow_pchar(&subtype),
                 borrow_pchar(&name_prefix),
                 0,
             )
         };
-        Ok((!ptr.is_null()).then(|| unsafe { &*ptr }))
+        Ok((!ptr.is_null()).then(|| unsafe { ffi::as_newtype(&*ptr) }))
     }
 }
 
@@ -966,7 +964,7 @@ impl Topology {
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
 #[repr(transparent)]
-pub struct TopologyObject(hwloc_obj);
+pub struct TopologyObject(pub(crate) hwloc_obj);
 
 /// # Basic identity
 impl TopologyObject {
@@ -1011,12 +1009,6 @@ impl TopologyObject {
     #[doc(alias = "hwloc_obj::attr")]
     pub fn attributes(&self) -> Option<ObjectAttributes> {
         unsafe { ObjectAttributes::new(self.object_type(), &self.0.attr) }
-    }
-
-    /// Unsafe access to object type-specific attributes
-    #[cfg(feature = "hwloc-2_3_0")]
-    pub(crate) fn raw_attributes(&mut self) -> Option<&mut hwloc_obj_attr_u> {
-        unsafe { ffi::deref_mut_ptr(&mut self.0.attr) }
     }
 
     /// The OS-provided physical index number
@@ -1334,7 +1326,7 @@ impl TopologyObject {
         (0..self.normal_arity()).map(move |offset| {
             let child = unsafe { *self.0.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
-            unsafe { &*child.cast() }
+            unsafe { ffi::as_newtype(&*child) }
         })
     }
 
@@ -1467,7 +1459,7 @@ impl TopologyObject {
         let mut current = first;
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
-            let result: &TopologyObject = unsafe { &*current.cast() };
+            let result: &TopologyObject = unsafe { ffi::as_newtype(&*current) };
             current = result.0.next_sibling;
             result
         })
@@ -1655,7 +1647,10 @@ impl TopologyObject {
             return &[];
         }
         unsafe {
-            std::slice::from_raw_parts(self.0.infos.cast(), ffi::expect_usize(self.0.infos_count))
+            std::slice::from_raw_parts(
+                self.0.infos.cast::<TextualInfo>(),
+                ffi::expect_usize(self.0.infos_count),
+            )
         }
     }
 

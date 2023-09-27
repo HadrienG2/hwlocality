@@ -16,6 +16,7 @@ use crate::{
     bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap, RawBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
+    ffi,
     memory::nodeset::NodeSet,
     object::{types::ObjectType, TopologyObject},
 };
@@ -255,7 +256,7 @@ impl Topology {
 
         // This is correct because the output reference will be bound the the
         // lifetime of &self by the borrow checker.
-        unsafe { ptr.cast().as_ref() }
+        unsafe { ffi::as_newtype(ptr.as_ref()) }
     }
 
     /// Quickly check a support flag

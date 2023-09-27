@@ -289,31 +289,31 @@ impl MemoryBindingSupport {
 
     /// First-touch policy is supported
     #[doc(alias = "hwloc_topology_membind_support::firsttouch_membind")]
-    pub fn first_touch(&self) -> bool {
+    pub fn first_touch_policy(&self) -> bool {
         support_flag(self.0.firsttouch_membind)
     }
 
     /// Bind policy is supported
     #[doc(alias = "hwloc_topology_membind_support::bind_membind")]
-    pub fn bind(&self) -> bool {
+    pub fn bind_policy(&self) -> bool {
         support_flag(self.0.bind_membind)
     }
 
     /// Interleave policy is supported
     #[doc(alias = "hwloc_topology_membind_support::interleave_membind")]
-    pub fn interleave(&self) -> bool {
+    pub fn interleave_policy(&self) -> bool {
         support_flag(self.0.interleave_membind)
     }
 
     /// Next-touch migration policy is supported
     #[doc(alias = "hwloc_topology_membind_support::nexttouch_membind")]
-    pub fn next_touch(&self) -> bool {
+    pub fn next_touch_policy(&self) -> bool {
         support_flag(self.0.nexttouch_membind)
     }
 
     /// Migration flag is supported
     #[doc(alias = "hwloc_topology_membind_support::migrate_membind")]
-    pub fn migrate(&self) -> bool {
+    pub fn migrate_flag(&self) -> bool {
         support_flag(self.0.migrate_membind)
     }
 }

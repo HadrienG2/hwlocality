@@ -156,7 +156,9 @@ impl Topology {
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
-        let infos = unsafe { std::slice::from_raw_parts(infos, ffi::expect_usize(nr_infos)) };
+        let infos = unsafe {
+            std::slice::from_raw_parts(infos.cast::<TextualInfo>(), ffi::expect_usize(nr_infos))
+        };
         (cpuset, efficiency, infos)
     }
 
@@ -255,7 +257,7 @@ impl<'topology> TopologyEditor<'topology> {
             let new_string =
                 |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
-            infos_ptrs.push(TextualInfo::new(&name, &value));
+            infos_ptrs.push(TextualInfo::new_raw(&name, &value));
             infos.push((name, value));
         }
         let num_infos =

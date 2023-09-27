@@ -5,12 +5,6 @@
 //! but do not clearly belong in any other module.
 
 use crate::errors::NulError;
-#[cfg(feature = "hwloc-2_4_0")]
-use crate::info::TextualInfo;
-#[cfg(feature = "hwloc-2_3_0")]
-use crate::memory::attribute::{MemoryAttributeID, RawLocation};
-#[cfg(feature = "hwloc-2_5_0")]
-use crate::object::distance::{DistancesAddHandle, RawDistancesTransform};
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr},
     fmt,
@@ -35,7 +29,7 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
         .expect("Expected on any platform supported by hwloc")
 }
 
-/// Translate a reference to an hwloc type into one to the matching wrapper
+/// Translate a &-reference to an hwloc type into one to the matching wrapper
 /// type
 ///
 /// # Safety
@@ -43,7 +37,18 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
 /// `NewT` must be a `repr(transparent)` newtype of `T`
 pub(crate) unsafe fn as_newtype<T, NewT>(raw: &T) -> &NewT {
     let ptr: *const T = raw;
-    &*ptr.cast()
+    &*ptr.cast::<NewT>()
+}
+
+/// Translate an &mut-reference to an hwloc type into one to the matching
+/// wrapper type
+///
+/// # Safety
+///
+/// `NewT` must be a `repr(transparent)` newtype of `T`
+pub(crate) unsafe fn as_newtype_mut<T, NewT>(raw: &mut T) -> &mut NewT {
+    let ptr: *mut T = raw;
+    &mut *ptr.cast::<NewT>()
 }
 
 /// Dereference a C pointer with correct lifetime (*const -> & version)
@@ -60,15 +65,10 @@ pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
 ///
 /// - `NewT` must be a `repr(transparent)` newtype of `T`
 pub(crate) unsafe fn deref_ptr_newtype<T, NewT>(p: &*const T) -> Option<&NewT> {
-    if p.is_null() {
-        return None;
-    }
-    let casted = (*p).cast::<NewT>();
-    Some(unsafe { &*casted })
+    deref_ptr(p).map(|r| as_newtype(r))
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> & version)
-#[allow(unused)]
 pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
     if p.is_null() {
         return None;
@@ -82,11 +82,7 @@ pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
 ///
 /// - `NewT` must be a `repr(transparent)` newtype of `T`
 pub(crate) unsafe fn deref_ptr_mut_newtype<T, NewT>(p: &*mut T) -> Option<&NewT> {
-    if p.is_null() {
-        return None;
-    }
-    let casted = (*p).cast::<NewT>();
-    Some(unsafe { &*casted })
+    deref_ptr_mut(p).map(|r| as_newtype(r))
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> &mut version)
@@ -96,6 +92,16 @@ pub(crate) unsafe fn deref_mut_ptr<T>(p: &mut *mut T) -> Option<&mut T> {
         return None;
     }
     Some(unsafe { &mut **p })
+}
+
+/// Like [`deref_mut_ptr()`], but performs a cast to a newtype along the way
+///
+/// # Safety
+///
+/// - `NewT` must be a `repr(transparent)` newtype of `T`
+#[allow(unused)]
+pub(crate) unsafe fn deref_mut_ptr_newtype<T, NewT>(p: &mut *mut T) -> Option<&mut NewT> {
+    deref_mut_ptr(p).map(|r| as_newtype_mut(r))
 }
 
 /// Dereference a C-style string with correct lifetime

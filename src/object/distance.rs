@@ -23,10 +23,10 @@ use hwlocality_sys::{
 };
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
-    hwloc_distances_add_flag_e, hwloc_distances_add_handle_t, hwloc_distances_transform_e,
-    HWLOC_DISTANCES_ADD_FLAG_GROUP, HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE,
-    HWLOC_DISTANCES_TRANSFORM_LINKS, HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
-    HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL, HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
+    hwloc_distances_add_flag_e, hwloc_obj, HWLOC_DISTANCES_ADD_FLAG_GROUP,
+    HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE, HWLOC_DISTANCES_TRANSFORM_LINKS,
+    HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
+    HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 };
 use std::{
     debug_assert,
@@ -268,7 +268,7 @@ impl TopologyEditor<'_> {
             }
             .into());
         }
-        let objs = objects.as_ptr().cast::<*const TopologyObject>();
+        let objs = objects.as_ptr().cast::<*const hwloc_obj>();
         let values = distances.as_ptr();
 
         // Create new empty distances structure
@@ -589,7 +589,7 @@ impl<'topology> Distances<'topology> {
            + ExactSizeIterator
            + FusedIterator {
         unsafe {
-            let objs: *mut *const TopologyObject = self.inner().objs.cast();
+            let objs = self.inner().objs.cast::<*const TopologyObject>();
             let objs = std::slice::from_raw_parts(objs.cast_const(), self.num_objects());
             objs.iter().map(|ptr| ffi::deref_ptr(ptr))
         }
@@ -610,7 +610,7 @@ impl<'topology> Distances<'topology> {
 
     /// Access the raw array of object pointers
     fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
-        let objs: *mut *const TopologyObject = self.inner().objs.cast();
+        let objs = self.inner().objs.cast::<*const TopologyObject>();
         unsafe { std::slice::from_raw_parts_mut(objs, self.num_objects()) }
     }
 
@@ -729,7 +729,7 @@ impl<'topology> Distances<'topology> {
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
     {
-        let objs: *mut *const TopologyObject = self.inner().objs.cast();
+        let objs = self.inner().objs.cast::<*const TopologyObject>();
         let objects = unsafe { std::slice::from_raw_parts(objs, self.num_objects()) };
         self.enumerate_distances_mut()
             .map(move |((sender_idx, receiver_idx), distance)| {
