@@ -1,7 +1,9 @@
 #![allow(non_camel_case_types)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(doc)))]
+#![deny(rustdoc::broken_intra_doc_links)]
 // FIXME: Bring back #![deny(missing_docs)]
+#![doc = include_str!("../README.md")]
 
 #[cfg(target_os = "linux")]
 use libc::pid_t;
