@@ -207,7 +207,7 @@ fn setup_hwloc() {
 
 fn main() {
     // We don't need hwloc on docs.rs since it only builds the docs
-    if !std::env::var("DOCS_RS").is_ok() {
+    if std::env::var("DOCS_RS").is_err() {
         setup_hwloc();
     }
 }
