@@ -13,6 +13,10 @@ use std::{
 
 // === Things which are not part of the main hwloc documentation
 
+/// pid_t placeholder for rustdoc
+#[cfg(all(doc, not(target_os = "linux")))]
+struct pid_t;
+
 /// Rust model of a C incomplete type (struct declaration without a definition)
 ///
 /// From <https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs>
@@ -327,6 +331,7 @@ pub const HWLOC_OBJ_DIE: hwloc_obj_type_t = 19;
 
 // === Object Structure and Attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__objects.html
 
+/// Hardware topology object
 #[derive(Debug)]
 #[repr(C)]
 pub struct hwloc_obj {
@@ -1962,10 +1967,10 @@ mod memory_attributes {
     /// C enums can't be modeled as Rust enums because new variants would be UB
     pub type hwloc_location_type_e = c_int;
 
-    /// Location is given as a cpuset, in the [`Location.cpuset`] union field
+    /// Location is given as a cpuset, in the [`hwloc_location_u::cpuset`] union field
     pub const HWLOC_LOCATION_TYPE_CPUSET: hwloc_location_type_e = 1;
 
-    /// Location is given as an object, in the [`Location.object`] union field
+    /// Location is given as an object, in the [`hwloc_location_u::object`] union field
     pub const HWLOC_LOCATION_TYPE_OBJECT: hwloc_location_type_e = 0;
 
     /// Actual location
@@ -2952,28 +2957,28 @@ macro_rules! extern_c_block {
 
             // === Linux-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
 
-            #[cfg(target_os = "linux")]
+            #[cfg(any(doc, target_os = "linux"))]
             #[must_use]
             pub fn hwloc_linux_set_tid_cpubind(
                 topology: hwloc_const_topology_t,
                 tid: pid_t,
                 set: hwloc_const_cpuset_t,
             ) -> c_int;
-            #[cfg(target_os = "linux")]
+            #[cfg(any(doc, target_os = "linux"))]
             #[must_use]
             pub fn hwloc_linux_get_tid_cpubind(
                 topology: hwloc_const_topology_t,
                 tid: pid_t,
                 set: hwloc_cpuset_t,
             ) -> c_int;
-            #[cfg(target_os = "linux")]
+            #[cfg(any(doc, target_os = "linux"))]
             #[must_use]
             pub fn hwloc_linux_get_tid_last_cpu_location(
                 topology: hwloc_const_topology_t,
                 tid: pid_t,
                 set: hwloc_cpuset_t,
             ) -> c_int;
-            #[cfg(target_os = "linux")]
+            #[cfg(any(doc, target_os = "linux"))]
             #[must_use]
             pub fn hwloc_linux_read_path_as_cpumask(
                 path: *const c_char,
@@ -2984,13 +2989,13 @@ macro_rules! extern_c_block {
 
             // === Windows-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
 
-            #[cfg(all(feature = "hwloc-2_5_0", target_os = "windows"))]
+            #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
             #[must_use]
             pub fn hwloc_windows_get_nr_processor_groups(
                 topology: hwloc_const_topology_t,
                 flags: c_ulong,
             ) -> c_int;
-            #[cfg(all(feature = "hwloc-2_5_0", target_os = "windows"))]
+            #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
             #[must_use]
             pub fn hwloc_windows_get_processor_group_cpuset(
                 topology: hwloc_const_topology_t,
