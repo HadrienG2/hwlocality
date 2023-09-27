@@ -35,7 +35,7 @@ runs:
       run: |
           curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
           cd hwloc-${{ inputs.hwloc-version }}
-          ./configure --prefix="${HOME}/hwloc" --enable-debug
+          ./configure --prefix="${HOME}/hwloc" --enable-debug --enable-static
           make -j$(nproc)
           make install
           cd ..
