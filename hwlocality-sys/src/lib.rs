@@ -1,14 +1,212 @@
+// Last allow-by-default lint review performed as of Rust 1.72
 #![allow(non_camel_case_types)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(doc)))]
-#![deny(rustdoc::broken_intra_doc_links)]
-// FIXME: Bring back #![deny(missing_docs)]
+#![deny(
+    clippy::as_ptr_cast_mut,
+    clippy::as_underscore,
+    clippy::assertions_on_result_states,
+    clippy::bool_to_int_with_if,
+    clippy::borrow_as_ptr,
+    clippy::branches_sharing_code,
+    clippy::cargo_common_metadata,
+    clippy::case_sensitive_file_extension_comparisons,
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_ptr_alignment,
+    clippy::cast_sign_loss,
+    clippy::checked_conversions,
+    clippy::clear_with_drain,
+    clippy::clone_on_ref_ptr,
+    clippy::cloned_instead_of_copied,
+    clippy::cognitive_complexity,
+    clippy::collection_is_never_read,
+    clippy::create_dir,
+    clippy::debug_assert_with_mut_call,
+    clippy::decimal_literal_representation,
+    clippy::derive_partial_eq_without_eq,
+    clippy::doc_link_with_quotes,
+    clippy::doc_markdown,
+    clippy::empty_drop,
+    clippy::empty_enum,
+    clippy::empty_line_after_doc_comments,
+    clippy::empty_line_after_outer_attr,
+    clippy::empty_structs_with_brackets,
+    clippy::enum_glob_use,
+    clippy::equatable_if_let,
+    clippy::exit,
+    clippy::expl_impl_clone_on_copy,
+    clippy::explicit_deref_methods,
+    clippy::explicit_into_iter_loop,
+    clippy::explicit_iter_loop,
+    clippy::fallible_impl_from,
+    clippy::filter_map_next,
+    clippy::flat_map_option,
+    clippy::float_cmp,
+    clippy::float_cmp_const,
+    clippy::fn_to_numeric_cast_any,
+    clippy::format_push_string,
+    clippy::from_iter_instead_of_collect,
+    clippy::get_unwrap,
+    clippy::if_not_else,
+    clippy::if_then_some_else_none,
+    clippy::implicit_clone,
+    clippy::implicit_hasher,
+    clippy::imprecise_flops,
+    clippy::index_refutable_slice,
+    clippy::inline_always,
+    clippy::invalid_upcast_comparisons,
+    clippy::iter_not_returning_iterator,
+    clippy::iter_on_empty_collections,
+    clippy::iter_on_single_items,
+    clippy::iter_with_drain,
+    clippy::large_digit_groups,
+    clippy::large_stack_arrays,
+    clippy::large_types_passed_by_value,
+    clippy::linkedlist,
+    clippy::macro_use_imports,
+    clippy::manual_assert,
+    clippy::manual_clamp,
+    clippy::manual_instant_elapsed,
+    clippy::manual_let_else,
+    clippy::manual_ok_or,
+    clippy::manual_string_new,
+    clippy::many_single_char_names,
+    clippy::map_unwrap_or,
+    clippy::match_bool,
+    clippy::match_same_arms,
+    clippy::match_wildcard_for_single_variants,
+    clippy::mismatching_type_param_order,
+    clippy::missing_assert_message,
+    clippy::missing_docs_in_private_items,
+    clippy::missing_errors_doc,
+    clippy::missing_fields_in_debug,
+    clippy::mixed_read_write_in_expression,
+    clippy::mut_mut,
+    clippy::mutex_atomic,
+    clippy::mutex_integer,
+    clippy::naive_bytecount,
+    clippy::needless_collect,
+    clippy::needless_continue,
+    clippy::needless_for_each,
+    clippy::negative_feature_names,
+    clippy::no_mangle_with_rust_abi,
+    clippy::non_send_fields_in_send_ty,
+    clippy::nonstandard_macro_braces,
+    clippy::option_if_let_else,
+    clippy::option_option,
+    clippy::or_fun_call,
+    clippy::partial_pub_fields,
+    clippy::path_buf_push_overwrite,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::ptr_as_ptr,
+    clippy::ptr_cast_constness,
+    clippy::pub_without_shorthand,
+    clippy::range_minus_one,
+    clippy::range_plus_one,
+    clippy::rc_buffer,
+    clippy::rc_mutex,
+    clippy::redundant_clone,
+    clippy::redundant_closure_for_method_calls,
+    clippy::redundant_feature_names,
+    clippy::ref_option_ref,
+    clippy::ref_patterns,
+    clippy::rest_pat_in_fully_bound_structs,
+    clippy::same_functions_in_if_condition,
+    clippy::self_named_module_files,
+    clippy::semicolon_inside_block,
+    clippy::semicolon_outside_block,
+    clippy::significant_drop_in_scrutinee,
+    clippy::similar_names,
+    clippy::single_match_else,
+    clippy::str_to_string,
+    clippy::string_add,
+    clippy::string_lit_as_bytes,
+    clippy::string_to_string,
+    clippy::suboptimal_flops,
+    clippy::suspicious_operation_groupings,
+    clippy::tests_outside_test_module,
+    clippy::todo,
+    clippy::too_many_lines,
+    clippy::trailing_empty_array,
+    clippy::transmute_ptr_to_ptr,
+    clippy::trivial_regex,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::try_err,
+    clippy::type_repetition_in_bounds,
+    clippy::undocumented_unsafe_blocks,
+    clippy::unicode_not_nfc,
+    clippy::unimplemented,
+    clippy::uninlined_format_args,
+    clippy::unnecessary_box_returns,
+    clippy::unnecessary_join,
+    clippy::unnecessary_safety_comment,
+    clippy::unnecessary_safety_doc,
+    clippy::unnecessary_self_imports,
+    clippy::unnecessary_struct_initialization,
+    clippy::unnecessary_wraps,
+    clippy::unneeded_field_pattern,
+    clippy::unnested_or_patterns,
+    clippy::unreadable_literal,
+    clippy::unsafe_derive_deserialize,
+    clippy::unused_async,
+    clippy::unused_peekable,
+    clippy::unused_rounding,
+    clippy::unwrap_used,
+    clippy::use_debug,
+    clippy::use_self,
+    clippy::used_underscore_binding,
+    clippy::useless_let_if_seq,
+    clippy::verbose_bit_mask,
+    clippy::verbose_file_reads,
+    clippy::wildcard_dependencies,
+    clippy::wildcard_enum_match_arm,
+    clippy::wildcard_imports,
+    clippy::zero_sized_map_values,
+    invalid_reference_casting,
+    macro_use_extern_crate,
+    missing_abi,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    // FIXME: Bring back missing_docs,
+    non_ascii_idents,
+    pointer_structural_match,
+    rust_2018_compatibility,
+    rust_2021_compatibility,
+    rustdoc::bare_urls,
+    rustdoc::broken_intra_doc_links,
+    rustdoc::invalid_codeblock_attributes,
+    rustdoc::invalid_html_tags,
+    rustdoc::invalid_rust_codeblocks,
+    rustdoc::missing_crate_level_docs,
+    rustdoc::private_intra_doc_links,
+    rustdoc::unescaped_backticks,
+    trivial_casts,
+    trivial_numeric_casts,
+    unreachable_pub,
+    unsafe_op_in_unsafe_fn,
+    variant_size_differences
+)]
+#![warn(
+    clippy::dbg_macro,
+    future_incompatible,
+    keyword_idents,
+    let_underscore,
+    meta_variable_misuse,
+    noop_method_call,
+    rust_2018_idioms,
+    unused
+)]
 #![doc = include_str!("../README.md")]
 
 #[cfg(target_os = "linux")]
 use libc::pid_t;
 use std::{
     ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulong, c_ushort, c_void},
+    fmt::Debug,
     marker::{PhantomData, PhantomPinned},
     ptr,
 };
@@ -28,7 +226,15 @@ struct pid_t;
 /// blindly pass to the hwloc API.
 #[repr(C)]
 struct IncompleteType {
+    /// Stolen from
+    /// <https://doc.rust-lang.org/nomicon/ffi.html#representing-opaque-structs>
+    ///
+    /// No idea why the original author thought the `_marker` field is not
+    /// sufficient, but the authors of this book tend to be more well-versed
+    /// into compiler black magic than I do, so let's keep it that way...
     _data: [u8; 0],
+
+    /// Ensures `Send`, `Sync` and `Unpin` are not implemented
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
 
@@ -143,22 +349,26 @@ pub const HWLOC_OBJ_OSDEV_GPU: hwloc_obj_osdev_type_t = 1;
 /// For instance the "eth0" interface on Linux.
 pub const HWLOC_OBJ_OSDEV_NETWORK: hwloc_obj_osdev_type_t = 2;
 
+#[allow(clippy::doc_markdown)]
 /// Operating system openfabrics device
 ///
 /// For instance the "mlx4_0" InfiniBand HCA, "hfi1_0" Omni-Path interface,
 /// or "bxi0" Atos/Bull BXI HCA on Linux.
 pub const HWLOC_OBJ_OSDEV_OPENFABRICS: hwloc_obj_osdev_type_t = 3;
 
+#[allow(clippy::doc_markdown)]
 /// Operating system dma engine device
 ///
 /// For instance the "dma0chan0" DMA channel on Linux.
 pub const HWLOC_OBJ_OSDEV_DMA: hwloc_obj_osdev_type_t = 4;
 
+#[allow(clippy::doc_markdown)]
 /// Operating system co-processor device
 ///
 /// For instance "opencl0d0" for a OpenCL device, "cuda0" for a CUDA device.
 pub const HWLOC_OBJ_OSDEV_COPROC: hwloc_obj_osdev_type_t = 5;
 
+#[allow(clippy::doc_markdown)]
 /// Operating system memory device
 ///
 /// For instance DAX file for non-volatile or high-bandwidth memory, like
@@ -301,7 +511,7 @@ pub const HWLOC_OBJ_OS_DEVICE: hwloc_obj_type_t = 16;
 ///
 /// Objects without particular meaning, that can e.g. be added by the
 /// application for its own use, or by hwloc for miscellaneous objects such
-/// as MemoryModule (DIMMs).
+/// as memory modules (DIMMs).
 ///
 /// They are not added to the topology unless their filtering is
 /// changed (see [`hwloc_topology_set_type_filter()`]).
@@ -607,6 +817,12 @@ pub union hwloc_obj_attr_u {
     /// [`HWLOC_OBJ_OS_DEVICE`]-specific attributes
     pub osdev: hwloc_osdev_attr_s,
 }
+//
+impl Debug for hwloc_obj_attr_u {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("hwloc_obj_attr_u").finish_non_exhaustive()
+    }
+}
 
 /// [`HWLOC_OBJ_NUMANODE`]-specific attributes
 #[derive(Copy, Clone, Debug)]
@@ -795,6 +1011,16 @@ pub struct hwloc_bridge_attr_s {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::depth")]
     pub depth: c_uint,
 }
+//
+impl Debug for hwloc_bridge_attr_s {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("hwloc_bridge_attr_s")
+            .field("upstream_type", &self.upstream_type)
+            .field("downstream_type", &self.downstream_type)
+            .field("depth", &self.depth)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Upstream device attributes
 #[derive(Copy, Clone)]
@@ -802,6 +1028,13 @@ pub struct hwloc_bridge_attr_s {
 pub union RawUpstreamAttributes {
     /// PCI-specific attributes
     pub pci: hwloc_pcidev_attr_s,
+}
+//
+impl Debug for RawUpstreamAttributes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawUpstreamAttributes")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Downstream PCI device attributes
@@ -824,6 +1057,13 @@ pub struct RawDownstreamPCIAttributes {
 pub union RawDownstreamAttributes {
     /// PCI-specific attributes
     pub pci: RawDownstreamPCIAttributes,
+}
+//
+impl Debug for RawDownstreamAttributes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawDownstreamAttributes")
+            .finish_non_exhaustive()
+    }
 }
 
 /// [`HWLOC_OBJ_OS_DEVICE`]-specific attributes
@@ -862,6 +1102,7 @@ pub struct hwloc_info_s {
 /// This type purposely implements no traits, not even Debug, because you should
 /// never, ever deal with it directly, only with raw pointers to it that you
 /// blindly pass to the hwloc API.
+#[allow(missing_debug_implementations)]
 #[repr(C)]
 pub struct hwloc_topology(IncompleteType);
 
@@ -1543,6 +1784,8 @@ pub const HWLOC_TYPE_FILTER_KEEP_IMPORTANT: hwloc_type_filter_e = 3;
 
 // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
 
+/// Module existing solely to apply a common hwloc version gate
+#[allow(clippy::wildcard_imports)]
 #[cfg(feature = "hwloc-2_3_0")]
 mod topology_editing {
     use super::*;
@@ -1614,6 +1857,7 @@ pub use topology_editing::*;
 /// This type purposely implements no traits, not even Debug, because you should
 /// never, ever deal with it directly, only with raw pointers to it that you
 /// blindly pass to the hwloc API.
+#[allow(missing_debug_implementations)]
 #[repr(C)]
 pub struct hwloc_bitmap_s(IncompleteType);
 
@@ -1713,6 +1957,8 @@ pub const HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH: hwloc_distances_kind_e = 1 << 3;
 #[cfg(feature = "hwloc-2_1_0")]
 pub const HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES: hwloc_distances_kind_e = 1 << 4;
 
+/// Module existing solely to apply a common hwloc version gate
+#[allow(clippy::wildcard_imports)]
 #[cfg(feature = "hwloc-2_5_0")]
 mod distances_transform {
     use super::*;
@@ -1862,7 +2108,7 @@ pub const HWLOC_DISTANCES_ADD_FLAG_GROUP: hwloc_distances_add_flag_e = 1 << 0;
 
 /// If grouping, consider the distance values as inaccurate and relax
 /// the comparisons during the grouping algorithms. The actual accuracy
-/// may be modified through the HWLOC_GROUPING_ACCURACY environment
+/// may be modified through the `HWLOC_GROUPING_ACCURACY` environment
 /// variable (see
 /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1870,6 +2116,8 @@ pub const HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE: hwloc_distances_add_flag_e 
 
 // === Memory attributes
 
+/// Module existing solely to apply a common hwloc version gate
+#[allow(clippy::wildcard_imports)]
 #[cfg(feature = "hwloc-2_3_0")]
 mod memory_attributes {
     use super::*;
@@ -1967,6 +2215,14 @@ mod memory_attributes {
         /// Actual location
         pub location: hwloc_location_u,
     }
+    //
+    impl Debug for hwloc_location {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("hwloc_location")
+                .field("type", &self.ty)
+                .finish_non_exhaustive()
+        }
+    }
 
     /// Type of location
     ///
@@ -2001,6 +2257,12 @@ mod memory_attributes {
         /// about host memory accesses performed by GPUs.
         pub object: *const hwloc_obj,
     }
+    //
+    impl Debug for hwloc_location_u {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("hwloc_location_u").finish_non_exhaustive()
+        }
+    }
 
     /// Memory attribute flags
     ///
@@ -2034,6 +2296,7 @@ pub use memory_attributes::*;
 
 // === Entry points
 
+/// Implement all the entry points with the right link name
 macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]
