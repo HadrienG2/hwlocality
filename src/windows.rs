@@ -37,7 +37,7 @@ impl Topology {
         //         - Per documentation, flags must be zero
         let count =
             errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
-                ffi::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
+                hwlocality_sys::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
             })?;
         let count = NonZeroUsize::new(int::expect_usize(count))
             .expect("Unexpected 0 processor group count");
@@ -76,7 +76,7 @@ impl Topology {
                 errors::call_hwloc_int_normal(
                     "hwloc_windows_get_processor_group_cpuset",
                     || unsafe {
-                        ffi::hwloc_windows_get_processor_group_cpuset(
+                        hwlocality_sys::hwloc_windows_get_processor_group_cpuset(
                             self.as_ptr(),
                             pg_index,
                             set.as_mut_ptr(),

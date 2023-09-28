@@ -26,15 +26,16 @@
 
 use crate::ffi::int::PositiveInt;
 #[cfg(doc)]
-use crate::object::{types::ObjectType, TopologyObject};
+use crate::object::types::ObjectType;
+#[cfg(feature = "hwloc-2_1_0")]
+use hwlocality_sys::HWLOC_TYPE_DEPTH_MEMCACHE;
+use hwlocality_sys::{
+    hwloc_get_type_depth_e, HWLOC_TYPE_DEPTH_BRIDGE, HWLOC_TYPE_DEPTH_MISC,
+    HWLOC_TYPE_DEPTH_MULTIPLE, HWLOC_TYPE_DEPTH_NUMANODE, HWLOC_TYPE_DEPTH_OS_DEVICE,
+    HWLOC_TYPE_DEPTH_PCI_DEVICE, HWLOC_TYPE_DEPTH_UNKNOWN,
+};
 use std::{ffi::c_int, fmt, num::TryFromIntError};
 use thiserror::Error;
-
-/// Rust mapping of the `hwloc_get_type_depth_e` enum
-///
-/// We can't use Rust enums to model C enums in FFI because that results in
-/// undefined behavior if the C API gets new enum variants and sends them to us.
-pub(crate) type RawDepth = c_int;
 
 /// Depth of a normal object (not Memory, I/O or Misc)
 pub type NormalDepth = PositiveInt;
@@ -43,7 +44,7 @@ pub type NormalDepth = PositiveInt;
 ///
 /// See the [module-level documentation](self) for context.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-#[doc(alias("hwloc_get_type_depth_e"))]
+#[doc(alias = "hwloc_get_type_depth_e")]
 pub enum Depth {
     /// Depth of a normal object (not Memory, I/O or Misc)
     Normal(NormalDepth),
@@ -141,32 +142,32 @@ impl TryFrom<Depth> for usize {
 }
 //
 #[doc(hidden)]
-impl TryFrom<RawDepth> for Depth {
+impl TryFrom<hwloc_get_type_depth_e> for Depth {
     type Error = TypeToDepthError;
 
-    fn try_from(value: RawDepth) -> Result<Self, TypeToDepthError> {
+    fn try_from(value: hwloc_get_type_depth_e) -> Result<Self, TypeToDepthError> {
         match value {
             normal if normal >= 0 => {
                 let normal = NormalDepth::try_from_c_int(normal)
                     .expect("NormalDepth should support all normal depths");
                 Ok(normal.into())
             }
-            -1 => Err(TypeToDepthError::Nonexistent),
-            -2 => Err(TypeToDepthError::Multiple),
-            -3 => Ok(Self::NUMANode),
-            -4 => Ok(Self::Bridge),
-            -5 => Ok(Self::PCIDevice),
-            -6 => Ok(Self::OSDevice),
-            -7 => Ok(Self::Misc),
+            HWLOC_TYPE_DEPTH_UNKNOWN => Err(TypeToDepthError::Nonexistent),
+            HWLOC_TYPE_DEPTH_MULTIPLE => Err(TypeToDepthError::Multiple),
+            HWLOC_TYPE_DEPTH_NUMANODE => Ok(Self::NUMANode),
+            HWLOC_TYPE_DEPTH_BRIDGE => Ok(Self::Bridge),
+            HWLOC_TYPE_DEPTH_PCI_DEVICE => Ok(Self::PCIDevice),
+            HWLOC_TYPE_DEPTH_OS_DEVICE => Ok(Self::OSDevice),
+            HWLOC_TYPE_DEPTH_MISC => Ok(Self::Misc),
             #[cfg(feature = "hwloc-2_1_0")]
-            -8 => Ok(Self::MemCache),
+            HWLOC_TYPE_DEPTH_MEMCACHE => Ok(Self::MemCache),
             other => Err(TypeToDepthError::Unexpected(other)),
         }
     }
 }
 //
 #[doc(hidden)]
-impl From<Depth> for RawDepth {
+impl From<Depth> for hwloc_get_type_depth_e {
     fn from(value: Depth) -> Self {
         match value {
             Depth::Normal(value) => value.into_c_int(),

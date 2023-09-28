@@ -10,7 +10,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Cache dependencies
+    - name: Cache hwloc install (Unices)
       if: runner.os != 'Windows'
       id: cache-deps-unix
       uses: actions/cache@v3
@@ -18,7 +18,7 @@ runs:
         path: ~/hwloc
         key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
 
-    - name: Cache dependencies
+    - name: Cache all dependencies (Windows)
       if: runner.os == 'Windows'
       id: cache-deps-win
       uses: actions/cache@v3
@@ -29,19 +29,7 @@ runs:
           ~/pkgconfig
         key: ${{ runner.os }}-deps-pkgconfig0.28-1-hwloc${{ inputs.hwloc-version }}
 
-    - name: Install dependencies
-      if: runner.os != 'Windows' && steps.cache-deps-unix.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-          curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
-          cd hwloc-${{ inputs.hwloc-version }}
-          ./configure --prefix="${HOME}/hwloc" --enable-debug
-          make -j$(nproc)
-          make install
-          cd ..
-          rm -rf ${{ inputs.hwloc-version }}
-
-    - name: Install dependencies
+    - name: Install dependencies (Windows)
       if: runner.os == 'Windows' && steps.cache-deps-win.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
@@ -92,7 +80,31 @@ runs:
           cat "$HWLOC_PKGCONFIG"
           echo "=========================="
 
-    - name: Bring dependencies into PATHs
+    - name: Install hwloc (macOS)
+      if: runner.os == 'macOS' && steps.cache-deps-unix.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+          curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
+          cd hwloc-${{ inputs.hwloc-version }}
+          ./configure --prefix="${HOME}/hwloc" --enable-debug
+          make -j$(nproc)
+          make install
+          cd ..
+          rm -rf ${{ inputs.hwloc-version }}
+
+    - name: Install hwloc (other OSes)
+      if: runner.os != 'Windows' && runner.os != 'macOS' && steps.cache-deps-unix.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+          curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
+          cd hwloc-${{ inputs.hwloc-version }}
+          ./configure --prefix="${HOME}/hwloc" --enable-debug --enable-static
+          make -j$(nproc)
+          make install
+          cd ..
+          rm -rf ${{ inputs.hwloc-version }}
+
+    - name: Bring dependencies into PATHs (Unices)
       if: runner.os != 'Windows'
       shell: bash
       run: |
@@ -100,7 +112,7 @@ runs:
           echo "${HWLOC_PREFIX}/bin" >> "$GITHUB_PATH"
           echo "PKG_CONFIG_PATH=${HWLOC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
-    - name: Bring dependencies into PATHs
+    - name: Bring dependencies into PATHs (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |

@@ -5,7 +5,6 @@ use crate::cpu::binding::CpuBindingFlags;
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, RawHwlocError},
-    ffi,
     path::{self, PathError},
     topology::Topology,
 };
@@ -48,7 +47,7 @@ impl Topology {
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
-            ffi::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.borrow().as_ptr())
+            hwlocality_sys::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.borrow().as_ptr())
         })
         .map(std::mem::drop)
     }
@@ -76,7 +75,7 @@ impl Topology {
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_cpubind", || unsafe {
-            ffi::hwloc_linux_get_tid_cpubind(self.as_ptr(), tid, set.as_mut_ptr())
+            hwlocality_sys::hwloc_linux_get_tid_cpubind(self.as_ptr(), tid, set.as_mut_ptr())
         })
         .map(|_| set)
     }
@@ -101,7 +100,11 @@ impl Topology {
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_last_cpu_location", || unsafe {
-            ffi::hwloc_linux_get_tid_last_cpu_location(self.as_ptr(), tid, set.as_mut_ptr())
+            hwlocality_sys::hwloc_linux_get_tid_last_cpu_location(
+                self.as_ptr(),
+                tid,
+                set.as_mut_ptr(),
+            )
         })
         .map(|_| set)
     }
@@ -125,7 +128,7 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - hwloc ops are trusted to keep *mut parameters in a valid state
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
-            ffi::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
+            hwlocality_sys::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
         })
         .map_err(HybridError::Hwloc)?;
         Ok(set)

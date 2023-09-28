@@ -5,7 +5,7 @@ use std::{
     process::Command,
 };
 
-// Use pkg-config to configure the build for a certain hwloc release
+/// Use pkg-config to configure the build for a certain hwloc release
 #[cfg(not(all(feature = "bundled", windows)))]
 fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
     // Determine the first unsupported version
@@ -42,7 +42,7 @@ fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
     lib
 }
 
-// Fetch hwloc from a git release branch, return repo path
+/// Fetch hwloc from a git release branch, return repo path
 #[cfg(feature = "bundled")]
 fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
     // Determine location of the git repo and its parent directory
@@ -82,14 +82,14 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
     repo_path
 }
 
-// Compile hwloc using autotools, return local installation path
+/// Compile hwloc using autotools, return local installation path
 #[cfg(all(feature = "bundled", not(windows)))]
 fn compile_hwloc_autotools(source_path: impl AsRef<Path>) -> PathBuf {
     let mut config = autotools::Config::new(source_path);
     config.fast_build(true).reconf("-ivf").build()
 }
 
-// Compile hwloc using cmake, return local installation path
+/// Compile hwloc using cmake, return local installation path
 #[cfg(all(feature = "bundled", windows))]
 fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
     let mut config = cmake::Config::new(cmake_path);
@@ -107,7 +107,8 @@ fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
     config.always_configure(false).build()
 }
 
-fn main() {
+/// Configure the hwloc dependency
+fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current featurees
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
@@ -202,4 +203,11 @@ fn main() {
     // If asked to use system hwloc, we configure it using pkg-config
     #[cfg(not(feature = "bundled"))]
     use_pkgconfig(required_version);
+}
+
+fn main() {
+    // We don't need hwloc on docs.rs since it only builds the docs
+    if std::env::var("DOCS_RS").is_err() {
+        setup_hwloc();
+    }
 }

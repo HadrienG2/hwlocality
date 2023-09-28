@@ -1,0 +1,39 @@
+[package]
+name = "hwlocality-sys"
+version = "0.1.8"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Low-level bindings for the hwloc hardware locality library"
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+links = "hwloc"
+
+# See hwlocality for detailed descriptions
+[features]
+hwloc-latest = ["hwloc-2_8_0"]
+hwloc-2_0_4 = []
+hwloc-2_1_0 = ["hwloc-2_0_4"]
+hwloc-2_2_0 = ["hwloc-2_1_0"]
+hwloc-2_3_0 = ["hwloc-2_2_0"]
+hwloc-2_4_0 = ["hwloc-2_3_0"]
+hwloc-2_5_0 = ["hwloc-2_4_0"]
+hwloc-2_8_0 = ["hwloc-2_5_0"]
+bundled = ["dep:autotools", "dep:cmake"]
+
+[dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[build-dependencies]
+autotools = { version = "0.2", optional = true }
+cmake = { version = "0.1.50", optional = true }
+pkg-config = "0.3.8"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

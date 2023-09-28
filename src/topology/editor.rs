@@ -1,14 +1,13 @@
 //! Modifying a loaded Topology
 // TODO: Long-form description
 
-use super::RawTopology;
 use crate::{
     bitmap::{BitmapKind, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObject, HybridError, ParameterError, RawHwlocError},
     ffi::{self, string::LibcString},
     memory::nodeset::NodeSet,
-    object::TopologyObject,
+    object::{attributes::GroupAttributes, TopologyObject},
     topology::Topology,
 };
 #[cfg(doc)]
@@ -18,6 +17,12 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
+use hwlocality_sys::{
+    hwloc_obj, hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL,
+    HWLOC_ALLOW_FLAG_CUSTOM, HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS, HWLOC_RESTRICT_FLAG_ADAPT_IO,
+    HWLOC_RESTRICT_FLAG_ADAPT_MISC, HWLOC_RESTRICT_FLAG_BYNODESET,
+    HWLOC_RESTRICT_FLAG_REMOVE_CPULESS, HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS,
+};
 use libc::{EINVAL, ENOMEM};
 use std::{
     ffi::c_ulong,
@@ -76,14 +81,14 @@ impl Topology {
     /// undefined behavior (mutation which the compiler assumes will not happen).
     pub(crate) fn refresh(&mut self) {
         let result = errors::call_hwloc_int_normal("hwloc_topology_refresh", || unsafe {
-            ffi::hwloc_topology_refresh(self.as_mut_ptr())
+            hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
         if let Err(e) = result {
             eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
             std::process::abort()
         }
         if cfg!(debug_assertions) {
-            unsafe { ffi::hwloc_topology_check(self.as_ptr()) }
+            unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
     }
 }
@@ -141,7 +146,7 @@ impl<'topology> TopologyEditor<'topology> {
     }
 
     /// Contained hwloc topology pointer (for interaction with hwloc)
-    pub(crate) fn topology_mut_ptr(&mut self) -> *mut RawTopology {
+    pub(crate) fn topology_mut_ptr(&mut self) -> *mut hwloc_topology {
         self.topology_mut().as_mut_ptr()
     }
 }
@@ -197,7 +202,7 @@ impl<'topology> TopologyEditor<'topology> {
 
         // Apply requested restriction
         let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
-            ffi::hwloc_topology_restrict(
+            hwlocality_sys::hwloc_topology_restrict(
                 self.topology_mut_ptr(),
                 set.as_ref().as_ptr(),
                 flags.bits(),
@@ -242,21 +247,25 @@ impl<'topology> TopologyEditor<'topology> {
     pub fn allow(&mut self, allow_set: AllowSet<'_>) -> Result<(), HybridError<BadAllowSet>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
-            AllowSet::All => (ptr::null(), ptr::null(), 1 << 0),
-            AllowSet::LocalRestrictions => (ptr::null(), ptr::null(), 1 << 1),
+            AllowSet::All => (ptr::null(), ptr::null(), HWLOC_ALLOW_FLAG_ALL),
+            AllowSet::LocalRestrictions => (
+                ptr::null(),
+                ptr::null(),
+                HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS,
+            ),
             AllowSet::Custom { cpuset, nodeset } => {
                 let cpuset = cpuset.map(CpuSet::as_ptr).unwrap_or(ptr::null());
                 let nodeset = nodeset.map(NodeSet::as_ptr).unwrap_or(ptr::null());
                 if cpuset.is_null() && nodeset.is_null() {
                     return Err(BadAllowSet.into());
                 }
-                (cpuset, nodeset, 1 << 2)
+                (cpuset, nodeset, HWLOC_ALLOW_FLAG_CUSTOM)
             }
         };
 
         // Call hwloc
         errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
-            ffi::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
+            hwlocality_sys::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
         })
         .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
@@ -345,14 +354,14 @@ impl<'topology> TopologyEditor<'topology> {
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
     ) -> Result<&'topology mut TopologyObject, HybridError<InsertMiscError>> {
         // Find parent object
-        let parent: *mut TopologyObject = {
+        let raw_parent_mut: *mut hwloc_obj = {
             let topology = self.topology();
             let parent = find_parent(topology);
             if !topology.contains(parent) {
                 return Err(HybridError::Rust(InsertMiscError::ForeignParent));
             }
-            let parent: *const TopologyObject = parent;
-            parent.cast_mut()
+            let raw_parent: *const hwloc_obj = &parent.0;
+            raw_parent.cast_mut()
         };
 
         // Convert object name to a C string
@@ -369,7 +378,7 @@ impl<'topology> TopologyEditor<'topology> {
         //   trigger UB consequences linked to the fact that we modified
         //   something that we accessed via &T while the compiler is allowed to
         //   assume that what's behind said &T doesn't change.
-        // - We hand over to hwloc a honestly acquired *mut RawTopology that
+        // - We hand over to hwloc a honestly acquired *mut hwloc_topology that
         //   legally allows it to modify anything behind it, including the
         //   *mut TopologyObject that `parent` points to.
         //
@@ -382,19 +391,23 @@ impl<'topology> TopologyEditor<'topology> {
         // So letting the client keep hold of it would be highly problematic.
         //
         let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
-            ffi::hwloc_topology_insert_misc_object(self.topology_mut_ptr(), parent, name.borrow())
+            hwlocality_sys::hwloc_topology_insert_misc_object(
+                self.topology_mut_ptr(),
+                raw_parent_mut,
+                name.borrow(),
+            )
         })
         .map_err(HybridError::Hwloc)?;
-        Ok(unsafe { ptr.as_mut() })
+        Ok(unsafe { ffi::as_newtype_mut(ptr.as_mut()) })
     }
 }
 
 bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
-    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_restrict_flags_e")]
-    #[repr(C)]
-    pub struct RestrictFlags: c_ulong {
+    #[repr(transparent)]
+    pub struct RestrictFlags: hwloc_restrict_flags_e {
         /// Remove all objects that lost all resources of the target type
         ///
         /// By default, only objects that contain no PU and no memory are
@@ -417,7 +430,7 @@ bitflags! {
         //
         // This is what `REMOVE_EMPTIED` maps into when restricting by `CpuSet`.
         #[doc(hidden)]
-        const REMOVE_CPULESS = (1<<0);
+        const REMOVE_CPULESS = HWLOC_RESTRICT_FLAG_REMOVE_CPULESS;
 
         /// Restrict by NodeSet insted of by `CpuSet`
         //
@@ -425,7 +438,7 @@ bitflags! {
         //
         // This flag is automatically set when restricting by `NodeSet`.
         #[doc(hidden)]
-        const BY_NODE_SET = (1<<3);
+        const BY_NODE_SET = HWLOC_RESTRICT_FLAG_BYNODESET;
 
         /// Remove all objects that became memory-less
         //
@@ -433,7 +446,7 @@ bitflags! {
         //
         // This is what `REMOVE_EMPTIED` maps into when restricting by `NodeSet`.
         #[doc(hidden)]
-        const REMOVE_MEMLESS = (1<<4);
+        const REMOVE_MEMLESS = HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS;
 
         /// Move Misc objects to ancestors if their parents are removed during
         /// restriction
@@ -441,7 +454,7 @@ bitflags! {
         /// If this flag is not set, Misc objects are removed when their parents
         /// are removed.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_MISC")]
-        const ADAPT_MISC = (1<<1);
+        const ADAPT_MISC = HWLOC_RESTRICT_FLAG_ADAPT_MISC;
 
         /// Move I/O objects to ancestors if their parents are removed
         /// during restriction
@@ -449,13 +462,7 @@ bitflags! {
         /// If this flag is not set, I/O devices and bridges are removed when
         /// their parents are removed.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_IO")]
-        const ADAPT_IO = (1<<2);
-    }
-}
-//
-impl Default for RestrictFlags {
-    fn default() -> Self {
-        Self::empty()
+        const ADAPT_IO = HWLOC_RESTRICT_FLAG_ADAPT_IO;
     }
 }
 
@@ -559,10 +566,15 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a valid state
         errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
-            ffi::hwloc_topology_alloc_group_object(editor.topology_mut_ptr())
+            hwlocality_sys::hwloc_topology_alloc_group_object(editor.topology_mut_ptr())
         })
-        // SAFETY: hwloc is trusted to produce a valid, non-inserted group pointer
-        .map(|group| Self { group, editor })
+        // SAFETY: - hwloc is trusted to produce a valid, non-inserted group
+        //           object pointer
+        //         - TopologyObject is a newtype of hwloc_obj
+        .map(|group| Self {
+            group: group.cast::<TopologyObject>(),
+            editor,
+        })
     }
 
     /// Expand cpu sets and node sets to cover designated children
@@ -587,8 +599,12 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             // SAFETY: - group is assumed to be valid as a type invariant
             //         - hwloc ops are trusted not to modify *const parameters
             //         - child was checked to belong to the same topology as group
+            //         - TopologyObject is a newtype of hwloc_obj
             let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
-                ffi::hwloc_obj_add_other_obj_sets(self.group.as_ptr(), child)
+                hwlocality_sys::hwloc_obj_add_other_obj_sets(
+                    self.group.cast::<hwloc_obj>().as_ptr(),
+                    &child.0,
+                )
             });
             match result {
                 Ok(_) => {}
@@ -612,13 +628,9 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         // SAFETY: - We know this is a group object as a type invariant, so
         //           accessing the group raw attribute is safe
         //         - We are not changing the raw attributes variant
-        let mut group_attributes = unsafe {
-            self.group
-                .as_mut()
-                .raw_attributes()
-                .expect("Expected group attributes")
-                .group
-        };
+        //         - GroupAttributes is indeed a newtype of hwloc_group_attr_s
+        let group_attributes: &mut GroupAttributes =
+            unsafe { ffi::as_newtype_mut(&mut (*self.group.as_mut().0.attr).group) };
         match merge {
             GroupMerge::Never => group_attributes.prevent_merging(),
             GroupMerge::Always => group_attributes.favor_merging(),
@@ -667,19 +679,22 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         //         - hwloc ops are trusted to keep *mut parameters in a valid state
         //         - We break the AllocatedGroup type invariant by inserting the
         //           group object, but a precondition warns the user about it
+        //         - TopologyObject is a newtype of hwloc_obj
         errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
-            ffi::hwloc_topology_insert_group_object(
+            hwlocality_sys::hwloc_topology_insert_group_object(
                 self.editor.topology_mut_ptr(),
-                self.group.as_ptr(),
+                self.group.cast::<hwloc_obj>().as_ptr(),
             )
         })
         .map(|mut result| {
-            if result == self.group {
+            if result == self.group.cast::<hwloc_obj>() {
                 // SAFETY: Group has been successfully inserted, can expose &mut
                 InsertedGroup::New(unsafe { self.group.as_mut() })
             } else {
-                // SAFETY: Successful result is trusted to point to an existing group
-                InsertedGroup::Existing(unsafe { result.as_mut() })
+                // SAFETY: - Successful result is trusted to point to an
+                //           existing group
+                //         - TopologyObject is a newtype of hwloc_obj
+                InsertedGroup::Existing(unsafe { ffi::as_newtype_mut(result.as_mut()) })
             }
         })
     }

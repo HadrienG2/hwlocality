@@ -7,14 +7,14 @@ pub mod distance;
 pub mod types;
 
 use self::{
-    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain, RawObjectAttributes},
-    depth::{Depth, NormalDepth, RawDepth, TypeToDepthError, TypeToDepthResult},
-    types::{CacheType, ObjectType, RawObjectType},
+    attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain},
+    depth::{Depth, NormalDepth, TypeToDepthError, TypeToDepthResult},
+    types::{CacheType, ObjectType},
 };
 #[cfg(doc)]
 use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
-    bitmap::{BitmapRef, RawBitmap},
+    bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
     ffi::{self, int, string::LibcString},
@@ -22,10 +22,11 @@ use crate::{
     memory::nodeset::NodeSet,
     topology::Topology,
 };
+use hwlocality_sys::{hwloc_get_type_depth_e, hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
 use std::{
     borrow::Borrow,
-    ffi::{c_char, c_int, c_uint, c_void, CStr},
+    ffi::{c_char, c_uint, CStr},
     fmt::{self, Debug},
     iter::FusedIterator,
     ptr,
@@ -67,8 +68,10 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
     pub fn depth(&self) -> NormalDepth {
-        NormalDepth::try_from_c_int(unsafe { ffi::hwloc_topology_get_depth(self.as_ptr()) })
-            .expect("Got unexpected depth from hwloc_topology_get_depth")
+        NormalDepth::try_from_c_int(unsafe {
+            hwlocality_sys::hwloc_topology_get_depth(self.as_ptr())
+        })
+        .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
 
     /// Depth of normal parents where memory objects are attached
@@ -97,7 +100,7 @@ impl Topology {
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_memory_parents_depth")]
     pub fn memory_parents_depth(&self) -> Result<NormalDepth, TypeToDepthError> {
-        Depth::try_from(unsafe { ffi::hwloc_get_memory_parents_depth(self.as_ptr()) })
+        Depth::try_from(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
 
@@ -133,7 +136,9 @@ impl Topology {
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
     pub fn depth_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
-        Depth::try_from(unsafe { ffi::hwloc_get_type_depth(self.as_ptr(), object_type.into()) })
+        Depth::try_from(unsafe {
+            hwlocality_sys::hwloc_get_type_depth(self.as_ptr(), object_type.into())
+        })
     }
 
     /// Depth for the given [`ObjectType`] or below
@@ -372,10 +377,12 @@ impl Topology {
         }
 
         // Otherwise, ask hwloc
-        match unsafe { ffi::hwloc_get_depth_type(self.as_ptr(), depth.into()) }.try_into() {
+        match unsafe { hwlocality_sys::hwloc_get_depth_type(self.as_ptr(), depth.into()) }
+            .try_into()
+        {
             Ok(depth) => Some(depth),
             Err(TryFromPrimitiveError {
-                number: RawObjectType::MAX,
+                number: hwloc_obj_type_t::MAX,
             }) => None,
             Err(unknown) => {
                 unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
@@ -408,7 +415,9 @@ impl Topology {
         let Ok(depth) = depth.try_into() else {
             return 0;
         };
-        int::expect_usize(unsafe { ffi::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into()) })
+        int::expect_usize(unsafe {
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into())
+        })
     }
 
     /// [`TopologyObject`]s at the given `depth`
@@ -452,15 +461,15 @@ impl Topology {
         // needs homogeneous return types.
         let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
         let size = self.num_objects_at_depth(depth);
-        let depth = RawDepth::from(depth);
+        let depth = hwloc_get_type_depth_e::from(depth);
         (0..size).map(move |idx| {
             let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
-            let ptr = unsafe { ffi::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
+            let ptr = unsafe { hwlocality_sys::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
             assert!(
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
             );
-            unsafe { &*ptr }
+            unsafe { ffi::as_newtype(&*ptr) }
         })
     }
 
@@ -867,16 +876,16 @@ impl Topology {
             opt.as_ref().map(LibcString::borrow).unwrap_or(ptr::null())
         };
         let ptr = unsafe {
-            ffi::hwloc_get_obj_with_same_locality(
+            hwlocality_sys::hwloc_get_obj_with_same_locality(
                 self.as_ptr(),
-                src,
+                &src.0,
                 ty.into(),
                 borrow_pchar(&subtype),
                 borrow_pchar(&name_prefix),
                 0,
             )
         };
-        Ok((!ptr.is_null()).then(|| unsafe { &*ptr }))
+        Ok((!ptr.is_null()).then(|| unsafe { ffi::as_newtype(&*ptr) }))
     }
 }
 
@@ -1056,136 +1065,41 @@ impl Topology {
 // Provided that objects do not link to other objects outside of the topology
 // they originate from, which is minimally sane expectation from hwloc, this
 // should be enough.
+//
+// The hwloc_obj has very complex consistency invariants that are not fully
+// documented by upstream. We assume the following:
+//
+// - If any pointer is non-null, its target can be assumed to be valid
+// - Anything that is not explicitly listed as okay to modify below should be
+//   considered unsafe to modify unless proven otherwise
+// - object_type is assumed to be in sync with attr
+// - It is okay to change attr inner data as long as no union is switched
+//   from one variant to another
+// - subtype may be replaced with another C string allocated by malloc(),
+//   which hwloc will automatically free() on topology destruction (source:
+//   documentation of hwloc_topology_insert_group_object() encourages it)
+// - depth is in sync with parent
+// - logical_index is in sync with (next|prev)_cousin
+// - sibling_rank is in sync with (next|prev)_sibling
+// - arity is in sync with (children|(first|last)_child)
+// - symmetric_subtree is in sync with child pointers
+// - memory_arity is in sync with memory_first_child
+// - io_arity is in sync with io_first_child
+// - misc_arity is in sync with misc_first_child
+// - infos_count is in sync with infos
+// - userdata should not be touched as topology duplication aliases it
+// - gp_index is stable by API contract
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
-#[repr(C)]
-pub struct TopologyObject {
-    /// SAFETY: Determines which attr union variant is active, do not modify
-    object_type: RawObjectType,
-
-    /// # Safety
-    ///
-    /// Only allowed write is replacement with a freshly allocated owned C
-    /// string from the libc allocator. It must come from the libc allocator
-    /// because hwloc will call free() on this during Topology destruction.
-    ///
-    /// This seems guaranteed to remain the case because of the following note
-    /// from [the documentation of
-    /// `hwloc_topology_insert_group_object()`](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html#ga1fc6012b3e1c249b83f48cb7bcacaa5b)...
-    ///
-    /// > The subtype object attribute may be defined (to a dynamically
-    /// > allocated string) to display something else than "Group" as the type
-    /// > name for this object in lstopo.
-    ///
-    /// ...which actively encourages users to replace this field with a C string
-    /// of their own choosing.
-    subtype: *mut c_char,
-
-    /// Do not modify
-    os_index: c_uint,
-
-    /// SAFETY: Do not modify
-    name: *mut c_char,
-
-    /// Linked to memory children by API contract, do not modify
-    total_memory: u64,
-
-    /// SAFETY: Target assumed only accessible through this object -> &mut ok,
-    ///         but do not allow modification in a way that switches which union
-    ///         variant is active.
-    attr: *mut RawObjectAttributes,
-
-    /// SAFETY: Number of entries behind parent, do not modify
-    depth: RawDepth,
-
-    /// SAFETY: Number of entries behind (next|prev)_cousin, do not modify
-    logical_index: c_uint,
-
-    /// SAFETY: Do not modify
-    next_cousin: *mut TopologyObject,
-
-    /// SAFETY: Do not modify
-    prev_cousin: *mut TopologyObject,
-
-    /// SAFETY: Do not modify
-    parent: *mut TopologyObject,
-
-    /// SAFETY: Number of entries behind (next|prev)_sibling, do not modify
-    sibling_rank: c_uint,
-
-    /// SAFETY: Do not modify
-    next_sibling: *mut TopologyObject,
-
-    /// SAFETY: Do not modify
-    prev_sibling: *mut TopologyObject,
-
-    /// SAFETY: Number of entries behind (children|(first|last)_child), do not modify
-    arity: c_uint,
-
-    /// SAFETY: Do not modify
-    children: *mut *mut TopologyObject,
-
-    /// SAFETY: Do not modify
-    first_child: *mut TopologyObject,
-
-    /// SAFETY: Do not modify
-    last_child: *mut TopologyObject,
-
-    /// SAFETY: Affects children pointer interpretation, do not modify
-    symmetric_subtree: c_int,
-
-    /// SAFETY: Number of entries behind memory_first_child, do not modify
-    memory_arity: c_uint,
-
-    /// SAFETY: Do not modify
-    memory_first_child: *mut TopologyObject,
-
-    /// SAFETY: Number of entries behind io_first_child, do not modify
-    io_arity: c_uint,
-
-    /// SAFETY: Do not modify
-    io_first_child: *mut TopologyObject,
-
-    /// SAFETY: Number of entries behind misc_first_child, do not modify
-    misc_arity: c_uint,
-
-    /// SAFETY: Do not modify
-    misc_first_child: *mut TopologyObject,
-
-    /// Linked to children by API contract, do not modify
-    cpuset: *mut RawBitmap,
-
-    /// Linked to children by API contract, do not modify
-    complete_cpuset: *mut RawBitmap,
-
-    /// Linked to children by API contract, do not modify
-    nodeset: *mut RawBitmap,
-
-    /// Linked to children by API contract, do not modify
-    complete_nodeset: *mut RawBitmap,
-
-    /// SAFETY: Do not modify manually, dedicated API available
-    infos: *mut TextualInfo,
-
-    /// SAFETY: Do not modify manually, dedicated API available
-    infos_count: c_uint,
-
-    /// SAFETY: Not exposed as topology duplication blindly duplicates it, which
-    ///         could trivially create dangerous aliasing.
-    _userdata: *mut c_void,
-
-    /// Stable by API contract, do not modify
-    gp_index: u64,
-}
+#[repr(transparent)]
+pub struct TopologyObject(pub(crate) hwloc_obj);
 
 /// # Basic identity
 impl TopologyObject {
-    /// Type of object.
+    /// Type of object
     #[doc(alias = "hwloc_obj::type")]
     pub fn object_type(&self) -> ObjectType {
-        self.object_type
-            .try_into()
-            .expect("Got unexpected object type")
+        self.0.ty.try_into().expect("Got unexpected object type")
     }
 
     /// Subtype string to better describe the type field
@@ -1197,7 +1111,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_str(&self.subtype) }
+        unsafe { ffi::deref_str(&self.0.subtype) }
     }
 
     /// Set the subtype string
@@ -1209,7 +1123,7 @@ impl TopologyObject {
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
-        self.subtype = LibcString::new(subtype)?.into_raw();
+        self.0.subtype = LibcString::new(subtype)?.into_raw();
         Ok(())
     }
 
@@ -1222,26 +1136,14 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_str(&self.name) }
+        unsafe { ffi::deref_str(&self.0.name) }
     }
 
-    /// Object type-specific attributes (if any)
+    /// Object type-specific attributes, if any
     #[doc(alias = "hwloc_obj::attr")]
     pub fn attributes(&self) -> Option<ObjectAttributes<'_>> {
-        unsafe { ObjectAttributes::new(self.object_type(), &self.attr) }
-    }
-
-    /// Unsafe access to object type-specific attributes
-    ///
-    /// # Safety
-    ///
-    /// Caller should not change the active RawObjectAttributes union variant
-    #[cfg(feature = "hwloc-2_3_0")]
-    pub(crate) unsafe fn raw_attributes(&mut self) -> Option<&mut RawObjectAttributes> {
-        // SAFETY: - Pointer validity is assumed as a type invariant
-        //         - Rust aliasing rules are enforced by deriving the reference
-        //           from &mut self, which itself is derived from &mut Topology
-        unsafe { ffi::deref_mut_ptr(&mut self.attr) }
+        // SAFETY: Per type invariant
+        unsafe { ObjectAttributes::new(self.object_type(), &self.0.attr) }
     }
 
     /// The OS-provided physical index number
@@ -1252,8 +1154,7 @@ impl TopologyObject {
     /// Not specified if unknown or irrelevant for this object.
     #[doc(alias = "hwloc_obj::os_index")]
     pub fn os_index(&self) -> Option<usize> {
-        const HWLOC_UNKNOWN_INDEX: c_uint = c_uint::MAX;
-        (self.os_index != HWLOC_UNKNOWN_INDEX).then(|| int::expect_usize(self.os_index))
+        (self.0.os_index != HWLOC_UNKNOWN_INDEX).then(|| int::expect_usize(self.0.os_index))
     }
 
     /// Global persistent index
@@ -1270,7 +1171,7 @@ impl TopologyObject {
     /// [`os_index()`]: TopologyObject::os_index()
     #[doc(alias = "hwloc_obj::gp_index")]
     pub fn global_persistent_index(&self) -> u64 {
-        self.gp_index
+        self.0.gp_index
     }
 }
 
@@ -1291,7 +1192,7 @@ impl TopologyObject {
     /// tree, this is a special value that is unique to their type.
     #[doc(alias = "hwloc_obj::depth")]
     pub fn depth(&self) -> Depth {
-        self.depth.try_into().expect("Got unexpected depth value")
+        self.0.depth.try_into().expect("Got unexpected depth value")
     }
 
     /// Parent object
@@ -1302,7 +1203,8 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.parent) }
+        //         - TopologyObject is indeed a newtype of hwloc_obj
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.parent) }
     }
 
     /// Chain of parent objects up to the topology root
@@ -1434,7 +1336,7 @@ impl TopologyObject {
             // as hwloc topology may "skip" depths on hybrid plaforms like
             // Adler Lake or in the presence of complicated allowed cpusets), or
             // we reached cousin objects and must go up one level.
-            if parent1.depth == parent2.depth {
+            if parent1.depth() == parent2.depth() {
                 parent1 = parent1.parent()?;
                 parent2 = parent2.parent()?;
             }
@@ -1512,7 +1414,7 @@ impl FusedIterator for Ancestors<'_> {}
 /// # Cousins and siblings
 impl TopologyObject {
     /// Horizontal index in the whole list of similar objects, hence guaranteed
-    /// unique across the entire machine.
+    /// unique across the entire machine
     ///
     /// Could be a "cousin_rank" since it's the rank within the "cousin" list.
     ///
@@ -1520,7 +1422,7 @@ impl TopologyObject {
     /// or when inserting a group.
     #[doc(alias = "hwloc_obj::logical_index")]
     pub fn logical_index(&self) -> usize {
-        int::expect_usize(self.logical_index)
+        int::expect_usize(self.0.logical_index)
     }
 
     /// Next object of same type and depth
@@ -1529,7 +1431,8 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.next_cousin) }
+        //         - TopologyObject is indeed a newtype of hwloc_obj
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_cousin) }
     }
 
     /// Previous object of same type and depth
@@ -1538,13 +1441,14 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.prev_cousin) }
+        //         - TopologyObject is indeed a newtype of hwloc_obj
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_cousin) }
     }
 
     /// Index in the parent's relevant child list for this object type
     #[doc(alias = "hwloc_obj::sibling_rank")]
     pub fn sibling_rank(&self) -> usize {
-        int::expect_usize(self.sibling_rank)
+        int::expect_usize(self.0.sibling_rank)
     }
 
     /// Next object below the same parent, in the same child list
@@ -1553,7 +1457,8 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.next_sibling) }
+        //         - TopologyObject is indeed a newtype of hwloc_obj
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_sibling) }
     }
 
     /// Previous object below the same parent, in the same child list
@@ -1562,7 +1467,8 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.prev_sibling) }
+        //         - TopologyObject is indeed a newtype of hwloc_obj
+        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_sibling) }
     }
 }
 
@@ -1571,7 +1477,7 @@ impl TopologyObject {
     /// Number of normal children (excluding Memory, Misc and I/O)
     #[doc(alias = "hwloc_obj::arity")]
     pub fn normal_arity(&self) -> usize {
-        int::expect_usize(self.arity)
+        int::expect_usize(self.0.arity)
     }
 
     /// Normal children of this object
@@ -1582,7 +1488,7 @@ impl TopologyObject {
         &self,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
     {
-        if self.children.is_null() {
+        if self.0.children.is_null() {
             assert_eq!(
                 self.normal_arity(),
                 0,
@@ -1590,9 +1496,9 @@ impl TopologyObject {
             );
         }
         (0..self.normal_arity()).map(move |offset| {
-            let child = unsafe { *self.children.add(offset) };
+            let child = unsafe { *self.0.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
-            unsafe { &*child }
+            unsafe { ffi::as_newtype(&*child) }
         })
     }
 
@@ -1603,7 +1509,7 @@ impl TopologyObject {
     //       If you do, please submit an issue to the repository!
 
     /// Truth that this object is symmetric, which means all normal children and
-    /// their children have identical subtrees.
+    /// their children have identical subtrees
     ///
     /// Memory, I/O and Misc children are ignored.
     ///
@@ -1611,7 +1517,7 @@ impl TopologyObject {
     /// as a synthetic string](Topology::export_synthetic()).
     #[doc(alias = "hwloc_obj::symmetric_subtree")]
     pub fn symmetric_subtree(&self) -> bool {
-        self.symmetric_subtree != 0
+        self.0.symmetric_subtree != 0
     }
 
     /// Get the child covering at least the given cpuset `set`
@@ -1631,7 +1537,7 @@ impl TopologyObject {
     /// Number of memory children
     #[doc(alias = "hwloc_obj::memory_arity")]
     pub fn memory_arity(&self) -> usize {
-        int::expect_usize(self.memory_arity)
+        int::expect_usize(self.0.memory_arity)
     }
 
     /// Memory children of this object
@@ -1649,8 +1555,9 @@ impl TopologyObject {
     pub fn memory_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        // SAFETY: memory_first_child is a valid first-child of this object
-        unsafe { self.singly_linked_children(self.memory_first_child, self.memory_arity()) }
+        // SAFETY: - memory_first_child is a valid first-child of this object
+        //         - memory_arity is assumed in sync as a type invariant
+        unsafe { self.singly_linked_children(self.0.memory_first_child, self.memory_arity()) }
     }
 
     /// Total memory (in bytes) in NUMA nodes below this object
@@ -1658,13 +1565,13 @@ impl TopologyObject {
     /// Requires [`DiscoverySupport::numa_memory()`].
     #[doc(alias = "hwloc_obj::total_memory")]
     pub fn total_memory(&self) -> u64 {
-        self.total_memory
+        self.0.total_memory
     }
 
     /// Number of I/O children
     #[doc(alias = "hwloc_obj::io_arity")]
     pub fn io_arity(&self) -> usize {
-        int::expect_usize(self.io_arity)
+        int::expect_usize(self.0.io_arity)
     }
 
     /// I/O children of this object
@@ -1676,8 +1583,9 @@ impl TopologyObject {
     pub fn io_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        // SAFETY: io_first_child is a valid first-child of this object
-        unsafe { self.singly_linked_children(self.io_first_child, self.io_arity()) }
+        // SAFETY: - io_first_child is a valid first-child of this object
+        //         - io_arity is assumed in sync as a type invariant
+        unsafe { self.singly_linked_children(self.0.io_first_child, self.io_arity()) }
     }
 
     /// Truth that this is a bridge covering the specified PCI bus
@@ -1695,7 +1603,7 @@ impl TopologyObject {
     /// Number of Misc children
     #[doc(alias = "hwloc_obj::misc_arity")]
     pub fn misc_arity(&self) -> usize {
-        int::expect_usize(self.misc_arity)
+        int::expect_usize(self.0.misc_arity)
     }
 
     /// Misc children of this object
@@ -1706,8 +1614,9 @@ impl TopologyObject {
     pub fn misc_children(
         &self,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
-        // SAFETY: misc_first_child is a valid first-child of this object
-        unsafe { self.singly_linked_children(self.misc_first_child, self.misc_arity()) }
+        // SAFETY: - misc_first_child is a valid first-child of this object
+        //         - misc_arity is assumed in sync as a type invariant
+        unsafe { self.singly_linked_children(self.0.misc_first_child, self.misc_arity()) }
     }
 
     /// Full list of children (normal, then memory, then I/O, then Misc)
@@ -1726,14 +1635,15 @@ impl TopologyObject {
     /// `first` must be one of the `first_child` pointers of this object.
     unsafe fn singly_linked_children(
         &self,
-        first: *mut TopologyObject,
+        first: *mut hwloc_obj,
         arity: usize,
     ) -> impl ExactSizeIterator<Item = &TopologyObject> + Clone + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
-            let result = unsafe { &*current };
-            current = result.next_sibling;
+            // SAFETY: TopologyObject is indeed a newtype of hwloc_obj
+            let result: &TopologyObject = unsafe { ffi::as_newtype(&*current) };
+            current = result.0.next_sibling;
             result
         })
     }
@@ -1769,7 +1679,7 @@ impl TopologyObject {
     /// ```
     #[doc(alias = "hwloc_obj::cpuset")]
     pub fn cpuset(&self) -> Option<BitmapRef<'_, CpuSet>> {
-        unsafe { CpuSet::borrow_from_raw_mut(self.cpuset) }
+        unsafe { CpuSet::borrow_from_raw_mut(self.0.cpuset) }
     }
 
     /// Truth that this object is inside of the given cpuset `set`
@@ -1821,7 +1731,7 @@ impl TopologyObject {
     /// [`cpuset()`]: TopologyObject::cpuset()
     #[doc(alias = "hwloc_obj::complete_cpuset")]
     pub fn complete_cpuset(&self) -> Option<BitmapRef<'_, CpuSet>> {
-        unsafe { CpuSet::borrow_from_raw_mut(self.complete_cpuset) }
+        unsafe { CpuSet::borrow_from_raw_mut(self.0.complete_cpuset) }
     }
 }
 
@@ -1865,7 +1775,7 @@ impl TopologyObject {
     /// ```
     #[doc(alias = "hwloc_obj::nodeset")]
     pub fn nodeset(&self) -> Option<BitmapRef<'_, NodeSet>> {
-        unsafe { NodeSet::borrow_from_raw_mut(self.nodeset) }
+        unsafe { NodeSet::borrow_from_raw_mut(self.0.nodeset) }
     }
 
     /// The complete NUMA node set of this object
@@ -1897,7 +1807,7 @@ impl TopologyObject {
     /// [`nodeset()`]: TopologyObject::nodeset()
     #[doc(alias = "hwloc_obj::complete_nodeset")]
     pub fn complete_nodeset(&self) -> Option<BitmapRef<'_, NodeSet>> {
-        unsafe { NodeSet::borrow_from_raw_mut(self.complete_nodeset) }
+        unsafe { NodeSet::borrow_from_raw_mut(self.0.complete_nodeset) }
     }
 }
 
@@ -1912,14 +1822,21 @@ impl TopologyObject {
     /// exist, although sane users should not leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
-        if self.children.is_null() {
+        if self.0.children.is_null() {
             assert_eq!(
-                self.infos_count, 0,
+                self.0.infos_count, 0,
                 "Got null infos pointer with nonzero info count"
             );
             return &[];
         }
-        unsafe { std::slice::from_raw_parts(self.infos, int::expect_usize(self.infos_count)) }
+        // SAFETY: - infos and count are assumed in sync per type invariant
+        //         - TextualInfo is a newtype of hwloc_info_s
+        unsafe {
+            std::slice::from_raw_parts(
+                self.0.infos.cast::<TextualInfo>(),
+                int::expect_usize(self.0.infos_count),
+            )
+        }
     }
 
     /// Search the given key name in object infos and return the corresponding value
@@ -1961,7 +1878,7 @@ impl TopologyObject {
         let name = LibcString::new(name)?;
         let value = LibcString::new(value)?;
         errors::call_hwloc_int_normal("hwloc_obj_add_info", || unsafe {
-            ffi::hwloc_obj_add_info(self, name.borrow(), value.borrow())
+            hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
         })
         .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
@@ -1972,23 +1889,28 @@ impl TopologyObject {
 impl TopologyObject {
     /// Display the TopologyObject's type and attributes
     fn display(&self, f: &mut fmt::Formatter<'_>, verbose: bool) -> fmt::Result {
-        // SAFETY: - This is indeed an snprintf-like API
+        // SAFETY: - These are indeed snprintf-like APIs
         //         - verbose translates nicely into a C-style boolean
+        //         - separators are valid C strings
         let (type_chars, attr_chars) = unsafe {
             let type_chars = ffi::call_snprintf(|buf, len| {
-                ffi::hwloc_obj_type_snprintf(buf, len, self, verbose.into())
+                hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &self.0, verbose.into())
             });
+
             let separator = if f.alternate() {
                 b"\n  \0".as_ptr()
             } else {
                 b"  \0".as_ptr()
             }
             .cast::<c_char>();
-            // SAFETY: - This is indeed an snprintf-like API
-            //         - verbose translates nicely into a C-style boolean
-            //         - separator is a valid C string
             let attr_chars = ffi::call_snprintf(|buf, len| {
-                ffi::hwloc_obj_attr_snprintf(buf, len, self, separator, verbose.into())
+                hwlocality_sys::hwloc_obj_attr_snprintf(
+                    buf,
+                    len,
+                    &self.0,
+                    separator,
+                    verbose.into(),
+                )
             });
             (type_chars, attr_chars)
         };
@@ -2027,10 +1949,10 @@ impl TopologyObject {
 
         let self_ = self_.as_ptr();
         for set_ptr in [
-            addr_of_mut!((*self_).cpuset),
-            addr_of_mut!((*self_).nodeset),
-            addr_of_mut!((*self_).complete_cpuset),
-            addr_of_mut!((*self_).complete_nodeset),
+            addr_of_mut!((*self_).0.cpuset),
+            addr_of_mut!((*self_).0.nodeset),
+            addr_of_mut!((*self_).0.complete_cpuset),
+            addr_of_mut!((*self_).0.complete_nodeset),
         ] {
             // SAFETY: This is safe per the input precondition that `self_` is a
             //         valid `TopologyObject` (which includes valid bitmap
@@ -2040,7 +1962,7 @@ impl TopologyObject {
             unsafe {
                 let set = set_ptr.read();
                 if !set.is_null() {
-                    crate::ffi::hwloc_bitmap_free(set);
+                    hwlocality_sys::hwloc_bitmap_free(set);
                     set_ptr.write(ptr::null_mut())
                 }
             }

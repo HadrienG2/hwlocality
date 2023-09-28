@@ -17,7 +17,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi::{self, int, string::LibcString},
+    ffi::{int, string::LibcString},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -93,7 +93,7 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, flags should be zero
         let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
-            ffi::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
+            hwlocality_sys::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
         NonZeroUsize::new(int::expect_usize(count)).ok_or(CpuKindsUnknown)
@@ -150,7 +150,7 @@ impl Topology {
         //           pure out parameters that hwloc does not read
         //         - Per documentation, flags should be zero
         errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
-            ffi::hwloc_cpukinds_get_info(
+            hwlocality_sys::hwloc_cpukinds_get_info(
                 self.as_ptr(),
                 kind_index,
                 cpuset.as_mut_ptr(),
@@ -180,7 +180,9 @@ impl Topology {
         //           violates Rust aliasing rules, as long as we honor these
         //           rules ourselves
         //         - Total size should not wrap around for any valid allocation
-        let infos = unsafe { std::slice::from_raw_parts(infos, int::expect_usize(nr_infos)) };
+        let infos = unsafe {
+            std::slice::from_raw_parts(infos.cast::<TextualInfo>(), int::expect_usize(nr_infos))
+        };
         (cpuset, efficiency, infos)
     }
 
@@ -207,7 +209,7 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, flags should be zero
         let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
-            ffi::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
+            hwlocality_sys::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
         let kind_index = match result {
             Ok(idx) => int::expect_usize(idx),
@@ -296,7 +298,7 @@ impl TopologyEditor<'_> {
             let (name, value) = (new_string(name)?, new_string(value)?);
             // SAFETY: The source name and value LibcStrings are unmodified and
             //         retained by infos Vec until we're done using infos_ptrs
-            infos_ptrs.push(unsafe { TextualInfo::borrow(&name, &value) });
+            infos_ptrs.push(unsafe { TextualInfo::borrow_raw(&name, &value) });
             infos.push((name, value));
         }
         let num_infos =
@@ -312,7 +314,7 @@ impl TopologyEditor<'_> {
         //           they should be valid and in sync
         //         - Per documentation, flags should be zero
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
-            ffi::hwloc_cpukinds_register(
+            hwlocality_sys::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),
                 cpuset.borrow().as_ptr(),
                 forced_efficiency,

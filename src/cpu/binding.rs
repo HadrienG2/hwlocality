@@ -10,15 +10,17 @@
 #[cfg(doc)]
 use crate::{bitmap::Bitmap, object::types::ObjectType, topology::support::CpuBindingSupport};
 use crate::{
-    bitmap::RawBitmap,
     cpu::cpuset::CpuSet,
     errors::{self, FlagsError, HybridError, RawHwlocError},
-    ffi,
-    topology::{RawTopology, Topology},
+    topology::Topology,
     ProcessId, ThreadId,
 };
 use bitflags::bitflags;
 use derive_more::Display;
+use hwlocality_sys::{
+    hwloc_const_cpuset_t, hwloc_const_topology_t, hwloc_cpubind_flags_t, hwloc_cpuset_t,
+    HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT, HWLOC_CPUBIND_THREAD,
+};
 use libc::{ENOSYS, EXDEV};
 use std::{borrow::Borrow, ffi::c_int, fmt::Display};
 use thiserror::Error;
@@ -106,7 +108,9 @@ impl Topology {
                 flags,
                 CpuBoundObject::ThisProgram,
                 "hwloc_set_cpubind",
-                |topology, cpuset, flags| ffi::hwloc_set_cpubind(topology, cpuset, flags),
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
+                },
             )
         };
         match res {
@@ -156,7 +160,9 @@ impl Topology {
                 flags,
                 CpuBoundObject::ThisProgram,
                 "hwloc_get_cpubind",
-                |topology, cpuset, flags| ffi::hwloc_get_cpubind(topology, cpuset, flags),
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_cpubind(topology, cpuset, flags)
+                },
             )
         }
     }
@@ -205,7 +211,9 @@ impl Topology {
                 flags,
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_set_proc_cpubind",
-                |topology, cpuset, flags| ffi::hwloc_set_proc_cpubind(topology, pid, cpuset, flags),
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
+                },
             )
         }
     }
@@ -251,7 +259,9 @@ impl Topology {
                 flags,
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_get_proc_cpubind",
-                |topology, cpuset, flags| ffi::hwloc_get_proc_cpubind(topology, pid, cpuset, flags),
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
+                },
             )
         }
     }
@@ -293,7 +303,7 @@ impl Topology {
                 CpuBoundObject::Thread(tid),
                 "hwloc_set_thread_cpubind",
                 |topology, cpuset, flags| {
-                    ffi::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
+                    hwlocality_sys::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
                 },
             )
         }
@@ -340,7 +350,7 @@ impl Topology {
                 CpuBoundObject::Thread(tid),
                 "hwloc_get_thread_cpubind",
                 |topology, cpuset, flags| {
-                    ffi::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
+                    hwlocality_sys::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
                 },
             )
         }
@@ -395,7 +405,9 @@ impl Topology {
                 flags,
                 CpuBoundObject::ThisProgram,
                 "hwloc_get_last_cpu_location",
-                |topology, cpuset, flags| ffi::hwloc_get_last_cpu_location(topology, cpuset, flags),
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_last_cpu_location(topology, cpuset, flags)
+                },
             )
         }
     }
@@ -443,7 +455,7 @@ impl Topology {
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_get_proc_last_cpu_location",
                 |topology, cpuset, flags| {
-                    ffi::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
+                    hwlocality_sys::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
                 },
             )
         }
@@ -465,7 +477,7 @@ impl Topology {
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *const RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_const_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
             return Err(CpuBindingError::from(flags).into());
@@ -493,7 +505,7 @@ impl Topology {
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         // SAFETY: - GetBinding is the valid operation tag for this FFI
         //         - Rest is per function precondition
@@ -514,7 +526,7 @@ impl Topology {
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         // SAFETY: - GetLastLocation is the valid operation tag for this FFI
         //         - Rest is per function precondition
@@ -548,7 +560,7 @@ impl Topology {
         target: CpuBoundObject,
         operation: CpuBindingOperation,
         api: &'static str,
-        ffi: impl FnOnce(*const RawTopology, *mut RawBitmap, c_int) -> c_int,
+        ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
         let Some(flags) = flags.validate(target, operation) else {
             return Err(CpuBindingError::from(flags).into());
@@ -586,8 +598,9 @@ bitflags! {
     /// method](../../topology/struct.Topology.html#cpu-binding) that you are
     /// calling for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-    #[repr(C)]
-    pub struct CpuBindingFlags: c_int {
+    #[doc(alias = "hwloc_cpubind_flags_t")]
+    #[repr(transparent)]
+    pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
         /// Assume that the current process is single threaded
         ///
         /// This lets hwloc pick between thread and process binding for
@@ -600,7 +613,7 @@ bitflags! {
         // This is not an actual hwloc flag, it is only used to detect
         // incompatible configurations and must be cleared before invoking
         // hwloc. validate() will clear the flag for you.
-        const ASSUME_SINGLE_THREAD = 1 << (c_int::BITS - 2);
+        const ASSUME_SINGLE_THREAD = 1 << (hwloc_cpubind_flags_t::BITS - 2);
 
         /// Bind the current thread of the current process
         ///
@@ -612,13 +625,13 @@ bitflags! {
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
         #[doc(alias = "HWLOC_CPUBIND_THREAD")]
-        const THREAD  = (1<<1);
+        const THREAD  = HWLOC_CPUBIND_THREAD;
 
         /// Bind all threads of the current process
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `THREAD`.
         #[doc(alias = "HWLOC_CPUBIND_PROCESS")]
-        const PROCESS = (1<<0);
+        const PROCESS = HWLOC_CPUBIND_PROCESS;
 
         /// Request for strict binding from the OS
         ///
@@ -641,7 +654,7 @@ bitflags! {
         /// This flag should not be used when retrieving the binding of a
         /// thread or the CPU location of a process.
         #[doc(alias = "HWLOC_CPUBIND_STRICT")]
-        const STRICT = (1<<2);
+        const STRICT = HWLOC_CPUBIND_STRICT;
 
         /// Avoid any effect on memory binding
         ///
@@ -656,7 +669,7 @@ bitflags! {
         /// This flag should only be used with methods that set the CPU
         /// binding.
         #[doc(alias = "HWLOC_CPUBIND_NOMEMBIND")]
-        const NO_MEMORY_BINDING = (1<<3);
+        const NO_MEMORY_BINDING = HWLOC_CPUBIND_NOMEMBIND;
     }
 }
 //

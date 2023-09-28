@@ -5,11 +5,8 @@
 //! this information.
 
 use crate::ffi::{self, string::LibcString};
-use std::{
-    ffi::{c_char, CStr},
-    fmt,
-    hash::Hash,
-};
+use hwlocality_sys::hwloc_info_s;
+use std::{ffi::CStr, fmt, hash::Hash};
 
 /// Textual key-value information
 ///
@@ -35,30 +32,21 @@ use std::{
 // Provided that objects do not link to strings allocated outside of the
 // topology they originate from, which is a minimally sane expectation from
 // hwloc, this should be enough.
+#[allow(clippy::non_send_fields_in_send_ty)]
 #[doc(alias = "hwloc_info_s")]
-#[repr(C)]
-pub struct TextualInfo {
-    /// Name indicating which information is being provided
-    ///
-    /// SAFETY: Do not modify
-    name: *mut c_char,
-
-    /// Information in textual form
-    ///
-    /// SAFETY: Do not modify
-    value: *mut c_char,
-}
+#[repr(transparent)]
+pub struct TextualInfo(hwloc_info_s);
 //
 impl TextualInfo {
-    /// Build a [`TextualInfo`] struct for hwloc consumption
+    /// Build a `hwloc_info_s` struct for hwloc consumption
     ///
     /// # Safety
     ///
     /// - Do not modify the target [`LibcString`]s as long as this is used
     /// - Do not use after the associated [`LibcString`]s have been dropped
     #[allow(unused)]
-    pub(crate) unsafe fn borrow(name: &LibcString, value: &LibcString) -> Self {
-        Self {
+    pub(crate) unsafe fn borrow_raw(name: &LibcString, value: &LibcString) -> hwloc_info_s {
+        hwloc_info_s {
             name: name.borrow().cast_mut(),
             value: value.borrow().cast_mut(),
         }
@@ -70,7 +58,7 @@ impl TextualInfo {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_str(&self.name) }.expect("Infos should have names")
+        unsafe { ffi::deref_str(&self.0.name) }.expect("Infos should have names")
     }
 
     /// Information in textual form
@@ -79,7 +67,7 @@ impl TextualInfo {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_str(&self.value) }.expect("Infos should have values")
+        unsafe { ffi::deref_str(&self.0.value) }.expect("Infos should have values")
     }
 }
 //

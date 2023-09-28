@@ -5,14 +5,15 @@
 use crate::{errors::NulError, topology::builder::TopologyBuilder};
 use crate::{
     errors::{self, HybridError, RawHwlocError},
-    ffi::{self, int},
+    ffi::int,
     path::{self, PathError},
     topology::Topology,
 };
 use bitflags::bitflags;
+use hwlocality_sys::{hwloc_topology_export_xml_flags_e, HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1};
 use std::{
     borrow::Borrow,
-    ffi::{c_char, c_uint, c_ulong, CStr, OsStr},
+    ffi::{c_char, c_uint, CStr, OsStr},
     fmt::{self, Debug, Display},
     hash::Hash,
     ops::{Deref, Index},
@@ -62,7 +63,7 @@ impl Topology {
             path::make_hwloc_path(Path::new("-")).expect("Known to be valid")
         };
         errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
-            ffi::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
+            hwlocality_sys::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
         })
         .map_err(HybridError::Hwloc)?;
         Ok(())
@@ -93,7 +94,7 @@ impl Topology {
         let mut xmlbuffer = ptr::null_mut();
         let mut buflen = 0;
         errors::call_hwloc_int_normal("hwloc_topology_export_xmlbuffer", || unsafe {
-            ffi::hwloc_topology_export_xmlbuffer(
+            hwlocality_sys::hwloc_topology_export_xmlbuffer(
                 self.as_ptr(),
                 &mut xmlbuffer,
                 &mut buflen,
@@ -110,20 +111,15 @@ impl Topology {
 
 bitflags! {
     /// Flags to be given to [`Topology::export_xml()`]
-    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_export_xml_flags_e")]
-    #[repr(C)]
-    pub struct XMLExportFlags: c_ulong {
+    #[repr(transparent)]
+    pub struct XMLExportFlags: hwloc_topology_export_xml_flags_e {
         /// Export XML that is loadable by hwloc v1.x
         ///
         /// The export may miss some details about the topology.
-        const V1 = (1<<0);
-    }
-}
-
-impl Default for XMLExportFlags {
-    fn default() -> Self {
-        Self::empty()
+        #[doc(alias = "HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1")]
+        const V1 = HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1;
     }
 }
 
@@ -243,7 +239,7 @@ impl Drop for XML<'_> {
     #[doc(alias = "hwloc_free_xmlbuffer")]
     fn drop(&mut self) {
         let addr = self.data.as_ptr().cast::<c_char>();
-        unsafe { ffi::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
+        unsafe { hwlocality_sys::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
     }
 }
 
