@@ -4,7 +4,7 @@
 [![On crates.io](https://img.shields.io/crates/v/hwlocality.svg)](https://crates.io/crates/hwlocality)
 [![On docs.rs](https://docs.rs/hwlocality/badge.svg)](https://docs.rs/hwlocality/)
 [![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=master)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
-![CII Best Practices Summary](https://img.shields.io/cii/summary/7876)
+[![CII Best Practices Summary](https://img.shields.io/cii/summary/7876)](https://www.bestpractices.dev/en/projects/7876)
 ![Requires rustc 1.70.0+](https://img.shields.io/badge/rustc-1.70.0+-lightgray.svg)
 
 ## What is this?
