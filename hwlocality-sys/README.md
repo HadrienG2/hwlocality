@@ -3,7 +3,8 @@
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![On crates.io](https://img.shields.io/crates/v/hwlocality-sys.svg)](https://crates.io/crates/hwlocality-sys)
 [![On docs.rs](https://docs.rs/hwlocality-sys/badge.svg)](https://docs.rs/hwlocality-sys/)
-[![Continuous Integration](https://github.com/HadrienG2/hwlocality/workflows/Continuous%20Integration/badge.svg)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
+[![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=master)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
+![Requires rustc 1.70.0+](https://img.shields.io/badge/rustc-1.70.0+-lightgray.svg)
 
 This crate contains the low-level unsafe Rust -> C FFI bindings to
 [hwloc](http://www.open-mpi.org/projects/hwloc), that are used to implement the
