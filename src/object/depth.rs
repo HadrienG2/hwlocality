@@ -26,7 +26,7 @@
 
 use crate::ffi::int::PositiveInt;
 #[cfg(doc)]
-use crate::object::types::ObjectType;
+use crate::object::{types::ObjectType, TopologyObject};
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_TYPE_DEPTH_MEMCACHE;
 use hwlocality_sys::{

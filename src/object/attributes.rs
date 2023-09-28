@@ -8,12 +8,12 @@
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
-#[cfg(doc)]
-use crate::topology::support::DiscoverySupport;
 use crate::{
     ffi::{self, int},
     object::types::{BridgeType, CacheType, OSDeviceType, ObjectType},
 };
+#[cfg(doc)]
+use crate::{object::TopologyObject, topology::support::DiscoverySupport};
 use hwlocality_sys::{
     hwloc_bridge_attr_s, hwloc_cache_attr_s, hwloc_group_attr_s, hwloc_memory_page_type_s,
     hwloc_numanode_attr_s, hwloc_obj_attr_u, hwloc_osdev_attr_s, hwloc_pcidev_attr_s,
