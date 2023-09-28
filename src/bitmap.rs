@@ -184,7 +184,6 @@ impl Bitmap {
     /// The pointer must target a valid bitmap that we will acquire ownership of
     /// and automatically free on `Drop`. This bitmap must therefore be safe to
     /// free, it should not belong to a topology.
-    #[allow(clippy::unnecessary_safety_comment)]
     pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<hwloc_bitmap_s>) -> Self {
         // SAFETY: Per function input precondition
         Self(bitmap)
@@ -225,7 +224,6 @@ impl Bitmap {
     /// The pointer must target a bitmap that is valid for `'target`. Unlike
     /// with [`Bitmap::from_owned_nonnull()`], it will not be automatically
     /// freed on `Drop`.
-    #[allow(clippy::unnecessary_safety_comment)]
     pub(crate) unsafe fn borrow_from_nonnull<'target>(
         bitmap: NonNull<hwloc_bitmap_s>,
     ) -> BitmapRef<'target, Self> {
@@ -1009,7 +1007,6 @@ impl Bitmap {
     ///   criterion after the specified index
     /// - Return value is the next index matching the selected criterion, or -1
     ///   to indicate absence of such index (and thus end of iteration)
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn next(
         &self,
         api: &'static str,

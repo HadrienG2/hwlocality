@@ -250,7 +250,7 @@ impl Topology {
     ///   length, distance out-buffer pointer, flags) tuples
     ///
     /// [`get_distances()`]: Self::get_distances()
-    #[allow(clippy::missing_errors_doc, clippy::unnecessary_safety_comment)]
+    #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances_without_kind(
         &self,
         getter_name: &'static str,
@@ -665,7 +665,6 @@ impl<'topology> Distances<'topology> {
     ///
     /// `inner` must be a valid and non-aliased `hwloc_distances_s` pointer
     /// originating from a query against `topology`
-    #[allow(clippy::unnecessary_safety_comment)]
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
         inner: *mut hwloc_distances_s,
@@ -746,7 +745,6 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// Output can be trusted by unsafe code
-    #[allow(clippy::unnecessary_safety_doc)]
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
         int::expect_usize(self.inner().nbobj)
@@ -891,7 +889,6 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// Output can be trusted by unsafe code
-    #[allow(clippy::unnecessary_safety_doc)]
     fn num_distances(&self) -> usize {
         self.num_objects().pow(2)
     }
@@ -950,7 +947,6 @@ impl<'topology> Distances<'topology> {
     /// # Safety
     ///
     /// Output can be trusted by unsafe code
-    #[allow(clippy::unnecessary_safety_doc)]
     pub fn enumerate_distances_mut(
         &mut self,
     ) -> impl DoubleEndedIterator<Item = ((usize, usize), &mut u64)> + ExactSizeIterator + FusedIterator

@@ -144,7 +144,7 @@ impl Topology {
     ///
     /// - [`ForeignObject`] if `target` refers to a [`TopologyObject`] that
     ///   does not belong to this topology.
-    #[allow(clippy::missing_errors_doc, clippy::unnecessary_safety_comment)]
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
     pub fn local_numa_nodes<'target>(
         &self,
@@ -840,7 +840,6 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// [`ForeignTarget`]: BadInitiatorQuery::ForeignTarget
     /// [`NoInitiators`]: BadInitiatorQuery::NoInitiators
-    #[allow(clippy::unnecessary_safety_comment)]
     #[doc(alias = "hwloc_memattr_get_best_initiator")]
     pub fn best_initiator(
         &self,
@@ -1017,7 +1016,6 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - In/out number of memory attribute values
     /// - Output endpoint buffer with capacity given above
     /// - Output value buffer with capacity given above
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn array_query<Endpoint: Copy>(
         &self,
         api: &'static str,
@@ -1082,7 +1080,6 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - Memory attribute id
     /// - Flags
     /// - Best value output
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn get_best(
         &self,
         api: &'static str,
@@ -1151,7 +1148,7 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - Do not use the output after the `'initiator` lifetime has expired.
     /// - `is_optional` should only be set to `true` for recipients that are
     ///   documented to accept NULL initiators.
-    #[allow(clippy::needless_lifetimes, clippy::unnecessary_safety_comment)]
+    #[allow(clippy::needless_lifetimes)]
     unsafe fn checked_initiator<'initiator>(
         &self,
         initiator: Option<MemoryAttributeLocation<'initiator>>,

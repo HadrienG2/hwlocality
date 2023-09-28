@@ -143,8 +143,6 @@
     clippy::uninlined_format_args,
     clippy::unnecessary_box_returns,
     clippy::unnecessary_join,
-    clippy::unnecessary_safety_comment,
-    clippy::unnecessary_safety_doc,
     clippy::unnecessary_self_imports,
     clippy::unnecessary_struct_initialization,
     clippy::unnecessary_wraps,

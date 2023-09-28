@@ -872,7 +872,6 @@ impl Topology {
     /// - `ffi` should have semantics analogous to `hwloc_alloc`
     /// - If so, this is guaranteed to call `ffi` with a valid (topology, size)
     ///   tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn allocate_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
@@ -912,7 +911,6 @@ impl Topology {
     ///   is applied to, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, bitmap, policy, flags) tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn bind_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
@@ -956,7 +954,6 @@ impl Topology {
     ///   is applied to, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, bitmap, policy, flags) tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn unbind_memory_impl(
         &self,
         api: &'static str,
@@ -1000,7 +997,6 @@ impl Topology {
     ///   performed, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, out bitmap, out policy, flags) tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
         &self,
         api: &'static str,
