@@ -923,15 +923,15 @@ impl Bitmap {
     // === Implementation details ===
 
     /// Common error message for operations that shouldn't fail
-    const SHOULD_NOT_FAIL: &str = "This operation has no known failure mode";
+    const SHOULD_NOT_FAIL: &'static str = "This operation has no known failure mode";
 
     /// Common error message for operations that should only fail in the event
     /// of a memory allocation failure, which is a panic in Rust
-    const MALLOC_FAIL_ONLY: &str =
+    const MALLOC_FAIL_ONLY: &'static str =
         "This operation should only fail on malloc failure, which is a panic in Rust";
 
     /// Generic error message for `usize -> BitmapIndex` conversion errors
-    const BAD_INDEX: &str = "Bitmap index is out of the accepted 0..=c_int::MAX range";
+    const BAD_INDEX: &'static str = "Bitmap index is out of the accepted 0..=c_int::MAX range";
 
     /// Convert a Rust range to an hwloc range
     ///

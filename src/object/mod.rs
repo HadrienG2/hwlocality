@@ -481,13 +481,16 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use hwlocality::object::{depth::Depth, types::ObjectType};
+    /// # use hwlocality::object::{
+    /// #     depth::{Depth, NormalDepth},
+    /// #     types::ObjectType
+    /// # };
     /// # let topology = hwlocality::Topology::test_instance();
     /// let root = topology.root_object();
     ///
     /// assert_eq!(root.object_type(), ObjectType::Machine);
     ///
-    /// assert_eq!(root.depth(), Depth::Normal(0));
+    /// assert_eq!(root.depth(), Depth::from(NormalDepth::MIN));
     /// assert!(root.parent().is_none());
     /// assert_eq!(root.logical_index(), 0);
     /// assert_ne!(root.normal_arity(), 0);
