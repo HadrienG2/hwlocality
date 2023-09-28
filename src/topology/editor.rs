@@ -398,6 +398,9 @@ impl<'topology> TopologyEditor<'topology> {
             )
         })
         .map_err(HybridError::Hwloc)?;
+        // SAFETY: - If hwloc succeeded, the output pointer is assumed valid
+        //         - Output lifetime is bound to the topology that it comes from
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         Ok(unsafe { ffi::as_newtype_mut(ptr.as_mut()) })
     }
 }
@@ -570,7 +573,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         })
         // SAFETY: - hwloc is trusted to produce a valid, non-inserted group
         //           object pointer
-        //         - TopologyObject is a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         .map(|group| Self {
             group: group.cast::<TopologyObject>(),
             editor,
@@ -599,7 +602,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             // SAFETY: - group is assumed to be valid as a type invariant
             //         - hwloc ops are trusted not to modify *const parameters
             //         - child was checked to belong to the same topology as group
-            //         - TopologyObject is a newtype of hwloc_obj
+            //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
             let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
                 hwlocality_sys::hwloc_obj_add_other_obj_sets(
                     self.group.cast::<hwloc_obj>().as_ptr(),
@@ -628,7 +631,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         // SAFETY: - We know this is a group object as a type invariant, so
         //           accessing the group raw attribute is safe
         //         - We are not changing the raw attributes variant
-        //         - GroupAttributes is indeed a newtype of hwloc_group_attr_s
+        //         - GroupAttributes is a repr(transparent) newtype of hwloc_group_attr_s
         let group_attributes: &mut GroupAttributes =
             unsafe { ffi::as_newtype_mut(&mut (*self.group.as_mut().0.attr).group) };
         match merge {
@@ -679,7 +682,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         //         - hwloc ops are trusted to keep *mut parameters in a valid state
         //         - We break the AllocatedGroup type invariant by inserting the
         //           group object, but a precondition warns the user about it
-        //         - TopologyObject is a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
             hwlocality_sys::hwloc_topology_insert_group_object(
                 self.editor.topology_mut_ptr(),
@@ -688,12 +691,15 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         })
         .map(|mut result| {
             if result == self.group.cast::<hwloc_obj>() {
-                // SAFETY: Group has been successfully inserted, can expose &mut
+                // SAFETY: - We know this is a group object as a type invariant
+                //         - Output lifetime is bound to the topology it comes from
+                //         - Group has been successfully inserted, can expose &mut
                 InsertedGroup::New(unsafe { self.group.as_mut() })
             } else {
                 // SAFETY: - Successful result is trusted to point to an
                 //           existing group
-                //         - TopologyObject is a newtype of hwloc_obj
+                //         - Output lifetime is bound to the topology it comes from
+                //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
                 InsertedGroup::Existing(unsafe { ffi::as_newtype_mut(result.as_mut()) })
             }
         })

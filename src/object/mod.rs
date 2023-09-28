@@ -469,6 +469,7 @@ impl Topology {
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
             );
+            // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
             unsafe { ffi::as_newtype(&*ptr) }
         })
     }
@@ -885,6 +886,9 @@ impl Topology {
                 0,
             )
         };
+        // SAFETY: - If hwloc succeeds, the output pointer is assumed valid
+        //         - Output is bound to the lifetime of the topology it comes from
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         Ok((!ptr.is_null()).then(|| unsafe { ffi::as_newtype(&*ptr) }))
     }
 }
@@ -1203,7 +1207,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is indeed a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe { ffi::deref_ptr_mut_newtype(&self.0.parent) }
     }
 
@@ -1431,7 +1435,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is indeed a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_cousin) }
     }
 
@@ -1441,7 +1445,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is indeed a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_cousin) }
     }
 
@@ -1457,7 +1461,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is indeed a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_sibling) }
     }
 
@@ -1467,7 +1471,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is indeed a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_sibling) }
     }
 }
@@ -1498,6 +1502,11 @@ impl TopologyObject {
         (0..self.normal_arity()).map(move |offset| {
             let child = unsafe { *self.0.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
+            // SAFETY: - We checked that the pointer isn't null
+            //         - Pointer validity is assumed as a type invariant
+            //         - Rust aliasing rules are enforced by deriving the reference
+            //           from &self, which itself is derived from &Topology
+            //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
             unsafe { ffi::as_newtype(&*child) }
         })
     }
@@ -1641,7 +1650,11 @@ impl TopologyObject {
         let mut current = first;
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
-            // SAFETY: TopologyObject is indeed a newtype of hwloc_obj
+            // SAFETY: - We checked that the pointer isn't null
+            //         - Pointer validity is assumed as a type invariant
+            //         - Rust aliasing rules are enforced by deriving the reference
+            //           from &self, which itself is derived from &Topology
+            //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
             let result: &TopologyObject = unsafe { ffi::as_newtype(&*current) };
             current = result.0.next_sibling;
             result
@@ -1830,7 +1843,7 @@ impl TopologyObject {
             return &[];
         }
         // SAFETY: - infos and count are assumed in sync per type invariant
-        //         - TextualInfo is a newtype of hwloc_info_s
+        //         - TextualInfo is a repr(transparent) newtype of hwloc_info_s
         unsafe {
             std::slice::from_raw_parts(
                 self.0.infos.cast::<TextualInfo>(),

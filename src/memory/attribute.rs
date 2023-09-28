@@ -193,7 +193,8 @@ impl Topology {
                 assert!(!ptr.is_null(), "Invalid NUMA node pointer from hwloc");
                 // SAFETY: - We trust that if hwloc emits a non-null pointer, it
                 //           is valid and bound to the topology's lifetime.
-                //         - TopologyObject is indeed a newtype of hwloc_obj
+                //         - TopologyObject is a repr(transparent) newtype of
+                //           hwloc_obj.
                 unsafe { ffi::as_newtype(&*ptr) }
             })
             .collect())
@@ -1121,7 +1122,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ) -> &'topology TopologyObject {
         assert!(!node_ptr.is_null(), "Got null target pointer from hwloc");
         // SAFETY: - Lifetime per input precondition, query output assumed valid
-        //         - TopologyObject is indeed a newtype of hwloc_obj
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe { ffi::as_newtype(&*node_ptr) }
     }
 
@@ -1327,6 +1328,7 @@ impl<'target> MemoryAttributeLocation<'target> {
         //         - Pointer is assumed to point to a valid CpuSet or
         //           TopologyObject that is owned by _topology, and thus has a
         //           lifetime of 'target or greater.
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj.
         unsafe {
             match raw.ty {
                 HWLOC_LOCATION_TYPE_CPUSET => {

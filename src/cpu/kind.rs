@@ -180,6 +180,7 @@ impl Topology {
         //           violates Rust aliasing rules, as long as we honor these
         //           rules ourselves
         //         - Total size should not wrap around for any valid allocation
+        //         - TextualInfo is a repr(transparent) newtype of hwloc_info_s
         let infos = unsafe {
             std::slice::from_raw_parts(infos.cast::<TextualInfo>(), int::expect_usize(nr_infos))
         };

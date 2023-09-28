@@ -75,7 +75,8 @@ impl<'object> ObjectAttributes<'object> {
         let attr: &hwloc_obj_attr_u = unsafe { &**attr };
 
         // SAFETY: - We checked for union field access validity via the type
-        //         - All output types are newtypes of the respective raw types
+        //         - All output types are repr(transparent) newtypes of the
+        //           respective raw union field types
         unsafe {
             #[allow(clippy::wildcard_enum_match_arm)]
             match ty {
@@ -128,7 +129,9 @@ impl NUMANodeAttributes {
             );
             return &[];
         }
-        // SAFETY: Per type invariant
+        // SAFETY: - Pointer and length assumed valid per type invariant
+        //         - MemoryPageType is a repr(transparent) newtype of
+        //           hwloc_memory_page_type_s
         unsafe {
             std::slice::from_raw_parts(
                 self.0.page_types.cast::<MemoryPageType>(),
@@ -508,7 +511,9 @@ impl<'object> UpstreamAttributes<'object> {
     ///
     /// `attr` must be consistent with `ty`.
     pub(crate) unsafe fn new(ty: BridgeType, attr: &'object RawUpstreamAttributes) -> Option<Self> {
-        // SAFETY: Per input precondition
+        // SAFETY: - attr.pci assumed valid per input precondition
+        //         - PCIDeviceAttributes is a repr(transparent) newtype of
+        //           hwloc_pcidev_attr_s
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),
@@ -558,7 +563,9 @@ impl<'object> DownstreamAttributes<'object> {
         ty: BridgeType,
         attr: &'object RawDownstreamAttributes,
     ) -> Option<Self> {
-        // SAFETY: Per input precondition
+        // SAFETY: - attr.pci assumed valid per input precondition
+        //         - DownstreamPCIAttributes is a repr(transparent) newtype of
+        //           RawDownstreamPCIAttributes
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),

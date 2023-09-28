@@ -270,8 +270,11 @@ impl Topology {
         })
         .expect("Unexpected hwloc error");
 
-        // This is correct because the output reference will be bound the the
-        // lifetime of &self by the borrow checker.
+        // SAFETY: - If hwloc succeeded, the output is assumed to be valid.
+        //         - Output reference will be bound the the lifetime of &self by
+        //           the borrow checker
+        //         - FeatureSupport is a repr(transparent) newtype of
+        //           hwloc_topology_support
         unsafe { ffi::as_newtype(ptr.as_ref()) }
     }
 

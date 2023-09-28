@@ -387,6 +387,7 @@ impl TopologyEditor<'_> {
         if objects.iter().flatten().any(|obj| !topology.contains(obj)) {
             return Err(AddDistancesError::ForeignObjects.into());
         }
+        // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
         let objs = objects.as_ptr().cast::<*const hwloc_obj>();
         let values = distances.as_ptr();
 
@@ -768,6 +769,7 @@ impl<'topology> Distances<'topology> {
         //         - Non-null enpoint pointers are assumed to be valid
         //         - Their lifetime is bound to the topology to which self holds
         //           an &-reference, preventing invalidation/aliasing issues
+        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         unsafe {
             let objs = self.inner().objs.cast::<*const TopologyObject>();
             let objs = std::slice::from_raw_parts(objs.cast_const(), self.num_objects());
@@ -800,6 +802,7 @@ impl<'topology> Distances<'topology> {
     /// Users must only overwrite this pointer with object pointers originating
     /// from the same topology or null pointers.
     unsafe fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
+        // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
         let objs = self.inner().objs.cast::<*const TopologyObject>();
         // SAFETY: - inner is assumed valid and unaliased as a type invariant
         //         - objs & num_objects() are trusted to be consistent
@@ -978,6 +981,7 @@ impl<'topology> Distances<'topology> {
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
     {
+        // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
         let objs = self.inner().objs.cast::<*const TopologyObject>();
         // SAFETY: - inner is assumed valid and unaliased as a type invariant
         //         - objs & num_objects() are trusted to be consistent

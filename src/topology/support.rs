@@ -44,7 +44,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - DiscoverySupport is indeed a newtype of
+        //         - DiscoverySupport is a repr(transparent) newtype of
         //           hwloc_topology_discovery_support
         unsafe { ffi::deref_ptr_newtype(&self.0.discovery) }
     }
@@ -55,7 +55,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - CpuBindingSupport is indeed a newtype of
+        //         - CpuBindingSupport is a repr(transparent) newtype of
         //           hwloc_topology_cpubind_support
         unsafe { ffi::deref_ptr_newtype(&self.0.cpubind) }
     }
@@ -78,7 +78,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - MiscSupport is indeed a newtype of
+        //         - MiscSupport is a repr(transparent) newtype of
         //           hwloc_topology_misc_support
         unsafe { ffi::deref_ptr_newtype(&self.0.misc) }
     }
