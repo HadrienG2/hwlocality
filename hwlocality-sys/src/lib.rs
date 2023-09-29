@@ -1,7 +1,7 @@
-// Last allow-by-default lint review performed as of Rust 1.72
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, unknown_lints)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(doc)))]
+// Last allow-by-default lint review performed as of Rust 1.72
 #![deny(
     clippy::as_ptr_cast_mut,
     clippy::as_underscore,
