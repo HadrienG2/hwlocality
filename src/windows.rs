@@ -32,10 +32,10 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_windows_get_nr_processor_groups")]
     pub fn num_processor_groups(&self) -> Result<NonZeroUsize, RawHwlocError> {
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - Per documentation, flags must be zero
         let count =
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Per documentation, flags must be zero
             errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
                 hwlocality_sys::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
             })?;
@@ -67,15 +67,18 @@ impl Topology {
                 let mut set = CpuSet::new();
                 let pg_index = c_uint::try_from(pg_index)
                     .expect("Can't fail, pg_index upper bound comes from hwloc");
-                // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-                //         - Bitmap is trusted to contain a valid ptr (type invariant)
-                //         - hwloc ops are trusted not to modify *const parameters
-                //         - hwloc ops are trusted to keep *mut parameters in a
-                //           valid state unless stated otherwise
-                //         - pg_index is in bounds by construction
-                //         - Per documentation, flags must be zero
                 errors::call_hwloc_int_normal(
                     "hwloc_windows_get_processor_group_cpuset",
+                    // SAFETY: - Topology is trusted to contain a valid ptr
+                    //           (type invariant)
+                    //         - Bitmap is trusted to contain a valid ptr
+                    //           (type invariant)
+                    //         - hwloc ops are trusted not to modify *const
+                    //           parameters
+                    //         - hwloc ops are trusted to keep *mut parameters
+                    //           in a valid state unless stated otherwise
+                    //         - pg_index is in bounds by construction
+                    //         - Per documentation, flags must be zero
                     || unsafe {
                         hwlocality_sys::hwloc_windows_get_processor_group_cpuset(
                             self.as_ptr(),
