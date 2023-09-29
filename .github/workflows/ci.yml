@@ -188,8 +188,11 @@ jobs:
         uses: ./.github/actions/system-information
         if: contains(matrix.features, 'bundled') == false
 
-      - name: Run basic tests
+      - name: Run basic tests (debug build)
         run: cargo test ${{ matrix.features }}
+
+      - name: Run basic tests (release build)
+        run: cargo test --release ${{ matrix.features }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
@@ -260,8 +263,11 @@ jobs:
         uses: ./.github/actions/system-information
         if: contains(matrix.features, 'bundled') == false
 
-      - name: Run basic tests
+      - name: Run basic tests (debug build)
         run: cargo test ${{ matrix.features }}
+
+      - name: Run basic tests (release build)
+        run: cargo test --release ${{ matrix.features }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
