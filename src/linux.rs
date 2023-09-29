@@ -71,7 +71,8 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_cpubind", || unsafe {
@@ -96,7 +97,8 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_last_cpu_location", || unsafe {
@@ -126,7 +128,8 @@ impl Topology {
         // SAFETY: - Path is trusted to contain a valid C string (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             hwlocality_sys::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
         })

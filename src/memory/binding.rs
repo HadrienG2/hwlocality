@@ -1020,7 +1020,8 @@ impl Topology {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
-            //         - hwloc ops are trusted to keep *mut parameters in a valid state
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
             //         - As a pure out parameter, policy shouldn't be read by hwloc
             //         - flags should be valid if target & operation are valid
             ffi(

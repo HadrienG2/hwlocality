@@ -392,6 +392,13 @@ impl TopologyEditor<'_> {
         let values = distances.as_ptr();
 
         // Create new empty distances structure
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - name is trusted to be a valid C string (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - kind was validated to be correct
+        //         - Per documentation, flags should be zero
         let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
             hwlocality_sys::hwloc_distances_add_create(
                 self.topology_mut_ptr(),
@@ -403,6 +410,16 @@ impl TopologyEditor<'_> {
         .map_err(HybridError::Hwloc)?;
 
         // Add objects to the distance structure
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - handle comes from a successful hwloc_distances_add_create run
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - (nbobjs, objs) come from a single objects vec, which is
+        //           still in scope and thus not liberated, and only contains
+        //           objects from the active topology
+        //         - values comes from a distances that's still in scope and
+        //           whose length has been checked
         errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
             hwlocality_sys::hwloc_distances_add_values(
                 self.topology_mut_ptr(),
@@ -416,6 +433,11 @@ impl TopologyEditor<'_> {
         .map_err(HybridError::Hwloc)?;
 
         // Finalize the distance structure and insert it into the topology
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - handle comes from a successful hwloc_distances_add_create run
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - commit_flags only allows values supported by hwloc
         errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
             hwlocality_sys::hwloc_distances_add_commit(
                 self.topology_mut_ptr(),
@@ -518,6 +540,15 @@ impl TopologyEditor<'_> {
         find_distances: impl FnOnce(&Topology) -> Distances<'_>,
     ) -> Result<(), RawHwlocError> {
         let distances = find_distances(self.topology()).into_inner();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a valid
+        //           state unless stated otherwise
+        //         - distances comes from find_distances, which is a safe
+        //           function and thus should only return valid Distances
+        //         - distances ptr has been extracted from Distances through the
+        //           consuming but non-liberating into_inner operation
+        //         - No safe function enables client code to reuse the
+        //           invalidated distances pointer after this function is done
         errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
             hwlocality_sys::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
         })
@@ -531,6 +562,10 @@ impl TopologyEditor<'_> {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove")]
     pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Distances lifetime is bound by the host topology, so this
+        //           will invalidate all Distances struct in existence and thus
+        //           use-after-free cannot happen
         errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
             hwlocality_sys::hwloc_distances_remove(self.topology_mut_ptr())
         })
@@ -557,6 +592,11 @@ impl TopologyEditor<'_> {
         let Ok(depth) = depth.try_into() else {
             return Ok(());
         };
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Distances lifetime is bound by the host topology, so this
+        //           will invalidate all Distances struct in existence and thus
+        //           use-after-free cannot happen
+        //         - hwloc should be able to handle any valid depth value
         errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
             hwlocality_sys::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into())
         })
@@ -642,16 +682,24 @@ impl TopologyEditor<'_> {
 // # Safety
 //
 // As a type invariant, the inner pointer is assumed to always point to a valid,
-// owned, unaliased RawDistances struct.
+// owned, unaliased hwloc_distances_s struct. This means that...
+//
+// - The kind flags must be valid
+// - objs array should contain nbobj hwloc_obj pointers, each of which should
+//   point to a valid object belonging to "topology" or be null
+// - values array should contain nbobj*nbobj values
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
     /// Pointer to a valid hwloc_distances_s struct that originates from `topology`
     ///
     /// # Safety
     ///
-    /// The pointers objs and values should not be replaced, reallocated, freed, etc
-    /// and thus nbobj should not be changed either. As a type invariant, they are
-    /// assumed to be always valid and devoid of (mutable) aliases.
+    /// - The pointers objs and values should not be replaced, reallocated,
+    ///   freed, etc and thus nbobj should not be changed either
+    /// - Target topology objects should not be mutated, since this would
+    ///   violate Rust aliasing rules as they come from &Topology
+    /// - As a type invariant, target topology objects are assumed to be
+    ///   valid and devoid of (mutable) aliases.
     inner: NonNull<hwloc_distances_s>,
 
     /// Topology from which `inner` was extracted
@@ -685,12 +733,31 @@ impl<'topology> Distances<'topology> {
     }
 
     /// Access the inner `hwloc_distances_s` (& version)
-    fn inner(&self) -> &hwloc_distances_s {
+    ///
+    /// # Safety
+    ///
+    /// - The pointers objs and values should not be reallocated, freed, etc
+    /// - Target topology objects should not be mutated, since this would
+    ///   violate Rust aliasing rules as they come from &Topology
+    unsafe fn inner(&self) -> &hwloc_distances_s {
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant,
+        //         - Its lifetime is assumed to be bound to self.topology and
+        //           thus to self
         unsafe { self.inner.as_ref() }
     }
 
     /// Get the inner `hwloc_distances_s` (&mut version)
-    fn inner_mut(&mut self) -> &mut hwloc_distances_s {
+    ///
+    /// # Safety
+    ///
+    /// - The pointers objs and values should not be replaced, reallocated,
+    ///   freed, etc and thus nbobj should not be changed either
+    /// - Target topology objects should not be mutated, since this would
+    ///   violate Rust aliasing rules as they come from &Topology
+    unsafe fn inner_mut(&mut self) -> &mut hwloc_distances_s {
+        // SAFETY: - inner is assumed valid and unaliased as a type invariant,
+        //         - Its lifetime is assumed to be bound to self.topology and
+        //           thus to self
         unsafe { self.inner.as_mut() }
     }
 
@@ -714,12 +781,12 @@ impl<'topology> Distances<'topology> {
     #[doc(alias = "hwloc_distances_get_name")]
     pub fn name(&self) -> Option<&std::ffi::CStr> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - inner pointer validity is assumed as a type invariant
+        //         - inner distances validity is assumed as a type invariant
         //         - inner is assumed to belong to topology as a type invariant
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Successful output is assumed to be a valid C string, whose
-        //           lifetime/mutability is linked to the topology that self
-        //           holds an &-reference to
+        //           lifetime/mutability is bound to self.topology and thus to
+        //           self
         //         - Topology has no internal mutability so holding an &-ref to
         //           it is enough to prevent mutation and invalidation
         unsafe {
@@ -732,7 +799,8 @@ impl<'topology> Distances<'topology> {
     /// Kind of distance matrix
     #[doc(alias = "hwloc_distances_s::kind")]
     pub fn kind(&self) -> DistancesKind {
-        let result = DistancesKind::from_bits_truncate(self.inner().kind);
+        // SAFETY: No invalid mutation of inner state occurs
+        let result = DistancesKind::from_bits_truncate(unsafe { self.inner().kind });
         assert!(
             result.is_valid(false),
             "hwloc should not emit invalid kinds"
@@ -747,7 +815,8 @@ impl<'topology> Distances<'topology> {
     /// Output can be trusted by unsafe code
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
-        int::expect_usize(self.inner().nbobj)
+        // SAFETY: No invalid mutation of inner state occurs
+        int::expect_usize(unsafe { self.inner().nbobj })
     }
 
     /// Objects described by the distance matrix
@@ -761,13 +830,14 @@ impl<'topology> Distances<'topology> {
            + Clone
            + ExactSizeIterator
            + FusedIterator {
-        // SAFETY: - inner is assumed valid and unaliased as a type invariant
-        //         - objs & num_objects() are trusted to be consistent
-        //         - objs is assumed unaliased and bound to the lifetime of self
-        //         - Non-null enpoint pointers are assumed to be valid
-        //         - Their lifetime is bound to the topology to which self holds
-        //           an &-reference, preventing invalidation/aliasing issues
+        // SAFETY: - inner is assumed valid as a type invariant, thus objs &
+        //           num_objects() are trusted to be consistent, objs is assumed
+        //           unaliased and bound to the lifetime of self.topology,
+        //           and inner obj pointers are assumed to be valid and bound
+        //           to the lifetime of self.topology and thus to self
         //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
+        //         - No invalid mutation of inner state is possible in safe code
+        //           using this API
         unsafe {
             let objs = self.inner().objs.cast::<*const TopologyObject>();
             let objs = std::slice::from_raw_parts(objs.cast_const(), self.num_objects());
@@ -797,14 +867,19 @@ impl<'topology> Distances<'topology> {
     ///
     /// # Safety
     ///
-    /// Users must only overwrite this pointer with object pointers originating
-    /// from the same topology or null pointers.
+    /// - Users must only overwrite this pointer with object pointers
+    ///   originating from the same topology or null pointers
+    /// - The objects should not be modified, only replaced.
+    /// - Unsafe code can trust the fact that the initial topology pointers are
+    ///   either null or valid and bound to self.topology
     unsafe fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
-        // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
-        let objs = self.inner().objs.cast::<*const TopologyObject>();
-        // SAFETY: - inner is assumed valid and unaliased as a type invariant
-        //         - objs & num_objects() are trusted to be consistent
-        //         - objs is assumed unaliased and bound to the lifetime of self
+        // SAFETY: - TopologyObject is a repr(transparent) newtype of hwloc_obj
+        //         - Allowed mutations are covered by the function's safety
+        //           contract
+        let objs = unsafe { self.inner().objs.cast::<*const TopologyObject>() };
+        // SAFETY: - inner is assumed valid as a type invariant, thus objs &
+        //           num_objects() are trusted to be consistent, objs is assumed
+        //           unaliased and bound to the lifetime of self.topology
         unsafe { std::slice::from_raw_parts_mut(objs, self.num_objects()) }
     }
 
@@ -815,6 +890,10 @@ impl<'topology> Distances<'topology> {
     /// # Errors
     ///
     /// [`ForeignObject`] if the input object does not belong to the [`Topology`]
+    ///
+    /// # Safety
+    ///
+    /// Correctness can be trusted by unsafe code
     #[allow(clippy::option_if_let_else)]
     fn obj_to_checked_ptr(
         topology: &'topology Topology,
@@ -852,7 +931,8 @@ impl<'topology> Distances<'topology> {
         new_object: Option<&'topology TopologyObject>,
     ) -> Result<(), ForeignObject> {
         let topology = self.topology;
-        // SAFETY: Overwriting with a valid topology object pointer from topology
+        // SAFETY: Overwriting with a valid topology object pointer from
+        //         topology, as checked by obj_to_checked_ptr
         unsafe { self.objects_mut()[idx] = Self::obj_to_checked_ptr(topology, new_object)? };
         Ok(())
     }
@@ -874,11 +954,13 @@ impl<'topology> Distances<'topology> {
         let topology = self.topology;
         // SAFETY: Overwriting these with a valid topology object pointers from topology
         for (idx, obj) in unsafe { self.objects_mut().iter_mut().enumerate() } {
-            // SAFETY: - Non-null enpoint pointers are assumed to be valid
-            //         - Their lifetime is bound to the topology to which self holds
-            //           an &-reference, preventing invalidation/aliasing issues
+            // SAFETY: inner is assumed valid as a type invariant, thus inner
+            //         obj pointers are assumed to be valid and bound to the
+            //         lifetime of self.topology and thus to self
             let old_obj = unsafe { ffi::deref_ptr(obj) };
             let new_obj = mapping(idx, old_obj);
+            // SAFETY: Overwriting with a valid topology object pointer from
+            //         topology, as checked by obj_to_checked_ptr
             *obj = Self::obj_to_checked_ptr(topology, new_obj)?;
         }
         Ok(())
@@ -906,9 +988,12 @@ impl<'topology> Distances<'topology> {
     /// you may want to use [`Distances::object_distances()`] instead.
     #[doc(alias = "hwloc_distances_s::values")]
     pub fn distances(&self) -> &[u64] {
-        // SAFETY: - inner is assumed valid and unaliased as a type invariant
-        //         - values & num_distances() are trusted to be consistent
-        //         - values is assumed unaliased and bound to the lifetime of self
+        // SAFETY: - inner is assumed valid as a type invariant, thus values &
+        //           num_distances() are trusted to be consistent. values is
+        //           assumed to be  unaliased and bound to the lifetime of
+        //           self.topology, and thus to that of self
+        //         - No invalid mutation of inner state is possible in safe code
+        //           using this API
         unsafe { std::slice::from_raw_parts(self.inner().values, self.num_distances()) }
     }
 
@@ -916,9 +1001,12 @@ impl<'topology> Distances<'topology> {
     ///
     /// See also [`Distances::distances()`].
     pub fn distances_mut(&mut self) -> &mut [u64] {
-        // SAFETY: - inner is assumed valid and unaliased as a type invariant
-        //         - values & num_distances() are trusted to be consistent
-        //         - values is assumed unaliased and bound to the lifetime of self
+        // SAFETY: - inner is assumed valid as a type invariant, thus values &
+        //           num_distances() are trusted to be consistent. values is
+        //           assumed to be  unaliased and bound to the lifetime of
+        //           self.topology, and thus to that of self
+        //         - No invalid mutation of inner state is possible in safe code
+        //           using this API
         unsafe { std::slice::from_raw_parts_mut(self.inner_mut().values, self.num_distances()) }
     }
 
@@ -977,19 +1065,20 @@ impl<'topology> Distances<'topology> {
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
     {
-        // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
-        let objs = self.inner().objs.cast::<*const TopologyObject>();
-        // SAFETY: - inner is assumed valid and unaliased as a type invariant
-        //         - objs & num_objects() are trusted to be consistent
-        //         - objs is assumed unaliased and bound to the lifetime of self
+        // SAFETY: - TopologyObject is a repr(transparent) newtype of hwloc_obj
+        //         - This function does not mutate the objects in any way
+        let objs = unsafe { self.inner().objs.cast::<*const TopologyObject>() };
+        // SAFETY: - inner is assumed valid as a type invariant, thus objs &
+        //           num_objects() are trusted to be consistent, objs is assumed
+        //           unaliased and bound to the lifetime of self.topology
         let objects = unsafe { std::slice::from_raw_parts(objs, self.num_objects()) };
         self.enumerate_distances_mut()
             .map(move |((sender_idx, receiver_idx), distance)| {
                 // SAFETY: - enumerate_distances_mut will only produces valid
                 //           object indices in the 0..num_objects range
-                //         - Non-null enpoint pointers are assumed to be valid
-                //         - Their lifetime is bound to the topology to which self holds
-                //           an &-reference, preventing invalidation/aliasing issues
+                //         - inner is assumed valid, so inner.objs are assumed
+                //           to be either null or valid, unaliased and bound to
+                //           the self.topology lifetime
                 let obj = |idx| unsafe {
                     let obj_ptr: *const TopologyObject = *objects.get_unchecked(idx);
                     (!obj_ptr.is_null()).then(|| &*obj_ptr)
@@ -1064,7 +1153,8 @@ impl<'topology> Distances<'topology> {
         //         - inner pointer validity is assumed as a type invariant
         //         - inner is assumed to belong to topology as a type invariant
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - Any supported transform value is accepted by hwloc
         //         - Per documentation, transform attr/flags must be NULL/0
         errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {

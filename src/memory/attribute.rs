@@ -235,6 +235,8 @@ impl<'topology> TopologyEditor<'topology> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - name is trusted to be a valid C string (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - flags are validated to be correct
         //         - id is an out-parameter, so it can take any input value
         let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
@@ -408,7 +410,8 @@ impl MemoryAttributeBuilder<'_, '_> {
         // Set memory attribute values
         for (initiator_ptr, (target_ptr, value)) in initiator_ptrs.zip(target_ptrs_and_values) {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
             //         - id from hwloc_memattr_register is trusted to be valid
             //         - target_ptr was checked to belong to this topology
             //         - initiator_ptr was checked to belong to this topology

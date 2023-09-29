@@ -568,7 +568,8 @@ impl Topology {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
-            //         - hwloc ops are trusted to keep *mut parameters in a valid state
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
             //         - flags should be valid if target & operation are valid
             ffi(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         })

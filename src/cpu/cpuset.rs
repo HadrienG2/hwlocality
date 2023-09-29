@@ -405,7 +405,8 @@ impl CpuSet {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - Per documentation, hwloc should handle arbitrarily large which values
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             hwlocality_sys::hwloc_bitmap_singlify_per_core(

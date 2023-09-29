@@ -567,7 +567,8 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         editor: &'editor mut TopologyEditor<'topology>,
     ) -> Result<Self, RawHwlocError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
             hwlocality_sys::hwloc_topology_alloc_group_object(editor.topology_mut_ptr())
         })
@@ -679,7 +680,8 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Inner group pointer is assumed valid as a type invariant
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - We break the AllocatedGroup type invariant by inserting the
         //           group object, but a precondition warns the user about it
         //         - TopologyObject is a repr(transparent) newtype of hwloc_obj

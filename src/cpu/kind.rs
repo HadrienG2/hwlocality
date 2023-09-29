@@ -145,7 +145,8 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - Per documentation, efficiency, nr_infos and infos are
         //           pure out parameters that hwloc does not read
         //         - Per documentation, flags should be zero
@@ -308,7 +309,8 @@ impl TopologyEditor<'_> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a valid state
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         //         - Above logic enforces that forced_efficiency be >= -1,
         //           as hwloc demands
         //         - num_infos and infos_ptrs originate from the same slice, so
