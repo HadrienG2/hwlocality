@@ -203,9 +203,9 @@ jobs:
   # in release mode
   #
   # Some things like UB or arithmetic overflow differ between debug and release
-  # builds, so it's a good idea to run
+  # builds, so it's a good idea to run the tests in release mode too.
   #
-  # We do not run this in the test-contrib-debug job because switching between
+  # We do not do this in the test-contrib-debug job because switching between
   # debug and release builds trashes the cargo cache.
   #
   # We restrict this to the latest supported hwloc release because the
