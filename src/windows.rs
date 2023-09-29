@@ -3,7 +3,7 @@
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi::{self, int},
+    ffi::int,
     topology::Topology,
 };
 use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
