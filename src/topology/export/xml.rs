@@ -206,7 +206,7 @@ impl<'topology> XML<'topology> {
     }
 
     /// Access the inner string as a Rust string
-    pub const fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         // SAFETY: All necessary checks are done in wrap()
         unsafe { std::str::from_utf8_unchecked(self.as_raw().to_bytes()) }
     }
