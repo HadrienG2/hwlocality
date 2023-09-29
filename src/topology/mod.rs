@@ -143,7 +143,7 @@ impl Topology {
     pub fn test_instance() -> &'static Self {
         use std::sync::OnceLock;
         static INSTANCE: OnceLock<Topology> = OnceLock::new();
-        INSTANCE.get_or_init(|| Topology::new().expect("Failed to initialize test Topology"))
+        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize test Topology"))
     }
 
     /// Prepare to create a Topology with custom configuration
@@ -210,6 +210,8 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_flags")]
     pub fn build_flags(&self) -> BuildFlags {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let result = BuildFlags::from_bits_truncate(unsafe {
             hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
         });
@@ -231,6 +233,8 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_is_thissystem")]
     pub fn is_this_system(&self) -> bool {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         errors::call_hwloc_bool("hwloc_topology_is_thissystem", || unsafe {
             hwlocality_sys::hwloc_topology_is_thissystem(self.as_ptr())
         })
@@ -270,11 +274,12 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_support")]
     pub fn feature_support(&self) -> &FeatureSupport {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let ptr = errors::call_hwloc_ptr("hwloc_topology_get_support", || unsafe {
             hwlocality_sys::hwloc_topology_get_support(self.as_ptr())
         })
         .expect("Unexpected hwloc error");
-
         // SAFETY: - If hwloc succeeded, the output is assumed to be valid.
         //         - Output reference will be bound the the lifetime of &self by
         //           the borrow checker
@@ -334,6 +339,14 @@ impl Topology {
     #[doc(alias = "hwloc_topology_get_type_filter")]
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = hwloc_type_filter_e::MAX;
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - By construction, ObjectType only exposes values that map into
+        //           hwloc_obj_type_t values understood by the configured version
+        //           of hwloc, and build.rs checks that the active version of
+        //           hwloc is not older than that, so into() may only generate
+        //           valid hwloc_obj_type_t values for current hwloc
+        //         - filter is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
@@ -612,6 +625,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_cpuset")]
     pub fn cpuset(&self) -> BitmapRef<'_, CpuSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_cpuset",
@@ -638,6 +652,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_cpuset")]
     pub fn complete_cpuset(&self) -> BitmapRef<'_, CpuSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_cpuset",
@@ -669,6 +684,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
     pub fn allowed_cpuset(&self) -> BitmapRef<'_, CpuSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_cpuset",
@@ -692,6 +708,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_nodeset")]
     pub fn nodeset(&self) -> BitmapRef<'_, NodeSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_nodeset",
@@ -718,6 +735,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_nodeset")]
     pub fn complete_nodeset(&self) -> BitmapRef<'_, NodeSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_nodeset",
@@ -749,6 +767,7 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
     pub fn allowed_nodeset(&self) -> BitmapRef<'_, NodeSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_nodeset",
@@ -773,6 +792,11 @@ impl Topology {
         getter_name: &'static str,
         getter: unsafe extern "C" fn(*const hwloc_topology) -> *const hwloc_bitmap_s,
     ) -> BitmapRef<'topology, Set> {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - If this operation is successful, it should return a valid
+        //           bitmap pointer
+        //         - Output bitmap is indeed bound to the topology's lifetime
         let bitmap_ref = unsafe {
             let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))
                 .expect("According to their docs, these functions cannot return NULL");

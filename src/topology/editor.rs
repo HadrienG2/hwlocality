@@ -108,7 +108,11 @@ impl Topology {
     /// A process abort will occur if this fails as we must not let an invalid
     /// `Topology` state escape, not even via unwinding, as that would result in
     /// undefined behavior (mutation which the compiler assumes will not happen).
+    #[allow(clippy::print_stderr)]
     pub(crate) fn refresh(&mut self) {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         let result = errors::call_hwloc_int_normal("hwloc_topology_refresh", || unsafe {
             hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
@@ -117,6 +121,8 @@ impl Topology {
             std::process::abort()
         }
         if cfg!(debug_assertions) {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
             unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
     }
@@ -210,6 +216,7 @@ impl<'topology> TopologyEditor<'topology> {
     /// Failure to allocate internal data will lead to a process abort, because
     /// the topology gets corrupted in this case and must not be touched again,
     /// but we have no way to prevent this in a safe API.
+    #[allow(clippy::print_stderr)]
     #[doc(alias = "hwloc_topology_restrict")]
     pub fn restrict<Set: SpecializedBitmap>(
         &mut self,
@@ -230,6 +237,13 @@ impl<'topology> TopologyEditor<'topology> {
         }
 
         // Apply requested restriction
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - set trusted to be valid (Bitmap type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - By construction, only allowed flag combinations may be sent
+        //           to hwloc
         let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
             hwlocality_sys::hwloc_topology_restrict(
                 self.topology_mut_ptr(),
@@ -283,8 +297,8 @@ impl<'topology> TopologyEditor<'topology> {
                 HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS,
             ),
             AllowSet::Custom { cpuset, nodeset } => {
-                let cpuset = cpuset.map(CpuSet::as_ptr).unwrap_or(ptr::null());
-                let nodeset = nodeset.map(NodeSet::as_ptr).unwrap_or(ptr::null());
+                let cpuset = cpuset.map_or(ptr::null(), CpuSet::as_ptr);
+                let nodeset = nodeset.map_or(ptr::null(), NodeSet::as_ptr);
                 if cpuset.is_null() && nodeset.is_null() {
                     return Err(BadAllowSet.into());
                 }
@@ -293,6 +307,14 @@ impl<'topology> TopologyEditor<'topology> {
         };
 
         // Call hwloc
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - cpusets and nodesets are trusted to be valid (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - By construction, flags are trusted to be in sync with the
+        //           cpuset and nodeset params + only one of them is set as
+        //           requested by hwloc
         errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
             hwlocality_sys::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
         })
@@ -419,6 +441,16 @@ impl<'topology> TopologyEditor<'topology> {
         // allowed to assume that nothing changed behind that shared reference.
         // So letting the client keep hold of it would be highly problematic.
         //
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - LibcString should yield valid C strings, which we're not
+        //           using beyond their intended lifetime
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - raw_parent_mut originates from safe code so it should be
+        //           correct, and it has been checked to come from the right
+        //           topology
+        //         - See note above with respect to raw_parent_mut aliasing
         let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
             hwlocality_sys::hwloc_topology_insert_misc_object(
                 self.topology_mut_ptr(),
@@ -543,7 +575,9 @@ impl fmt::Display for AllowSet<'_> {
                 s.push(')');
                 f.pad(&s)
             }
-            other => <Self as fmt::Debug>::fmt(other, f),
+            other @ (AllowSet::All | AllowSet::LocalRestrictions) => {
+                <Self as fmt::Debug>::fmt(other, f)
+            }
         }
     }
 }
@@ -658,11 +692,11 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     /// By default, hwloc may or may not merge identical groups covering the
     /// same objects. You can encourage or inhibit this tendency with this method.
     pub(self) fn set_merge_policy(&mut self, merge: GroupMerge) {
-        // SAFETY: - We know this is a group object as a type invariant, so
-        //           accessing the group raw attribute is safe
-        //         - We are not changing the raw attributes variant
-        //         - GroupAttributes is a repr(transparent) newtype of hwloc_group_attr_s
         let group_attributes: &mut GroupAttributes =
+            // SAFETY: - We know this is a group object as a type invariant, so
+            //           accessing the group raw attribute is safe
+            //         - We are not changing the raw attributes variant
+            //         - GroupAttributes is a repr(transparent) newtype of hwloc_group_attr_s
             unsafe { ffi::as_newtype_mut(&mut (*self.group.as_mut().0.attr).group) };
         match merge {
             GroupMerge::Never => group_attributes.prevent_merging(),

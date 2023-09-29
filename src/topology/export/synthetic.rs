@@ -52,6 +52,11 @@ impl Topology {
         let mut buf = vec![0u8; 1024];
         loop {
             let len =
+                // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+                //         - hwloc ops are trusted not to modify *const parameters
+                //         - buffer and buflen are in sync (same vector)
+                //         - flags only allows values supported by the active
+                //           hwloc version
                 errors::call_hwloc_int_normal("hwloc_topology_export_synthetic", || unsafe {
                     hwlocality_sys::hwloc_topology_export_synthetic(
                         self.as_ptr(),

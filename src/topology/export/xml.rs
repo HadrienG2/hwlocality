@@ -64,6 +64,10 @@ impl Topology {
         } else {
             path::make_hwloc_path(Path::new("-")).expect("Known to be valid")
         };
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - path has been checked to be fit for hwloc consumption
+        //         - flags only allows values supported by the active hwloc version
         errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
             hwlocality_sys::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
         })
@@ -95,6 +99,11 @@ impl Topology {
     pub fn export_xml(&self, flags: XMLExportFlags) -> Result<XML<'_>, RawHwlocError> {
         let mut xmlbuffer = ptr::null_mut();
         let mut buflen = 0;
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - xmlbuffer and buflen are out parameters, their initial value
+        //           should not be read by hwloc
+        //         - flags only allows values supported by the active hwloc version
         errors::call_hwloc_int_normal("hwloc_topology_export_xmlbuffer", || unsafe {
             hwlocality_sys::hwloc_topology_export_xmlbuffer(
                 self.as_ptr(),
@@ -106,6 +115,9 @@ impl Topology {
         let buflen = int::expect_usize(
             c_uint::try_from(buflen).expect("Got negative buffer length from hwloc"),
         );
+        // SAFETY: - xmlbuffer does originate from self and shouldn't be aliased
+        //           (just allocated, will not be exposed elsewhere)
+        //         - If hwloc call succeeded, xmlbuffer and buflen should be OK
         Ok(unsafe { XML::wrap(self, xmlbuffer, buflen) }
             .expect("Got null pointer from hwloc_topology_export_xmlbuffer"))
     }
@@ -135,7 +147,7 @@ bitflags! {
 // # Safety
 //
 // As a type invariant, the data pointer is assumed to always point to a valid,
-// non-aliased XML string.
+// non-aliased XML string that was allocated from specified topology.
 pub struct XML<'topology> {
     /// Underlying hwloc topology
     topology: &'topology Topology,
@@ -150,12 +162,13 @@ impl<'topology> XML<'topology> {
     ///
     /// # Safety
     ///
-    /// `base` must originate from `topology`.
+    /// - `base` must originate from `topology` and have no mutable aliases
+    /// - `len` must match `base`
     ///
     /// # Panics
     ///
     /// If the string is not valid UTF-8 (according to
-    /// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce,
+    /// <https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce>,
     /// hwloc should only generates ASCII at the time of writing)
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,
@@ -168,10 +181,16 @@ impl<'topology> XML<'topology> {
         }
 
         // Wrap the allocation
+        // SAFETY: hwloc is trusted to have generated a proper, non-aliased C
+        //         string
         let s = unsafe { CStr::from_ptr(base) };
         s.to_str()
             .expect("Unexpected non-UTF8 XML string from hwloc");
-        debug_assert_eq!(s.to_bytes_with_nul().len(), len);
+        debug_assert_eq!(
+            s.to_bytes_with_nul().len(),
+            len,
+            "hwloc query emitted inconsistent results"
+        );
         let data: *const [u8] = s.to_bytes_with_nul();
         let data = (data as *const [c_char]).cast_mut();
         NonNull::new(data).map(|data| Self { topology, data })
@@ -241,6 +260,11 @@ impl Drop for XML<'_> {
     #[doc(alias = "hwloc_free_xmlbuffer")]
     fn drop(&mut self) {
         let addr = self.data.as_ptr().cast::<c_char>();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - addr is trusted to be valid and belong to the topology
+        //           (type invariant)
+        //         - addr will not be exposed to safe code after Drop
         unsafe { hwlocality_sys::hwloc_free_xmlbuffer(self.topology.as_ptr(), addr) }
     }
 }
@@ -291,5 +315,8 @@ impl PartialOrd for XML<'_> {
     }
 }
 
+// SAFETY: No internal mutability
 unsafe impl Send for XML<'_> {}
+
+// SAFETY: No internal mutability
 unsafe impl Sync for XML<'_> {}

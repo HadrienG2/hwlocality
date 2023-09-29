@@ -9,7 +9,7 @@
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
 
 #[cfg(doc)]
-use super::builder::BuildFlags;
+use super::{builder::BuildFlags, Topology};
 use crate::ffi;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::hwloc_topology_misc_support;
@@ -36,6 +36,7 @@ use std::{ffi::c_uchar, fmt, hash::Hash};
 // - The initial feature support that is set up by hwloc at topology
 //   construction time is trusted to be correct
 // - There is no API for modifying a loaded topology's feature support
+#[allow(clippy::non_send_fields_in_send_ty)]
 #[derive(Default)]
 #[doc(alias = "hwloc_topology_support")]
 #[repr(transparent)]
@@ -127,7 +128,10 @@ impl PartialEq for FeatureSupport {
 //
 impl Eq for FeatureSupport {}
 //
+// SAFETY: No internal mutability
 unsafe impl Send for FeatureSupport {}
+//
+// SAFETY: No internal mutability
 unsafe impl Sync for FeatureSupport {}
 
 /// Support for discovering information about the topology

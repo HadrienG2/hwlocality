@@ -15,3 +15,6 @@
 
 pub mod synthetic;
 pub mod xml;
+
+#[cfg(doc)]
+use super::Topology;
