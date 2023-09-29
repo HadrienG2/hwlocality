@@ -13,7 +13,11 @@ use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
 use crate::{
     impl_bitmap_newtype,
     memory::nodeset::NodeSet,
-    object::{depth::Depth, types::ObjectType, TopologyObject},
+    object::{
+        depth::{Depth, NormalDepth},
+        types::ObjectType,
+        TopologyObject,
+    },
     topology::Topology,
 };
 #[cfg(feature = "hwloc-2_2_0")]
@@ -22,6 +26,8 @@ use std::{borrow::Borrow, clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
 use thiserror::Error;
 
 /// # Finding objects inside a CPU set
+//
+// --- Implementation details ---
 //
 // This is inspired by the upstream functionality described at
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
@@ -76,9 +82,7 @@ impl Topology {
             });
         }
 
-        // Start recursion
-        let mut result = Vec::new();
-        let mut cpusets = Vec::new();
+        /// Recursive implementation of the partitioning algorithm
         fn process_object<'a>(
             parent: &'a TopologyObject,
             set: &CpuSet,
@@ -115,6 +119,8 @@ impl Topology {
             }
             cpusets.push(subset);
         }
+        let mut result = Vec::new();
+        let mut cpusets = Vec::new();
         process_object(root, set, &mut result, &mut cpusets);
         Ok(result)
     }
@@ -127,32 +133,46 @@ impl Topology {
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
-    pub fn objects_inside_cpuset_at_depth<'result>(
+    pub fn objects_inside_cpuset_at_depth<'result, DepthLike>(
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
-        depth: impl Into<Depth>,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objects_at_depth(depth.into())
+        depth: DepthLike,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // This little hack works because hwloc topologies never get anywhere
+        // close the maximum possible depth, which is c_int::MAX, so there will
+        // never be any object at that depth. We need it because impl Trait
+        // needs homogeneous return types.
+        let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
+        self.objects_at_depth(depth)
             .filter(move |object| object.is_inside_cpuset(set.borrow()))
     }
 
     /// Logical index among the objects included in CPU set `set`
     ///
-    /// Consult all objects in the same level as obj and inside CPU set `set` in
-    /// the logical order, and return the index of `obj` within them. If `set`
-    /// covers the entire topology, this is the logical index of `obj`.
+    /// Consult all objects in the same level as `obj` and inside CPU set `set`
+    /// in the logical order, and return the index of `obj` within them. If
+    /// `set` covers the entire topology, this is the logical index of `obj`.
     /// Otherwise, this is similar to a logical index within the part of the
     /// topology defined by CPU set `set`.
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, `None` will always be
     /// returned for I/O or Misc depths as those objects have no cpusets.
+    ///
+    /// This method will also return `None` if called with an `obj` that does
+    /// not belong to this [`Topology`].
     #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
     pub fn object_index_inside_cpuset<'result>(
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
         obj: &TopologyObject,
     ) -> Option<usize> {
+        // obj may not belong to this topology, but the current implementation
+        // is fine with that and will just return None.
         self.objects_inside_cpuset_at_depth(set, obj.depth())
             .position(|candidate| std::ptr::eq(candidate, obj))
     }
@@ -235,7 +255,10 @@ impl Topology {
 /// Iterator over largest objects inside a cpuset
 #[derive(Clone, Debug)]
 struct LargestObjectsInsideCpuSet<'topology> {
+    /// Topology which is being interrogated
     topology: &'topology Topology,
+
+    /// Share of the input [`CpuSet`] that hasn't been covered yet
     set: CpuSet,
 }
 //
@@ -272,6 +295,8 @@ pub struct CoarsestPartitionError {
 }
 
 /// # Finding objects covering at least a CPU set
+//
+// --- Implementation details ---
 //
 // This is inspired by the upstream functionality described at
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
@@ -315,12 +340,21 @@ impl Topology {
     /// of all objects would be returned). An empty iterator will always be
     /// returned for I/O or Misc depths as those objects have no cpusets.
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
-    pub fn objects_covering_cpuset_at_depth<'result>(
+    pub fn objects_covering_cpuset_at_depth<'result, DepthLike>(
         &'result self,
         set: impl Borrow<CpuSet> + 'result,
-        depth: impl Into<Depth>,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objects_at_depth(depth.into())
+        depth: DepthLike,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
+    where
+        DepthLike: TryInto<Depth>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        // This little hack works because hwloc topologies never get anywhere
+        // close the maximum possible depth, which is c_int::MAX, so there will
+        // never be any object at that depth. We need it because impl Trait
+        // needs homogeneous return types.
+        let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
+        self.objects_at_depth(depth)
             .filter(move |object| object.covers_cpuset(set.borrow()))
     }
 
@@ -342,8 +376,10 @@ impl Topology {
 
 /// # CpuSet-specific API
 //
-// NOTE: This goes before the main impl_bitmap_newtype macro so that it appears
-//       before the bitmap API reexport in rustdoc.
+// --- Implementation details ---
+//
+// This goes before the main impl_bitmap_newtype macro so that it appears before
+// the bitmap API reexport in rustdoc.
 impl CpuSet {
     /// Remove simultaneous multithreading PUs from a CPU set
     ///
@@ -366,6 +402,12 @@ impl CpuSet {
             self.clear();
             return;
         };
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - Per documentation, hwloc should handle arbitrarily large which values
         errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
             hwlocality_sys::hwloc_bitmap_singlify_per_core(
                 topology.as_ptr(),
@@ -388,8 +430,8 @@ impl CpuSet {
     /// [`Topology::nodeset()`], would be converted by this function into the
     /// set of all CPUs that have some local NUMA nodes.
     #[doc(alias = "hwloc_cpuset_from_nodeset")]
-    pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> CpuSet {
-        let mut cpuset = CpuSet::new();
+    pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> Self {
+        let mut cpuset = Self::new();
         let nodeset = nodeset.borrow();
         for obj in topology.objects_at_depth(Depth::NUMANode) {
             if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {

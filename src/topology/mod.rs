@@ -1,4 +1,10 @@
-//! Hardware topology (main hwloc entry point)
+//! Hardware topology (main hwloc API entry point)
+//!
+//! A [`Topology`] contains everything hwloc knows about the hardware and
+//! software structure of a system. Among other things, it can be used to query
+//! the system topology and to bind threads and processes to hardware CPU cores
+//! and NUMA nodes. It is the main entry point of the hwloc API through which
+//! almost any other feature of the library is accessed.
 
 pub mod builder;
 #[cfg(feature = "hwloc-2_3_0")]
@@ -75,16 +81,29 @@ use thiserror::Error;
     doc = "- [Windows-specific helpers](#windows-specific-helpers) (hwloc 2.5+)"
 )]
 //
-// NOTE: Since the Topology API is _huge_, not all of it is implemented in the
-//       topology module. Instead, functionality which is very strongly related
-//       to one other code module is implemented inside that module, leaving
-//       this module focused on basic lifecycle and cross-cutting issues.
+// --- Implementation details ---
+//
+// Since the Topology API is _huge_, not all of it is implemented in the
+// topology module. Instead, functionality which is very strongly related to
+// one other code module is implemented inside that module, leaving this module
+// focused on basic lifecycle and cross-cutting issues.
+//
+// # Safety
+//
+// As a type invariant, the inner pointer is assumed to always point to a valid
+// fully built, non-aliased topology.
+//
+// Any binding to an hwloc topology function that takes a user-provided
+// &TopologyObject parameter **must** check that this object does belongs to the
+// topology using the Topology::contains() method before passing it to hwloc.
 #[derive(Debug)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<hwloc_topology>);
 
 /// # Topology building
+//
+// --- Implementation details ---
 //
 // Upstream docs:
 // - Creation: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
@@ -103,7 +122,8 @@ impl Topology {
     /// let topology = Topology::new()?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn new() -> Result<Topology, RawHwlocError> {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn new() -> Result<Self, RawHwlocError> {
         TopologyBuilder::new().build()
     }
 
@@ -117,14 +137,13 @@ impl Topology {
     /// initialized is important for the code sample to make sense. And do not,
     /// under any circumstances, use this in non-test code.
     ///
-    /// NOTE: In an ideal world, this would be cfg(any(test, doctest)) and
-    ///       once_cell would be a dev-dependency, but that doesn't work for
-    ///       doctests yet: https://github.com/rust-lang/rust/issues/67295
+    /// NOTE: In an ideal world, this would be cfg(any(test, doctest)), but that
+    ///       doesn't work for doctests yet:
+    ///       https://github.com/rust-lang/rust/issues/67295
     pub fn test_instance() -> &'static Self {
-        use once_cell::sync::Lazy;
-        static INSTANCE: Lazy<Topology> =
-            Lazy::new(|| Topology::new().expect("Failed to initialize test Topology"));
-        &INSTANCE
+        use std::sync::OnceLock;
+        static INSTANCE: OnceLock<Topology> = OnceLock::new();
+        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize test Topology"))
     }
 
     /// Prepare to create a Topology with custom configuration
@@ -165,14 +184,16 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_abi_check")]
     pub fn is_abi_compatible(&self) -> bool {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
             hwlocality_sys::hwloc_topology_abi_check(self.as_ptr())
         });
         match result {
             Ok(_) => true,
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => false,
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
@@ -189,10 +210,12 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_flags")]
     pub fn build_flags(&self) -> BuildFlags {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let result = BuildFlags::from_bits_truncate(unsafe {
             hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
         });
-        debug_assert!(result.is_valid());
+        debug_assert!(result.is_valid(), "hwloc shouldn't return invalid flags");
         result
     }
 
@@ -210,6 +233,8 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_is_thissystem")]
     pub fn is_this_system(&self) -> bool {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         errors::call_hwloc_bool("hwloc_topology_is_thissystem", || unsafe {
             hwlocality_sys::hwloc_topology_is_thissystem(self.as_ptr())
         })
@@ -249,13 +274,17 @@ impl Topology {
     /// ```
     #[doc(alias = "hwloc_topology_get_support")]
     pub fn feature_support(&self) -> &FeatureSupport {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let ptr = errors::call_hwloc_ptr("hwloc_topology_get_support", || unsafe {
             hwlocality_sys::hwloc_topology_get_support(self.as_ptr())
         })
         .expect("Unexpected hwloc error");
-
-        // This is correct because the output reference will be bound the the
-        // lifetime of &self by the borrow checker.
+        // SAFETY: - If hwloc succeeded, the output is assumed to be valid.
+        //         - Output reference will be bound the the lifetime of &self by
+        //           the borrow checker
+        //         - FeatureSupport is a repr(transparent) newtype of
+        //           hwloc_topology_support
         unsafe { ffi::as_newtype(ptr.as_ref()) }
     }
 
@@ -277,9 +306,7 @@ impl Topology {
         get_group: fn(&FeatureSupport) -> Option<&Group>,
         check_feature: fn(&Group) -> bool,
     ) -> bool {
-        get_group(self.feature_support())
-            .map(check_feature)
-            .unwrap_or(false)
+        get_group(self.feature_support()).map_or(false, check_feature)
     }
 
     /// Filtering that was applied for the given object type
@@ -308,9 +335,18 @@ impl Topology {
     /// );
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_get_type_filter")]
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = hwloc_type_filter_e::MAX;
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - By construction, ObjectType only exposes values that map into
+        //           hwloc_obj_type_t values understood by the configured version
+        //           of hwloc, and build.rs checks that the active version of
+        //           hwloc is not older than that, so into() may only generate
+        //           valid hwloc_obj_type_t values for current hwloc
+        //         - filter is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
@@ -319,6 +355,8 @@ impl Topology {
 }
 
 /// # Distributing work items over a topology
+//
+// --- Implementation details ---
 //
 // Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html,
 // but the inline header implementation had to be rewritten in Rust.
@@ -334,9 +372,10 @@ impl Topology {
     /// sharing resources like fast CPU caches.
     ///
     /// The set of CPUs over which work items are distributed is designated by a
-    /// set of root [`TopologyObject`]s with associated CPUs. You can distribute
-    /// items across all CPUs in the topology by setting `roots` to
-    /// `&[topology.root_object()]`.
+    /// set of root [`TopologyObject`]s with associated CPUs. The root objects
+    /// must be part of this [`Topology`], or the [`ForeignRoots`] error will
+    /// be returned. You can distribute items across all CPUs in the topology
+    /// by setting `roots` to `&[topology.root_object()]`.
     ///
     /// Since the purpose of `roots` is to designate which CPUs items should be
     /// allocated to, root objects should normally have a CPU set. If that is
@@ -346,7 +385,7 @@ impl Topology {
     /// which represents the CPUs closest to the object of interest. If none of
     /// the CPUs of that ancestor is available for binding, that root will be
     /// ignored, unless this is true of all roots in which case the
-    /// [`EmptyRootsError`] error is returned.
+    /// [`EmptyRoots`] error is returned.
     ///
     /// If there is no depth limit, which can be achieved by setting `max_depth`
     /// to `usize::MAX`, the distribution will be done down to the granularity
@@ -362,8 +401,14 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`EmptyRootsError`] if there are no CPUs to distribute work to (the
+    /// - [`EmptyRoots`] if there are no CPUs to distribute work to (the
     ///   union of all root cpusets is empty).
+    /// - [`ForeignRoots`] if some of the specified roots do not belong to this
+    ///   topology.
+    ///
+    /// [`EmptyRoots`]: DistributeError::EmptyRoots
+    /// [`ForeignRoots`]: DistributeError::ForeignRoots
+    #[allow(clippy::missing_docs_in_private_items)]
     #[doc(alias = "hwloc_distrib")]
     pub fn distribute_items(
         &self,
@@ -371,14 +416,22 @@ impl Topology {
         num_items: NonZeroUsize,
         max_depth: usize,
         flags: DistributeFlags,
-    ) -> Result<Vec<CpuSet>, EmptyRootsError> {
+    ) -> Result<Vec<CpuSet>, DistributeError> {
+        // Make sure all roots belong to this topology
+        if roots.iter().any(|root| !self.contains(root)) {
+            return Err(DistributeError::ForeignRoots);
+        }
+
         // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
         // With this function, we process an object that is presumed normal,
         // extract this information, and return it as an Option that is None if
         // the object has access to no CPUs.
         type ObjSetWeightDepth<'a> = (&'a TopologyObject, BitmapRef<'a, CpuSet>, usize, usize);
-        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth> {
-            debug_assert!(obj.object_type().is_normal());
+        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
+            debug_assert!(
+                obj.object_type().is_normal(),
+                "This function only works on normal objects"
+            );
             let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
             let weight = cpuset
                 .weight()
@@ -388,7 +441,7 @@ impl Topology {
             (weight > 0).then_some((obj, cpuset, weight, depth))
         }
 
-        // Inner recursive algorithm
+        /// Inner recursive distribution algorithm
         fn recurse<'a>(
             roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'a>> + Clone,
             num_items: usize,
@@ -397,12 +450,16 @@ impl Topology {
             result: &mut Vec<CpuSet>,
         ) {
             // Debug mode checks
-            debug_assert_ne!(roots_and_cpusets.clone().count(), 0);
-            debug_assert_ne!(num_items, 0);
+            debug_assert_ne!(
+                roots_and_cpusets.clone().count(),
+                0,
+                "Can't distribute to 0 roots"
+            );
+            debug_assert_ne!(num_items, 0, "Can't distribute 0 items");
             let initial_len = result.len();
 
             // Total number of cpus covered by the active root
-            let tot_weight: usize = roots_and_cpusets
+            let total_weight: usize = roots_and_cpusets
                 .clone()
                 .map(|(_, _, weight, _)| weight)
                 .sum();
@@ -412,34 +469,11 @@ impl Topology {
             let mut given_items = 0;
 
             // What to do with each root
-            let process_root = |(root, cpuset, weight, depth): ObjSetWeightDepth| {
+            let process_root = |(root, cpuset, weight, depth): ObjSetWeightDepth<'_>| {
                 // Give this root a chunk of the work-items proportional to its
                 // weight, with a bias towards giving more CPUs to first roots
-                let weight_to_items = |given_weight: usize| -> usize {
-                    // Weights represent CPU counts and num_items represents
-                    // something that users reasonably want to count. Neither
-                    // should overflow u128 even on highly speculative future
-                    // hardware where usize would be larger than 128 bits
-                    const TOO_LARGE: &str = "Such large inputs are not supported yet";
-                    let cast = |x: usize| u128::try_from(x).expect(TOO_LARGE);
-
-                    // Numerator product can only fail if both given_weight and
-                    // num_items are >=2^64, which is equally improbable.
-                    let numerator = cast(given_weight)
-                        .checked_mul(cast(num_items))
-                        .expect(TOO_LARGE);
-                    let denominator = cast(tot_weight);
-                    let my_items = numerator / denominator + (numerator % denominator != 0) as u128;
-
-                    // Cast can only fail if given_weight > tot_weight,
-                    // otherwise we expect my_items <= num_items
-                    debug_assert!(given_weight <= tot_weight);
-                    my_items
-                        .try_into()
-                        .expect("Cannot happen if computation is correct")
-                };
                 let next_given_weight = given_weight + weight;
-                let next_given_items = weight_to_items(next_given_weight);
+                let next_given_items = weight_to_items(next_given_weight, total_weight, num_items);
                 let my_items = next_given_items - given_items;
 
                 // Keep recursing until we reach the bottom of the topology,
@@ -476,25 +510,33 @@ impl Topology {
             }
 
             // Debug mode checks
-            debug_assert_eq!(result.len() - initial_len, num_items);
+            debug_assert_eq!(
+                result.len() - initial_len,
+                num_items,
+                "This function should distribute the requested number of items"
+            );
         }
 
         // Check roots, walk up to their first normal ancestor as necessary
         let decoded_roots = roots.iter().copied().filter_map(|root| {
             let mut root_then_ancestors = std::iter::once(root)
                 .chain(root.ancestors())
-                .skip_while(|root| !root.object_type().is_normal());
+                .skip_while(|candidate| !candidate.object_type().is_normal());
             root_then_ancestors.find_map(decode_normal_obj)
         });
         if decoded_roots.clone().count() == 0 {
-            return Err(EmptyRootsError);
+            return Err(DistributeError::EmptyRoots);
         }
 
         // Run the recursion, collect results
         let num_items = usize::from(num_items);
         let mut result = Vec::with_capacity(num_items);
         recurse(decoded_roots, num_items, max_depth, flags, &mut result);
-        debug_assert_eq!(result.len(), num_items);
+        debug_assert_eq!(
+            result.len(),
+            num_items,
+            "This function should produce one result per input item"
+        );
         Ok(result)
     }
 }
@@ -515,16 +557,56 @@ impl Default for DistributeFlags {
     }
 }
 //
-/// Error returned when the specified roots contain no accessible CPUs
-///
-/// This can happen if either an empty roots list is specified, or if the
-/// topology was built with [`BuildFlags::INCLUDE_DISALLOWED`] and the specified
-/// roots only contain disallowed CPUs.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("platform does not support this operation")]
-pub struct EmptyRootsError;
+/// Error returned by [`Topology::distribute_items()`]
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum DistributeError {
+    /// Error returned when the specified roots contain no accessible CPUs
+    ///
+    /// This can happen if either an empty roots list is specified, or if the
+    /// topology was built with [`BuildFlags::INCLUDE_DISALLOWED`] and the
+    /// specified roots only contain disallowed CPUs.
+    #[error("no CPU is accessible from provided roots")]
+    EmptyRoots,
+
+    /// Some of the specified roots do not belong to this topology
+    #[error("specified roots do not all belong to this topology")]
+    ForeignRoots,
+}
+
+/// Part of the implementation of `Topology::distribute_items()` that tells,
+/// given a number of items to distribute, a cpuset weight, and the sum of all
+/// cpuset weights, how many items should be distributed, rounding up.
+fn weight_to_items(given_weight: usize, total_weight: usize, num_items: usize) -> usize {
+    // Weights represent CPU counts and num_items represents
+    // something that users reasonably want to count. Neither
+    // should overflow u128 even on highly speculative future
+    // hardware where usize would be larger than 128 bits
+    #[allow(clippy::missing_docs_in_private_items)]
+    const TOO_LARGE: &str = "Such large inputs are not supported yet";
+    let cast = |x: usize| u128::try_from(x).expect(TOO_LARGE);
+
+    // Numerator product can only fail if both given_weight and
+    // num_items are >=2^64, which is equally improbable.
+    let numerator = cast(given_weight)
+        .checked_mul(cast(num_items))
+        .expect(TOO_LARGE);
+    let denominator = cast(total_weight);
+    let my_items = numerator / denominator + u128::from(numerator % denominator != 0);
+
+    // Cast can only fail if given_weight > tot_weight,
+    // otherwise we expect my_items <= num_items
+    debug_assert!(
+        given_weight <= total_weight,
+        "Cannot distribute more weight than the active root's total weight"
+    );
+    my_items
+        .try_into()
+        .expect("Cannot happen if computation is correct")
+}
 
 /// # CPU and node sets of entire topologies
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
 impl Topology {
@@ -542,7 +624,8 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_cpuset")]
-    pub fn cpuset(&self) -> BitmapRef<CpuSet> {
+    pub fn cpuset(&self) -> BitmapRef<'_, CpuSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_cpuset",
@@ -568,7 +651,8 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_cpuset")]
-    pub fn complete_cpuset(&self) -> BitmapRef<CpuSet> {
+    pub fn complete_cpuset(&self) -> BitmapRef<'_, CpuSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_cpuset",
@@ -599,7 +683,8 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
-    pub fn allowed_cpuset(&self) -> BitmapRef<CpuSet> {
+    pub fn allowed_cpuset(&self) -> BitmapRef<'_, CpuSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_cpuset",
@@ -622,7 +707,8 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_nodeset")]
-    pub fn nodeset(&self) -> BitmapRef<NodeSet> {
+    pub fn nodeset(&self) -> BitmapRef<'_, NodeSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_topology_nodeset",
@@ -648,7 +734,8 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_nodeset")]
-    pub fn complete_nodeset(&self) -> BitmapRef<NodeSet> {
+    pub fn complete_nodeset(&self) -> BitmapRef<'_, NodeSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_complete_nodeset",
@@ -679,7 +766,8 @@ impl Topology {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
-    pub fn allowed_nodeset(&self) -> BitmapRef<NodeSet> {
+    pub fn allowed_nodeset(&self) -> BitmapRef<'_, NodeSet> {
+        // SAFETY: This is one of the hwloc functions allowed here
         unsafe {
             self.topology_set(
                 "hwloc_topology_get_allowed_nodeset",
@@ -704,6 +792,11 @@ impl Topology {
         getter_name: &'static str,
         getter: unsafe extern "C" fn(*const hwloc_topology) -> *const hwloc_bitmap_s,
     ) -> BitmapRef<'topology, Set> {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - If this operation is successful, it should return a valid
+        //           bitmap pointer
+        //         - Output bitmap is indeed bound to the topology's lifetime
         let bitmap_ref = unsafe {
             let bitmap_ptr = errors::call_hwloc_ptr(getter_name, || getter(self.as_ptr()))
                 .expect("According to their docs, these functions cannot return NULL");
@@ -729,16 +822,40 @@ impl Topology {
     pub(crate) fn as_mut_ptr(&mut self) -> *mut hwloc_topology {
         self.0.as_ptr()
     }
+
+    /// Check if a [`TopologyObject`] is part of this topology
+    ///
+    /// This check is a safety precondition to any hwloc topology method
+    /// binding that takes user-originated `&TopologyObject`s as a parameter
+    /// and passes it to an hwloc topology method.
+    ///
+    /// While this is not expected to happen often and will in fact often
+    /// require the user to jump through some serious hoops like creating
+    /// another `static` or `thread_local` topology, unfortunately there is
+    /// always a way to do it, and safe Rust code must remain safe even in the
+    /// craziest of edge cases...
+    pub(crate) fn contains(&self, object: &TopologyObject) -> bool {
+        let expected_root = self.root_object();
+        let actual_root = std::iter::once(object)
+            .chain(object.ancestors())
+            .last()
+            .expect("By definition, this iterator always has >= 1 element");
+        std::ptr::eq(expected_root, actual_root)
+    }
 }
 
 impl Clone for Topology {
     #[doc(alias = "hwloc_topology_dup")]
     fn clone(&self) -> Self {
         let mut clone = ptr::null_mut();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - clone is an out-parameter, it can have any initial value
         errors::call_hwloc_int_normal("hwloc_topology_dup", || unsafe {
             hwlocality_sys::hwloc_topology_dup(&mut clone, self.as_ptr())
         })
-        .expect("Failed to clone topology");
+        .expect("Duplicating a topology should not fail");
+
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
     }
 }
@@ -746,9 +863,14 @@ impl Clone for Topology {
 impl Drop for Topology {
     #[doc(alias = "hwloc_topology_destroy")]
     fn drop(&mut self) {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Topology will not be usable again after Drop
         unsafe { hwlocality_sys::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 
+// SAFETY: No shared mutability
 unsafe impl Send for Topology {}
+
+// SAFETY: No shared mutability
 unsafe impl Sync for Topology {}

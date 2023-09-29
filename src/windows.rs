@@ -1,9 +1,9 @@
-//! Windows-specific functionality
+//! Windows-specific helpers
 
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi,
+    ffi::int,
     topology::Topology,
 };
 use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
@@ -19,6 +19,8 @@ use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
 /// groups so that applications know whether binding to a large set of PUs may
 /// fail because it spans over multiple Windows processor groups.
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
 impl Topology {
     /// Number of Windows processor groups
@@ -27,13 +29,17 @@ impl Topology {
     ///
     /// One reason why this function can fail is if the topology does not match
     /// the current system (e.g. loaded from another machine through XML).
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_windows_get_nr_processor_groups")]
     pub fn num_processor_groups(&self) -> Result<NonZeroUsize, RawHwlocError> {
         let count =
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Per documentation, flags must be zero
             errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
                 hwlocality_sys::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
             })?;
-        let count = NonZeroUsize::new(ffi::expect_usize(count))
+        let count = NonZeroUsize::new(int::expect_usize(count))
             .expect("Unexpected 0 processor group count");
         Ok(count)
     }
@@ -44,6 +50,7 @@ impl Topology {
     ///
     /// One reason why this function can fail is if the topology does not match
     /// the current system (e.g. loaded from another machine through XML).
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_windows_get_processor_group_cpuset")]
     pub fn processor_groups(
         &self,
@@ -62,6 +69,16 @@ impl Topology {
                     .expect("Can't fail, pg_index upper bound comes from hwloc");
                 errors::call_hwloc_int_normal(
                     "hwloc_windows_get_processor_group_cpuset",
+                    // SAFETY: - Topology is trusted to contain a valid ptr
+                    //           (type invariant)
+                    //         - Bitmap is trusted to contain a valid ptr
+                    //           (type invariant)
+                    //         - hwloc ops are trusted not to modify *const
+                    //           parameters
+                    //         - hwloc ops are trusted to keep *mut parameters
+                    //           in a valid state unless stated otherwise
+                    //         - pg_index is in bounds by construction
+                    //         - Per documentation, flags must be zero
                     || unsafe {
                         hwlocality_sys::hwloc_windows_get_processor_group_cpuset(
                             self.as_ptr(),

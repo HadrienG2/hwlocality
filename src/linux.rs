@@ -1,4 +1,4 @@
-//! Linux-specific functionality
+//! Linux-specific helpers
 
 #[cfg(doc)]
 use crate::cpu::binding::CpuBindingFlags;
@@ -24,6 +24,8 @@ struct pid_t;
 /// equivalents of the Linux `sched_setaffinity` and `sched_getaffinity` system
 /// calls.
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
 impl Topology {
     /// Bind a thread `tid` on cpus given in `set`
@@ -36,8 +38,14 @@ impl Topology {
     ///
     /// [`bind_process_cpu()`]: Topology::bind_process_cpu()
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
     pub fn bind_tid_cpu(&self, tid: pid_t, set: impl Borrow<CpuSet>) -> Result<(), RawHwlocError> {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
             hwlocality_sys::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.borrow().as_ptr())
         })
@@ -56,9 +64,17 @@ impl Topology {
     ///
     /// [`process_cpu_binding()`]: Topology::process_cpu_binding()
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_get_tid_cpubind")]
     pub fn tid_cpu_binding(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_cpubind", || unsafe {
             hwlocality_sys::hwloc_linux_get_tid_cpubind(self.as_ptr(), tid, set.as_mut_ptr())
         })
@@ -74,9 +90,17 @@ impl Topology {
     ///
     /// [`last_process_cpu_location()`]: Topology::last_process_cpu_location()
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_get_tid_last_cpu_location")]
     pub fn tid_last_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
         errors::call_hwloc_int_normal("hwloc_linux_get_tid_last_cpu_location", || unsafe {
             hwlocality_sys::hwloc_linux_get_tid_last_cpu_location(
                 self.as_ptr(),
@@ -101,6 +125,11 @@ impl Topology {
     ) -> Result<CpuSet, HybridError<PathError>> {
         let path = path::make_hwloc_path(path)?;
         let mut set = CpuSet::new();
+        // SAFETY: - Path is trusted to contain a valid C string (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
         errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
             hwlocality_sys::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
         })

@@ -1,10 +1,15 @@
 //! Exporting topologies to Synthetic
+//!
+//! Synthetic topologies are a very simple textual representation that may only
+//! model certain topologies (they must be symmetric among other things, i.e.
+//! all CPU cores should be equal), and only some aspects of them (e.g. no I/O
+//! devices), but does so extremely concisely.
 
 #[cfg(doc)]
 use crate::topology::builder::TopologyBuilder;
 use crate::{
     errors::{self, RawHwlocError},
-    ffi,
+    ffi::int,
     topology::Topology,
 };
 use bitflags::bitflags;
@@ -17,6 +22,8 @@ use hwlocality_sys::{
 use std::ffi::{c_char, CString};
 
 /// # Exporting Topologies to Synthetic
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
 impl Topology {
@@ -39,11 +46,17 @@ impl Topology {
     /// topologies supported by hwloc, for example they don't support asymmetric
     /// topologies. An error will be returned if the current topology cannot be
     /// expressed as a synthetic topology.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_export_synthetic")]
     pub fn export_synthetic(&self, flags: SyntheticExportFlags) -> Result<String, RawHwlocError> {
         let mut buf = vec![0u8; 1024];
         loop {
             let len =
+                // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+                //         - hwloc ops are trusted not to modify *const parameters
+                //         - buffer and buflen are in sync (same vector)
+                //         - flags only allows values supported by the active
+                //           hwloc version
                 errors::call_hwloc_int_normal("hwloc_topology_export_synthetic", || unsafe {
                     hwlocality_sys::hwloc_topology_export_synthetic(
                         self.as_ptr(),
@@ -52,7 +65,7 @@ impl Topology {
                         flags.bits(),
                     )
                 })?;
-            if ffi::expect_usize(len) == buf.len() - 1 {
+            if int::expect_usize(len) == buf.len() - 1 {
                 // hwloc exactly filled the buffer, which suggests the
                 // output was truncated. Try a larget buffer.
                 buf.resize(2 * buf.len(), 0);

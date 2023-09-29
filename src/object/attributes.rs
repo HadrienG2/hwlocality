@@ -1,14 +1,19 @@
 //! Object attributes
+//!
+//! Some [`TopologyObject` types](ObjectType) come with supplementary attributes
+//! that extend the object's description. These attributes can be accessed using
+//! the [`TopologyObject::attributes()`] method, and are described using types
+//! defined inside of this module.
 
 // - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
-#[cfg(doc)]
-use crate::topology::support::DiscoverySupport;
 use crate::{
-    ffi,
+    ffi::{self, int},
     object::types::{BridgeType, CacheType, OSDeviceType, ObjectType},
 };
+#[cfg(doc)]
+use crate::{object::TopologyObject, topology::support::DiscoverySupport};
 use hwlocality_sys::{
     hwloc_bridge_attr_s, hwloc_cache_attr_s, hwloc_group_attr_s, hwloc_memory_page_type_s,
     hwloc_numanode_attr_s, hwloc_obj_attr_u, hwloc_osdev_attr_s, hwloc_pcidev_attr_s,
@@ -19,63 +24,70 @@ use std::{ffi::c_uint, fmt, hash::Hash, num::NonZeroUsize};
 /// ObjectType-specific attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[doc(alias = "hwloc_obj_attr_u")]
-pub enum ObjectAttributes<'attr> {
+pub enum ObjectAttributes<'object> {
     /// [`NUMANode`]-specific attributes
     ///
     /// [`NUMANode`]: ObjectType::NUMANode
     #[doc(alias = "hwloc_obj_attr_u::numanode")]
-    NUMANode(&'attr NUMANodeAttributes),
+    NUMANode(&'object NUMANodeAttributes),
 
-    /// Cache-specific attributes
+    /// CPU cache-specific attributes
     #[doc(alias = "hwloc_obj_attr_u::cache")]
-    Cache(&'attr CacheAttributes),
+    Cache(&'object CacheAttributes),
 
     /// [`Group`]-specific attributes
     ///
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_obj_attr_u::group")]
-    Group(&'attr GroupAttributes),
+    Group(&'object GroupAttributes),
 
     /// [`PCIDevice`]-specific attributes
     ///
     /// [`PCIDevice`]: ObjectType::PCIDevice
     #[doc(alias = "hwloc_obj_attr_u::pcidev")]
-    PCIDevice(&'attr PCIDeviceAttributes),
+    PCIDevice(&'object PCIDeviceAttributes),
 
     /// [`Bridge`]-specific attributes
     ///
     /// [`Bridge`]: ObjectType::Bridge
     #[doc(alias = "hwloc_obj_attr_u::bridge")]
-    Bridge(&'attr BridgeAttributes),
+    Bridge(&'object BridgeAttributes),
 
     /// [`OSDevice`]-specific attributes
     ///
     /// [`OSDevice`]: ObjectType::OSDevice
     #[doc(alias = "hwloc_obj_attr_u::osdev")]
-    OSDevice(&'attr OSDeviceAttributes),
+    OSDevice(&'object OSDeviceAttributes),
 }
 //
-impl<'attr> ObjectAttributes<'attr> {
+impl<'object> ObjectAttributes<'object> {
     /// Wrap the hwloc object type specific attributes behind a safe API
     ///
     /// # Safety
     ///
     /// If non-null, the `attr` pointer must target `hwloc_obj_attr_u` that
-    /// are valid for lifetime `'attr` and consistent with object type `ty`.
-    pub(crate) unsafe fn new(ty: ObjectType, attr: &'attr *mut hwloc_obj_attr_u) -> Option<Self> {
+    /// are valid for lifetime `'object` and consistent with object type `ty`.
+    pub(crate) unsafe fn new(ty: ObjectType, attr: &'object *mut hwloc_obj_attr_u) -> Option<Self> {
         if attr.is_null() {
             return None;
         }
+        // SAFETY: Safe due to input precondition
         let attr: &hwloc_obj_attr_u = unsafe { &**attr };
 
-        match ty {
-            ObjectType::NUMANode => Some(Self::NUMANode(ffi::as_newtype(&attr.numa))),
-            ObjectType::Group => Some(Self::Group(ffi::as_newtype(&attr.group))),
-            ObjectType::PCIDevice => Some(Self::PCIDevice(ffi::as_newtype(&attr.pcidev))),
-            ObjectType::Bridge => Some(Self::Bridge(ffi::as_newtype(&attr.bridge))),
-            ObjectType::OSDevice => Some(Self::OSDevice(ffi::as_newtype(&attr.osdev))),
-            _ if ty.is_cpu_cache() => Some(Self::Cache(ffi::as_newtype(&attr.cache))),
-            _ => None,
+        // SAFETY: - We checked for union field access validity via the type
+        //         - All output types are repr(transparent) newtypes of the
+        //           respective raw union field types
+        unsafe {
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match ty {
+                ObjectType::NUMANode => Some(Self::NUMANode(ffi::as_newtype(&attr.numa))),
+                ObjectType::Group => Some(Self::Group(ffi::as_newtype(&attr.group))),
+                ObjectType::PCIDevice => Some(Self::PCIDevice(ffi::as_newtype(&attr.pcidev))),
+                ObjectType::Bridge => Some(Self::Bridge(ffi::as_newtype(&attr.bridge))),
+                ObjectType::OSDevice => Some(Self::OSDevice(ffi::as_newtype(&attr.osdev))),
+                _ if ty.is_cpu_cache() => Some(Self::Cache(ffi::as_newtype(&attr.cache))),
+                _ => None,
+            }
         }
     }
 }
@@ -83,6 +95,13 @@ impl<'attr> ObjectAttributes<'attr> {
 /// [`NUMANode`]-specific attributes
 ///
 /// [`NUMANode`]: ObjectType::NUMANode
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// If non-null, `page_types` is trusted to point to a C-style array of
+// `page_types_len` memory page types, sorted by increasing page size.
 #[derive(Copy, Clone, Debug, Default)]
 #[doc(alias = "hwloc_numanode_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s")]
@@ -90,7 +109,7 @@ impl<'attr> ObjectAttributes<'attr> {
 pub struct NUMANodeAttributes(hwloc_numanode_attr_s);
 //
 impl NUMANodeAttributes {
-    /// Local memory in bytes
+    /// Node-local memory in bytes
     ///
     /// Requires [`DiscoverySupport::numa_memory()`].
     #[doc(alias = "hwloc_numanode_attr_s::local_memory")]
@@ -104,13 +123,20 @@ impl NUMANodeAttributes {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::page_types")]
     pub fn page_types(&self) -> &[MemoryPageType] {
         if self.0.page_types.is_null() {
+            assert_eq!(
+                self.0.page_types_len, 0,
+                "Got null pages types pointer with non-zero length"
+            );
             return &[];
         }
+        // SAFETY: - Pointer and length assumed valid per type invariant
+        //         - MemoryPageType is a repr(transparent) newtype of
+        //           hwloc_memory_page_type_s
         unsafe {
             std::slice::from_raw_parts(
                 self.0.page_types.cast::<MemoryPageType>(),
                 // If this fails, it means pages_types_len does not fit in a
-                // size_t, but by definition of size_t that cannot happen...
+                // size_t, but by definition of size_t that cannot happen
                 self.0.page_types_len.try_into().expect("Should not happen"),
             )
         }
@@ -132,7 +158,10 @@ impl PartialEq for NUMANodeAttributes {
     }
 }
 //
+// SAFETY: No internal mutability
 unsafe impl Send for NUMANodeAttributes {}
+//
+// SAFETY: No internal mutability
 unsafe impl Sync for NUMANodeAttributes {}
 
 /// Local memory page type
@@ -180,14 +209,14 @@ impl CacheAttributes {
     #[doc(alias = "hwloc_cache_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::depth")]
     pub fn depth(&self) -> usize {
-        ffi::expect_usize(self.0.depth)
+        int::expect_usize(self.0.depth)
     }
 
     /// Cache line size in bytes
     #[doc(alias = "hwloc_cache_attr_s::linesize")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::linesize")]
     pub fn line_size(&self) -> Option<NonZeroUsize> {
-        NonZeroUsize::new(ffi::expect_usize(self.0.linesize))
+        NonZeroUsize::new(int::expect_usize(self.0.linesize))
     }
 
     /// Ways of associativity
@@ -199,7 +228,7 @@ impl CacheAttributes {
             0 => CacheAssociativity::Unknown,
             ways if ways > 0 => {
                 let ways = c_uint::try_from(ways).expect("int > 0 -> uint should not fail");
-                let ways = ffi::expect_usize(ways);
+                let ways = int::expect_usize(ways);
                 let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize cannot fail");
                 CacheAssociativity::Ways(ways)
             }
@@ -245,13 +274,13 @@ impl GroupAttributes {
     #[doc(alias = "hwloc_group_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::depth")]
     pub fn depth(&self) -> usize {
-        ffi::expect_usize(self.0.depth)
+        int::expect_usize(self.0.depth)
     }
 
     /// Internally-used kind of group
     #[allow(unused)]
     pub(crate) fn kind(&self) -> usize {
-        ffi::expect_usize(self.0.kind)
+        int::expect_usize(self.0.kind)
     }
 
     /// Tell hwloc that this group object should always be discarded in favor of
@@ -267,7 +296,7 @@ impl GroupAttributes {
     #[doc(alias = "hwloc_group_attr_s::subkind")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::subkind")]
     pub(crate) fn subkind(&self) -> usize {
-        ffi::expect_usize(self.0.subkind)
+        int::expect_usize(self.0.subkind)
     }
 
     /// Flag preventing groups from being automatically merged with identical
@@ -390,6 +419,13 @@ impl PCIDeviceAttributes {
 /// [`Bridge`]-specific attributes
 ///
 /// [`Bridge`]: ObjectType::Bridge
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// - `upstream` and `upstream_type` are trusted to be in sync.
+// - `downstream` and `downstream_type` are trusted to be in sync.
 #[derive(Copy, Clone)]
 #[doc(alias = "hwloc_bridge_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s")]
@@ -410,7 +446,8 @@ impl BridgeAttributes {
     /// Upstream attributes
     #[doc(alias = "hwloc_bridge_attr_s::upstream")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::upstream")]
-    pub fn upstream_attributes(&self) -> Option<UpstreamAttributes> {
+    pub fn upstream_attributes(&self) -> Option<UpstreamAttributes<'_>> {
+        // SAFETY: Per type invariant
         unsafe { UpstreamAttributes::new(self.upstream_type(), &self.0.upstream) }
     }
 
@@ -427,7 +464,8 @@ impl BridgeAttributes {
     /// Downstream attributes
     #[doc(alias = "hwloc_bridge_attr_s::downstream")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::downstream")]
-    pub fn downstream_attributes(&self) -> Option<DownstreamAttributes> {
+    pub fn downstream_attributes(&self) -> Option<DownstreamAttributes<'_>> {
+        // SAFETY: Per type invariant
         unsafe { DownstreamAttributes::new(self.downstream_type(), &self.0.downstream) }
     }
 
@@ -435,16 +473,15 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::depth")]
     pub fn depth(&self) -> usize {
-        ffi::expect_usize(self.0.depth)
+        int::expect_usize(self.0.depth)
     }
 }
 //
+#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for BridgeAttributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BridgeAttributes")
-            .field("upstream_type", &self.upstream_type())
             .field("upstream_attributes", &self.upstream_attributes())
-            .field("downstream_type", &self.downstream_type())
             .field("downstream_attributes", &self.downstream_attributes())
             .field("depth", &self.0.depth)
             .finish()
@@ -462,18 +499,21 @@ impl PartialEq for BridgeAttributes {
 
 /// Bridge upstream attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum UpstreamAttributes<'attr> {
+pub enum UpstreamAttributes<'object> {
     /// PCI-specific attributes
-    PCI(&'attr PCIDeviceAttributes),
+    PCI(&'object PCIDeviceAttributes),
 }
 //
-impl<'attr> UpstreamAttributes<'attr> {
+impl<'object> UpstreamAttributes<'object> {
     /// Wrap the upstream attributes behind a safe API
     ///
     /// # Safety
     ///
     /// `attr` must be consistent with `ty`.
-    pub(crate) unsafe fn new(ty: BridgeType, attr: &'attr RawUpstreamAttributes) -> Option<Self> {
+    pub(crate) unsafe fn new(ty: BridgeType, attr: &'object RawUpstreamAttributes) -> Option<Self> {
+        // SAFETY: - attr.pci assumed valid per input precondition
+        //         - PCIDeviceAttributes is a repr(transparent) newtype of
+        //           hwloc_pcidev_attr_s
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),
@@ -489,17 +529,17 @@ impl<'attr> UpstreamAttributes<'attr> {
 pub struct DownstreamPCIAttributes(RawDownstreamPCIAttributes);
 //
 impl DownstreamPCIAttributes {
-    /// Downstram domain
+    /// PCI domain
     pub fn domain(&self) -> PCIDomain {
         self.0.domain
     }
 
-    /// Downstream secondary bus
+    /// PCI secondary bus
     pub fn secondary_bus(&self) -> u8 {
         self.0.secondary_bus
     }
 
-    /// Downstream subordinate bus
+    /// PCI subordinate bus
     pub fn subordinate_bus(&self) -> u8 {
         self.0.subordinate_bus
     }
@@ -507,18 +547,25 @@ impl DownstreamPCIAttributes {
 
 /// Bridge downstream attributes
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub enum DownstreamAttributes<'attr> {
+pub enum DownstreamAttributes<'object> {
     /// PCI-specific attributes
-    PCI(&'attr DownstreamPCIAttributes),
+    PCI(&'object DownstreamPCIAttributes),
 }
 //
-impl<'attr> DownstreamAttributes<'attr> {
+impl<'object> DownstreamAttributes<'object> {
     /// Wrap the upstream attributes behind a safe API
     ///
     /// # Safety
     ///
     /// `attr` must be consistent with `ty`.
-    pub(crate) unsafe fn new(ty: BridgeType, attr: &'attr RawDownstreamAttributes) -> Option<Self> {
+    #[allow(clippy::unnecessary_wraps)]
+    pub(crate) unsafe fn new(
+        ty: BridgeType,
+        attr: &'object RawDownstreamAttributes,
+    ) -> Option<Self> {
+        // SAFETY: - attr.pci assumed valid per input precondition
+        //         - DownstreamPCIAttributes is a repr(transparent) newtype of
+        //           RawDownstreamPCIAttributes
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),

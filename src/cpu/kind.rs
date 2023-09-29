@@ -16,8 +16,8 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
-    errors::{self, HybridError, RawHwlocError},
-    ffi::{self, LibcString},
+    errors::{self, RawHwlocError},
+    ffi::{int, string::LibcString},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -78,6 +78,8 @@ use thiserror::Error;
 /// [`cpu_kinds()`]: Topology::cpu_kinds()
 /// [`num_cpu_kinds()`]: Topology::num_cpu_kinds()
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 impl Topology {
     /// Number of different kinds of CPU cores in the topology
@@ -87,11 +89,14 @@ impl Topology {
     /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_nr")]
     pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindsUnknown> {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Per documentation, flags should be zero
         let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
-        NonZeroUsize::new(ffi::expect_usize(count)).ok_or(CpuKindsUnknown)
+        NonZeroUsize::new(int::expect_usize(count)).ok_or(CpuKindsUnknown)
     }
 
     /// Enumerate CPU kinds, from least efficient efficient to most efficient
@@ -116,21 +121,35 @@ impl Topology {
     > {
         // Iterate over all CPU kinds
         let num_cpu_kinds = usize::from(self.num_cpu_kinds()?);
-        Ok((0..num_cpu_kinds).map(move |kind_index| self.cpu_kind(kind_index)))
+        // SAFETY: This only calls cpu_kind() with valid kind_index values
+        Ok((0..num_cpu_kinds).map(move |kind_index| unsafe { self.cpu_kind(kind_index) }))
     }
 
     /// Tell what we know about a CPU kind
     ///
+    /// # Safety
+    ///
     /// This internal method should only be called on CPU kind indices which are
     /// known to be valid by the high-level APIs.
-    fn cpu_kind(&self, kind_index: usize) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
+    unsafe fn cpu_kind(
+        &self,
+        kind_index: usize,
+    ) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
         // Let hwloc tell us everything it knows about this CPU kind
         let kind_index =
             c_uint::try_from(kind_index).expect("Should not happen if API contract is honored");
         let mut cpuset = CpuSet::new();
-        let mut efficiency = c_int::MAX;
+        let mut efficiency = c_int::MIN;
         let mut nr_infos: c_uint = 0;
         let mut infos = ptr::null_mut();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - Per documentation, efficiency, nr_infos and infos are
+        //           pure out parameters that hwloc does not read
+        //         - Per documentation, flags should be zero
         errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_info(
                 self.as_ptr(),
@@ -149,15 +168,22 @@ impl Topology {
             -1 => None,
             other => {
                 let positive = c_uint::try_from(other).expect("Unexpected CpuEfficiency value");
-                Some(ffi::expect_usize(positive))
+                Some(int::expect_usize(positive))
             }
         };
         assert!(
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
+        // SAFETY: - Per hwloc API contract, infos and nr_infos should be valid
+        //           if the function returned successfully
+        //         - We trust hwloc not to modify infos' target in a manner that
+        //           violates Rust aliasing rules, as long as we honor these
+        //           rules ourselves
+        //         - Total size should not wrap around for any valid allocation
+        //         - TextualInfo is a repr(transparent) newtype of hwloc_info_s
         let infos = unsafe {
-            std::slice::from_raw_parts(infos.cast::<TextualInfo>(), ffi::expect_usize(nr_infos))
+            std::slice::from_raw_parts(infos.cast::<TextualInfo>(), int::expect_usize(nr_infos))
         };
         (cpuset, efficiency, infos)
     }
@@ -180,15 +206,18 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Per documentation, flags should be zero
         let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
         });
         let kind_index = match result {
-            Ok(idx) => ffi::expect_usize(idx),
+            Ok(idx) => int::expect_usize(idx),
             Err(
                 raw_error @ RawHwlocError {
-                    api: _,
-                    errno: Some(errno),
+                    errno: Some(errno), ..
                 },
             ) => match errno.0 {
                 EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
@@ -198,14 +227,18 @@ impl Topology {
             },
             Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
         };
-        Ok(self.cpu_kind(kind_index))
+        // SAFETY: In absence of errors, we trust hwloc_cpukinds_get_by_cpuset
+        //         to produce correct CPU kind indices
+        Ok(unsafe { self.cpu_kind(kind_index) })
     }
 }
 
 /// # Kinds of CPU cores
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
-impl<'topology> TopologyEditor<'topology> {
+impl TopologyEditor<'_> {
     /// Register a kind of CPU in the topology.
     ///
     /// Mark the PUs listed in `cpuset` as being of the same kind with respect
@@ -229,23 +262,31 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
+    /// - [`ExcessiveEfficiency`] if `forced_efficiency` exceeds hwloc's
+    ///   [`c_int::MAX`] limit.
     /// - [`InfoContainsNul`] if a provided info's key or value contains NUL chars
     /// - [`TooManyInfos`] if the number of specified (key, value) info tuples
-    ///   exceeds hwloc's `c_uint::MAX` limit.
+    ///   exceeds hwloc's [`c_uint::MAX`] limit.
     ///
+    /// [`ExcessiveEfficiency`]: CpuKindRegisterError::ExcessiveEfficiency
     /// [`InfoContainsNul`]: CpuKindRegisterError::InfoContainsNul
     /// [`TooManyInfos`]: CpuKindRegisterError::TooManyInfos
+    #[allow(clippy::collection_is_never_read)]
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
         &mut self,
         cpuset: impl Borrow<CpuSet>,
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
-    ) -> Result<(), HybridError<CpuKindRegisterError>> {
-        let forced_efficiency = forced_efficiency
-            .map(|eff| c_int::try_from(eff).unwrap_or(c_int::MAX))
-            .unwrap_or(-1);
+    ) -> Result<(), CpuKindRegisterError> {
+        // Translate forced_efficiency into hwloc's preferred format
+        let forced_efficiency = if let Some(eff) = forced_efficiency {
+            c_int::try_from(eff).map_err(|_| CpuKindRegisterError::ExcessiveEfficiency(eff))?
+        } else {
+            -1
+        };
 
+        // Translate  infos into hwloc's preferred format
         let input_infos = infos.into_iter();
         let mut infos = Vec::new();
         let mut infos_ptrs = Vec::new();
@@ -257,12 +298,24 @@ impl<'topology> TopologyEditor<'topology> {
             let new_string =
                 |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
-            infos_ptrs.push(TextualInfo::new_raw(&name, &value));
+            // SAFETY: The source name and value LibcStrings are unmodified and
+            //         retained by infos Vec until we're done using infos_ptrs
+            infos_ptrs.push(unsafe { TextualInfo::borrow_raw(&name, &value) });
             infos.push((name, value));
         }
         let num_infos =
             c_uint::try_from(infos_ptrs.len()).map_err(|_| CpuKindRegisterError::TooManyInfos)?;
 
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - Bitmap is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - Above logic enforces that forced_efficiency be >= -1,
+        //           as hwloc demands
+        //         - num_infos and infos_ptrs originate from the same slice, so
+        //           they should be valid and in sync
+        //         - Per documentation, flags should be zero
         errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
             hwlocality_sys::hwloc_cpukinds_register(
                 self.topology_mut_ptr(),
@@ -274,7 +327,8 @@ impl<'topology> TopologyEditor<'topology> {
             )
         })
         .map(std::mem::drop)
-        .map_err(HybridError::Hwloc)
+        .expect("All known failure cases are prevented by API design");
+        Ok(())
     }
 }
 
@@ -315,6 +369,10 @@ pub enum CpuKindFromSetError {
 /// Error while registering a new CPU kind
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum CpuKindRegisterError {
+    /// `forced_efficiency` value is above what hwloc can handle on this platform
+    #[error("forced_efficiency value {0} is too high for hwloc")]
+    ExcessiveEfficiency(CpuEfficiency),
+
     /// One of the CPU kind's textual info strings contains the NUL char
     #[error("one of the CPU kind's textual info strings contains the NUL char")]
     InfoContainsNul,

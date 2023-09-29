@@ -9,7 +9,7 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: '0 0 4,18 * *'
+    - cron: '0 0 5,19 * *'
 
 name: Continuous Integration
 
@@ -21,8 +21,8 @@ concurrency:
 env:
   RUSTFLAGS: '-D warnings'
   HWLOC_VERSION: '2.9.1'
-  HWLOC_VERSION_SHORT: '2.9' # Used in URL to official tarball/binaries
-  MINIMAL_RUST: '1.70.0' # Minimal supported Rust version
+  HWLOC_VERSION_SHORT: '2.9'  # Used in URL to official tarball/binaries
+  MINIMAL_RUST: '1.70.0'  # Minimal supported Rust version
 
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
@@ -131,7 +131,7 @@ jobs:
   #        feature coming from one hwloc version do not use features from newer
   #        hwloc versions (which would force people to needlessly up their hwloc
   #        version requirements if they want to follow the doc examples).
-  test-contrib:
+  test-contrib-debug:
     # Only run on "pull_request" event for external PRs. This is to avoid
     # duplicate builds for PRs created from internal branches.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
@@ -163,7 +163,6 @@ jobs:
           - os: macos-latest
             features: '--features=hwloc-latest,bundled'
 
-
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -188,7 +187,7 @@ jobs:
         uses: ./.github/actions/system-information
         if: contains(matrix.features, 'bundled') == false
 
-      - name: Run basic tests
+      - name: Run unit and doc tests
         run: cargo test ${{ matrix.features }}
 
       - name: Install cargo-examples
@@ -200,7 +199,71 @@ jobs:
         run: cargo examples ${{ matrix.features }}
 
 
+  # Run the tests and examples on all supported OSes and Rust versions,
+  # in release mode
+  #
+  # Some things like UB or arithmetic overflow differ between debug and release
+  # builds, so it's a good idea to run the tests in release mode too.
+  #
+  # We do not do this in the test-contrib-debug job because switching between
+  # debug and release builds trashes the cargo cache.
+  #
+  # We restrict this to the latest supported hwloc release because the
+  # test-contrib-debug job is already testing for basic consistency, so our only
+  # goal here is to run as many tests as possible, and running on the latest
+  # hwloc release (for all supported compilers and OSes) gives us that.
+  test-contrib-release:
+    # Only run on "pull_request" event for external PRs. This is to avoid
+    # duplicate builds for PRs created from internal branches.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        rust:
+          - stable
+          - $MINIMAL_RUST
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Set up hwloc
+        uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+
+      - name: Collect system information
+        uses: ./.github/actions/system-information
+
+      - name: Run unit and doc tests
+        run: cargo test --release --features=hwloc-latest
+
+      - name: Install cargo-examples
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-examples
+
+      - name: Run all examples
+        run: cargo examples --features=hwloc-latest -- --release
+
+
   # Check compatibility with newer Rust/deps versions (scheduled CI)
+  #
+  # We aren't concerned about trashing the cargo cache here since these jobs
+  # only run occasionally, so the extra convenience and maintainability of
+  # grouping debug and release tests trumps other considerations.
   #
   # FIXME: There should be a way to use conditional build matrices without
   #        duplicating the whole job recipe...
@@ -260,13 +323,19 @@ jobs:
         uses: ./.github/actions/system-information
         if: contains(matrix.features, 'bundled') == false
 
-      - name: Run basic tests
+      - name: Run basic tests (debug build)
         run: cargo test ${{ matrix.features }}
+
+      - name: Run basic tests (release build)
+        run: cargo test --release ${{ matrix.features }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
         with:
           crate: cargo-examples
 
-      - name: Run all examples
+      - name: Run all examples (debug build)
         run: cargo examples ${{ matrix.features }}
+
+      - name: Run all examples (release build)
+        run: cargo examples ${{ matrix.features }} -- --release

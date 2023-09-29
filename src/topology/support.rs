@@ -1,10 +1,15 @@
 //! hwloc feature support
+//!
+//! Generally speaking, a given hardware/OS platform will not support every
+//! hwloc feature. This module exposes the feature support flags,
+//! which you can query using the [`Topology::feature_support()`] method and its
+//! [`Topology::supports()`] shortcut.
 
 // - API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
 
 #[cfg(doc)]
-use super::builder::BuildFlags;
+use super::{builder::BuildFlags, Topology};
 use crate::ffi;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::hwloc_topology_misc_support;
@@ -15,6 +20,23 @@ use hwlocality_sys::{
 use std::{ffi::c_uchar, fmt, hash::Hash};
 
 /// Set of flags describing actual hwloc feature support for this topology
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// As a type invariant, all inner pointers are assumed to be safe to dereference
+// and devoid of mutable aliases if non-null, as long as the host
+// FeatureSupport is reachable at all.
+//
+// This is enforced through the following precautions:
+//
+// - No API exposes an owned FeatureSupport, only references to it bound by
+//   the source topology's lifetime are exposed
+// - The initial feature support that is set up by hwloc at topology
+//   construction time is trusted to be correct
+// - There is no API for modifying a loaded topology's feature support
+#[allow(clippy::non_send_fields_in_send_ty)]
 #[derive(Default)]
 #[doc(alias = "hwloc_topology_support")]
 #[repr(transparent)]
@@ -24,18 +46,33 @@ impl FeatureSupport {
     /// Support for discovering information about the topology
     #[doc(alias = "hwloc_topology_support::discovery")]
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
+        //         - DiscoverySupport is a repr(transparent) newtype of
+        //           hwloc_topology_discovery_support
         unsafe { ffi::deref_ptr_newtype(&self.0.discovery) }
     }
 
     /// Support for getting and setting thread/process CPU bindings
     #[doc(alias = "hwloc_topology_support::cpubind")]
     pub fn cpu_binding(&self) -> Option<&CpuBindingSupport> {
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
+        //         - CpuBindingSupport is a repr(transparent) newtype of
+        //           hwloc_topology_cpubind_support
         unsafe { ffi::deref_ptr_newtype(&self.0.cpubind) }
     }
 
     /// Support for getting and setting thread/process NUMA node bindings
     #[doc(alias = "hwloc_topology_support::membind")]
     pub fn memory_binding(&self) -> Option<&MemoryBindingSupport> {
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
+        //         - MemoryBinding is indeed a newtype of
+        //           hwloc_topology_membind_support
         unsafe { ffi::deref_ptr_newtype(&self.0.membind) }
     }
 
@@ -43,12 +80,17 @@ impl FeatureSupport {
     #[cfg(feature = "hwloc-2_3_0")]
     #[doc(alias = "hwloc_topology_support::misc")]
     pub fn misc(&self) -> Option<&MiscSupport> {
+        // SAFETY: - Pointer validity is a type invariant
+        //         - Rust aliasing rules are enforced by deriving the reference
+        //           from &self, which itself is derived from &Topology
+        //         - MiscSupport is a repr(transparent) newtype of
+        //           hwloc_topology_misc_support
         unsafe { ffi::deref_ptr_newtype(&self.0.misc) }
     }
 }
 //
 impl fmt::Debug for FeatureSupport {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("FeatureSupport");
         debug
             .field("discovery", &self.discovery())
@@ -86,7 +128,10 @@ impl PartialEq for FeatureSupport {
 //
 impl Eq for FeatureSupport {}
 //
+// SAFETY: No internal mutability
 unsafe impl Send for FeatureSupport {}
+//
+// SAFETY: No internal mutability
 unsafe impl Sync for FeatureSupport {}
 
 /// Support for discovering information about the topology

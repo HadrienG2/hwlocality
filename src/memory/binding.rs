@@ -872,7 +872,6 @@ impl Topology {
     /// - `ffi` should have semantics analogous to `hwloc_alloc`
     /// - If so, this is guaranteed to call `ffi` with a valid (topology, size)
     ///   tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn allocate_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
@@ -912,7 +911,6 @@ impl Topology {
     ///   is applied to, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, bitmap, policy, flags) tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn bind_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
@@ -956,7 +954,6 @@ impl Topology {
     ///   is applied to, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, bitmap, policy, flags) tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn unbind_memory_impl(
         &self,
         api: &'static str,
@@ -1000,7 +997,6 @@ impl Topology {
     ///   performed, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, out bitmap, out policy, flags) tuple
-    #[allow(clippy::unnecessary_safety_comment)]
     unsafe fn memory_binding_impl<Set: OwnedSpecializedBitmap>(
         &self,
         api: &'static str,
@@ -1024,7 +1020,8 @@ impl Topology {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
-            //         - hwloc ops are trusted to keep *mut parameters in a valid state
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
             //         - As a pure out parameter, policy shouldn't be read by hwloc
             //         - flags should be valid if target & operation are valid
             ffi(
@@ -1054,8 +1051,9 @@ bitflags! {
     ///
     /// These bit flags can be used to refine the binding policy. All flags can
     /// be OR'ed together with the exception of the binding target flags
-    /// `ASSUME_SINGLE_THREAD`, `THREAD` and `PROCESS`, which are mutually
-    /// exclusive.
+    /// `ASSUME_SINGLE_THREAD`, `THREAD` and `PROCESS`, of which at most one
+    /// must be specified. The most portable option is `ASSUME_SINGLE_THREAD`,
+    /// when it is applicable.
     ///
     /// When using one of the methods that target a process, you must use
     /// exactly one of these flags. The most portable option is

@@ -1,4 +1,14 @@
 //! Building a topology with a custom configuration
+//!
+//! The hwloc topology building process can be customized, which means that at
+//! any given point in time, a topology can either be in a non-built state that
+//! only allows for configuration operations, or in a built state that cannot be
+//! configured anymore but allows for most library operations.
+//!
+//! In a time-honored Rust tradition, this binding models this using two
+//! different types, one for the topology building process (which uses the
+//! familiar builder pattern) and one for the fully built topology. This module
+//! is all about implementing the former type.
 
 use super::{hwloc_topology, Topology};
 #[cfg(all(doc, feature = "hwloc-2_8_0"))]
@@ -11,7 +21,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::topology::support::MiscSupport;
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError},
-    ffi::LibcString,
+    ffi::string::LibcString,
     object::types::ObjectType,
     path::{self, PathError},
     ProcessId,
@@ -45,10 +55,19 @@ use std::{fmt::Debug, path::Path, ptr::NonNull};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// As a type invariant, the inner pointer is assumed to always point to an
+// initialized but non-built, non-aliased topology.
 #[derive(Debug)]
 pub struct TopologyBuilder(NonNull<hwloc_topology>);
 
 /// # Topology building
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
 impl TopologyBuilder {
@@ -65,6 +84,7 @@ impl TopologyBuilder {
     /// ```
     pub fn new() -> Self {
         let mut topology: *mut hwloc_topology = std::ptr::null_mut();
+        // SAFETY: topology is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_int_normal("hwloc_topology_init", || unsafe {
             hwlocality_sys::hwloc_topology_init(&mut topology)
         })
@@ -86,15 +106,23 @@ impl TopologyBuilder {
     /// assert_eq!(topology.build_flags(), flags);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_load")]
     pub fn build(mut self) -> Result<Topology, RawHwlocError> {
         // Finalize the topology building
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc_topology pointer is not reexposed to the
+        //           TopologyBuilder interface after this operation
+        //         - hwloc_topology pointer should be ready for Topology
+        //           interface consumption if this operation succeeds
         errors::call_hwloc_int_normal("hwloc_topology_load", || unsafe {
             hwlocality_sys::hwloc_topology_load(self.as_mut_ptr())
         })?;
 
         // If that was successful, transfer hwloc_topology ownership to a Topology
         if cfg!(debug_assertions) {
+            // SAFETY: - Topology pointer is trusted to be valid after loading
+            //         - hwloc ops are trusted not to modify *const parameters
             unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
         let result = Topology(self.0);
@@ -120,6 +148,8 @@ impl TopologyBuilder {
 /// [`from_xml_file()`]: TopologyBuilder::from_xml_file()
 /// [`from_synthetic()`]: TopologyBuilder::from_synthetic()
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
 impl TopologyBuilder {
     /// Change which process the topology is viewed from
@@ -135,14 +165,19 @@ impl TopologyBuilder {
     ///   process.
     #[doc(alias = "hwloc_topology_set_pid")]
     pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, HybridError<ProcessIDError>> {
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - We can't validate a PID (think TOCTOU race), but hwloc is
+        //           trusted to be able to handle an invalid PID
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_pid", || unsafe {
             hwlocality_sys::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
         });
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(ENOSYS)),
+                ..
             }) => Err(ProcessIDError(pid).into()),
             Err(other_err) => Err(HybridError::Hwloc(other_err)),
         }
@@ -170,14 +205,20 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_synthetic")]
     pub fn from_synthetic(mut self, description: impl AsRef<str>) -> Result<Self, TextInputError> {
         let description = LibcString::new(description)?;
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - LibcString should yield valid C strings, which we're not
+        //           using beyond their intended lifetime
+        //         - hwloc ops are trusted not to modify *const parameters
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_synthetic", || unsafe {
             hwlocality_sys::hwloc_topology_set_synthetic(self.as_mut_ptr(), description.borrow())
         });
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(TextInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
@@ -204,6 +245,13 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_xmlbuffer")]
     pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, TextInputError> {
         let xml = LibcString::new(xml)?;
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - LibcString should yield valid C strings, which we're not
+        //           using beyond their intended lifetime
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - xml string and length are in sync
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_xmlbuffer", || unsafe {
             hwlocality_sys::hwloc_topology_set_xmlbuffer(
                 self.as_mut_ptr(),
@@ -216,8 +264,8 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(TextInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
@@ -246,14 +294,18 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_xml")]
     pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
         let path = path::make_hwloc_path(path)?;
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - path has been validated for hwloc consumption
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
             hwlocality_sys::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow())
         });
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                api: _,
                 errno: Some(Errno(EINVAL)),
+                ..
             }) => Err(XMLFileInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
@@ -280,6 +332,14 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_components")]
     pub fn blacklist_component(mut self, name: &str) -> Result<Self, HybridError<NulError>> {
         let name = LibcString::new(name)?;
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - LibcString should yield valid C strings, which we're not
+        //           using beyond their intended lifetime
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - BLACKLIST is documented to be the only supported flag
+        //           currently, and to be mandated
         errors::call_hwloc_int_normal("hwloc_topology_set_components", || unsafe {
             hwlocality_sys::hwloc_topology_set_components(
                 self.as_mut_ptr(),
@@ -347,6 +407,8 @@ bitflags! {
 
 /// # Detection configuration and query
 //
+// --- Implementation details ---
+//
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
 impl TopologyBuilder {
     /// Set topology building flags
@@ -378,6 +440,10 @@ impl TopologyBuilder {
         if !flags.is_valid() {
             return Err(HybridError::Rust(flags.into()));
         }
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - flags have been validated to be correct above
         errors::call_hwloc_int_normal("hwloc_topology_set_flags", || unsafe {
             hwlocality_sys::hwloc_topology_set_flags(self.as_mut_ptr(), flags.bits())
         })
@@ -387,10 +453,12 @@ impl TopologyBuilder {
 
     /// Check current topology building flags (empty by default)
     pub fn flags(&self) -> BuildFlags {
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
         let result = BuildFlags::from_bits_truncate(unsafe {
             hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
         });
-        debug_assert!(result.is_valid());
+        assert!(result.is_valid(), "hwloc should not send out invalid flags");
         result
     }
 
@@ -434,6 +502,15 @@ impl TopologyBuilder {
             }
             _ => {}
         }
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - By construction, ObjectType only exposes values that map into
+        //           hwloc_obj_type_t values understood by the configured version
+        //           of hwloc, and build.rs checks that the active version of
+        //           hwloc is not older than that, so into() may only generate
+        //           valid hwloc_obj_type_t values for current hwloc
+        //         - By construction, only valid type filters can be sent
         errors::call_hwloc_int_normal("hwloc_topology_set_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_set_type_filter(
                 self.as_mut_ptr(),
@@ -448,8 +525,13 @@ impl TopologyBuilder {
     /// Set the filtering for all object types
     ///
     /// If some types do not support this filtering, they are silently ignored.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_all_types_filter")]
     pub fn with_common_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - By construction, only valid type filters can be sent
         errors::call_hwloc_int_normal("hwloc_topology_set_all_types_filter", || unsafe {
             hwlocality_sys::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into())
         })?;
@@ -459,8 +541,13 @@ impl TopologyBuilder {
     /// Set the filtering for all CPU cache object types
     ///
     /// Memory-side caches are not involved since they are not CPU caches.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_cache_types_filter")]
     pub fn with_cpu_cache_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - By construction, only valid type filters can be sent
         errors::call_hwloc_int_normal("hwloc_topology_set_cache_types_filter", || unsafe {
             hwlocality_sys::hwloc_topology_set_cache_types_filter(self.as_mut_ptr(), filter.into())
         })?;
@@ -470,11 +557,16 @@ impl TopologyBuilder {
     /// Set the filtering for all CPU instruction cache object types
     ///
     /// Memory-side caches are not involved since they are not CPU caches.
+    #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_icache_types_filter")]
     pub fn with_cpu_icache_type_filter(
         mut self,
         filter: TypeFilter,
     ) -> Result<Self, RawHwlocError> {
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - By construction, only valid type filters can be sent
         errors::call_hwloc_int_normal("hwloc_topology_set_icache_types_filter", || unsafe {
             hwlocality_sys::hwloc_topology_set_icache_types_filter(self.as_mut_ptr(), filter.into())
         })?;
@@ -498,6 +590,10 @@ impl TopologyBuilder {
         if filter == TypeFilter::KeepStructure {
             return Err(TypeFilterError::StructureIrrelevant.into());
         }
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - By construction, only valid type filters can be sent
         errors::call_hwloc_int_normal("hwloc_topology_set_io_types_filter", || unsafe {
             hwlocality_sys::hwloc_topology_set_io_types_filter(self.as_mut_ptr(), filter.into())
         })
@@ -506,8 +602,17 @@ impl TopologyBuilder {
     }
 
     /// Current filtering for the given object type
+    #[allow(clippy::missing_errors_doc)]
     pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
         let mut filter = hwloc_type_filter_e::MAX;
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - By construction, ObjectType only exposes values that map into
+        //           hwloc_obj_type_t values understood by the configured version
+        //           of hwloc, and build.rs checks that the active version of
+        //           hwloc is not older than that, so into() may only generate
+        //           valid hwloc_obj_type_t values for current hwloc
+        //         - filter is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
@@ -819,11 +924,19 @@ impl Default for TopologyBuilder {
 impl Drop for TopologyBuilder {
     fn drop(&mut self) {
         if cfg!(debug_assertions) {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
             unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
+        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
+        //         - Safe code can't use the invalidated topology pointer again
+        //           after this Drop
         unsafe { hwlocality_sys::hwloc_topology_destroy(self.as_mut_ptr()) }
     }
 }
 
+// SAFETY: No internal mutability
 unsafe impl Send for TopologyBuilder {}
+
+// SAFETY: No internal mutability
 unsafe impl Sync for TopologyBuilder {}

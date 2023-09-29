@@ -1,4 +1,9 @@
 //! Object types
+//!
+//! Hardware components that hwloc can probe are categorized into
+//! [`ObjectType`]s. Some of them get a finer categorization, which can be
+//! probed via [`TopologyObject::attributes()`]. All the enumerated types
+//! associated with these categories are collected into this module.
 
 // - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
 // - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
@@ -186,7 +191,8 @@ pub enum ObjectType {
     L4Cache = HWLOC_OBJ_L4CACHE,
 
     /// Level 5 Data (or Unified) Cache
-    // NOTE: If hwloc adds more cache levels, update the cache module accordingly
+    //
+    // TODO: If hwloc adds more cache levels, update the cache module accordingly
     #[doc(alias = "HWLOC_OBJ_L5CACHE")]
     L5Cache = HWLOC_OBJ_L5CACHE,
 
@@ -319,7 +325,8 @@ pub enum ObjectType {
 impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     #[doc(alias = "hwloc_obj_type_is_normal")]
-    pub fn is_normal(&self) -> bool {
+    pub fn is_normal(self) -> bool {
+        // SAFETY: hwloc_obj_type_is_normal is supported by definition
         unsafe {
             self.type_predicate(
                 "hwloc_obj_type_is_normal",
@@ -330,13 +337,14 @@ impl ObjectType {
 
     /// Truth that this object type is a leaf of the normal hierarchy and
     /// cannot have non-Misc children
-    pub fn is_normal_leaf(&self) -> bool {
-        *self == Self::PU || *self == Self::NUMANode
+    pub fn is_normal_leaf(self) -> bool {
+        self == Self::PU || self == Self::NUMANode
     }
 
     /// Truth that this is a CPU-side cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_cache")]
-    pub fn is_cpu_cache(&self) -> bool {
+    pub fn is_cpu_cache(self) -> bool {
+        // SAFETY: hwloc_obj_type_is_cache behaves like hwloc_obj_type_is_normal
         unsafe {
             self.type_predicate(
                 "hwloc_obj_type_is_cache",
@@ -347,7 +355,8 @@ impl ObjectType {
 
     /// Truth that this is a CPU-side data or unified cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_dcache")]
-    pub fn is_cpu_data_cache(&self) -> bool {
+    pub fn is_cpu_data_cache(self) -> bool {
+        // SAFETY: hwloc_obj_type_is_dcache behaves like hwloc_obj_type_is_normal
         unsafe {
             self.type_predicate(
                 "hwloc_obj_type_is_dcache",
@@ -358,7 +367,8 @@ impl ObjectType {
 
     /// Truth that this is a CPU-side instruction cache type (not MemCache)
     #[doc(alias = "hwloc_obj_type_is_icache")]
-    pub fn is_cpu_instruction_cache(&self) -> bool {
+    pub fn is_cpu_instruction_cache(self) -> bool {
+        // SAFETY: hwloc_obj_type_is_icache behaves like hwloc_obj_type_is_normal
         unsafe {
             self.type_predicate(
                 "hwloc_obj_type_is_icache",
@@ -373,7 +383,8 @@ impl ObjectType {
     /// the dedicated memory children list. They have special depth values
     /// instead of normal depths like other objects in the main tree.
     #[doc(alias = "hwloc_obj_type_is_memory")]
-    pub fn is_memory(&self) -> bool {
+    pub fn is_memory(self) -> bool {
+        // SAFETY: hwloc_obj_type_is_memory behaves like hwloc_obj_type_is_normal
         unsafe {
             self.type_predicate(
                 "hwloc_obj_type_is_memory",
@@ -389,7 +400,8 @@ impl ObjectType {
     /// They are not part of the main children list, but rather reside in the
     /// dedicated I/O children list.
     #[doc(alias = "hwloc_obj_type_is_io")]
-    pub fn is_io(&self) -> bool {
+    pub fn is_io(self) -> bool {
+        // SAFETY: hwloc_obj_type_is_io behaves like hwloc_obj_type_is_normal
         unsafe { self.type_predicate("hwloc_obj_type_is_io", hwlocality_sys::hwloc_obj_type_is_io) }
     }
 
@@ -407,12 +419,18 @@ impl ObjectType {
     ///
     /// # Safety
     ///
-    /// `pred` must be a valid object type predicate
+    /// `pred` must be a valid object type predicate with semantics akin to
+    /// those of `hwloc_obj_type_is_normal()`
     unsafe fn type_predicate(
-        &self,
+        self,
         api: &'static str,
         pred: unsafe extern "C" fn(hwloc_obj_type_t) -> c_int,
     ) -> bool {
+        // SAFETY: By construction, ObjectType only exposes values that map into
+        //         hwloc_obj_type_t values understood by the configured version
+        //         of hwloc, and build.rs checks that the active version of
+        //         hwloc is not older than that, so to_raw may only generate
+        //         valid hwloc_obj_type_t values for current hwloc
         errors::call_hwloc_bool(api, || unsafe { pred(self.to_raw()) })
             .expect("Object type queries should not fail")
     }
@@ -420,6 +438,11 @@ impl ObjectType {
 
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // SAFETY: By construction, ObjectType only exposes values that map into
+        //         hwloc_obj_type_t values understood by the configured version
+        //         of hwloc, and build.rs checks that the active version of
+        //         hwloc is not older than that, so to_raw may only generate
+        //         valid hwloc_obj_type_t values for current hwloc
         let result = unsafe { hwlocality_sys::hwloc_compare_types(self.to_raw(), other.to_raw()) };
         match result {
             HWLOC_TYPE_UNORDERED => None,

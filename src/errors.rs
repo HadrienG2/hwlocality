@@ -4,9 +4,13 @@
 //! provide higher-quality error messages, for some common patterns we do emit
 //! generic error types, which are implemented in this module.
 //
+// --- Implementation details ---
+//
 // At the implementation level, this is also the place where all the low-level
 // handling of hwloc errors is implemented.
 
+#[cfg(doc)]
+use crate::{object::TopologyObject, topology::Topology};
 use errno::Errno;
 use std::{
     error::Error,
@@ -66,6 +70,10 @@ pub struct RawHwlocError {
 }
 
 /// Call an hwloc entry point that returns a `*mut T` that should not be null
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
 pub(crate) fn call_hwloc_ptr_mut<T>(
     api: &'static str,
     call: impl FnOnce() -> *mut T,
@@ -74,14 +82,14 @@ pub(crate) fn call_hwloc_ptr_mut<T>(
         let result = call();
         (result, result.is_null())
     });
-    if let Some(ptr) = NonNull::new(result) {
-        Ok(ptr)
-    } else {
-        Err(RawHwlocError { api, errno })
-    }
+    NonNull::new(result).ok_or(RawHwlocError { api, errno })
 }
 
 /// Call an hwloc entry point that returns a `*const T` that should not be null
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
 pub(crate) fn call_hwloc_ptr<T>(
     api: &'static str,
     call: impl FnOnce() -> *const T,
@@ -89,22 +97,29 @@ pub(crate) fn call_hwloc_ptr<T>(
     call_hwloc_ptr_mut(api, || call().cast_mut())
 }
 
-/// Call an hwloc entry point that returns an `int` where -1 signals failure
+/// Call an hwloc entry point that returns an `int` where -1 signals failure and
+/// other negative values are not expected
 ///
 /// This behavior is followed by almost every hwloc API, though unfortunately
 /// there are a couple of exception.
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
 pub(crate) fn call_hwloc_int_normal(
     api: &'static str,
     call: impl FnOnce() -> c_int,
 ) -> Result<c_uint, RawHwlocError> {
-    match call_hwloc_int_raw(api, call) {
-        Ok(positive) => Ok(positive),
+    match call_hwloc_int_raw(api, call, 0) {
+        Ok(positive) => {
+            Ok(c_uint::try_from(positive).expect("Cannot happen due to 0 threshold above"))
+        }
         Err(RawNegIntError {
             api,
             result: -1,
             errno,
         }) => Err(RawHwlocError { api, errno }),
-        Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
+        Err(other_err) => unreachable!("Unexpected hwloc output: {other_err}"),
     }
 }
 
@@ -124,44 +139,50 @@ pub(crate) fn call_hwloc_bool(
 
 /// Raw error emitted by hwloc functions that returns a negative int on failure
 ///
-/// A few hwloc functions (most prominently topology diffing) return negative
-/// integer values other than -1 when erroring out. This error type is an
-/// extension of [`RawHwlocError`] that allows you to catch and process those
-/// negative return values.
+/// A few hwloc functions (most prominently bitmap queries and topology diffing)
+/// return negative integer values other than -1 when erroring out. This error
+/// type is an extension of [`RawHwlocError`] that allows you to catch and
+/// process those negative return values.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 #[error("hwloc API {api} failed with result {result} and errno {errno:?}")]
 pub(crate) struct RawNegIntError {
     /// Hwloc entry point that failed
-    pub api: &'static str,
+    pub(crate) api: &'static str,
 
     /// Return value (may not be positive)
-    pub result: c_int,
+    pub(crate) result: c_int,
 
     /// Observed errno value, if errno was set
-    pub errno: Option<Errno>,
+    pub(crate) errno: Option<Errno>,
 }
 //
 /// Call an hwloc entry point that returns int and post-process its result
+///
+/// Result values lower than `lowest_good_value` are treated as errors
 pub(crate) fn call_hwloc_int_raw(
     api: &'static str,
     call: impl FnOnce() -> c_int,
-) -> Result<c_uint, RawNegIntError> {
+    lowest_good_value: c_int,
+) -> Result<c_int, RawNegIntError> {
     let (result, errno) = check_errno(|| {
         let result = call();
-        (result, result < 0)
+        (result, result < lowest_good_value)
     });
-    c_uint::try_from(result).map_err(|_| RawNegIntError { api, result, errno })
+    (result >= lowest_good_value)
+        .then_some(result)
+        .ok_or(RawNegIntError { api, result, errno })
 }
 
 /// A function errored out either on the Rust or hwloc side
 ///
 /// This is typically used for functions which have known failure modes on the
 /// Rust side (e.g. takes a string input that must not contain NUL chars), but
-/// whose hwloc-side error reporting policy is undocumented.
+/// whose hwloc-side error reporting policy is undocumented or only partially
+/// documented.
 ///
-/// If the hwloc documentation contains a list of failure modes which sounds
-/// exhaustive, we normally assume it to be exhaustive and return a pure Rust
-/// error type, panicking if another hwloc error is observed.
+/// If the hwloc documentation contains an exhaustive list of failure modes, we
+/// trust it and return a pure Rust error type, panicking if another hwloc
+/// error is observed.
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum HybridError<RustError: Error> {
     /// An error was caught on the Rust side
@@ -218,3 +239,14 @@ impl<Parameter: Debug> From<Parameter> for ParameterError<Parameter> {
 /// depend on the value of other function parameters. Otherwise, a more
 /// descriptive dedicated error type will be used.
 pub type FlagsError<Flags> = ParameterError<Flags>;
+
+/// A [`Topology`] method was passed in a [`TopologyObject`] that does not
+/// belong to said topology
+///
+/// Given that this is an obscure usage error that has tiny odds of happening in
+/// the real world, it is not systematically reported as an error. Methods
+/// whose semantics boil down to "return entity that matches this query if it
+/// exists and `None` otherwise" may instead return `None` in this scenario.
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("topology method was passed in a foreign topology object")]
+pub struct ForeignObject;

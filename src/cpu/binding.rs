@@ -30,7 +30,7 @@ use thiserror::Error;
 /// Some operating systems do not provide all hwloc-supported mechanisms to bind
 /// processes, threads, etc. [`Topology::feature_support()`] may be used to
 /// query about the actual CPU binding support in the currently used operating
-/// system. The documentation of individual CPU binding functions will clarify
+/// system. The documentation of individual CPU binding methods will clarify
 /// which support flags they require.
 ///
 /// By default, when the requested binding operation is not available, hwloc
@@ -39,6 +39,8 @@ use thiserror::Error;
 /// expense of reducing portability across operating systems.
 ///
 /// [`STRICT`]: CpuBindingFlags::STRICT
+//
+// --- Implementation details ---
 //
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 impl Topology {
@@ -50,14 +52,14 @@ impl Topology {
     /// such operating systems, the scheduler is free to run the task on one of
     /// these PU, then migrate it to another [`PU`], etc. It is often useful to
     /// call [`singlify()`] on the target CPU set before passing it to the
-    /// binding function to avoid these expensive migrations.
+    /// binding method to avoid these expensive migrations.
     ///
-    /// To unbind, just call the binding function with either a full cpuset or a
+    /// To unbind, just call the binding method with either a full cpuset or a
     /// cpuset equal to the system cpuset.
     ///
     /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
     /// [`THREAD`] and [`PROCESS`] binding target flags (listed in order of
-    /// decreasing portability) when using this function.
+    /// decreasing portability) when using this method.
     ///
     /// On some operating systems, CPU binding may have effects on memory
     /// binding, you can forbid this with flag [`NO_MEMORY_BINDING`].
@@ -73,12 +75,12 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`BadObject(ThisProgram)`] if it is not possible to bind the current
-    ///   process/thread to CPUs, generally speaking.
     /// - [`BadCpuSet`] if it is not possible to bind the current process/thread
-    ///   to the requested CPU set, specifically.
+    ///   to the requested CPU set, specifically
     /// - [`BadFlags`] if the number of specified binding target flags is not
-    ///   exactly one.
+    ///   exactly one
+    /// - [`BadObject(ThisProgram)`] if it is not possible to bind the current
+    ///   process/thread to CPUs, generally speaking
     ///
     /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
@@ -97,15 +99,20 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), CpuBindingError> {
-        let res = self.bind_cpu_impl(
-            set.borrow(),
-            flags,
-            CpuBoundObject::ThisProgram,
-            "hwloc_set_cpubind",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
-            },
-        );
+        // SAFETY: - ThisProgram is the correct target for this operation
+        //         - hwloc_set_cpubind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        let res = unsafe {
+            self.bind_cpu_impl(
+                set.borrow(),
+                flags,
+                CpuBoundObject::ThisProgram,
+                "hwloc_set_cpubind",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
+                },
+            )
+        };
         match res {
             Ok(()) => Ok(()),
             Err(HybridError::Rust(e)) => Err(e),
@@ -117,9 +124,9 @@ impl Topology {
     ///
     /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
     /// [`THREAD`] and [`PROCESS`] binding target flags (listed in order of
-    /// decreasing portability) when using this function.
+    /// decreasing portability) when using this method.
     ///
-    /// Flag [`NO_MEMORY_BINDING`] should not be used with this function.
+    /// Flag [`NO_MEMORY_BINDING`] should not be used with this method.
     ///
     /// Requires [`CpuBindingSupport::get_current_process()`] or
     /// [`CpuBindingSupport::get_current_thread()`] depending on flags.
@@ -129,10 +136,10 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`BadObject(ThisProgram)`] if it is not possible to query the CPU
-    ///   binding of the current process/thread.
     /// - [`BadFlags`] if flag [`NO_MEMORY_BINDING`] was specified or if the
-    ///   number of binding target flags is not exactly one.
+    ///   number of binding target flags is not exactly one
+    /// - [`BadObject(ThisProgram)`] if it is not possible to query the CPU
+    ///   binding of the current process/thread
     ///
     /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: CpuBindingError::BadFlags
@@ -145,14 +152,19 @@ impl Topology {
         &self,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.cpu_binding_impl(
-            flags,
-            CpuBoundObject::ThisProgram,
-            "hwloc_get_cpubind",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_get_cpubind(topology, cpuset, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this operation
+        //         - hwloc_get_cpubind is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        unsafe {
+            self.cpu_binding_impl(
+                flags,
+                CpuBoundObject::ThisProgram,
+                "hwloc_get_cpubind",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_cpubind(topology, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Binds a process (identified by its `pid`) on given CPUs
@@ -160,22 +172,21 @@ impl Topology {
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
     /// a pid (process ID) and flag [`THREAD`] is specified, the specified
     /// thread is bound. Otherwise, flag [`THREAD`] should not be used with this
-    /// function.
+    /// method.
     ///
-    /// See also [`Topology::bind_cpu()`] for more informations, except this
-    /// requires [`CpuBindingSupport::set_process()`] or
-    /// [`CpuBindingSupport::set_thread()`] depending on flags, and binding
-    /// target flags other than [`THREAD`] should not be used with this
-    /// function.
+    /// See also [`Topology::bind_cpu()`] for more informations, except binding
+    /// target flags other than [`THREAD`] should not be used with this method,
+    /// and it requires [`CpuBindingSupport::set_process()`] or
+    /// [`CpuBindingSupport::set_thread()`] depending on flags.
     ///
     /// # Errors
     ///
-    /// - [`BadObject(ProcessOrThread)`] if it is not possible to bind the
-    ///   target process/thread to CPUs, generally speaking.
     /// - [`BadCpuSet`] if it is not possible to bind the target process/thread
-    ///   to the requested CPU set, specifically.
+    ///   to the requested CPU set, specifically
     /// - [`BadFlags`] if flag [`THREAD`] was specified on an operating system
-    ///   other than Linux, or if any other binding target flag was specified.
+    ///   other than Linux, or if any other binding target flag was specified
+    /// - [`BadObject(ProcessOrThread)`] if it is not possible to bind the
+    ///   target process/thread to CPUs, generally speaking
     ///
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
@@ -188,15 +199,23 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
-        self.bind_cpu_impl(
-            set.borrow(),
-            flags,
-            CpuBoundObject::ProcessOrThread,
-            "hwloc_set_proc_cpubind",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
-            },
-        )
+        // SAFETY: - ProcessOrThread is the correct target for this operation
+        //         - hwloc_set_proc_cpubind with pid argument curried away
+        //           behaves like hwloc_set_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.bind_cpu_impl(
+                set.borrow(),
+                flags,
+                CpuBoundObject::ProcessOrThread(pid),
+                "hwloc_set_proc_cpubind",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Get the current physical binding of a process, identified by its `pid`
@@ -204,21 +223,20 @@ impl Topology {
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
     /// a pid (process ID) and flag [`THREAD`] is specified, the binding of the
     /// specified thread is returned. Otherwise, flag [`THREAD`] should not be
-    /// used with this function.
+    /// used with this method.
     ///
-    /// See [`Topology::cpu_binding()`] for more informations, except this
-    /// requires [`CpuBindingSupport::get_process()`] or
-    /// [`CpuBindingSupport::get_thread()`] depending on flags, and binding
-    /// target flags other than [`THREAD`] should not be used with this
-    /// function.
+    /// See [`Topology::cpu_binding()`] for more informations, except binding
+    /// target flags other than [`THREAD`] should not be used with this method,
+    /// and it requires [`CpuBindingSupport::get_process()`] or
+    /// [`CpuBindingSupport::get_thread()`] depending on flags.
     ///
     /// # Errors
     ///
+    /// - [`BadFlags`] if one of the  [`NO_MEMORY_BINDING`] was specified, if
+    ///   flag [`THREAD`] was specified on an operating system other than Linux,
+    ///   or if any other binding target flag was specified
     /// - [`BadObject(ProcessOrThread)`] if it is not possible to query the CPU
-    ///   binding of the target process/thread.
-    /// - [`BadFlags`] if one of the  [`NO_MEMORY_BINDING`] was specified, if flag
-    ///   [`THREAD`] was specified on an operating system other than Linux, or
-    ///   if any other binding target flag was specified.
+    ///   binding of the target process/thread
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
@@ -230,29 +248,37 @@ impl Topology {
         pid: ProcessId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.cpu_binding_impl(
-            flags,
-            CpuBoundObject::ProcessOrThread,
-            "hwloc_get_proc_cpubind",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
-            },
-        )
+        // SAFETY: - ProcessOrThread is the correct target for this operation
+        //         - hwloc_get_proc_cpubind with pid argument curried away
+        //           behaves like hwloc_get_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.cpu_binding_impl(
+                flags,
+                CpuBoundObject::ProcessOrThread(pid),
+                "hwloc_get_proc_cpubind",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Bind a thread, identified by its `tid`, on the given CPUs
     ///
-    /// See [`Topology::bind_cpu()`] for more informations, except this always
-    /// requires [`CpuBindingSupport::set_thread()`] and binding target flags
-    /// should not be used with this function.
+    /// See [`Topology::bind_cpu()`] for more informations, except binding
+    /// target flags should not be used with this method, and it always
+    /// requires [`CpuBindingSupport::set_thread()`].
     ///
     /// # Errors
     ///
-    /// - [`BadObject(Thread)`] if it is not possible to bind the target thread
-    ///   to CPUs, generally speaking.
     /// - [`BadCpuSet`] if it is not possible to bind the target thread to the
-    ///   requested CPU set, specifically.
-    /// - [`BadFlags`] if a binding target flag was specified.
+    ///   requested CPU set, specifically
+    /// - [`BadFlags`] if a binding target flag was specified
+    /// - [`BadObject(Thread)`] if it is not possible to bind the target thread
+    ///   to CPUs, generally speaking
     ///
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
@@ -264,32 +290,40 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
-        self.bind_cpu_impl(
-            set.borrow(),
-            flags,
-            CpuBoundObject::Thread,
-            "hwloc_set_thread_cpubind",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
-            },
-        )
+        // SAFETY: - Thread is the correct target for this operation
+        //         - hwloc_set_thread_cpubind with tid argument curried away
+        //           behaves like hwloc_set_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
+        unsafe {
+            self.bind_cpu_impl(
+                set.borrow(),
+                flags,
+                CpuBoundObject::Thread(tid),
+                "hwloc_set_thread_cpubind",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_set_thread_cpubind(topology, tid, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Get the current physical binding of thread `tid`
     ///
     /// Flags [`STRICT`], [`NO_MEMORY_BINDING`] and binding target flags should
-    /// not be used with this function.
+    /// not be used with this method.
     ///
-    /// See [`Topology::cpu_binding()`] for more informations, except this
-    /// requires [`CpuBindingSupport::get_thread()`] and binding target flags
-    /// should not be used with this function.
+    /// See [`Topology::cpu_binding()`] for more informations, except binding
+    /// target flags should not be used with this method, and it requires
+    /// [`CpuBindingSupport::get_thread()`].
     ///
     /// # Errors
     ///
-    /// - [`BadObject(Thread)`] if it is not possible to query the CPU
-    ///   binding of the target thread.
     /// - [`BadFlags`] if at least one of flags [`STRICT`] and
-    ///   [`NO_MEMORY_BINDING`] or a binding target flag was specified.
+    ///   [`NO_MEMORY_BINDING`] or a binding target flag was specified
+    /// - [`BadObject(Thread)`] if it is not possible to query the CPU
+    ///   binding of the target thread
     ///
     /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: CpuBindingError::BadFlags
@@ -304,29 +338,37 @@ impl Topology {
         tid: ThreadId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.cpu_binding_impl(
-            flags,
-            CpuBoundObject::Thread,
-            "hwloc_get_thread_cpubind",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
-            },
-        )
+        // SAFETY: - Thread is the correct target for this operation
+        //         - hwloc_get_thread_cpubind with tid argument curried away
+        //           behaves like hwloc_get_cpubind
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - TID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid TID
+        unsafe {
+            self.cpu_binding_impl(
+                flags,
+                CpuBoundObject::Thread(tid),
+                "hwloc_get_thread_cpubind",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_thread_cpubind(topology, tid, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Get the last physical CPUs where the current process or thread ran
     ///
     /// The operating system may move some tasks from one processor
     /// to another at any time according to their binding,
-    /// so this function may return something that is already
+    /// so this method may return something that is already
     /// outdated.
     ///
     /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
     /// [`THREAD`] and [`PROCESS`] binding target flags (listed in order of
-    /// decreasing portability) when using this function.
+    /// decreasing portability) when using this method.
     ///
     /// Flags [`NO_MEMORY_BINDING`] and [`STRICT`] should not be used with this
-    /// function.
+    /// method.
     ///
     /// Requires [`CpuBindingSupport::get_current_process_last_cpu_location()`]
     /// or [`CpuBindingSupport::get_current_thread_last_cpu_location()`]
@@ -337,11 +379,11 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`BadObject(ThisProgram)`] if it is not possible to query the CPU
-    ///   location of the current process/thread.
     /// - [`BadFlags`] if one of flags [`NO_MEMORY_BINDING`] and [`STRICT`] was
     ///   specified, or if the number of binding target flags is not exactly
-    ///   one.
+    ///   one
+    /// - [`BadObject(ThisProgram)`] if it is not possible to query the CPU
+    ///   location of the current process/thread
     ///
     /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: CpuBindingError::BadFlags
@@ -355,14 +397,19 @@ impl Topology {
         &self,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.last_cpu_location_impl(
-            flags,
-            CpuBoundObject::ThisProgram,
-            "hwloc_get_last_cpu_location",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_get_last_cpu_location(topology, cpuset, flags)
-            },
-        )
+        // SAFETY: - ThisProgram is the correct target for this operation
+        //         - hwloc_get_last_cpu_location is accepted by definition
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        unsafe {
+            self.last_cpu_location_impl(
+                flags,
+                CpuBoundObject::ThisProgram,
+                "hwloc_get_last_cpu_location",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_last_cpu_location(topology, cpuset, flags)
+                },
+            )
+        }
     }
 
     /// Get the last physical CPU where a process ran.
@@ -370,20 +417,20 @@ impl Topology {
     /// As a special case on Linux, if a tid (thread ID) is supplied instead of
     /// a pid (process ID) and flag [`THREAD`] is specified, the last cpu
     /// location of the specified thread is returned. Otherwise, flag [`THREAD`]
-    /// should not be used with this function.
+    /// should not be used with this method.
     ///
-    /// See [`Topology::last_cpu_location()`] for more informations, except this
-    /// requires [`CpuBindingSupport::get_process_last_cpu_location()`], and
+    /// See [`Topology::last_cpu_location()`] for more informations, except
     /// binding target flags other than [`THREAD`] should not be used with this
-    /// function.
+    /// method, and it requires
+    /// [`CpuBindingSupport::get_process_last_cpu_location()`].
     ///
     /// # Errors
     ///
-    /// - [`BadObject(ProcessOrThread)`] if it is not possible to query the CPU
-    ///   binding of the target process/thread.
     /// - [`BadFlags`] if one of flags [`NO_MEMORY_BINDING`] and [`STRICT`] was
-    ///   specified, if flag[`THREAD`] was specified on an operating system
-    ///   other than Linux, or if any other binding target flag was specified.
+    ///   specified, if flag [`THREAD`] was specified on an operating system
+    ///   other than Linux, or if any other binding target flag was specified
+    /// - [`BadObject(ProcessOrThread)`] if it is not possible to query the CPU
+    ///   binding of the target process/thread
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
@@ -396,18 +443,34 @@ impl Topology {
         pid: ProcessId,
         flags: CpuBindingFlags,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.last_cpu_location_impl(
-            flags,
-            CpuBoundObject::ProcessOrThread,
-            "hwloc_get_proc_last_cpu_location",
-            |topology, cpuset, flags| unsafe {
-                hwlocality_sys::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
-            },
-        )
+        // SAFETY: - ProcessOrThread is the correct target for this operation
+        //         - hwloc_get_proc_last_cpu_location with pid argument curried
+        //           away behaves like hwloc_get_last_cpu_location
+        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+        //         - PID cannot be validated (think TOCTOU), but hwloc should be
+        //           able to handle an invalid PID
+        unsafe {
+            self.last_cpu_location_impl(
+                flags,
+                CpuBoundObject::ProcessOrThread(pid),
+                "hwloc_get_proc_last_cpu_location",
+                |topology, cpuset, flags| {
+                    hwlocality_sys::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
+                },
+            )
+        }
     }
 
-    /// Binding for set_cpubind style functions
-    fn bind_cpu_impl(
+    /// Binding for `hwloc_set_cpubind`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_set_cpubind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, bitmap, flags) tuple
+    unsafe fn bind_cpu_impl(
         &self,
         set: &CpuSet,
         flags: CpuBindingFlags,
@@ -419,40 +482,77 @@ impl Topology {
             return Err(CpuBindingError::from(flags).into());
         };
         call_hwloc(api, target, Some(set), || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - flags should be valid if target is valid
             ffi(self.as_ptr(), set.as_ptr(), flags.bits())
         })
     }
 
-    /// Binding for get_cpubind style functions
-    fn cpu_binding_impl(
+    /// Binding for `hwloc_get_cpubind`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_get_cpubind`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, flags) tuple
+    unsafe fn cpu_binding_impl(
         &self,
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.get_cpuset(flags, target, CpuBindingOperation::GetBinding, api, ffi)
+        // SAFETY: - GetBinding is the valid operation tag for this FFI
+        //         - Rest is per function precondition
+        unsafe { self.get_cpuset(flags, target, CpuBindingOperation::GetBinding, api, ffi) }
     }
 
-    /// Binding for get_last_cpu_location style functions
-    fn last_cpu_location_impl(
+    /// Binding for `hwloc_get_last_cpu_location`-like functions
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_get_last_cpu_location`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, flags) tuple
+    unsafe fn last_cpu_location_impl(
         &self,
         flags: CpuBindingFlags,
         target: CpuBoundObject,
         api: &'static str,
         ffi: impl FnOnce(hwloc_const_topology_t, hwloc_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<CpuSet, HybridError<CpuBindingError>> {
-        self.get_cpuset(
-            flags,
-            target,
-            CpuBindingOperation::GetLastLocation,
-            api,
-            ffi,
-        )
+        // SAFETY: - GetLastLocation is the valid operation tag for this FFI
+        //         - Rest is per function precondition
+        unsafe {
+            self.get_cpuset(
+                flags,
+                target,
+                CpuBindingOperation::GetLastLocation,
+                api,
+                ffi,
+            )
+        }
     }
 
-    /// Binding for all functions that get CPU bindings
-    fn get_cpuset(
+    /// Binding for all functions that get CPU bindings & locations
+    ///
+    /// # Safety
+    ///
+    /// - `ffi` should have semantics analogous to `hwloc_get_cpubind` and
+    ///   `hwloc_get_last_cpu_location`
+    /// - `target` should accurately reflect the target which this function
+    ///   is applied to, for flags validation purposes
+    /// - `operation` should accurately reflect the kind of operation being
+    ///   performed, for flags validation purposes
+    /// - If all of the above is true, this is guaranteed to only call `ffi`
+    ///   with a valid (topology, out bitmap, flags) tuple
+    unsafe fn get_cpuset(
         &self,
         flags: CpuBindingFlags,
         target: CpuBoundObject,
@@ -465,6 +565,12 @@ impl Topology {
         };
         let mut cpuset = CpuSet::new();
         call_hwloc(api, target, None, || {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - flags should be valid if target & operation are valid
             ffi(self.as_ptr(), cpuset.as_mut_ptr(), flags.bits())
         })
         .map(|()| cpuset)
@@ -479,16 +585,17 @@ bitflags! {
     /// `ASSUME_SINGLE_THREAD`, `THREAD` and `PROCESS`, which are mutually
     /// exclusive.
     ///
-    /// When using one of the functions that target the active process, you must
+    /// When using one of the methods that target the active process, you must
     /// use exactly one of these flags. The most portable binding targets are
     /// `ASSUME_SINGLE_THREAD`, `THREAD` and `PROCESS`, in this order. These
-    /// flags must generally not be used with any other function, except on
+    /// flags must generally not be used with any other method, except on
     /// Linux where flag `THREAD` can also be used to turn process-binding
-    /// functions into thread-binding functions.
+    /// methods into thread-binding methods.
     ///
-    /// Individual CPU binding functions may not support all of these flags.
-    /// Please check the documentation of the `Topology` method that you are
-    /// trying to call for more information.
+    /// Individual CPU binding methods may not support all of these flags.
+    /// Please check the documentation of the [cpu binding
+    /// method](../../topology/struct.Topology.html#cpu-binding) that you are
+    /// calling for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
     #[repr(transparent)]
@@ -500,8 +607,11 @@ bitflags! {
         ///
         /// This is mutually exclusive with `PROCESS` and `THREAD`.
         //
-        // NOTE: This is not an actual hwloc flag, and must be cleared before
-        //       invoking hwloc. Please let validate() do this for you.
+        // --- Implementation details ---
+        //
+        // This is not an actual hwloc flag, it is only used to detect
+        // incompatible configurations and must be cleared before invoking
+        // hwloc. validate() will clear the flag for you.
         const ASSUME_SINGLE_THREAD = 1 << (hwloc_cpubind_flags_t::BITS - 2);
 
         /// Bind the current thread of the current process
@@ -510,7 +620,7 @@ bitflags! {
         /// is inapplicable.
         ///
         /// On Linux, this flag can also be used to turn process-binding
-        /// functions into thread-binding functions.
+        /// methods into thread-binding methods.
         ///
         /// This is mutually exclusive with `ASSUME_SINGLE_THREAD` and `PROCESS`.
         #[doc(alias = "HWLOC_CPUBIND_THREAD")]
@@ -533,7 +643,7 @@ bitflags! {
         ///
         /// Depending on the operating system, strict binding may not be
         /// possible (e.g. the OS does not implement it) or not allowed (e.g.
-        /// for an administrative reasons), and the binding function will fail
+        /// for an administrative reasons), and the binding method will fail
         /// in that case.
         ///
         /// When retrieving the binding of a process, this flag checks whether
@@ -547,15 +657,15 @@ bitflags! {
 
         /// Avoid any effect on memory binding
         ///
-        /// On some operating systems, some CPU binding function would also bind
+        /// On some operating systems, some CPU binding method would also bind
         /// the memory on the corresponding NUMA node. It is often not a
         /// problem for the application, but if it is, setting this flag will
         /// make hwloc avoid using OS functions that would also bind memory.
         /// This will however reduce the support of CPU bindings, i.e.
-        /// potentially result in the binding function erroring out with a
+        /// potentially result in the binding method erroring out with a
         /// [`CpuBindingError`].
         ///
-        /// This flag should only be used with functions that set the CPU
+        /// This flag should only be used with methods that set the CPU
         /// binding.
         #[doc(alias = "HWLOC_CPUBIND_NOMEMBIND")]
         const NO_MEMORY_BINDING = HWLOC_CPUBIND_NOMEMBIND;
@@ -567,16 +677,18 @@ bitflags! {
 //
 impl CpuBindingFlags {
     /// Check that these flags are in a valid state, emit validated flags free
-    /// of ASSUME_SINGLE_THREAD and ready for hwloc consumption.
+    /// of [`ASSUME_SINGLE_THREAD`] and ready for hwloc consumption.
+    ///
+    /// [`ASSUME_SINGLE_THREAD`]: CpuBindingFlags::ASSUME_SINGLE_THREAD
     pub(crate) fn validate(
         mut self,
         target: CpuBoundObject,
         operation: CpuBindingOperation,
     ) -> Option<Self> {
-        // THREAD can only be specified on process binding functions on Linux,
-        // to turn them into thread binding functions.
+        // THREAD can only be specified on process binding methods on Linux,
+        // to turn them into thread binding methods.
         let is_linux_thread_special_case =
-            self.contains(Self::THREAD) && target == CpuBoundObject::ProcessOrThread;
+            self.contains(Self::THREAD) && matches!(target, CpuBoundObject::ProcessOrThread(_));
         if is_linux_thread_special_case && cfg!(not(target_os = "linux")) {
             return None;
         }
@@ -586,8 +698,8 @@ impl CpuBindingFlags {
         let num_target_flags = (self & (Self::PROCESS | Self::THREAD | Self::ASSUME_SINGLE_THREAD))
             .bits()
             .count_ones();
-        if (num_target_flags != (target == CpuBoundObject::ThisProgram) as u32)
-            && !(num_target_flags == 1 && is_linux_thread_special_case)
+        if (num_target_flags != u32::from(target == CpuBoundObject::ThisProgram))
+            && !(is_linux_thread_special_case && num_target_flags == 1)
         {
             return None;
         }
@@ -601,7 +713,7 @@ impl CpuBindingFlags {
             }
             CpuBindingOperation::SetBinding => {}
             CpuBindingOperation::GetBinding => {
-                if (self.contains(Self::STRICT) && target == CpuBoundObject::Thread)
+                if (self.contains(Self::STRICT) && matches!(target, CpuBoundObject::Thread(_)))
                     || self.contains(Self::NO_MEMORY_BINDING)
                 {
                     return None;
@@ -610,7 +722,7 @@ impl CpuBindingFlags {
         }
 
         // Clear virtual ASSUME_SINGLE_THREAD flag, which served its purpose
-        self.remove(CpuBindingFlags::ASSUME_SINGLE_THREAD);
+        self.remove(Self::ASSUME_SINGLE_THREAD);
         Some(self)
     }
 }
@@ -619,10 +731,10 @@ impl CpuBindingFlags {
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CpuBoundObject {
     /// A process, identified by its PID, or possibly a thread on Linux
-    ProcessOrThread,
+    ProcessOrThread(ProcessId),
 
     /// A thread, identified by its TID
-    Thread,
+    Thread(ThreadId),
 
     /// The currently running program
     ThisProgram,
@@ -631,11 +743,17 @@ pub enum CpuBoundObject {
 impl Display for CpuBoundObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
-            Self::ProcessOrThread => "the target process/thread",
-            Self::Thread => "the target thread",
-            Self::ThisProgram => "the current process/thread",
+            Self::ProcessOrThread(id) => {
+                if cfg!(linux) {
+                    format!("the process/thread with ID {id}")
+                } else {
+                    format!("the process with PID {id}")
+                }
+            }
+            Self::Thread(id) => format!("the thread with TID {id}"),
+            Self::ThisProgram => "the current process/thread".to_owned(),
         };
-        f.pad(display)
+        f.pad(&display)
     }
 }
 //
@@ -652,7 +770,7 @@ pub(crate) enum CpuBindingOperation {
     GetLastLocation,
 }
 
-/// Errors that can occur when binding processes or threads to CPUSets
+/// Errors that can occur when manipulating process/thread CPU bindings
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum CpuBindingError {
     /// Cannot query or set CPU bindings for this kind of object
@@ -667,8 +785,8 @@ pub enum CpuBindingError {
     /// Requested CPU binding flags are not valid in this context
     ///
     /// Not all CPU binding flag combinations make sense, either in isolation or
-    /// in the context of a particular binding function. Please cross-check the
-    /// documentation of [`CpuBindingFlags`] as well as that of the function
+    /// in the context of a particular binding method. Please cross-check the
+    /// documentation of [`CpuBindingFlags`] as well as that of the method
     /// you were trying to call for more information.
     #[error(transparent)]
     BadFlags(#[from] FlagsError<CpuBindingFlags>),
@@ -698,7 +816,7 @@ impl From<CpuBindingFlags> for CpuBindingError {
 /// known errors into higher-level `CpuBindingError`s.
 ///
 /// Validating flags is left up to the caller, to avoid allocating result
-/// objects when it can be proved upfront that the request is invalid.
+/// objects when it can be proven upfront that the request is invalid.
 pub(crate) fn call_hwloc(
     api: &'static str,
     object: CpuBoundObject,
@@ -712,6 +830,8 @@ pub(crate) fn call_hwloc(
                 errno: Some(errno), ..
             },
         ) => match errno.0 {
+            // Using errno documentation from
+            // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
             ENOSYS => Err(CpuBindingError::BadObject(object).into()),
             EXDEV => Err(CpuBindingError::BadCpuSet(
                 object,
