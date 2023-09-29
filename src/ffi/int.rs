@@ -3416,6 +3416,7 @@ impl Iterator for PositiveIntRangeFromIter {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
     use super::*;
     use quickcheck_macros::quickcheck;
     use std::{
@@ -3426,7 +3427,7 @@ mod tests {
         panic::{RefUnwindSafe, UnwindSafe},
     };
 
-    /// Inner bits of PositiveInt that are not used by the implementation
+    /// Inner bits of [`PositiveInt`] that are not used by the implementation
     const UNUSED_BITS: c_uint = 1 << PositiveInt::EFFECTIVE_BITS;
 
     /// Number of bits that are not used
@@ -3518,8 +3519,8 @@ mod tests {
         assert_eq!((!idx).0, !(idx.0 | set_unused));
 
         // Infaillible conversion to isize and usize
-        assert_eq!(isize::from(idx), idx.0 as isize);
-        assert_eq!(usize::from(idx), idx.0 as usize);
+        assert_eq!(isize::from(idx), isize::try_from(idx.0).unwrap());
+        assert_eq!(usize::from(idx), usize::try_from(idx.0).unwrap());
 
         // Faillible conversions to all primitive integer types
         #[allow(clippy::useless_conversion)]
@@ -3550,7 +3551,6 @@ mod tests {
         assert_eq!(hash(idx), hash(idx.0));
 
         // Division and remainder by zero
-        #[allow(clippy::op_ref)]
         {
             // With PositiveInt denominator
             let zero = PositiveInt::ZERO;
@@ -3666,13 +3666,12 @@ mod tests {
     }
 
     /// Test usize -> PositiveInt conversion and special positive-usize ops
-    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn unary_usize(x: usize) {
         // usize -> PositiveInt conversion
         assert_eq!(
             PositiveInt::try_from(x),
-            c_int::try_from(x).map(|i| PositiveInt(i as c_uint))
+            c_int::try_from(x).map(|i| PositiveInt(i.try_into().unwrap()))
         );
 
         // Multiplying ZERO by any usize works
@@ -3693,7 +3692,7 @@ mod tests {
         assert_eq!(tmp, zero);
     }
 
-    /// Test str -> PositiveInt conversion (common harness)
+    /// Test [`str`] -> [`PositiveInt`] conversion (common harness)
     fn test_from_str_radix(
         src: &str,
         radix: u32,
@@ -3707,13 +3706,10 @@ mod tests {
         let result = parse();
 
         // Use known-good parser to usize
-        let as_usize = match usize::from_str_radix(src, radix) {
-            Ok(as_usize) => as_usize,
-            Err(_) => {
-                // If it fails for usize, it should fail for PositiveInt
-                assert!(result.is_err());
-                return;
-            }
+        let Ok(as_usize) = usize::from_str_radix(src, radix) else {
+            // If it fails for usize, it should fail for PositiveInt
+            assert!(result.is_err());
+            return;
         };
 
         // Handle the fact that valid PositiveInt is a subset of usize
@@ -3799,7 +3795,7 @@ mod tests {
         overflowing_result
     }
 
-    /// Predict the result of an overflowing PositiveInt operation from the
+    /// Predict the result of an overflowing [`PositiveInt`] operation from the
     /// result of the equivalent overflowing usize operation.
     fn predict_overflowing_result<IntRhs, UsizeRhs: From<IntRhs>>(
         i1: PositiveInt,
@@ -3815,7 +3811,6 @@ mod tests {
     }
 
     /// Test int-int binary operations
-    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn int_op_int(i1: PositiveInt, i2: PositiveInt) {
         // Ordering passes through
@@ -3993,7 +3988,7 @@ mod tests {
                 PositiveInt::checked_div_euclid,
                 PositiveInt::overflowing_div_euclid,
                 PositiveInt::wrapping_div_euclid,
-                [Box::new(|i1, nonzero| i1.div_euclid(nonzero))],
+                [Box::new(PositiveInt::div_euclid)],
             );
             assert_eq!(i1.saturating_div(nonzero), expected_wrapped);
             for (wrapped, overflow) in [res1, res2] {
@@ -4031,7 +4026,7 @@ mod tests {
                 PositiveInt::checked_rem_euclid,
                 PositiveInt::overflowing_rem_euclid,
                 PositiveInt::wrapping_rem_euclid,
-                [Box::new(|i1, nonzero| i1.rem_euclid(nonzero))],
+                [Box::new(PositiveInt::rem_euclid)],
             );
             for (wrapped, overflow) in [res1, res2] {
                 assert_eq!(wrapped, expected_wrapped);
@@ -4056,7 +4051,7 @@ mod tests {
 
         // Non-overflowing left shift must keep high-order bit cleared
         #[allow(trivial_numeric_casts)]
-        let effective_bits = PositiveInt(PositiveInt::EFFECTIVE_BITS as _);
+        let effective_bits = PositiveInt(PositiveInt::EFFECTIVE_BITS as c_uint);
         let wrapped_shift = i2 % effective_bits;
         let wrapped_result = PositiveInt((i1.0 << wrapped_shift.0) & PositiveInt::MAX.0);
         assert_eq!(i1 << wrapped_shift, wrapped_result);
@@ -4130,7 +4125,6 @@ mod tests {
     }
 
     /// Test int-u32 binary operations
-    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn int_op_u32(int: PositiveInt, rhs: u32) {
         // Elevation to an integer power
@@ -4142,7 +4136,7 @@ mod tests {
             PositiveInt::checked_pow,
             PositiveInt::overflowing_pow,
             PositiveInt::wrapping_pow,
-            [Box::new(|int, rhs| int.pow(rhs))],
+            [Box::new(PositiveInt::pow)],
         );
         assert_eq!(wrapped, expected_wrapped);
         assert_eq!(overflow, expected_overflow);
@@ -4234,7 +4228,6 @@ mod tests {
     }
 
     /// Test int-usize binary operations
-    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn int_op_usize(int: PositiveInt, other: usize) {
         // Ordering passes through
@@ -4250,6 +4243,7 @@ mod tests {
         );
 
         // Bitwise AND passes through (no risk of setting high-order bit)
+        #[allow(clippy::cast_possible_truncation)]
         let expected = PositiveInt(int.0 & (other as c_uint));
         assert_eq!(int & other, expected);
         assert_eq!(other & int, expected);
@@ -4268,7 +4262,8 @@ mod tests {
 
         // Non-overflowing bitwise OR
         let small_other = other & usize::from(PositiveInt::MAX);
-        let expected = PositiveInt(int.0 | (small_other as c_uint));
+        let small_other_unsigned = c_uint::try_from(small_other).unwrap();
+        let expected = PositiveInt(int.0 | small_other_unsigned);
         assert_eq!(int | small_other, expected);
         assert_eq!(small_other | int, expected);
         assert_eq!(&int | small_other, expected);
@@ -4312,7 +4307,7 @@ mod tests {
         );
 
         // Non-overflowing bitwise XOR
-        let expected = PositiveInt(int.0 ^ (small_other as c_uint));
+        let expected = PositiveInt(int.0 ^ small_other_unsigned);
         assert_eq!(int ^ small_other, expected);
         assert_eq!(small_other ^ int, expected);
         assert_eq!(&int ^ small_other, expected);
@@ -4558,7 +4553,6 @@ mod tests {
     }
 
     /// Test int-isize binary operations
-    #[allow(clippy::op_ref)]
     #[quickcheck]
     fn int_op_isize(int: PositiveInt, other: isize) {
         // Addition
@@ -4602,9 +4596,7 @@ mod tests {
         }
 
         // Subtraction
-        let (wrapped, overflow) = if other != isize::MIN {
-            predict_overflowing_result(int, -other, usize::overflowing_add_signed)
-        } else {
+        let (wrapped, overflow) = if other == isize::MIN {
             predict_overflowing_result(
                 int,
                 // iN::MIN is -(1 << (iN::BITS - 1)
@@ -4612,6 +4604,8 @@ mod tests {
                 1usize << (isize::BITS - 1),
                 usize::overflowing_sub,
             )
+        } else {
+            predict_overflowing_result(int, -other, usize::overflowing_add_signed)
         };
         if overflow {
             assert_debug_panics(|| int - other, wrapped);
@@ -4648,7 +4642,7 @@ mod tests {
         }
 
         // Non-overflowing left shift must keep high-order bit cleared
-        let effective_bits = PositiveInt::EFFECTIVE_BITS as isize;
+        let effective_bits = isize::try_from(PositiveInt::EFFECTIVE_BITS).unwrap();
         let wrapped_shift = other.rem_euclid(effective_bits);
         let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
         assert_eq!(int << wrapped_shift, wrapped_result);
@@ -4723,6 +4717,7 @@ mod tests {
     }
 
     /// Test iterator reductions
+    #[allow(clippy::redundant_closure_for_method_calls)]
     #[quickcheck]
     fn reductions(ints: Vec<PositiveInt>) {
         use std::iter::Copied;

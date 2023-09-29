@@ -2417,6 +2417,7 @@ macro_rules! impl_bitmap_newtype {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
     use super::*;
     use quickcheck_macros::quickcheck;
     use std::{
@@ -2445,13 +2446,13 @@ mod tests {
         // If this bitmap is infinite...
         if bitmap.weight().is_none() {
             // ...and it has a finite part...
-            if let Some(last_unset) = bitmap.last_unset() {
-                let infinite_part = last_unset.checked_add_signed(1).unwrap()..;
-                bitmap.unset_range(infinite_part.clone());
-                (bitmap, Some(infinite_part))
-            } else {
-                (Bitmap::new(), Some(BitmapIndex::MIN..))
-            }
+            bitmap
+                .last_unset()
+                .map_or((Bitmap::new(), Some(BitmapIndex::MIN..)), |last_unset| {
+                    let infinite_part = last_unset.checked_add_signed(1).unwrap()..;
+                    bitmap.unset_range(infinite_part.clone());
+                    (bitmap, Some(infinite_part))
+                })
         } else {
             (bitmap, None)
         }
@@ -2494,7 +2495,7 @@ mod tests {
         buf.set(index);
         assert_eq!(
             buf.weight(),
-            initial.weight().map(|w| w + !initially_set as usize)
+            initial.weight().map(|w| w + usize::from(!initially_set))
         );
         for idx in std::iter::once(index).chain(initial.iter_set().take(max_iters)) {
             assert!(buf.is_set(idx));
@@ -2512,7 +2513,7 @@ mod tests {
         buf.unset(index);
         assert_eq!(
             buf.weight(),
-            initial.weight().map(|w| w - initially_set as usize)
+            initial.weight().map(|w| w - usize::from(initially_set))
         );
         for idx in initial.iter_set().take(max_iters) {
             assert_eq!(buf.is_set(idx), idx != index);
@@ -2723,7 +2724,7 @@ mod tests {
         let elems = (usize::from(*range.start())..=usize::from(*range.end()))
             .map(|idx| BitmapIndex::try_from(idx).unwrap())
             .collect::<Vec<_>>();
-        let first_unset = if let Some(&BitmapIndex::MIN) = elems.first() {
+        let first_unset = if elems.first() == Some(&BitmapIndex::MIN) {
             elems
                 .last()
                 .copied()
@@ -2731,16 +2732,14 @@ mod tests {
         } else {
             Some(BitmapIndex::MIN)
         };
-        let unset_after_set = if let Some(last_set) = elems.last() {
+        let unset_after_set = elems.last().map_or(Some(BitmapIndex::MIN), |last_set| {
             last_set.checked_add_signed(1)
-        } else {
-            Some(BitmapIndex::MIN)
-        };
+        });
         let display = if let (Some(first), Some(last)) = (elems.first(), elems.last()) {
-            if first != last {
-                format!("{first}-{last}")
-            } else {
+            if first == last {
                 format!("{first}")
+            } else {
+                format!("{first}-{last}")
             }
         } else {
             String::new()
@@ -2882,10 +2881,10 @@ mod tests {
         if ranged_bitmap.is_empty() {
             assert_eq!(
                 ranged_bitmap.cmp(&other),
-                if !other.is_empty() {
-                    Ordering::Less
-                } else {
+                if other.is_empty() {
                     Ordering::Equal
+                } else {
+                    Ordering::Less
                 }
             );
         } else {
@@ -3095,6 +3094,7 @@ mod tests {
         assert_eq!(clone.weight(), bitmap.weight());
         //
         let (finite, infinite) = split_infinite_bitmap(bitmap);
+        #[allow(clippy::option_if_let_else)]
         if let Some(infinite) = infinite {
             let test_iter = |mut iter_set: Box<dyn Iterator<Item = BitmapIndex>>| {
                 let mut iter_unset = clone.iter_unset().fuse();
@@ -3213,8 +3213,7 @@ mod tests {
         fn infinite_intersects_finite(infinite: &RangeFrom<BitmapIndex>, finite: &Bitmap) -> bool {
             finite
                 .last_set()
-                .map(|last_set| infinite.start <= last_set)
-                .unwrap_or(false)
+                .map_or(false, |last_set| infinite.start <= last_set)
         }
         assert_eq!(
             bitmap.intersects(&other),
