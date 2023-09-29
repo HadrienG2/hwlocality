@@ -1,5 +1,34 @@
 //! Modifying a loaded Topology
-// TODO: Long-form description
+//!
+//! In an ideal world, modifying a topology would just be a matter of calling
+//! methods on an `&mut Topology`. Alas, this binding has to make it a little
+//! more complicated than that due to the following reasons:
+//!
+//! - hwloc employs lazy caching patterns in such a way that after editing the
+//!   topology, calling functions on an `*const hwloc_topology` may modify it
+//!   in a thread-unsafe way. This is deeply at odds with the general design of
+//!   the Rust aliasing model, and accounting for it by simply marking topology
+//!   objects as internally mutable would result in major usability regressions
+//!   (e.g. [`TopologyObject`] could not be [`Sync`]).
+//! - Many hwloc topology editing functions take one or more `*const hwloc_obj`
+//!   as a parameter. This is at odds with the simplest way to model topology
+//!   object lookup in Rust, namely as borrows from the source [`Topology`],
+//!   because once you have borrowed an `&TopologyObject` from a `&Topology`,
+//!   you cannot call methods that require `&mut Topology` anymore. Working
+//!   around this issue requires pointer-based unsafe code, carefully written
+//!   so as not to violate Rust's aliasing model.
+//! - While all of this would be workable through a sufficiently complicated API
+//!   that lets the binding use internal mutability everywhere and delay
+//!   creation of Rust references until the very moment where they are needed,
+//!   one must bear in mind that topology editing is ultimately a niche feature
+//!   which most hwloc users will never reach for. Common sense demands that it
+//!   is the niche editing feature that takes an ergonomic and complexity hit,
+//!   not the everyday topology queries.
+//!
+//! Therefore, topology editing is carried out using a dedicated
+//! [`TopologyEditor`] type, defined in this module, which unfortunately has
+//! sub-optimal ergonomics as a result of making the regular [`Topology`] type
+//! as easy to use, cleanly implemented and feature-complete as it should be.
 
 use crate::{
     bitmap::{BitmapKind, SpecializedBitmap},

@@ -1,5 +1,9 @@
 //! hwloc feature support
-// TODO: Long-form description
+//!
+//! Generally speaking, a given hardware/OS platform will not support every
+//! hwloc feature. This module exposes the feature support flags,
+//! which you can query using the [`Topology::feature_support()`] method and its
+//! [`Topology::supports()`] shortcut.
 
 // - API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
 // - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html

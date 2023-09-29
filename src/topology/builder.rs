@@ -1,5 +1,14 @@
 //! Building a topology with a custom configuration
-// TODO: Long-form description
+//!
+//! The hwloc topology building process can be customized, which means that at
+//! any given point in time, a topology can either be in a non-built state that
+//! only allows for configuration operations, or in a built state that cannot be
+//! configured anymore but allows for most library operations.
+//!
+//! In a time-honored Rust tradition, this binding models this using two
+//! different types, one for the topology building process (which uses the
+//! familiar builder pattern) and one for the fully built topology. This module
+//! is all about implementing the former type.
 
 use super::{hwloc_topology, Topology};
 #[cfg(all(doc, feature = "hwloc-2_8_0"))]

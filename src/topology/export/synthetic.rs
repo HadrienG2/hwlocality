@@ -1,5 +1,9 @@
 //! Exporting topologies to Synthetic
-// TODO: Long-form description
+//!
+//! Synthetic topologies are a very simple textual representation that may only
+//! model certain topologies (they must be symmetric among other things, i.e.
+//! all CPU cores should be equal), and only some aspects of them (e.g. no I/O
+//! devices), but does so extremely concisely.
 
 #[cfg(doc)]
 use crate::topology::builder::TopologyBuilder;

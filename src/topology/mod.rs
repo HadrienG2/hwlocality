@@ -1,5 +1,10 @@
-//! Hardware topology (main hwloc entry point)
-// TODO: Long-form description
+//! Hardware topology (main hwloc API entry point)
+//!
+//! A [`Topology`] contains everything hwloc knows about the hardware and
+//! software structure of a system. Among other things, it can be used to query
+//! the system topology and to bind threads and processes to hardware CPU cores
+//! and NUMA nodes. It is the main entry point of the hwloc API through which
+//! almost any other feature of the library is accessed.
 
 pub mod builder;
 #[cfg(feature = "hwloc-2_3_0")]

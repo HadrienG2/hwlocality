@@ -1,5 +1,7 @@
 //! Exporting topologies to XML
-// TODO: Long-form description
+//!
+//! XML export can, in principle, handle every single topology that hwloc can
+//! probe, but does so at the cost of more complexity than synthetic topologies.
 
 #[cfg(doc)]
 use crate::{errors::NulError, topology::builder::TopologyBuilder};
