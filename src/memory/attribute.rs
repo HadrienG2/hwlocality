@@ -249,7 +249,7 @@ impl<'topology> TopologyEditor<'topology> {
             Ok(_positive) => Ok(MemoryAttributeBuilder {
                 editor: self,
                 flags,
-                id: MemoryAttributeID(id),
+                id,
             }),
             Err(RawHwlocError {
                 errno: Some(Errno(EBUSY)),
@@ -289,6 +289,10 @@ impl From<NulError> for MemoryAttributeRegisterError {
 }
 
 /// Mechanism to configure a memory attribute
+///
+/// # Safety
+///
+/// `id` must be a valid new memory attribute ID from `hwloc_memattr_register()`
 #[derive(Debug)]
 pub struct MemoryAttributeBuilder<'editor, 'topology> {
     /// Underlying [`TopologyEditor`]
@@ -298,7 +302,7 @@ pub struct MemoryAttributeBuilder<'editor, 'topology> {
     flags: MemoryAttributeFlags,
 
     /// ID that `hwloc_memattr_register` allocated to this memory attribute
-    id: MemoryAttributeID,
+    id: hwloc_memattr_id_t,
 }
 //
 impl MemoryAttributeBuilder<'_, '_> {
@@ -413,7 +417,7 @@ impl MemoryAttributeBuilder<'_, '_> {
             errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
                 hwlocality_sys::hwloc_memattr_set_value(
                     self.editor.topology_mut_ptr(),
-                    self.id.0,
+                    self.id,
                     target_ptr,
                     initiator_ptr,
                     0,
@@ -453,76 +457,13 @@ pub enum BadAttributeValues {
     UnwantedInitiators,
 }
 
-/// Memory attribute identifier
-///
-/// May be a predefined identifier (see associated consts) or come from
-/// [`TopologyEditor::register_memory_attribute()`].
-//
-// --- Implementation details ---
-//
-// # Safety
-//
-// The inner identifier must be a valid memory attribute identifier.
-#[derive(Copy, Clone, Debug, Default, Display, Eq, Hash, PartialEq)]
-#[repr(transparent)]
-pub(crate) struct MemoryAttributeID(hwloc_memattr_id_t);
-//
-impl MemoryAttributeID {
-    /// Node capacity in bytes (see [`MemoryAttribute::capacity()`])
-    const CAPACITY: Self = Self(HWLOC_MEMATTR_ID_CAPACITY);
-
-    /// Number of PUs in that locality (see [`MemoryAttribute::locality()`])
-    const LOCALITY: Self = Self(HWLOC_MEMATTR_ID_LOCALITY);
-
-    /// Average bandwidth in MiB/s (see [`MemoryAttribute::bandwidth()`])
-    const BANDWIDTH: Self = Self(HWLOC_MEMATTR_ID_BANDWIDTH);
-
-    /// Read bandwidth in MiB/s (see [`MemoryAttribute::read_bandwidth()`])
-    #[cfg(feature = "hwloc-2_8_0")]
-    const READ_BANDWIDTH: Self = Self(HWLOC_MEMATTR_ID_READ_BANDWIDTH);
-
-    /// Write bandwidth in MiB/s (see [`MemoryAttribute::write_bandwidth()`])
-    #[cfg(feature = "hwloc-2_8_0")]
-    const WRITE_BANDWIDTH: Self = Self(HWLOC_MEMATTR_ID_WRITE_BANDWIDTH);
-
-    /// Average latency in nanoseconds (see [`MemoryAttribute::latency()`])
-    const LATENCY: Self = Self(HWLOC_MEMATTR_ID_LATENCY);
-
-    /// Read latency in nanoseconds (see [`MemoryAttribute::read_latency()`])
-    #[cfg(feature = "hwloc-2_8_0")]
-    const READ_LATENCY: Self = Self(HWLOC_MEMATTR_ID_READ_LATENCY);
-
-    /// Write latency in nanoseconds (see [`MemoryAttribute::write_latency()`])
-    #[cfg(feature = "hwloc-2_8_0")]
-    const WRITE_LATENCY: Self = Self(HWLOC_MEMATTR_ID_WRITE_LATENCY);
-    // TODO: If you add new attributes, add support to static_flags and
-    //       a matching MemoryAttribute constructor below
-
-    /// Tell attribute flags if known at compile time
-    fn static_flags(self) -> Option<MemoryAttributeFlags> {
-        let bandwidth_flags =
-            Some(MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
-        let latency_flags =
-            Some(MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
-        match self {
-            Self::CAPACITY => Some(MemoryAttributeFlags::HIGHER_IS_BEST),
-            Self::LOCALITY => Some(MemoryAttributeFlags::LOWER_IS_BEST),
-            #[cfg(feature = "hwloc-2_8_0")]
-            Self::BANDWIDTH | Self::READ_BANDWIDTH | Self::WRITE_BANDWIDTH => bandwidth_flags,
-            #[cfg(not(feature = "hwloc-2_8_0"))]
-            Self::BANDWIDTH => bandwidth_flags,
-            #[cfg(feature = "hwloc-2_8_0")]
-            Self::LATENCY | Self::READ_LATENCY | Self::WRITE_LATENCY => latency_flags,
-            #[cfg(not(feature = "hwloc-2_8_0"))]
-            Self::LATENCY => latency_flags,
-            _ => None,
-        }
-    }
-}
-
 /// Generate [`MemoryAttribute`] constructors around a predefined memory
 /// attribute ID from hwloc with minimal boilerplate
-macro_rules! wrap_ids {
+///
+/// # Safety
+///
+/// IDs must be ID constants from hwloc
+macro_rules! wrap_ids_unchecked {
     (
         $(
             $(#[$attr:meta])*
@@ -532,9 +473,8 @@ macro_rules! wrap_ids {
         $(
             $(#[$attr])*
             pub const fn $constructor(topology: &'topology Topology) -> Self {
-                // SAFETY: These memory attribute identifiers are pre-defined by
-                //         hwloc and guaranteed to always be valid
-                unsafe { Self::wrap(topology, MemoryAttributeID::$id.0) }
+                // SAFETY: Per macro precondition
+                unsafe { Self::wrap(topology, $id) }
             }
         )*
     };
@@ -559,19 +499,19 @@ pub struct MemoryAttribute<'topology> {
     topology: &'topology Topology,
 
     /// Identifier of the memory attribute being manipulated
-    id: MemoryAttributeID,
+    id: hwloc_memattr_id_t,
 }
 //
 /// # Predefined memory attributes
 impl<'topology> MemoryAttribute<'topology> {
-    wrap_ids!(
+    wrap_ids_unchecked!(
         /// Node capacity in bytes (see [`TopologyObject::total_memory()`])
         ///
         /// This attribute involves no initiator.
         ///
         /// Requires [`DiscoverySupport::numa_memory()`].
         #[doc(alias = "HWLOC_MEMATTR_ID_CAPACITY")]
-        CAPACITY -> capacity,
+        HWLOC_MEMATTR_ID_CAPACITY -> capacity,
 
         /// Number of PUs in that locality (i.e. cpuset weight)
         ///
@@ -579,7 +519,7 @@ impl<'topology> MemoryAttribute<'topology> {
         ///
         /// Requires [`DiscoverySupport::pu_count()`].
         #[doc(alias = "HWLOC_MEMATTR_ID_LOCALITY")]
-        LOCALITY -> locality,
+        HWLOC_MEMATTR_ID_LOCALITY -> locality,
 
         /// Average bandwidth in MiB/s, as seen from the given initiator location
         ///
@@ -587,17 +527,17 @@ impl<'topology> MemoryAttribute<'topology> {
         /// platform provides individual read and write bandwidths but no
         /// explicit average value, hwloc computes and returns the average.
         #[doc(alias = "HWLOC_MEMATTR_ID_BANDWIDTH")]
-        BANDWIDTH -> bandwidth,
+        HWLOC_MEMATTR_ID_BANDWIDTH -> bandwidth,
 
         /// Read bandwidth in MiB/s, as seen from the given initiator location
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_READ_BANDWIDTH")]
-        READ_BANDWIDTH -> read_bandwidth,
+        HWLOC_MEMATTR_ID_READ_BANDWIDTH -> read_bandwidth,
 
         /// Write bandwidth in MiB/s, as seen from the given initiator location
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_BANDWIDTH")]
-        WRITE_BANDWIDTH -> write_bandwidth,
+        HWLOC_MEMATTR_ID_WRITE_BANDWIDTH -> write_bandwidth,
 
         /// Average latency in nanoseconds, as seen from the given initiator location
         ///
@@ -605,23 +545,26 @@ impl<'topology> MemoryAttribute<'topology> {
         /// platform value provides individual read and write latencies but no
         /// explicit average, hwloc computes and returns the average.
         #[doc(alias = "HWLOC_MEMATTR_ID_LATENCY")]
-        LATENCY -> latency,
+        HWLOC_MEMATTR_ID_LATENCY -> latency,
 
         /// Read latency in nanoseconds, as seen from the given initiator location
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_READ_LATENCY")]
-        READ_LATENCY -> read_latency,
+        HWLOC_MEMATTR_ID_READ_LATENCY -> read_latency,
 
         /// Write latency in nanoseconds, as seen from the given initiator location
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_MEMATTR_ID_WRITE_LATENCY")]
-        WRITE_LATENCY -> write_latency
+        HWLOC_MEMATTR_ID_WRITE_LATENCY -> write_latency
+
+        // TODO: If you add new attributes, add support to static_flags and
+        //       a matching MemoryAttribute constructor below
     );
 }
 //
 /// # Memory attribute API
 impl<'topology> MemoryAttribute<'topology> {
-    /// Extend a [`MemoryAttributeID`] with topology access to enable method syntax
+    /// Extend an [`hwloc_memattr_id_t`] with topology access to enable method syntax
     ///
     /// # Safety
     ///
@@ -629,10 +572,7 @@ impl<'topology> MemoryAttribute<'topology> {
     /// hwloc's predefined attributes or an attribute that was user-allocated
     /// using `hwloc_memattr_register()`.
     pub(crate) const unsafe fn wrap(topology: &'topology Topology, id: hwloc_memattr_id_t) -> Self {
-        Self {
-            id: MemoryAttributeID(id),
-            topology,
-        }
+        Self { id, topology }
     }
 
     /// Name of this memory attribute
@@ -644,7 +584,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - id is assumed to be valid (type invariant)
         //         - name is an out parameter, its initial value doesn't matter
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
-            hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id.0, &mut name)
+            hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
         match res {
             Ok(_positive) => {}
@@ -667,12 +607,28 @@ impl<'topology> MemoryAttribute<'topology> {
     /// Flags of this memory attribute
     #[doc(alias = "hwloc_memattr_get_flags")]
     pub fn flags(&self) -> MemoryAttributeFlags {
-        let flags = self
-            .id
-            .static_flags()
-            .unwrap_or_else(|| self.dynamic_flags());
+        let flags = Self::static_flags(self.id).unwrap_or_else(|| self.dynamic_flags());
         debug_assert!(flags.is_valid(), "Flags should be valid");
         flags
+    }
+
+    /// Tell attribute flags if known at compile time
+    fn static_flags(id: hwloc_memattr_id_t) -> Option<MemoryAttributeFlags> {
+        let bandwidth_flags =
+            Some(MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
+        let latency_flags =
+            Some(MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR);
+        match id {
+            HWLOC_MEMATTR_ID_CAPACITY => Some(MemoryAttributeFlags::HIGHER_IS_BEST),
+            HWLOC_MEMATTR_ID_LOCALITY => Some(MemoryAttributeFlags::LOWER_IS_BEST),
+            HWLOC_MEMATTR_ID_BANDWIDTH => bandwidth_flags,
+            #[cfg(feature = "hwloc-2_8_0")]
+            HWLOC_MEMATTR_ID_READ_BANDWIDTH | HWLOC_MEMATTR_ID_WRITE_BANDWIDTH => bandwidth_flags,
+            HWLOC_MEMATTR_ID_LATENCY => latency_flags,
+            #[cfg(feature = "hwloc-2_8_0")]
+            HWLOC_MEMATTR_ID_READ_LATENCY | HWLOC_MEMATTR_ID_WRITE_LATENCY => latency_flags,
+            _ => None,
+        }
     }
 
     /// Dynamically query this memory attribute's flags
@@ -683,7 +639,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - id is assumed to be valid (type invariant)
         //         - flags is an out parameter, its initial value doesn't matter
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
-            hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id.0, &mut flags)
+            hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
         match res {
             Ok(_positive) => MemoryAttributeFlags::from_bits_truncate(flags),
@@ -752,7 +708,7 @@ impl<'topology> MemoryAttribute<'topology> {
         errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
-                self.id.0,
+                self.id,
                 &target_node.0,
                 &initiator,
                 0,
@@ -1041,7 +997,7 @@ impl<'topology> MemoryAttribute<'topology> {
                 //           is call site dependent, see below
                 query(
                     self.topology.as_ptr(),
-                    self.id.0,
+                    self.id,
                     0,
                     nr_mut,
                     endpoint_out,
@@ -1092,7 +1048,7 @@ impl<'topology> MemoryAttribute<'topology> {
             //         - id is trusted to be valid (type invariant)
             //         - flags must be 0 for all of these queries
             //         - value is an out-parameter, input value doesn't matter
-            query(self.topology.as_ptr(), self.id.0, 0, &mut value)
+            query(self.topology.as_ptr(), self.id, 0, &mut value)
         }) {
             Ok(_positive) => Some(value),
             Err(RawHwlocError {
