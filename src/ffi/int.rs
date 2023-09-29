@@ -2081,7 +2081,7 @@ impl PositiveInt {
                 panic!("Attempted to compute next power of two with overflow")
             }
         } else {
-            Self(self.0.next_power_of_two() % Self::MAX.0)
+            Self(self.0.next_power_of_two() & Self::MAX.0)
         }
     }
 
@@ -4280,7 +4280,11 @@ mod tests {
         assert_eq!(tmp, expected);
 
         // Overflowing bitwise OR
-        let large_other = other.max(1usize << PositiveInt::EFFECTIVE_BITS);
+        let first_large_bit = 1usize << PositiveInt::EFFECTIVE_BITS;
+        let mut large_other = other;
+        if other < first_large_bit {
+            large_other |= first_large_bit
+        };
         assert_debug_panics(|| int | large_other, expected);
         assert_debug_panics(|| large_other | int, expected);
         assert_debug_panics(|| &int | large_other, expected);
