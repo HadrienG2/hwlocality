@@ -17,7 +17,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi::{int, string::LibcString},
+    ffi::{int, string::LibcString, transparent::ToNewtype},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -175,16 +175,15 @@ impl Topology {
             !infos.is_null(),
             "Got null infos pointer from hwloc_cpukinds_get_info"
         );
-        // SAFETY: - Per hwloc API contract, infos and nr_infos should be valid
-        //           if the function returned successfully
-        //         - We trust hwloc not to modify infos' target in a manner that
-        //           violates Rust aliasing rules, as long as we honor these
-        //           rules ourselves
-        //         - Total size should not wrap around for any valid allocation
-        //         - TextualInfo is a repr(transparent) newtype of hwloc_info_s
-        let infos = unsafe {
-            std::slice::from_raw_parts(infos.cast::<TextualInfo>(), int::expect_usize(nr_infos))
-        };
+        let infos =
+            // SAFETY: - Per hwloc API contract, infos and nr_infos should be
+            //           valid if the function returned successfully
+            //         - We trust hwloc not to modify infos' target in a manner
+            //           that violates Rust aliasing rules, as long as we honor
+            //           these rules ourselves
+            //         - Total size should not wrap for any valid allocation
+            //         - ToNewtype is trusted to be implemented correctly
+            unsafe { std::slice::from_raw_parts(infos.to_newtype(), int::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
     }
 

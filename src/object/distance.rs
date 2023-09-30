@@ -16,7 +16,7 @@
 
 use crate::{
     errors::{self, ForeignObject, RawHwlocError},
-    ffi::{self, int},
+    ffi::{self, int, transparent::TransparentNewtype},
     object::{depth::Depth, types::ObjectType, TopologyObject},
     topology::Topology,
 };
@@ -31,13 +31,13 @@ use bitflags::bitflags;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
 use hwlocality_sys::{
-    hwloc_const_topology_t, hwloc_distances_kind_e, hwloc_distances_s, hwloc_topology,
+    hwloc_const_topology_t, hwloc_distances_kind_e, hwloc_distances_s, hwloc_obj, hwloc_topology,
     HWLOC_DISTANCES_KIND_FROM_OS, HWLOC_DISTANCES_KIND_FROM_USER,
     HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH, HWLOC_DISTANCES_KIND_MEANS_LATENCY,
 };
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
-    hwloc_distances_add_flag_e, hwloc_obj, HWLOC_DISTANCES_ADD_FLAG_GROUP,
+    hwloc_distances_add_flag_e, HWLOC_DISTANCES_ADD_FLAG_GROUP,
     HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE, HWLOC_DISTANCES_TRANSFORM_LINKS,
     HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
     HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
@@ -455,7 +455,6 @@ bitflags! {
     /// Flags to be given to [`TopologyEditor::add_distances()`]
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_add_flag_e")]
-    #[repr(transparent)]
     pub struct AddDistancesFlags: hwloc_distances_add_flag_e {
         /// Try to group objects based on the newly provided distance information
         ///
@@ -819,6 +818,26 @@ impl<'topology> Distances<'topology> {
         int::expect_usize(unsafe { self.inner().nbobj })
     }
 
+    /// Object list pointer
+    ///
+    /// # Safety
+    ///
+    /// - Users must only overwrite this pointer with object pointers
+    ///   originating from the same topology or null pointers
+    /// - The objects should not be modified, only replaced.
+    /// - Unsafe code can trust the fact that the initial topology pointers are
+    ///   either null or valid and bound to self.topology
+    unsafe fn raw_objects(&self) -> *mut *const TopologyObject
+    // This is always true, I just made it a where clause so it's machine-checked
+    where
+        TopologyObject: TransparentNewtype<Inner = hwloc_obj>,
+    {
+        // SAFETY: - inner is assumed valid as a type invariant
+        //         - cast is legal per TransparentNewtype contract
+        //         - Mutation concerns are offloaded to caller via precondition
+        unsafe { self.inner().objs.cast::<*const TopologyObject>() }
+    }
+
     /// Objects described by the distance matrix
     ///
     /// These objects are not in any particular order, see methods below for
@@ -835,11 +854,10 @@ impl<'topology> Distances<'topology> {
         //           unaliased and bound to the lifetime of self.topology,
         //           and inner obj pointers are assumed to be valid and bound
         //           to the lifetime of self.topology and thus to self
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
         //         - No invalid mutation of inner state is possible in safe code
         //           using this API
         unsafe {
-            let objs = self.inner().objs.cast::<*const TopologyObject>();
+            let objs = self.raw_objects();
             let objs = std::slice::from_raw_parts(objs.cast_const(), self.num_objects());
             objs.iter().map(|ptr| ffi::deref_ptr(ptr))
         }
@@ -873,13 +891,11 @@ impl<'topology> Distances<'topology> {
     /// - Unsafe code can trust the fact that the initial topology pointers are
     ///   either null or valid and bound to self.topology
     unsafe fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
-        // SAFETY: - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        //         - Allowed mutations are covered by the function's safety
-        //           contract
-        let objs = unsafe { self.inner().objs.cast::<*const TopologyObject>() };
-        // SAFETY: - inner is assumed valid as a type invariant, thus objs &
-        //           num_objects() are trusted to be consistent, objs is assumed
-        //           unaliased and bound to the lifetime of self.topology
+        // SAFETY: Allowed mutations are covered by the function's safety contract
+        let objs = unsafe { self.raw_objects() };
+        // SAFETY: inner is assumed valid as a type invariant, thus objs &
+        //         num_objects() are trusted to be consistent, objs is assumed
+        //         unaliased and bound to the lifetime of self.topology
         unsafe { std::slice::from_raw_parts_mut(objs, self.num_objects()) }
     }
 
@@ -1065,9 +1081,8 @@ impl<'topology> Distances<'topology> {
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
     {
-        // SAFETY: - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        //         - This function does not mutate the objects in any way
-        let objs = unsafe { self.inner().objs.cast::<*const TopologyObject>() };
+        // SAFETY: This function does not mutate the objects in any way
+        let objs = unsafe { self.raw_objects() };
         // SAFETY: - inner is assumed valid as a type invariant, thus objs &
         //           num_objects() are trusted to be consistent, objs is assumed
         //           unaliased and bound to the lifetime of self.topology
@@ -1235,7 +1250,6 @@ bitflags! {
     /// Only one of the "FROM_" and "MEANS_" kinds should be present.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
-    #[repr(transparent)]
     pub struct DistancesKind: hwloc_distances_kind_e {
         /// These distances were obtained from the operating system or hardware
         #[doc(alias = "HWLOC_DISTANCES_KIND_FROM_OS")]

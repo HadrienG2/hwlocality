@@ -19,7 +19,11 @@ use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObject, HybridError, NulError, RawHwlocError},
-    ffi::{self, int, string::LibcString},
+    ffi::{
+        int,
+        string::LibcString,
+        transparent::{ToInner, ToNewtype},
+    },
     object::TopologyObject,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -191,11 +195,9 @@ impl Topology {
             .into_iter()
             .map(|ptr| {
                 assert!(!ptr.is_null(), "Invalid NUMA node pointer from hwloc");
-                // SAFETY: - We trust that if hwloc emits a non-null pointer, it
-                //           is valid and bound to the topology's lifetime.
-                //         - TopologyObject is a repr(transparent) newtype of
-                //           hwloc_obj.
-                unsafe { ffi::as_newtype(&*ptr) }
+                // SAFETY: We trust that if hwloc emits a non-null pointer, it
+                //         is valid and bound to the topology's lifetime.
+                unsafe { (&*ptr).to_newtype() }
             })
             .collect())
     }
@@ -402,7 +404,7 @@ impl MemoryAttributeBuilder<'_, '_> {
                 if !topology.contains(target_ref) {
                     return Err(BadAttributeValues::ForeignTargets);
                 }
-                let target_ptr: *const hwloc_obj = &target_ref.0;
+                let target_ptr: *const hwloc_obj = target_ref.to_inner();
                 Ok((target_ptr, value))
             })
             .collect::<Result<Vec<_>, BadAttributeValues>>()?;
@@ -712,7 +714,7 @@ impl<'topology> MemoryAttribute<'topology> {
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
-                &target_node.0,
+                target_node.to_inner(),
                 &initiator,
                 0,
                 &mut value,
@@ -821,7 +823,7 @@ impl<'topology> MemoryAttribute<'topology> {
                     hwlocality_sys::hwloc_memattr_get_best_initiator(
                         topology,
                         attribute,
-                        &target.0,
+                        target.to_inner(),
                         flags,
                         &mut best_initiator,
                         value,
@@ -941,7 +943,7 @@ impl<'topology> MemoryAttribute<'topology> {
                     hwlocality_sys::hwloc_memattr_get_initiators(
                         topology,
                         attribute,
-                        &target_node.0,
+                        target_node.to_inner(),
                         flags,
                         nr,
                         initiators,
@@ -1077,9 +1079,8 @@ impl<'topology> MemoryAttribute<'topology> {
         node_ptr: *const hwloc_obj,
     ) -> &'topology TopologyObject {
         assert!(!node_ptr.is_null(), "Got null target pointer from hwloc");
-        // SAFETY: - Lifetime per input precondition, query output assumed valid
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        unsafe { ffi::as_newtype(&*node_ptr) }
+        // SAFETY: Lifetime per input precondition, query output assumed valid
+        unsafe { (&*node_ptr).to_newtype() }
     }
 
     /// Encapsulate an initiator location from hwloc
@@ -1259,7 +1260,9 @@ impl<'target> MemoryAttributeLocation<'target> {
                 if topology.contains(object) {
                     Ok(hwloc_location {
                         ty: HWLOC_LOCATION_TYPE_OBJECT,
-                        location: hwloc_location_u { object: &object.0 },
+                        location: hwloc_location_u {
+                            object: object.to_inner(),
+                        },
                     })
                 } else {
                     Err(ForeignObject)
@@ -1284,7 +1287,6 @@ impl<'target> MemoryAttributeLocation<'target> {
         //         - Pointer is assumed to point to a valid CpuSet or
         //           TopologyObject that is owned by _topology, and thus has a
         //           lifetime of 'target or greater.
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj.
         unsafe {
             match raw.ty {
                 HWLOC_LOCATION_TYPE_CPUSET => {
@@ -1296,9 +1298,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                 HWLOC_LOCATION_TYPE_OBJECT => {
                     let ptr = NonNull::new(raw.location.object.cast_mut())
                         .expect("Unexpected null TopologyObject from hwloc");
-                    Ok(MemoryAttributeLocation::Object(ffi::as_newtype(
-                        ptr.as_ref(),
-                    )))
+                    Ok(MemoryAttributeLocation::Object(ptr.as_ref().to_newtype()))
                 }
                 unknown => Err(UnknownLocationType(unknown)),
             }
@@ -1349,7 +1349,6 @@ bitflags! {
     /// are selected.
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_local_numanode_flag_e")]
-    #[repr(transparent)]
     pub struct LocalNUMANodeFlags: c_ulong {
         /// Select NUMA nodes whose locality is larger than the given cpuset
         ///
@@ -1440,7 +1439,6 @@ bitflags! {
     /// Exactly one of the `HIGHER_IS_BEST` and `LOWER_IS_BEST` flags must be set.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_memattr_flag_e")]
-    #[repr(transparent)]
     pub struct MemoryAttributeFlags: hwloc_memattr_flag_e {
         /// The best nodes for this memory attribute are those with the higher
         /// values

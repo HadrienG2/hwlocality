@@ -10,7 +10,10 @@
 
 #[cfg(doc)]
 use super::{builder::BuildFlags, Topology};
-use crate::ffi;
+use crate::ffi::{
+    self,
+    transparent::{ToNewtype, TransparentNewtype},
+};
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::hwloc_topology_misc_support;
 use hwlocality_sys::{
@@ -49,9 +52,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - DiscoverySupport is a repr(transparent) newtype of
-        //           hwloc_topology_discovery_support
-        unsafe { ffi::deref_ptr_newtype(&self.0.discovery) }
+        unsafe { ffi::deref_ptr(&self.0.discovery).map(ToNewtype::to_newtype) }
     }
 
     /// Support for getting and setting thread/process CPU bindings
@@ -60,9 +61,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - CpuBindingSupport is a repr(transparent) newtype of
-        //           hwloc_topology_cpubind_support
-        unsafe { ffi::deref_ptr_newtype(&self.0.cpubind) }
+        unsafe { ffi::deref_ptr(&self.0.cpubind).map(ToNewtype::to_newtype) }
     }
 
     /// Support for getting and setting thread/process NUMA node bindings
@@ -71,9 +70,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - MemoryBinding is indeed a newtype of
-        //           hwloc_topology_membind_support
-        unsafe { ffi::deref_ptr_newtype(&self.0.membind) }
+        unsafe { ffi::deref_ptr(&self.0.membind).map(ToNewtype::to_newtype) }
     }
 
     /// Miscellaneous support information
@@ -83,9 +80,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - MiscSupport is a repr(transparent) newtype of
-        //           hwloc_topology_misc_support
-        unsafe { ffi::deref_ptr_newtype(&self.0.misc) }
+        unsafe { ffi::deref_ptr(&self.0.misc).map(ToNewtype::to_newtype) }
     }
 }
 //
@@ -133,6 +128,11 @@ unsafe impl Send for FeatureSupport {}
 //
 // SAFETY: No internal mutability
 unsafe impl Sync for FeatureSupport {}
+//
+// SAFETY: FeatureSupport is a repr(transparent) newtype of hwloc_topology_support
+unsafe impl TransparentNewtype for FeatureSupport {
+    type Inner = hwloc_topology_support;
+}
 
 /// Support for discovering information about the topology
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -183,6 +183,11 @@ impl DiscoverySupport {
     pub fn cpukind_efficiency(&self) -> bool {
         support_flag(self.0.cpukind_efficiency)
     }
+}
+//
+// SAFETY: DiscoverySupport is a repr(transparent) newtype of hwloc_topology_discovery_support
+unsafe impl TransparentNewtype for DiscoverySupport {
+    type Inner = hwloc_topology_discovery_support;
 }
 
 /// Support for getting and setting thread/process CPU bindings
@@ -260,6 +265,11 @@ impl CpuBindingSupport {
     pub fn get_current_thread_last_cpu_location(&self) -> bool {
         support_flag(self.0.get_thisthread_last_cpu_location)
     }
+}
+//
+// SAFETY: CpuBindingSupport is a repr(transparent) newtype of hwloc_topology_cpubind_support
+unsafe impl TransparentNewtype for CpuBindingSupport {
+    type Inner = hwloc_topology_cpubind_support;
 }
 
 /// Support for getting and setting thread/process NUMA node bindings
@@ -362,6 +372,11 @@ impl MemoryBindingSupport {
         support_flag(self.0.migrate_membind)
     }
 }
+//
+// SAFETY: MemoryBindingSupport is a repr(transparent) newtype of hwloc_topology_membind_support
+unsafe impl TransparentNewtype for MemoryBindingSupport {
+    type Inner = hwloc_topology_membind_support;
+}
 
 /// Miscellaneous support information
 #[cfg(feature = "hwloc-2_3_0")]
@@ -379,6 +394,12 @@ impl MiscSupport {
     pub fn imported(&self) -> bool {
         support_flag(self.0.imported_support)
     }
+}
+//
+#[cfg(feature = "hwloc-2_3_0")]
+// SAFETY: MiscSupport is a repr(transparent) newtype of hwloc_topology_misc_support
+unsafe impl TransparentNewtype for MiscSupport {
+    type Inner = hwloc_topology_misc_support;
 }
 
 /// Decode topology support flag

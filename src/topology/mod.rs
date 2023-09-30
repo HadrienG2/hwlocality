@@ -22,7 +22,7 @@ use crate::{
     bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi,
+    ffi::transparent::ToNewtype,
     memory::nodeset::NodeSet,
     object::{types::ObjectType, TopologyObject},
 };
@@ -279,12 +279,11 @@ impl Topology {
             hwlocality_sys::hwloc_topology_get_support(self.as_ptr())
         })
         .expect("Unexpected hwloc error");
-        // SAFETY: - If hwloc succeeded, the output is assumed to be valid.
+        // SAFETY: - If hwloc succeeded, the output is assumed to be valid and
+        //           devoid of mutable aliases
         //         - Output reference will be bound the the lifetime of &self by
         //           the borrow checker
-        //         - FeatureSupport is a repr(transparent) newtype of
-        //           hwloc_topology_support
-        unsafe { ffi::as_newtype(ptr.as_ref()) }
+        unsafe { ptr.as_ref().to_newtype() }
     }
 
     /// Quickly check a support flag
@@ -543,7 +542,6 @@ impl Topology {
 bitflags! {
     /// Flags to be given to [`Topology::distribute_items()`]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-    #[repr(transparent)]
     pub struct DistributeFlags: c_ulong {
         /// Distribute in reverse order, starting from the last objects
         const REVERSE = (1<<0);

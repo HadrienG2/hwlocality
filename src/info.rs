@@ -4,7 +4,7 @@
 //! information in a key-value layout. This module provides an interface to
 //! this information.
 
-use crate::ffi::{self, string::LibcString};
+use crate::ffi::{self, string::LibcString, transparent::TransparentNewtype};
 use hwlocality_sys::hwloc_info_s;
 use std::{ffi::CStr, fmt, hash::Hash};
 
@@ -100,3 +100,8 @@ unsafe impl Send for TextualInfo {}
 //
 // SAFETY: Does not have internal mutability
 unsafe impl Sync for TextualInfo {}
+//
+// SAFETY: TextualInfo is a repr(transparent) newtype of hwloc_info_s
+unsafe impl TransparentNewtype for TextualInfo {
+    type Inner = hwloc_info_s;
+}

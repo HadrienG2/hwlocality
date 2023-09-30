@@ -215,7 +215,7 @@ use std::{
 
 /// pid_t placeholder for rustdoc
 #[cfg(all(doc, not(target_os = "linux")))]
-struct pid_t;
+pub type pid_t = c_int;
 
 /// Rust model of a C incomplete type (struct declaration without a definition)
 ///

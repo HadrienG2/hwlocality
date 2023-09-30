@@ -127,7 +127,6 @@ bitflags! {
     /// Flags to be given to [`Topology::export_xml()`]
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_export_xml_flags_e")]
-    #[repr(transparent)]
     pub struct XMLExportFlags: hwloc_topology_export_xml_flags_e {
         /// Export XML that is loadable by hwloc v1.x
         ///

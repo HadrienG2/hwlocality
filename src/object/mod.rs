@@ -28,7 +28,11 @@ use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
     errors::{self, HybridError, NulError, ParameterError},
-    ffi::{self, int, string::LibcString},
+    ffi::{
+        self, int,
+        string::LibcString,
+        transparent::{ToNewtype, TransparentNewtype},
+    },
     info::TextualInfo,
     memory::nodeset::NodeSet,
     topology::Topology,
@@ -513,11 +517,10 @@ impl Topology {
                 !ptr.is_null(),
                 "Got null pointer from hwloc_get_obj_by_depth"
             );
-            // SAFETY: - If hwloc_get_obj_by_depth returns a non-null pointer,
-            //           it's assumed to be successful and thus that the output
-            //           pointer is valid
-            //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-            unsafe { ffi::as_newtype(&*ptr) }
+            // SAFETY: If hwloc_get_obj_by_depth returns a non-null pointer,
+            //         it's assumed to be successful and thus that the output
+            //         pointer is valid
+            unsafe { (&*ptr).to_newtype() }
         })
     }
 
@@ -955,8 +958,7 @@ impl Topology {
         };
         // SAFETY: - If hwloc succeeds, the output pointer is assumed valid
         //         - Output is bound to the lifetime of the topology it comes from
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        Ok((!ptr.is_null()).then(|| unsafe { ffi::as_newtype(&*ptr) }))
+        Ok((!ptr.is_null()).then(|| unsafe { (&*ptr).to_newtype() }))
     }
 }
 
@@ -1164,7 +1166,7 @@ impl Topology {
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
 #[repr(transparent)]
-pub struct TopologyObject(pub(crate) hwloc_obj);
+pub struct TopologyObject(hwloc_obj);
 
 /// # Basic identity
 impl TopologyObject {
@@ -1275,8 +1277,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        unsafe { ffi::deref_ptr_mut_newtype(&self.0.parent) }
+        unsafe { ffi::deref_ptr_mut(&self.0.parent).map(ToNewtype::to_newtype) }
     }
 
     /// Chain of parent objects up to the topology root
@@ -1500,8 +1501,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_cousin) }
+        unsafe { ffi::deref_ptr_mut(&self.0.next_cousin).map(ToNewtype::to_newtype) }
     }
 
     /// Previous object of same type and depth
@@ -1510,8 +1510,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_cousin) }
+        unsafe { ffi::deref_ptr_mut(&self.0.prev_cousin).map(ToNewtype::to_newtype) }
     }
 
     /// Index in the parent's relevant child list for this object type
@@ -1526,8 +1525,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        unsafe { ffi::deref_ptr_mut_newtype(&self.0.next_sibling) }
+        unsafe { ffi::deref_ptr_mut(&self.0.next_sibling).map(ToNewtype::to_newtype) }
     }
 
     /// Previous object below the same parent, in the same child list
@@ -1536,8 +1534,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-        unsafe { ffi::deref_ptr_mut_newtype(&self.0.prev_sibling) }
+        unsafe { ffi::deref_ptr_mut(&self.0.prev_sibling).map(ToNewtype::to_newtype) }
     }
 }
 
@@ -1571,8 +1568,7 @@ impl TopologyObject {
             //         - Pointer validity is assumed as a type invariant
             //         - Rust aliasing rules are enforced by deriving the reference
             //           from &self, which itself is derived from &Topology
-            //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-            unsafe { ffi::as_newtype(&*child) }
+            unsafe { (&*child).to_newtype() }
         })
     }
 
@@ -1711,8 +1707,7 @@ impl TopologyObject {
             //         - Pointer validity is assumed as a type invariant
             //         - Rust aliasing rules are enforced by deriving the reference
             //           from &self, which itself is derived from &Topology
-            //         - TopologyObject is a repr(transparent) newtype of hwloc_obj
-            let result: &Self = unsafe { ffi::as_newtype(&*current) };
+            let result: &Self = unsafe { (&*current).to_newtype() };
             current = result.0.next_sibling;
             result
         })
@@ -1904,10 +1899,10 @@ impl TopologyObject {
             return &[];
         }
         // SAFETY: - infos and count are assumed in sync per type invariant
-        //         - TextualInfo is a repr(transparent) newtype of hwloc_info_s
+        //         - ToNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(
-                self.0.infos.cast::<TextualInfo>(),
+                self.0.infos.to_newtype(),
                 int::expect_usize(self.0.infos_count),
             )
         }
@@ -2095,3 +2090,8 @@ unsafe impl Send for TopologyObject {}
 
 // SAFETY: No internal mutability
 unsafe impl Sync for TopologyObject {}
+
+// SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
+unsafe impl TransparentNewtype for TopologyObject {
+    type Inner = hwloc_obj;
+}

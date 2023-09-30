@@ -6,6 +6,7 @@
 
 pub(crate) mod int;
 pub(crate) mod string;
+pub(crate) mod transparent;
 
 use std::{
     ffi::{c_char, CStr},
@@ -14,32 +15,6 @@ use std::{
 
 // Re-export the PositiveInt type
 pub use int::PositiveInt;
-
-/// Translate a &-reference to an hwloc type into one to the matching wrapper
-/// type
-///
-/// # Safety
-///
-/// `NewT` must be a `repr(transparent)` newtype of `T`
-pub(crate) unsafe fn as_newtype<T, NewT>(raw: &T) -> &NewT {
-    let ptr: *const T = raw;
-    // SAFETY: - &*ptr is safe per se since ptr is just a reinterpreted &
-    //         - Per safety precondition, T can be reinterpreted as NewT
-    unsafe { &*ptr.cast::<NewT>() }
-}
-
-/// Translate an &mut-reference to an hwloc type into one to the matching
-/// wrapper type
-///
-/// # Safety
-///
-/// `NewT` must be a `repr(transparent)` newtype of `T`
-pub(crate) unsafe fn as_newtype_mut<T, NewT>(raw: &mut T) -> &mut NewT {
-    let ptr: *mut T = raw;
-    // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
-    //         - Per safety precondition, T can be reinterpreted as NewT
-    unsafe { &mut *ptr.cast::<NewT>() }
-}
 
 /// Dereference a C pointer with correct lifetime (*const -> & version)
 ///
@@ -54,19 +29,6 @@ pub(crate) unsafe fn deref_ptr<T>(p: &*const T) -> Option<&T> {
     }
     // SAFETY: Per input precondition
     Some(unsafe { &**p })
-}
-
-/// Like [`deref_ptr()`], but performs a cast to a newtype along the way
-///
-/// # Safety
-///
-/// - If non-null, p must be safe to dereference for the duration of the
-///   reference-to-pointer's lifetime, and the target data must not be modified
-///   as long as the reference exists.
-/// - `NewT` must be a `repr(transparent)` newtype of `T`
-pub(crate) unsafe fn deref_ptr_newtype<T, NewT>(p: &*const T) -> Option<&NewT> {
-    // SAFETY: Per input preconditions
-    unsafe { deref_ptr(p).map(|r| as_newtype(r)) }
 }
 
 /// Dereference a C pointer with correct lifetime (*mut -> & version)
@@ -84,19 +46,6 @@ pub(crate) unsafe fn deref_ptr_mut<T>(p: &*mut T) -> Option<&T> {
     Some(unsafe { &**p })
 }
 
-/// Like [`deref_ptr_mut()`], but performs a cast to a newtype along the way
-///
-/// # Safety
-///
-/// - If non-null, p must be safe to dereference for the duration of the
-///   reference-to-pointer's lifetime, and the target data must not be modified
-///   as long as the reference exists.
-/// - `NewT` must be a `repr(transparent)` newtype of `T`
-pub(crate) unsafe fn deref_ptr_mut_newtype<T, NewT>(p: &*mut T) -> Option<&NewT> {
-    // SAFETY: Per input preconditions
-    unsafe { deref_ptr_mut(p).map(|r| as_newtype(r)) }
-}
-
 /// Dereference a C pointer with correct lifetime (*mut -> &mut version)
 ///
 /// # Safety
@@ -112,21 +61,6 @@ pub(crate) unsafe fn deref_mut_ptr<T>(p: &mut *mut T) -> Option<&mut T> {
     }
     // SAFETY: Per input precondition
     Some(unsafe { &mut **p })
-}
-
-/// Like [`deref_mut_ptr()`], but performs a cast to a newtype along the way
-///
-/// # Safety
-///
-/// - If non-null, p must be safe to dereference for the duration of the
-///   reference-to-pointer's lifetime, and the target data must only be modified
-///   via the output reference and not be read via any other channel as long as
-///   the reference exists.
-/// - `NewT` must be a `repr(transparent)` newtype of `T`
-#[allow(unused)]
-pub(crate) unsafe fn deref_mut_ptr_newtype<T, NewT>(p: &mut *mut T) -> Option<&mut NewT> {
-    // SAFETY: Per input preconditions
-    unsafe { deref_mut_ptr(p).map(|r| as_newtype_mut(r)) }
 }
 
 /// Dereference a C-style string with correct lifetime

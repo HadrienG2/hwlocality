@@ -598,7 +598,6 @@ bitflags! {
     /// calling for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
-    #[repr(transparent)]
     pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
         /// Assume that the current process is single threaded
         ///

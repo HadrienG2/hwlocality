@@ -1066,7 +1066,6 @@ bitflags! {
     /// calling for more information.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_membind_flags_t")]
-    #[repr(transparent)]
     pub struct MemoryBindingFlags: hwloc_membind_flags_t {
         /// Assume that the target process is single threaded
         ///

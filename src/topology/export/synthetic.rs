@@ -85,7 +85,6 @@ bitflags! {
     /// Flags to be given to [`Topology::export_synthetic()`]
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_export_synthetic_flags_e")]
-    #[repr(transparent)]
     pub struct SyntheticExportFlags: hwloc_topology_export_synthetic_flags_e {
         /// Export extended types such as L2dcache as basic types such as Cache
         ///

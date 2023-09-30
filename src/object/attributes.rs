@@ -9,7 +9,10 @@
 // - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
 
 use crate::{
-    ffi::{self, int},
+    ffi::{
+        int,
+        transparent::{ToNewtype, TransparentNewtype},
+    },
     object::types::{BridgeType, CacheType, OSDeviceType, ObjectType},
 };
 #[cfg(doc)]
@@ -75,17 +78,16 @@ impl<'object> ObjectAttributes<'object> {
         let attr: &hwloc_obj_attr_u = unsafe { &**attr };
 
         // SAFETY: - We checked for union field access validity via the type
-        //         - All output types are repr(transparent) newtypes of the
-        //           respective raw union field types
+        //         - Type is truted to match union state per input precondition
         unsafe {
             #[allow(clippy::wildcard_enum_match_arm)]
             match ty {
-                ObjectType::NUMANode => Some(Self::NUMANode(ffi::as_newtype(&attr.numa))),
-                ObjectType::Group => Some(Self::Group(ffi::as_newtype(&attr.group))),
-                ObjectType::PCIDevice => Some(Self::PCIDevice(ffi::as_newtype(&attr.pcidev))),
-                ObjectType::Bridge => Some(Self::Bridge(ffi::as_newtype(&attr.bridge))),
-                ObjectType::OSDevice => Some(Self::OSDevice(ffi::as_newtype(&attr.osdev))),
-                _ if ty.is_cpu_cache() => Some(Self::Cache(ffi::as_newtype(&attr.cache))),
+                ObjectType::NUMANode => Some(Self::NUMANode((&attr.numa).to_newtype())),
+                ObjectType::Group => Some(Self::Group((&attr.group).to_newtype())),
+                ObjectType::PCIDevice => Some(Self::PCIDevice((&attr.pcidev).to_newtype())),
+                ObjectType::Bridge => Some(Self::Bridge((&attr.bridge).to_newtype())),
+                ObjectType::OSDevice => Some(Self::OSDevice((&attr.osdev).to_newtype())),
+                _ if ty.is_cpu_cache() => Some(Self::Cache((&attr.cache).to_newtype())),
                 _ => None,
             }
         }
@@ -130,11 +132,10 @@ impl NUMANodeAttributes {
             return &[];
         }
         // SAFETY: - Pointer and length assumed valid per type invariant
-        //         - MemoryPageType is a repr(transparent) newtype of
-        //           hwloc_memory_page_type_s
+        //         - ToNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(
-                self.0.page_types.cast::<MemoryPageType>(),
+                self.0.page_types.to_newtype(),
                 // If this fails, it means pages_types_len does not fit in a
                 // size_t, but by definition of size_t that cannot happen
                 self.0.page_types_len.try_into().expect("Should not happen"),
@@ -163,6 +164,11 @@ unsafe impl Send for NUMANodeAttributes {}
 //
 // SAFETY: No internal mutability
 unsafe impl Sync for NUMANodeAttributes {}
+//
+// SAFETY: NUMANodeAttributes is a repr(transparent) newtype of hwloc_numanode_attr_s
+unsafe impl TransparentNewtype for NUMANodeAttributes {
+    type Inner = hwloc_numanode_attr_s;
+}
 
 /// Local memory page type
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -188,6 +194,11 @@ impl MemoryPageType {
     pub fn count(&self) -> u64 {
         self.0.count
     }
+}
+//
+// SAFETY: MemoryPageType is a repr(transparent) newtype of hwloc_memory_page_type_s
+unsafe impl TransparentNewtype for MemoryPageType {
+    type Inner = hwloc_memory_page_type_s;
 }
 
 /// Cache-specific attributes
@@ -242,6 +253,11 @@ impl CacheAttributes {
     pub fn cache_type(&self) -> CacheType {
         self.0.ty.try_into().expect("Got unexpected cache type")
     }
+}
+//
+// SAFETY: CacheAttributes is a repr(transparent) newtype of hwloc_cache_attr_s
+unsafe impl TransparentNewtype for CacheAttributes {
+    type Inner = hwloc_cache_attr_s;
 }
 
 /// Cache associativity
@@ -316,6 +332,11 @@ impl GroupAttributes {
     pub(crate) fn prevent_merging(&mut self) {
         self.0.dont_merge = 1
     }
+}
+//
+// SAFETY: GroupAttributes is a repr(transparent) newtype of hwloc_group_attr_s
+unsafe impl TransparentNewtype for GroupAttributes {
+    type Inner = hwloc_group_attr_s;
 }
 
 /// PCI domain width (depends on hwloc version)
@@ -415,6 +436,11 @@ impl PCIDeviceAttributes {
         self.0.linkspeed
     }
 }
+//
+// SAFETY: PCIDeviceAttributes is a repr(transparent) newtype of hwloc_pcidev_attr_s
+unsafe impl TransparentNewtype for PCIDeviceAttributes {
+    type Inner = hwloc_pcidev_attr_s;
+}
 
 /// [`Bridge`]-specific attributes
 ///
@@ -496,6 +522,11 @@ impl PartialEq for BridgeAttributes {
             && self.downstream_attributes() == other.downstream_attributes()
     }
 }
+//
+// SAFETY: BridgeAttributes is a repr(transparent) newtype of hwloc_bridge_attr_s
+unsafe impl TransparentNewtype for BridgeAttributes {
+    type Inner = hwloc_bridge_attr_s;
+}
 
 /// Bridge upstream attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -511,12 +542,10 @@ impl<'object> UpstreamAttributes<'object> {
     ///
     /// `attr` must be consistent with `ty`.
     pub(crate) unsafe fn new(ty: BridgeType, attr: &'object RawUpstreamAttributes) -> Option<Self> {
-        // SAFETY: - attr.pci assumed valid per input precondition
-        //         - PCIDeviceAttributes is a repr(transparent) newtype of
-        //           hwloc_pcidev_attr_s
+        // SAFETY: attr.pci assumed valid if ty is PCI per input precondition
         unsafe {
             match ty {
-                BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),
+                BridgeType::PCI => Some(Self::PCI((&attr.pci).to_newtype())),
                 BridgeType::Host => None,
             }
         }
@@ -544,6 +573,11 @@ impl DownstreamPCIAttributes {
         self.0.subordinate_bus
     }
 }
+//
+// SAFETY: DownstreamPCIAttributes is a repr(transparent) newtype of RawDownstreamPCIAttributes
+unsafe impl TransparentNewtype for DownstreamPCIAttributes {
+    type Inner = RawDownstreamPCIAttributes;
+}
 
 /// Bridge downstream attributes
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -563,12 +597,10 @@ impl<'object> DownstreamAttributes<'object> {
         ty: BridgeType,
         attr: &'object RawDownstreamAttributes,
     ) -> Option<Self> {
-        // SAFETY: - attr.pci assumed valid per input precondition
-        //         - DownstreamPCIAttributes is a repr(transparent) newtype of
-        //           RawDownstreamPCIAttributes
+        // SAFETY: attr.pci assumed valid if ty is PCI per input precondition
         unsafe {
             match ty {
-                BridgeType::PCI => Some(Self::PCI(ffi::as_newtype(&attr.pci))),
+                BridgeType::PCI => Some(Self::PCI((&attr.pci).to_newtype())),
                 BridgeType::Host => unreachable!("Host bridge type should not appear downstream"),
             }
         }
@@ -581,7 +613,7 @@ impl<'object> DownstreamAttributes<'object> {
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_osdev_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s")]
-#[repr(C)]
+#[repr(transparent)]
 pub struct OSDeviceAttributes(hwloc_osdev_attr_s);
 //
 impl OSDeviceAttributes {
@@ -591,4 +623,9 @@ impl OSDeviceAttributes {
     pub fn device_type(&self) -> OSDeviceType {
         self.0.ty.try_into().expect("Got unexpected OS device type")
     }
+}
+//
+// SAFETY: OSDeviceAttributes is a repr(transparent) newtype of hwloc_osdev_attr_s
+unsafe impl TransparentNewtype for OSDeviceAttributes {
+    type Inner = hwloc_osdev_attr_s;
 }

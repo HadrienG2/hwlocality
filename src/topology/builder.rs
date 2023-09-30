@@ -400,7 +400,6 @@ bitflags! {
     /// Flags to be passed to `hwloc_topology_set_components()`
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_components_flag_e")]
-    #[repr(transparent)]
     pub(crate) struct ComponentsFlags: hwloc_topology_components_flag_e {
         /// Blacklist the target component from being used
         const BLACKLIST = HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST;
@@ -626,7 +625,6 @@ bitflags! {
     /// Topology building configuration flags
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_topology_flags_e")]
-    #[repr(transparent)]
     pub struct BuildFlags: hwloc_topology_flags_e {
         /// Detect the whole system, ignore reservations, include disallowed objects
         ///
