@@ -32,7 +32,6 @@ use hwlocality_sys::{hwloc_bitmap_s, hwloc_topology, hwloc_type_filter_e};
 use libc::EINVAL;
 use std::{
     convert::TryInto,
-    debug_assert,
     ffi::c_ulong,
     num::NonZeroUsize,
     ptr::{self, NonNull},
@@ -215,7 +214,7 @@ impl Topology {
         let result = BuildFlags::from_bits_truncate(unsafe {
             hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
         });
-        debug_assert!(result.is_valid(), "hwloc shouldn't return invalid flags");
+        assert!(result.is_valid(), "hwloc returned invalid flags");
         result
     }
 

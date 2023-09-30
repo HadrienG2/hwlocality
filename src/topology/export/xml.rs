@@ -186,7 +186,7 @@ impl<'topology> XML<'topology> {
         let s = unsafe { CStr::from_ptr(base) };
         s.to_str()
             .expect("Unexpected non-UTF8 XML string from hwloc");
-        debug_assert_eq!(
+        assert_eq!(
             s.to_bytes_with_nul().len(),
             len,
             "hwloc query emitted inconsistent results"

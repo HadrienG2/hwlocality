@@ -31,7 +31,6 @@ use std::{
     clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
-    debug_assert,
     ffi::{c_int, c_uint},
     fmt::Debug,
     iter::{FusedIterator, Product, Sum},

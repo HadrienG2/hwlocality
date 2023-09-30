@@ -110,6 +110,7 @@ impl Topology {
     /// undefined behavior (mutation which the compiler assumes will not happen).
     #[allow(clippy::print_stderr)]
     pub(crate) fn refresh(&mut self) {
+        // Evaluate all the caches
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
@@ -120,6 +121,8 @@ impl Topology {
             eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
             std::process::abort()
         }
+
+        // Check topology for correctness before exposing it
         if cfg!(debug_assertions) {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters

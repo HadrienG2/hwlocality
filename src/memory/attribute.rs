@@ -611,7 +611,7 @@ impl<'topology> MemoryAttribute<'topology> {
     #[doc(alias = "hwloc_memattr_get_flags")]
     pub fn flags(&self) -> MemoryAttributeFlags {
         let flags = Self::static_flags(self.id).unwrap_or_else(|| self.dynamic_flags());
-        debug_assert!(flags.is_valid(), "Flags should be valid");
+        assert!(flags.is_valid(), "hwloc emitted invalid flags");
         flags
     }
 

@@ -119,12 +119,14 @@ impl TopologyBuilder {
             hwlocality_sys::hwloc_topology_load(self.as_mut_ptr())
         })?;
 
-        // If that was successful, transfer hwloc_topology ownership to a Topology
+        // Check topology for correctness in debug builds
         if cfg!(debug_assertions) {
             // SAFETY: - Topology pointer is trusted to be valid after loading
             //         - hwloc ops are trusted not to modify *const parameters
             unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
+
+        // Transfer hwloc_topology ownership to a Topology
         let result = Topology(self.0);
         std::mem::forget(self);
         Ok(result)
@@ -923,11 +925,14 @@ impl Default for TopologyBuilder {
 
 impl Drop for TopologyBuilder {
     fn drop(&mut self) {
+        // Check topology for correctness in debug builds
         if cfg!(debug_assertions) {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             unsafe { hwlocality_sys::hwloc_topology_check(self.as_ptr()) }
         }
+
+        // Liberate the topology
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - Safe code can't use the invalidated topology pointer again
         //           after this Drop
