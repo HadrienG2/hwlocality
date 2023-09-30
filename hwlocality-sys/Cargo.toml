@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 links = "hwloc"
 
-# See hwlocality for detailed descriptions
+# See hwlocality's main Cargo.toml for detailed feature descriptions
 [features]
 hwloc-latest = ["hwloc-2_8_0"]
 hwloc-2_0_4 = []
@@ -23,15 +23,22 @@ hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
 bundled = ["dep:autotools", "dep:cmake"]
 
-[dependencies]
-libc.workspace = true
-
 [target.'cfg(windows)'.dependencies]
+# Used for OS typedefs
 windows-sys.workspace = true
 
+[target.'cfg(not(windows))'.dependencies]
+# Used for OS typedefs
+libc.workspace = true
+
 [build-dependencies]
+# Used for bundled builds on OSes other than Windows
 autotools = { version = "0.2", optional = true }
+
+# Used for bundled builds on Windows
 cmake = { version = "0.1.50", optional = true }
+
+# Used to locate hwloc except in cmake bundled builds
 pkg-config = "0.3.8"
 
 [package.metadata.docs.rs]

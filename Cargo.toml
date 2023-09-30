@@ -148,7 +148,7 @@ errno = "0.3"
 # Part of this project (raw FFI binding)
 hwlocality-sys = { path = "./hwlocality-sys" }
 
-# Used for malloc, free, Unix thread query and OS typedefs
+# Used for malloc, free, OS typedefs, and example thread queries
 libc.workspace = true
 
 # Used to interface hwloc enums
@@ -161,10 +161,6 @@ thiserror = "1.0"
 quickcheck = { version = "1.0", optional = true }
 rand = { version = "0.8", optional = true }
 
-[target.'cfg(windows)'.dependencies]
-# Used in hwlocality_sys for OS typedefs + in example for thread queries
-windows-sys.workspace = true
-
 [dev-dependencies]
 # Used to simplify examples and test error reporting
 anyhow = { version = "1.0", features = ["backtrace"] }
@@ -176,6 +172,10 @@ rand = "0.8"
 
 # Used in examples to portably query the OS process list
 sysinfo = { version = "0.29", default-features = false }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Used in examples for thread queries
+windows-sys.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
