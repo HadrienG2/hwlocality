@@ -2303,11 +2303,7 @@ impl Arbitrary for PositiveInt {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(
-            self.0
-                .shrink()
-                .filter_map(|x: c_uint| Self::const_try_from_c_uint(x)),
-        )
+        Box::new(self.0.shrink().filter_map(Self::const_try_from_c_uint))
     }
 }
 
@@ -3444,7 +3440,7 @@ mod tests {
         }
     }
 
-    /// Compare a PositiveInt and a c_uint iterator in a certain iteration scheme,
+    /// Compare a [`PositiveInt`] and a [`c_uint`] iterator in a certain iteration scheme,
     /// stopping after a certain number of elements
     #[track_caller]
     fn compare_iters_infinite<Actual, Expected>(
@@ -3462,7 +3458,7 @@ mod tests {
         }
     }
 
-    /// Compare a PositiveInt and a c_uint iterator in a certain iteration scheme
+    /// Compare a [`PositiveInt`] and a [`c_uint`] iterator in a certain iteration scheme
     #[track_caller]
     fn compare_iters_finite<Actual, Expected>(
         mut actual: Actual,
