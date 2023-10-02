@@ -420,10 +420,8 @@ impl PositiveInt {
     /// );
     /// ```
     pub const fn checked_add(self, rhs: Self) -> Option<Self> {
-        let Some(inner) = self.0.checked_add(rhs.0) else {
-            return None;
-        };
-        Self::const_try_from_c_uint(inner)
+        // Even int::MAX + int::MAX fits in our inner uint
+        Self::const_try_from_c_uint(self.0 + rhs.0)
     }
 
     /// Checked addition with a signed integer. Computes `self + rhs`, returning
@@ -2109,9 +2107,8 @@ impl PositiveInt {
     /// ```
     #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_next_power_of_two(self) -> Option<Self> {
-        let Some(inner) = self.0.checked_next_power_of_two() else {
-            return None;
-        };
+        // Even int::MAX has a next-power-of-two in our inner uint
+        let inner = self.0.next_power_of_two();
         if inner <= Self::MAX.0 {
             Some(Self(inner))
         } else {
@@ -2169,18 +2166,7 @@ impl PositiveInt {
         x.try_into().map(Self)
     }
 
-    /// Convert from an hwloc-originated [`c_uint`]
-    ///
-    /// This is not a [`TryFrom`] implementation because it would lead integer
-    /// type inference to fall back to [`i32`] in bitmap indexing, which is
-    /// undesirable. Also, I'd rather avoid having an implementation-specific
-    /// type in a public API like [`TryFrom`]...
-    #[allow(unused)]
-    fn try_from_c_uint(x: c_uint) -> Result<Self, TryFromIntError> {
-        Self::try_from_c_int(x.try_into()?)
-    }
-
-    /// Const version of [`try_from_c_uint()`]
+    /// Convert from a [`c_uint`]
     ///
     /// Will be dropped once [`TryFrom`]/[`TryInto`] is usable in `const fn`
     #[allow(clippy::if_then_some_else_none)]
@@ -2315,12 +2301,9 @@ impl Arbitrary for PositiveInt {
         Self(value)
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(
-            self.0
-                .shrink()
-                .filter_map(|x: c_uint| Self::try_from_c_uint(x).ok()),
-        )
+        Box::new(self.0.shrink().filter_map(Self::const_try_from_c_uint))
     }
 }
 
@@ -3250,7 +3233,7 @@ impl Iterator for PositiveIntRangeIter {
     }
 
     fn last(self) -> Option<PositiveInt> {
-        (self.len() != 0).then_some(self.end - 1)
+        (self.len() != 0).then(|| self.end - 1)
     }
 
     fn nth(&mut self, n: usize) -> Option<PositiveInt> {
@@ -3432,6 +3415,9 @@ mod tests {
     /// Number of bits that are not used
     const NUM_UNUSED_BITS: u32 = UNUSED_BITS.count_ones();
 
+    /// Maximum number of exploratory iterations to run for infinite iterators
+    const INFINITE_ITERS: usize = 10;
+
     /// Assert that calling some code panics
     #[track_caller]
     fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) {
@@ -3451,6 +3437,41 @@ mod tests {
                 result, release_result,
                 "Operation does not produce the expected result in release builds"
             );
+        }
+    }
+
+    /// Compare a [`PositiveInt`] and a [`c_uint`] iterator in a certain iteration scheme,
+    /// stopping after a certain number of elements
+    #[track_caller]
+    fn compare_iters_infinite<Actual, Expected>(
+        mut actual: Actual,
+        mut next_actual: impl FnMut(&mut Actual) -> Option<PositiveInt>,
+        mut expected: Expected,
+        mut next_expected: impl FnMut(&mut Expected) -> Option<c_uint>,
+    ) {
+        for _ in 0..INFINITE_ITERS {
+            match (next_actual(&mut actual), next_expected(&mut expected)) {
+                (Some(actual), Some(expected)) => assert_eq!(actual, PositiveInt(expected)),
+                (None, None) => panic!("Infinite iterators shouldn't end"),
+                (Some(_), None) | (None, Some(_)) => panic!("Length shouldn't differ"),
+            }
+        }
+    }
+
+    /// Compare a [`PositiveInt`] and a [`c_uint`] iterator in a certain iteration scheme
+    #[track_caller]
+    fn compare_iters_finite<Actual, Expected>(
+        mut actual: Actual,
+        mut next_actual: impl FnMut(&mut Actual) -> Option<PositiveInt>,
+        mut expected: Expected,
+        mut next_expected: impl FnMut(&mut Expected) -> Option<c_uint>,
+    ) {
+        loop {
+            match (next_actual(&mut actual), next_expected(&mut expected)) {
+                (Some(actual), Some(expected)) => assert_eq!(actual, PositiveInt(expected)),
+                (None, None) => break,
+                (Some(_), None) | (None, Some(_)) => panic!("Length shouldn't differ"),
+            }
         }
     }
 
@@ -3493,127 +3514,128 @@ mod tests {
 
     /// Test properties of unary operations on positive ints
     #[quickcheck]
-    fn unary(idx: PositiveInt) {
-        // Version of idx's payload with the unused bits set
-        let set_unused = idx.0 | UNUSED_BITS;
+    fn unary_int(int: PositiveInt) {
+        // Version of int's payload with the unused bits set
+        let set_unused = int.0 | UNUSED_BITS;
 
         // Make sure clone is trivial and equality works early on
-        assert_eq!(idx.clone(), idx);
+        assert_eq!(int.clone(), int);
 
         // Bit fiddling
-        assert_eq!(idx.count_ones(), idx.0.count_ones());
-        assert_eq!(idx.count_zeros(), set_unused.count_zeros());
-        assert_eq!(idx.leading_zeros(), idx.0.leading_zeros() - NUM_UNUSED_BITS);
-        assert_eq!(idx.trailing_zeros(), set_unused.trailing_zeros());
+        assert_eq!(int.count_ones(), int.0.count_ones());
+        assert_eq!(int.count_zeros(), set_unused.count_zeros());
+        assert_eq!(int.leading_zeros(), int.0.leading_zeros() - NUM_UNUSED_BITS);
+        assert_eq!(int.trailing_zeros(), set_unused.trailing_zeros());
         assert_eq!(
-            idx.leading_ones(),
+            int.leading_ones(),
             set_unused.leading_ones() - NUM_UNUSED_BITS
         );
-        assert_eq!(idx.trailing_ones(), idx.0.trailing_ones());
+        assert_eq!(int.trailing_ones(), int.0.trailing_ones());
         assert_eq!(
-            idx.reverse_bits().0,
-            idx.0.reverse_bits() >> NUM_UNUSED_BITS
+            int.reverse_bits().0,
+            int.0.reverse_bits() >> NUM_UNUSED_BITS
         );
-        assert_eq!(idx.is_power_of_two(), idx.0.is_power_of_two());
-        assert_eq!((!idx).0, !(idx.0 | set_unused));
+        assert_eq!(int.is_power_of_two(), int.0.is_power_of_two());
+        assert_eq!((!int).0, !(int.0 | set_unused));
+        assert_eq!((!&int).0, !(int.0 | set_unused));
 
         // Infaillible conversion to isize and usize
-        assert_eq!(isize::from(idx), isize::try_from(idx.0).unwrap());
-        assert_eq!(usize::from(idx), usize::try_from(idx.0).unwrap());
+        assert_eq!(isize::from(int), isize::try_from(int.0).unwrap());
+        assert_eq!(usize::from(int), usize::try_from(int.0).unwrap());
 
         // Faillible conversions to all primitive integer types
         #[allow(clippy::useless_conversion)]
         {
-            assert_eq!(i8::try_from(idx).ok(), i8::try_from(idx.0).ok());
-            assert_eq!(u8::try_from(idx).ok(), u8::try_from(idx.0).ok());
-            assert_eq!(i16::try_from(idx).ok(), i16::try_from(idx.0).ok());
-            assert_eq!(u16::try_from(idx).ok(), u16::try_from(idx.0).ok());
-            assert_eq!(i32::try_from(idx).ok(), i32::try_from(idx.0).ok());
-            assert_eq!(u32::try_from(idx).ok(), u32::try_from(idx.0).ok());
-            assert_eq!(i64::try_from(idx).ok(), i64::try_from(idx.0).ok());
-            assert_eq!(u64::try_from(idx).ok(), u64::try_from(idx.0).ok());
-            assert_eq!(i128::try_from(idx).ok(), i128::try_from(idx.0).ok());
-            assert_eq!(u128::try_from(idx).ok(), u128::try_from(idx.0).ok());
+            assert_eq!(i8::try_from(int).ok(), i8::try_from(int.0).ok());
+            assert_eq!(u8::try_from(int).ok(), u8::try_from(int.0).ok());
+            assert_eq!(i16::try_from(int).ok(), i16::try_from(int.0).ok());
+            assert_eq!(u16::try_from(int).ok(), u16::try_from(int.0).ok());
+            assert_eq!(i32::try_from(int).ok(), i32::try_from(int.0).ok());
+            assert_eq!(u32::try_from(int).ok(), u32::try_from(int.0).ok());
+            assert_eq!(i64::try_from(int).ok(), i64::try_from(int.0).ok());
+            assert_eq!(u64::try_from(int).ok(), u64::try_from(int.0).ok());
+            assert_eq!(i128::try_from(int).ok(), i128::try_from(int.0).ok());
+            assert_eq!(u128::try_from(int).ok(), u128::try_from(int.0).ok());
         }
 
         // Formatting
-        assert_eq!(format!("{idx:?}"), format!("PositiveInt({:})", idx.0));
-        assert_eq!(format!("{idx}"), format!("{:}", idx.0));
-        assert_eq!(format!("{idx:b}"), format!("{:b}", idx.0));
-        assert_eq!(format!("{idx:e}"), format!("{:e}", idx.0));
-        assert_eq!(format!("{idx:o}"), format!("{:o}", idx.0));
-        assert_eq!(format!("{idx:x}"), format!("{:x}", idx.0));
-        assert_eq!(format!("{idx:E}"), format!("{:E}", idx.0));
-        assert_eq!(format!("{idx:X}"), format!("{:X}", idx.0));
+        assert_eq!(format!("{int:?}"), format!("PositiveInt({:})", int.0));
+        assert_eq!(format!("{int}"), format!("{:}", int.0));
+        assert_eq!(format!("{int:b}"), format!("{:b}", int.0));
+        assert_eq!(format!("{int:e}"), format!("{:e}", int.0));
+        assert_eq!(format!("{int:o}"), format!("{:o}", int.0));
+        assert_eq!(format!("{int:x}"), format!("{:x}", int.0));
+        assert_eq!(format!("{int:E}"), format!("{:E}", int.0));
+        assert_eq!(format!("{int:X}"), format!("{:X}", int.0));
 
         // Hashing
-        assert_eq!(hash(idx), hash(idx.0));
+        assert_eq!(hash(int), hash(int.0));
 
         // Division and remainder by zero
         {
             // With PositiveInt denominator
             let zero = PositiveInt::ZERO;
-            assert_eq!(idx.checked_div(zero), None);
-            assert_panics(|| idx.overflowing_div(zero));
-            assert_panics(|| idx.saturating_div(zero));
-            assert_panics(|| idx.wrapping_div(zero));
-            assert_panics(|| idx / zero);
-            assert_panics(|| &idx / zero);
-            assert_panics(|| idx / &zero);
-            assert_panics(|| &idx / &zero);
+            assert_eq!(int.checked_div(zero), None);
+            assert_panics(|| int.overflowing_div(zero));
+            assert_panics(|| int.saturating_div(zero));
+            assert_panics(|| int.wrapping_div(zero));
+            assert_panics(|| int / zero);
+            assert_panics(|| &int / zero);
+            assert_panics(|| int / &zero);
+            assert_panics(|| &int / &zero);
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp /= zero
             });
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp /= &zero
             });
-            assert_eq!(idx.checked_div_euclid(zero), None);
-            assert_panics(|| idx.overflowing_div_euclid(zero));
-            assert_panics(|| idx.wrapping_div_euclid(zero));
-            assert_eq!(idx.checked_rem(zero), None);
-            assert_panics(|| idx.overflowing_rem(zero));
-            assert_panics(|| idx.wrapping_rem(zero));
-            assert_panics(|| idx % zero);
-            assert_panics(|| &idx % zero);
-            assert_panics(|| idx % &zero);
-            assert_panics(|| &idx % &zero);
+            assert_eq!(int.checked_div_euclid(zero), None);
+            assert_panics(|| int.overflowing_div_euclid(zero));
+            assert_panics(|| int.wrapping_div_euclid(zero));
+            assert_eq!(int.checked_rem(zero), None);
+            assert_panics(|| int.overflowing_rem(zero));
+            assert_panics(|| int.wrapping_rem(zero));
+            assert_panics(|| int % zero);
+            assert_panics(|| &int % zero);
+            assert_panics(|| int % &zero);
+            assert_panics(|| &int % &zero);
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp %= zero
             });
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp %= &zero
             });
-            assert_eq!(idx.checked_rem_euclid(zero), None);
-            assert_panics(|| idx.overflowing_rem_euclid(zero));
-            assert_panics(|| idx.wrapping_rem_euclid(zero));
+            assert_eq!(int.checked_rem_euclid(zero), None);
+            assert_panics(|| int.overflowing_rem_euclid(zero));
+            assert_panics(|| int.wrapping_rem_euclid(zero));
 
             // With usize denominator
-            assert_panics(|| idx / 0);
-            assert_panics(|| &idx / 0);
-            assert_panics(|| idx / &0);
-            assert_panics(|| &idx / &0);
+            assert_panics(|| int / 0);
+            assert_panics(|| &int / 0);
+            assert_panics(|| int / &0);
+            assert_panics(|| &int / &0);
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp /= 0
             });
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp /= &0
             });
-            assert_panics(|| idx % 0);
-            assert_panics(|| &idx % 0);
-            assert_panics(|| idx % &0);
-            assert_panics(|| &idx % &0);
+            assert_panics(|| int % 0);
+            assert_panics(|| &int % 0);
+            assert_panics(|| int % &0);
+            assert_panics(|| &int % &0);
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp %= 0
             });
             assert_panics(|| {
-                let mut tmp = idx;
+                let mut tmp = int;
                 tmp %= &0
             });
         }
@@ -3621,47 +3643,55 @@ mod tests {
         // Logarithm of zero should fail/panic
         {
             // ...with base >= 2
-            let base_above2 = idx.saturating_add(PositiveInt(2));
+            let base_above2 = int.saturating_add(PositiveInt(2));
             assert_panics(|| PositiveInt::ZERO.ilog(base_above2));
             assert_eq!(PositiveInt::ZERO.checked_ilog(base_above2), None);
 
             // ...with base < 2
-            let base_below2 = idx % 2;
+            let base_below2 = int % 2;
             assert_panics(|| PositiveInt::ZERO.ilog(base_below2));
             assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
         }
 
         // Considerations specific to positive numbers
-        if idx != 0 {
+        if int != 0 {
             // Based logarithms succeed for positive numbers
-            let expected_log2 = idx.0.ilog2();
-            let expected_log10 = idx.0.ilog10();
-            assert_eq!(idx.ilog2(), expected_log2);
-            assert_eq!(idx.ilog10(), expected_log10);
-            assert_eq!(idx.checked_ilog2(), Some(expected_log2));
-            assert_eq!(idx.checked_ilog10(), Some(expected_log10));
+            let expected_log2 = int.0.ilog2();
+            let expected_log10 = int.0.ilog10();
+            assert_eq!(int.ilog2(), expected_log2);
+            assert_eq!(int.ilog10(), expected_log10);
+            assert_eq!(int.checked_ilog2(), Some(expected_log2));
+            assert_eq!(int.checked_ilog10(), Some(expected_log10));
 
             // Negation fails or wraps around for positive numbers
-            let wrapping_neg = (!idx).wrapping_add(PositiveInt(1));
-            assert_eq!(idx.checked_neg(), None);
-            assert_eq!(idx.wrapping_neg(), wrapping_neg);
-            assert_eq!(idx.overflowing_neg(), (wrapping_neg, true));
+            let wrapping_neg = (!int).wrapping_add(PositiveInt(1));
+            assert_eq!(int.checked_neg(), None);
+            assert_eq!(int.wrapping_neg(), wrapping_neg);
+            assert_eq!(int.overflowing_neg(), (wrapping_neg, true));
         }
 
         // Considerations specific to numbers that have a next power of 2
         let last_pow2 = PositiveInt::ONE << (PositiveInt::EFFECTIVE_BITS - 1);
-        let has_next_pow2 = idx & (!last_pow2);
+        let has_next_pow2 = int & (!last_pow2);
         let next_pow2 = PositiveInt(has_next_pow2.0.next_power_of_two());
         assert_eq!(has_next_pow2.next_power_of_two(), next_pow2);
         assert_eq!(has_next_pow2.checked_next_power_of_two(), Some(next_pow2));
 
         // Considerations specific to numbers that don't have a next power of 2
-        let mut no_next_pow2 = idx | last_pow2;
+        let mut no_next_pow2 = int | last_pow2;
         if no_next_pow2 == last_pow2 {
             no_next_pow2 += 1;
         }
         assert_debug_panics(|| no_next_pow2.next_power_of_two(), PositiveInt::ZERO);
         assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
+
+        // Check RangeFrom-like PositiveInt iterator
+        let actual = PositiveInt::iter_range_from(int);
+        let expected = (int.0)..;
+        assert_eq!(actual.size_hint(), expected.size_hint());
+        assert_panics(|| actual.clone().count());
+        assert_panics(|| actual.clone().last());
+        compare_iters_infinite(actual, |i| i.next(), expected, |i| i.next());
     }
 
     /// Test usize -> PositiveInt conversion and special positive-usize ops
@@ -3811,7 +3841,7 @@ mod tests {
 
     /// Test int-int binary operations
     #[quickcheck]
-    fn int_op_int(i1: PositiveInt, i2: PositiveInt) {
+    fn int_int(i1: PositiveInt, i2: PositiveInt) {
         // Ordering passes through
         assert_eq!(i1 == i2, i1.0 == i2.0);
         assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
@@ -4121,11 +4151,37 @@ mod tests {
             },
             wrapped_result,
         );
+
+        // Check Range-like PositiveInt iterator
+        let actual = PositiveInt::iter_range(i1, i2);
+        let expected = (i1.0)..(i2.0);
+        assert_eq!(actual.len(), expected.len());
+        assert_eq!(actual.size_hint(), expected.size_hint());
+        assert_eq!(actual.clone().count(), expected.len());
+        assert_eq!(
+            actual.clone().last(),
+            expected.clone().last().map(PositiveInt)
+        );
+        compare_iters_finite(actual.clone(), |i| i.next(), expected.clone(), |i| i.next());
+        compare_iters_finite(actual, |i| i.next_back(), expected, |i| i.next_back());
+
+        // Check RangeInclusive-like PositiveInt iterator
+        let actual = PositiveInt::iter_range_inclusive(i1, i2);
+        let expected = (i1.0)..=(i2.0);
+        assert_eq!(actual.len(), expected.clone().count());
+        assert_eq!(actual.size_hint(), expected.size_hint());
+        assert_eq!(actual.clone().count(), expected.clone().count());
+        assert_eq!(
+            actual.clone().last(),
+            expected.clone().last().map(PositiveInt)
+        );
+        compare_iters_finite(actual.clone(), |i| i.next(), expected.clone(), |i| i.next());
+        compare_iters_finite(actual, |i| i.next_back(), expected, |i| i.next_back());
     }
 
     /// Test int-u32 binary operations
     #[quickcheck]
-    fn int_op_u32(int: PositiveInt, rhs: u32) {
+    fn int_u32(int: PositiveInt, rhs: u32) {
         // Elevation to an integer power
         let (expected_wrapped, expected_overflow) =
             predict_overflowing_result(int, rhs, usize::overflowing_pow);
@@ -4228,16 +4284,16 @@ mod tests {
 
     /// Test int-usize binary operations
     #[quickcheck]
-    fn int_op_usize(int: PositiveInt, other: usize) {
+    fn int_usize(int: PositiveInt, other: usize) {
         // Ordering passes through
         assert_eq!(int == other, usize::from(int) == other);
         assert_eq!(
             int.partial_cmp(&other),
             usize::from(int).partial_cmp(&other)
         );
-        assert_eq!(other == usize::from(int), other == usize::from(int));
+        assert_eq!(other == int, other == usize::from(int));
         assert_eq!(
-            other.partial_cmp(&usize::from(int)),
+            other.partial_cmp(&int),
             other.partial_cmp(&usize::from(int))
         );
 
@@ -4553,11 +4609,19 @@ mod tests {
             },
             wrapped_result,
         );
+
+        // Check RangeFrom-like PositiveInt iterator in strided pattern
+        let actual = PositiveInt::iter_range_from(int);
+        let expected = (int.0)..;
+        let remaining_iters = usize::from(PositiveInt::MAX - int);
+        let max_stride = remaining_iters / INFINITE_ITERS;
+        let stride = other % max_stride;
+        compare_iters_infinite(actual, |i| i.nth(stride), expected, |i| i.nth(stride));
     }
 
     /// Test int-isize binary operations
     #[quickcheck]
-    fn int_op_isize(int: PositiveInt, other: isize) {
+    fn int_isize(int: PositiveInt, other: isize) {
         // Addition
         let (expected_wrapped, expected_overflow) =
             predict_overflowing_result(int, other, usize::overflowing_add_signed);
@@ -4717,6 +4781,32 @@ mod tests {
             },
             wrapped_result,
         );
+    }
+
+    /// Test int-int-usize ternary operations
+    #[quickcheck]
+    fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: usize) {
+        // Check Range-like PositiveInt iterator in strided pattern
+        let actual = PositiveInt::iter_range(i1, i2);
+        let expected = (i1.0)..(i2.0);
+        compare_iters_finite(
+            actual.clone(),
+            |i| i.nth(step),
+            expected.clone(),
+            |i| i.nth(step),
+        );
+        compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step));
+
+        // Check RangeInclusive-like PositiveInt iterator in strided pattern
+        let actual = PositiveInt::iter_range_inclusive(i1, i2);
+        let expected = (i1.0)..=(i2.0);
+        compare_iters_finite(
+            actual.clone(),
+            |i| i.nth(step),
+            expected.clone(),
+            |i| i.nth(step),
+        );
+        compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step));
     }
 
     /// Test iterator reductions
