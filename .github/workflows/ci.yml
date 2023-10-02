@@ -313,11 +313,6 @@ jobs:
       - name: Collect system information
         uses: ./.github/actions/system-information
 
-      - name: Install cargo-examples
-        uses: baptiste0928/cargo-install@v2
-        with:
-          crate: cargo-careful
-
       - name: Run unit and doc tests under cargo careful, with ASAN (Unices)
         run: |
           # By default, cargo-careful disables LeakChecker, but I actually like it
