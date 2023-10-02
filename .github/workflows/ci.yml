@@ -112,10 +112,10 @@ jobs:
         if: contains(matrix.features, 'bundled') == false
 
       - name: Check clippy lints
-        run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
+        run: cargo clippy --workspace --all-targets ${{ matrix.features }} -- -D warnings
 
       - name: Build docs
-        run: cargo doc ${{ matrix.features }}
+        run: cargo doc --workspace ${{ matrix.features }}
 
 
   # Run the tests and examples on all supported OSes and Rust versions (main CI)
@@ -188,7 +188,7 @@ jobs:
         if: contains(matrix.features, 'bundled') == false
 
       - name: Run unit and doc tests
-        run: cargo test ${{ matrix.features }}
+        run: cargo test --workspace ${{ matrix.features }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
@@ -248,7 +248,7 @@ jobs:
         uses: ./.github/actions/system-information
 
       - name: Run unit and doc tests
-        run: cargo test --release --features=hwloc-latest
+        run: cargo test --workspace --release --features=hwloc-latest
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
@@ -257,6 +257,65 @@ jobs:
 
       - name: Run all examples
         run: cargo examples --features=hwloc-latest -- --release
+
+
+  # Run the tests with extra stdlib checks and the ASAN sanitizer
+  #
+  # Here, our goal is only code coverage. We noticeably don't need...
+  #
+  # - Full version coverage (there's test-contrib-debug for that)
+  # - Release build coverage (it shouldn't change stdlib usage or turn code with
+  #   valid memory accesses into code with invalid ones)
+  # - Full OS coverage (we don't test what happens inside of hwloc, so as with
+  #   lints, only testing OSes that have specific Rust code associated with them
+  #   in the bindings is fine)
+  #
+  # Also, as a cargo-careful constraint we can only test nightly.
+  test-contrib-careful:
+    # Only run on "pull_request" event for external PRs. This is to avoid
+    # duplicate builds for PRs created from internal branches.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Set up hwloc
+        uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+
+      - name: Collect system information
+        uses: ./.github/actions/system-information
+
+      - name: Install cargo-examples
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-careful
+
+      - name: Run unit and doc tests under cargo careful + ASAN
+        run: |
+          # By default, cargo careful disables the leak check, but I actually like it
+          export ASAN_OPTIONS=''
+          # We don't want warnings-as-errors semantics here since this is nightly
+          export RUSTFLAGS=''
+          cargo careful test -Zcareful-sanitizer=address --workspace --features=hwloc-latest
 
 
   # Check compatibility with newer Rust/deps versions (scheduled CI)
@@ -324,10 +383,10 @@ jobs:
         if: contains(matrix.features, 'bundled') == false
 
       - name: Run basic tests (debug build)
-        run: cargo test ${{ matrix.features }}
+        run: cargo test --workspace ${{ matrix.features }}
 
       - name: Run basic tests (release build)
-        run: cargo test --release ${{ matrix.features }}
+        run: cargo test --workspace --release ${{ matrix.features }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
