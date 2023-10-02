@@ -206,14 +206,11 @@ pub mod cpu;
 pub mod errors;
 pub mod ffi;
 pub mod info;
-#[cfg(any(doc, target_os = "linux"))]
-mod linux;
+pub mod interop;
 pub mod memory;
 pub mod object;
 pub mod path;
 pub mod topology;
-#[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
-mod windows;
 
 use crate::ffi::int;
 use hwlocality_sys::{hwloc_pid_t, hwloc_thread_t};
