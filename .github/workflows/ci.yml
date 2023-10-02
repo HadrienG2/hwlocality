@@ -87,6 +87,9 @@ jobs:
           - '--features=hwloc-latest,bundled'
           - '--features=hwloc-latest,quickcheck'
 
+    env:
+      JOB_FLAGS: '--workspace ${{ matrix.features }}'
+
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -112,10 +115,10 @@ jobs:
         if: contains(matrix.features, 'bundled') == false
 
       - name: Check clippy lints
-        run: cargo clippy --workspace --all-targets ${{ matrix.features }} -- -D warnings
+        run: cargo clippy ${{ env.JOB_FLAGS }} --all-targets -- -D warnings
 
       - name: Build docs
-        run: cargo doc --workspace ${{ matrix.features }}
+        run: cargo doc ${{ env.JOB_FLAGS }}
 
 
   # Run the tests and examples on all supported OSes and Rust versions (main CI)
@@ -274,7 +277,7 @@ jobs:
   test-contrib-careful:
     # Only run on "pull_request" event for external PRs. This is to avoid
     # duplicate builds for PRs created from internal branches.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
 
     runs-on: ${{ matrix.os }}
 
@@ -283,6 +286,13 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
+
+    env:
+      JOB_FLAGS: '--workspace --features=hwloc-latest'
+      # cargo-careful uses the nightly compiler, but runs in the stable CI, so
+      # we must disable warnings-as-error to avoid breaking submitted PRs when
+      # a new lint gets added to nightly rustc
+      RUSTFLAGS: ''
 
     steps:
       - name: Checkout sources
@@ -308,13 +318,16 @@ jobs:
         with:
           crate: cargo-careful
 
-      - name: Run unit and doc tests under cargo careful + ASAN
+      - name: Run unit and doc tests under cargo careful, with ASAN (Unices)
         run: |
-          # By default, cargo careful disables the leak check, but I actually like it
+          # By default, cargo-careful disables LeakChecker, but I actually like it
           export ASAN_OPTIONS=''
-          # We don't want warnings-as-errors semantics here since this is nightly
-          export RUSTFLAGS=''
-          cargo careful test -Zcareful-sanitizer=address --workspace --features=hwloc-latest
+          cargo careful test -Zcareful-sanitizer=address ${{ env.JOB_FLAGS }}
+        if: runner.os != 'Windows'
+
+      - name: Run unit and doc tests under cargo careful, w/o ASAN (Windows)
+        run: cargo careful test ${{ env.JOB_FLAGS }}
+        if: runner.os == 'Windows'
 
 
   # Check compatibility with newer Rust/deps versions (scheduled CI)
