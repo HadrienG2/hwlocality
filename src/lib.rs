@@ -230,7 +230,7 @@ pub type ProcessId = hwloc_pid_t;
 /// This number is updated to `(X<<16)+(Y<<8)+Z` when a new release X.Y.Z
 /// actually modifies the API.
 #[doc(alias = "hwloc_get_api_version")]
-pub fn get_api_version() -> usize {
+pub fn hwloc_api_version() -> usize {
     // SAFETY: This hwloc entry point has no safety preconditions
     int::expect_usize(unsafe { hwlocality_sys::hwloc_get_api_version() })
 }
@@ -249,3 +249,40 @@ mod sealed {
 
 /// Import of [`Sealed`] that only this crate can use
 pub(crate) use sealed::Sealed;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_api_version() {
+        fn api_version(major: usize, minor: usize, patch: usize) -> usize {
+            (major << 16) + (minor << 8) + patch
+        }
+        let v3 = api_version(3, 0, 0);
+        let version_range = if cfg!(feature = "hwloc-2_8_0") {
+            api_version(2, 8, 0)..v3
+        } else if cfg!(feature = "hwloc-2_5_0") {
+            api_version(2, 5, 0)..v3
+        } else if cfg!(feature = "hwloc-2_4_0") {
+            api_version(2, 4, 0)..v3
+        } else if cfg!(feature = "hwloc-2_3_0") {
+            api_version(2, 3, 0)..v3
+        } else if cfg!(feature = "hwloc-2_2_0") {
+            api_version(2, 2, 0)..v3
+        } else if cfg!(feature = "hwloc-2_1_0") {
+            api_version(2, 1, 0)..v3
+        } else if cfg!(feature = "hwloc-2_0_4") {
+            api_version(2, 0, 4)..v3
+        } else {
+            api_version(2, 0, 0)..v3
+        };
+        let hwloc_version = hwloc_api_version();
+        assert!(
+            version_range.contains(&hwloc_version),
+            "hwloc version {hwloc_version:b} is outside expected range {:b}..{:b}",
+            version_range.start,
+            version_range.end
+        )
+    }
+}
