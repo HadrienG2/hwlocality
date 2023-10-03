@@ -2228,6 +2228,17 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        #[cfg(any(test, feature = "quickcheck"))]
+        impl quickcheck::Arbitrary for $newtype {
+            fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+                Self($crate::bitmap::Bitmap::arbitrary(g))
+            }
+
+            fn shrink(&self) -> Box<dyn std::iter::Iterator<Item = Self>> {
+                Box::new(self.0.shrink().map(Self))
+            }
+        }
+
         impl<'target> AsRef<$crate::bitmap::Bitmap> for $crate::bitmap::BitmapRef<'_, $newtype> {
             fn as_ref(&self) -> &$crate::bitmap::Bitmap {
                 let newtype: &$newtype = self.as_ref();
