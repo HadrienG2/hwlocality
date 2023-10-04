@@ -114,7 +114,7 @@ pub(crate) unsafe fn call_snprintf(
 /// # Safety
 ///
 /// Same as [`call_snprintf()`].
-pub(crate) fn write_snprintf(
+pub(crate) unsafe fn write_snprintf(
     f: &mut fmt::Formatter<'_>,
     snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> fmt::Result {
@@ -126,4 +126,99 @@ pub(crate) fn write_snprintf(
     //           text CStr pointing to it is live.
     let text = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy();
     f.pad(&text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        ffi::CString,
+        fmt::{self, Debug},
+    };
+
+    #[test]
+    fn deref_ptr_like() {
+        // SAFETY: Safe to call on a null pointer
+        assert_eq!(unsafe { deref_ptr(&ptr::null::<u16>()) }, None);
+        // SAFETY: Safe to call on a null pointer
+        assert_eq!(unsafe { deref_ptr_mut(&ptr::null_mut::<u16>()) }, None);
+        // SAFETY: Safe to call on a null pointer
+        assert_eq!(unsafe { deref_mut_ptr(&mut ptr::null_mut::<u16>()) }, None);
+
+        let mut x = 42;
+        {
+            let p: *const u32 = &x;
+            // SAFETY: Valid because the &x that p is from was valid
+            let r = unsafe { deref_ptr(&p).unwrap() };
+            assert!(ptr::eq(r, &x));
+        }
+        {
+            let p_mut: *mut u32 = &mut x;
+            // SAFETY: Valid because the &mut x that p is from was valid and the
+            //         original &mut reference has gone out of scope
+            let r = unsafe { deref_ptr_mut(&p_mut).unwrap() };
+            assert!(ptr::eq(r, &x));
+        }
+        {
+            let mut p_mut: *mut u32 = &mut x;
+            // SAFETY: Valid because the &mut x that p is from was valid and the
+            //         original &mut reference has gone out of scope
+            let r = unsafe { deref_mut_ptr(&mut p_mut).unwrap() };
+            assert!(ptr::eq(r, &x));
+        }
+    }
+
+    #[test]
+    fn deref_str() {
+        assert_eq!(
+            // SAFETY: Safe to call on a null pointer
+            unsafe { super::deref_str(&ptr::null_mut::<c_char>()) },
+            None
+        );
+
+        let s = CString::new("Hello world").unwrap();
+        let p = s.as_ptr().cast_mut();
+        // SAFETY: This is just a very convoluted way of borrowing s
+        let s2 = unsafe { super::deref_str(&p).unwrap() };
+        assert!(ptr::eq(s2.as_ptr(), p.cast_const()));
+    }
+
+    #[test]
+    fn snprintf_wrappers() {
+        const ORIGINAL: &str = "I'm sorry, Dave\0";
+
+        // # Safety
+        //
+        // Must be called with correct snprintf inputs
+        unsafe fn snprintf(buf: *mut c_char, len: usize) -> i32 {
+            assert!(!(buf.is_null() && len != 0));
+            let original_bytes = ORIGINAL.as_bytes();
+            if !buf.is_null() {
+                let truncated_len = len.min(original_bytes.len());
+                // SAFETY: Acceptable per input assumption
+                let buf = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
+                buf.copy_from_slice(&original_bytes[..truncated_len]);
+            }
+            i32::try_from(original_bytes.len() - 1).unwrap()
+        }
+
+        // SAFETY: snprintf closure is indeed an snprintf-like function
+        assert!(unsafe { call_snprintf(|buf, len| snprintf(buf, len)) }
+            .iter()
+            .copied()
+            .eq(ORIGINAL.bytes().map(|b| c_char::try_from(b).unwrap())));
+
+        struct Harness;
+        //
+        impl Debug for Harness {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                // SAFETY: - write_snprintf can handle snprintf correctly
+                //         - snprintf honors write_snprintf's assumptions
+                unsafe { write_snprintf(f, |buf, len| snprintf(buf, len)) }
+            }
+        }
+        //
+        let x = format!("{Harness:?}");
+        assert_eq!(x, &ORIGINAL[..ORIGINAL.len() - 1]);
+    }
 }

@@ -3,7 +3,7 @@
 use crate::errors::NulError;
 use std::{
     ffi::{c_char, c_void},
-    fmt::{self, Debug},
+    fmt::{self, Debug, Display},
     ptr::NonNull,
 };
 
@@ -30,7 +30,7 @@ impl LibcString {
     pub(crate) fn new(s: impl AsRef<str>) -> Result<Self, NulError> {
         // Check input string for inner null chars
         let s = s.as_ref();
-        if s.find('\0').is_some() {
+        if s.contains('\0') {
             return Err(NulError);
         }
 
@@ -106,6 +106,13 @@ impl AsRef<str> for LibcString {
 impl Debug for LibcString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s: &str = self.as_ref();
+        f.pad(&format!("{s:?}"))
+    }
+}
+//
+impl Display for LibcString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s: &str = self.as_ref();
         f.pad(s)
     }
 }
@@ -131,3 +138,47 @@ unsafe impl Send for LibcString {}
 //
 // SAFETY: LibcString exposes no internal mutability
 unsafe impl Sync for LibcString {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quickcheck_macros::quickcheck;
+    use std::ffi::CStr;
+
+    macro_rules! check_new {
+        ($result:expr, $input:expr) => {
+            match ($input.contains('\0'), $result) {
+                (false, Ok(result)) => result,
+                (true, Err(NulError)) => return,
+                (false, Err(NulError)) | (true, Ok(_)) => panic!("Should never happen"),
+            }
+        };
+    }
+
+    #[quickcheck]
+    fn unary(s: String) {
+        let c = check_new!(LibcString::new(&s), &s);
+
+        assert_eq!(c.len(), s.len() + 1);
+        // SAFETY: Safe as a type invariant of LibcString
+        assert_eq!(unsafe { CStr::from_ptr(c.borrow()) }.to_str().unwrap(), s);
+        assert_eq!(c.as_ref(), s);
+        assert_eq!(c.to_string(), s);
+        assert_eq!(format!("{c:?}"), format!("{s:?}"));
+
+        let backup = c.0;
+        let raw = c.into_raw();
+        assert_eq!(raw, backup.cast::<c_char>().as_ptr());
+
+        // SAFETY: Effectively replicates Drop. Correct because since into_raw()
+        //         has been called, Drop will not be called.
+        unsafe { libc::free(raw.cast::<c_void>()) };
+    }
+
+    #[quickcheck]
+    fn binary(s1: String, s2: String) {
+        let c1 = check_new!(LibcString::new(&s1), &s1);
+        let c2 = check_new!(LibcString::new(&s2), &s2);
+        assert_eq!(c1 == c2, s1 == s2);
+    }
+}
