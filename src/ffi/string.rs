@@ -3,6 +3,7 @@
 use crate::errors::NulError;
 use std::{
     ffi::{c_char, c_void},
+    fmt::{self, Debug},
     ptr::NonNull,
 };
 
@@ -89,11 +90,39 @@ impl LibcString {
     }
 }
 //
+impl AsRef<str> for LibcString {
+    fn as_ref(&self) -> &str {
+        // SAFETY: Per type invariant, this is a C string composed of an &str
+        //         followed by a terminating NUL.
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                self.borrow().cast::<u8>(),
+                self.len() - 1,
+            ))
+        }
+    }
+}
+//
+impl Debug for LibcString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s: &str = self.as_ref();
+        f.pad(s)
+    }
+}
+//
 impl Drop for LibcString {
     fn drop(&mut self) {
         // SAFETY: self.0 comes from malloc and there is no way to deallocate it
         //         other than Drop so double free cannot happen
         unsafe { libc::free(self.0.as_ptr().cast::<c_void>()) }
+    }
+}
+//
+impl Eq for LibcString {}
+//
+impl PartialEq for LibcString {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
     }
 }
 //

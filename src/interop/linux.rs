@@ -118,6 +118,41 @@ impl Topology {
     ///
     /// Note that this function ignores the [HWLOC_FSROOT environment
     /// variable](https://hwloc.readthedocs.io/en/v2.9/envvar.html).
+    ///
+    /// # Errors
+    ///
+    /// - [`ContainsNul`] if `path` contains NUL chars.
+    /// - [`NotUnicode`] if `path` contains non-Unicode data
+    ///
+    /// # Example
+    ///
+    #[cfg_attr(target_os = "linux", doc = "```rust")]
+    #[cfg_attr(not(target_os = "linux"), doc = "```rust,ignore")]
+    /// # use anyhow::Context;
+    /// # use hwlocality::{topology::Topology, object::types::ObjectType};
+    /// #
+    /// # let topology = Topology::test_instance();
+    /// #
+    /// // Read cpuset of first core via Linux sysfs
+    /// let core_set = topology
+    ///     .read_path_as_cpumask("/sys/devices/system/cpu/cpu0/topology/core_cpus")?;
+    ///
+    /// // Check that the hwloc version is consistent
+    /// assert_eq!(
+    ///     core_set,
+    ///     topology
+    ///         .objects_with_type(ObjectType::Core)
+    ///         .next()
+    ///         .context("System should have at least one core")?
+    ///         .cpuset()
+    ///         .context("Cores should have cpusets")?
+    /// );
+    /// #
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    ///
+    /// [`ContainsNul`]: PathError::ContainsNul
+    /// [`NotUnicode`]: PathError::NotUnicode
     #[doc(alias = "hwloc_linux_read_path_as_cpumask")]
     pub fn read_path_as_cpumask(
         &self,
@@ -135,5 +170,32 @@ impl Topology {
         })
         .map_err(HybridError::Hwloc)?;
         Ok(set)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::types::ObjectType;
+
+    #[test]
+    fn read_path_as_cpumask() {
+        let topology = Topology::test_instance();
+
+        // Read cpuset of first core via Linux sysfs
+        let core_set = topology
+            .read_path_as_cpumask("/sys/devices/system/cpu/cpu0/topology/core_cpus")
+            .unwrap();
+
+        // Compare with hwloc result
+        assert_eq!(
+            core_set,
+            topology
+                .objects_with_type(ObjectType::Core)
+                .next()
+                .unwrap()
+                .cpuset()
+                .unwrap()
+        );
     }
 }

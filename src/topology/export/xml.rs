@@ -52,7 +52,11 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`NulError`] if `path` contains NUL chars.
+    /// - [`ContainsNul`] if `path` contains NUL chars.
+    /// - [`NotUnicode`] if `path` contains non-Unicode data
+    ///
+    /// [`ContainsNul`]: PathError::ContainsNul
+    /// [`NotUnicode`]: PathError::NotUnicode
     #[doc(alias = "hwloc_topology_export_xml")]
     pub fn export_xml_file(
         &self,

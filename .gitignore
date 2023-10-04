@@ -1,5 +1,15 @@
+# Binary outputs
 target
+
+# Precise dep list
 Cargo.lock
+
+# macOS caches
 **/*.DS_Store
+
+# IntelliJ internals
 .idea
 **/*.bk
+
+# Rendered code coverage
+tarpaulin-report.html

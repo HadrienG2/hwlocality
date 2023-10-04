@@ -330,6 +330,61 @@ jobs:
         if: runner.os == 'Windows'
 
 
+  # Test current code coverage
+  #
+  # It is okay to measure coverage for the latest hwloc release only: it is the
+  # one with the most features to test, as no hwloc release has removed
+  # significant features so far. However, we must test both linux and windows as
+  # they each have os-specific code.
+  coverage:
+    # Only run on "pull_request" event for external PRs. This is to avoid
+    # duplicate builds for PRs created from internal branches.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up hwloc
+        uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+
+      - name: Collect system information
+        uses: ./.github/actions/system-information
+
+      - name: Install cargo-tarpaulin
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-tarpaulin
+
+      - name: Measure code coverage
+        run: cargo tarpaulin --verbose --timeout 120 --out xml
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          env_vars: OS
+          flags: ${{ matrix.os }}
+          fail_ci_if_error: true
+          verbose: true
+
+
   # Check compatibility with newer Rust/deps versions (scheduled CI)
   #
   # We aren't concerned about trashing the cargo cache here since these jobs
