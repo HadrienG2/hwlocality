@@ -45,16 +45,10 @@ pub(crate) unsafe trait TransparentNewtype: Sized {
     /// builds with no associated runtime costs.
     #[inline]
     fn check_basic_layout() {
-        assert_eq!(
-            std::mem::size_of::<Self>(),
-            std::mem::size_of::<Self::Inner>(),
-            "Incorrectly sized TransparentNewtype implementation detected"
-        );
-        assert_eq!(
-            std::mem::align_of::<Self>(),
-            std::mem::align_of::<Self::Inner>(),
-            "Incorrectly aligned TransparentNewtype implementation detected"
-        );
+        use std::mem::{align_of, size_of};
+        const ERROR: &'static str = "Invalid TransparentNewtype impl detected";
+        assert_eq!(size_of::<Self>(), size_of::<Self::Inner>(), "{ERROR}");
+        assert_eq!(align_of::<Self>(), align_of::<Self::Inner>(), "{ERROR}");
     }
 }
 
@@ -195,5 +189,52 @@ unsafe impl<NewT: TransparentNewtype> ToInner for *mut NewT {
     fn to_inner(self) -> Self::Unwrapped {
         NewT::check_basic_layout();
         self.cast()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::info::TextualInfo;
+    use hwlocality_sys::hwloc_info_s;
+    use std::ptr;
+
+    #[test]
+    fn transparent_newtype() {
+        let mut info = hwloc_info_s {
+            name: ptr::null_mut(),
+            value: ptr::null_mut(),
+        };
+        let nonnull_info = NonNull::from(&mut info);
+        let mut_info = nonnull_info.as_ptr();
+        let const_info: *const hwloc_info_s = mut_info;
+        TextualInfo::check_basic_layout();
+        {
+            let r = (&info).to_newtype();
+            let p: *const TextualInfo = r;
+            assert_eq!(p.cast::<hwloc_info_s>(), const_info);
+            assert!(ptr::eq(r.to_inner(), const_info));
+        }
+        {
+            let r = (&mut info).to_newtype();
+            let p: *mut TextualInfo = r;
+            assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
+            assert!(ptr::eq(r.to_inner(), mut_info));
+        }
+        {
+            let p: NonNull<TextualInfo> = nonnull_info.to_newtype();
+            assert_eq!(p.cast::<hwloc_info_s>(), nonnull_info);
+            assert_eq!(p.to_inner(), nonnull_info);
+        }
+        {
+            let p: *const TextualInfo = const_info.to_newtype();
+            assert_eq!(p.cast::<hwloc_info_s>(), const_info);
+            assert_eq!(p.to_inner(), const_info);
+        }
+        {
+            let p: *mut TextualInfo = mut_info.to_newtype();
+            assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
+            assert_eq!(p.to_inner(), mut_info);
+        }
     }
 }
