@@ -76,7 +76,7 @@ This is the main entry point to the hwloc library, through which you can access
 almost every operation that hwloc allows.
 
 Here is a quick usage example which walks though the detected hardware topology
-and prints out a description of every hardware object known to hwloc:
+and prints out a short description of every CPU and cache object known to hwloc:
 
 ```rust
 use hwlocality::{object::depth::NormalDepth, Topology};
@@ -104,19 +104,41 @@ One possible output is:
 *** Objects at depth 1
 0: Package
 *** Objects at depth 2
-0: L3 (48MB)
+0: L3 (16MB)
 *** Objects at depth 3
-0: L2 (1280KB)
-1: L2 (1280KB)
+0: L2 (512KB)
+1: L2 (512KB)
+2: L2 (512KB)
+3: L2 (512KB)
+4: L2 (512KB)
+5: L2 (512KB)
 *** Objects at depth 4
-0: L1d (48KB)
-1: L1d (48KB)
+0: L1d (32KB)
+1: L1d (32KB)
+2: L1d (32KB)
+3: L1d (32KB)
+4: L1d (32KB)
+5: L1d (32KB)
 *** Objects at depth 5
 0: Core
 1: Core
+2: Core
+3: Core
+4: Core
+5: Core
 *** Objects at depth 6
 0: PU
 1: PU
+2: PU
+3: PU
+4: PU
+5: PU
+6: PU
+7: PU
+8: PU
+9: PU
+10: PU
+11: PU
 ```
 
 More examples are available [in the source
