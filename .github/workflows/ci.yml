@@ -367,13 +367,13 @@ jobs:
       - name: Collect system information
         uses: ./.github/actions/system-information
 
-      - name: Install cargo-examples
+      - name: Install cargo-tarpaulin
         uses: baptiste0928/cargo-install@v2
         with:
           crate: cargo-tarpaulin
 
       - name: Measure code coverage
-        run: cargo tarpaulin test --verbose --timeout 120 --out xml
+        run: cargo tarpaulin --verbose --timeout 120 --out xml
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
