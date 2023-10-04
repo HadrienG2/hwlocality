@@ -122,7 +122,7 @@ impl Topology {
     /// # Errors
     ///
     /// - [`ContainsNul`] if `path` contains NUL chars.
-    /// - [`NotUnicode`] if `path contains non-Unicode data
+    /// - [`NotUnicode`] if `path` contains non-Unicode data
     ///
     /// # Example
     ///
