@@ -409,6 +409,7 @@ mod tests {
                 output
             })
         });
+        assert_eq!(errno::errno(), start_errno);
 
         // Interpret results
         match output {
@@ -424,7 +425,6 @@ mod tests {
             ),
             positive => assert_eq!(unwind_result.unwrap(), Ok(u32::try_from(positive).unwrap())),
         }
-        assert_eq!(errno::errno(), start_errno);
     }
 
     #[quickcheck]
@@ -486,6 +486,7 @@ mod tests {
             },
             lowest_good_value,
         );
+        assert_eq!(errno::errno(), start_errno);
 
         // Interpret outcome
         if output >= lowest_good_value {
@@ -500,7 +501,6 @@ mod tests {
                 })
             );
         }
-        assert_eq!(errno::errno(), start_errno);
     }
 
     #[quickcheck]
@@ -544,6 +544,7 @@ mod tests {
                 output
             })
         });
+        assert_eq!(errno::errno(), start_errno);
 
         // Interpret outcome
         match output {
@@ -560,9 +561,6 @@ mod tests {
                 unwind_result.expect_err("Should panic on non-bool output");
             }
         }
-        // FIXME: For some strange reason, errno is not cleanly restored here
-        //        on Ubuntu CI nodes...? Works locally on modern distros...
-        // assert_eq!(errno::errno(), start_errno);
     }
 
     #[quickcheck]
