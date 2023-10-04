@@ -46,7 +46,8 @@ pub(crate) unsafe trait TransparentNewtype: Sized {
     #[inline]
     fn check_basic_layout() {
         use std::mem::{align_of, size_of};
-        const ERROR: &'static str = "Invalid TransparentNewtype impl detected";
+        /// Error emitted (hopefully at compile time) when layout check fails
+        const ERROR: &str = "Invalid TransparentNewtype impl detected";
         assert_eq!(size_of::<Self>(), size_of::<Self::Inner>(), "{ERROR}");
         assert_eq!(align_of::<Self>(), align_of::<Self::Inner>(), "{ERROR}");
     }

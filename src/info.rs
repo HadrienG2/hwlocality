@@ -73,7 +73,7 @@ impl TextualInfo {
 //
 impl fmt::Debug for TextualInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ObjectInfo")
+        f.debug_struct("TextualInfo")
             .field("name", &self.name())
             .field("value", &self.value())
             .finish()
