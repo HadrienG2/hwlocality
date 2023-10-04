@@ -35,7 +35,7 @@ impl From<NulError> for PathError {
 /// # Errors
 ///
 /// - [`ContainsNul`] if `path` contains NUL chars.
-/// - [`NotUnicode`] if `path contains non-Unicode data
+/// - [`NotUnicode`] if `path` contains non-Unicode data
 pub(crate) fn make_hwloc_path(path: impl AsRef<Path>) -> Result<LibcString, PathError> {
     Ok(LibcString::new(
         path.as_ref().to_str().ok_or(PathError::NotUnicode)?,
@@ -48,6 +48,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
     use std::path::PathBuf;
 
+    #[allow(clippy::option_if_let_else)]
     #[quickcheck]
     fn make_hwloc_path(path: PathBuf) {
         let res = super::make_hwloc_path(&path);
@@ -56,7 +57,7 @@ mod tests {
                 if s.contains('\0') {
                     assert_eq!(res, Err(PathError::ContainsNul));
                 } else {
-                    assert_eq!(res.as_ref().map(|s| s.as_ref()), Ok(s));
+                    assert_eq!(res.as_ref().map(AsRef::as_ref), Ok(s));
                 }
             }
             None => assert_eq!(res, Err(PathError::NotUnicode)),
