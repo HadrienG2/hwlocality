@@ -277,8 +277,8 @@ mod tests {
     #[quickcheck]
     fn check_errno_normal(output: i128, start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
 
         // Errno is not checked on success
@@ -305,7 +305,7 @@ mod tests {
     #[quickcheck]
     fn check_errno_in_vain(output: i128, start_errno: i32) {
         // Not setting errno on failure is handled properly
-        let start_errno = Errno(start_errno.abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         assert_eq!(super::check_errno(|| { (output, true) }), (output, None));
         assert_eq!(errno::errno(), start_errno);
@@ -314,8 +314,8 @@ mod tests {
     #[quickcheck]
     fn ptr_success(nonnull: NonZeroUsize, start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "foo";
         let nonnull_ptr = NonNull::new(nonnull.get() as *mut u8).unwrap();
@@ -342,8 +342,8 @@ mod tests {
     #[quickcheck]
     fn ptr_fail_with_errno(start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "bar";
 
@@ -376,7 +376,7 @@ mod tests {
     #[quickcheck]
     fn ptr_fail_wo_errno(start_errno: i32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "baz";
         let null_ptr = ptr::null_mut::<String>();
@@ -397,8 +397,8 @@ mod tests {
     #[quickcheck]
     fn int_normal_general(output: i32, start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "abc";
 
@@ -430,8 +430,8 @@ mod tests {
     #[quickcheck]
     fn int_normal_err_with_errno(start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "def";
 
@@ -452,7 +452,7 @@ mod tests {
     #[quickcheck]
     fn int_normal_err_wo_errno(start_errno: i32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "ghi";
 
@@ -472,8 +472,8 @@ mod tests {
         new_errno: NonZeroU32,
     ) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "jkl";
 
@@ -506,7 +506,7 @@ mod tests {
     #[quickcheck]
     fn int_raw_wo_errno(output: i32, lowest_good_value: i32, start_errno: i32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "opq";
 
@@ -532,8 +532,8 @@ mod tests {
     #[quickcheck]
     fn bool_general(output: i32, start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "rst";
 
@@ -566,8 +566,8 @@ mod tests {
     #[quickcheck]
     fn bool_err_with_errno(start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "uvw";
 
@@ -588,7 +588,7 @@ mod tests {
     #[quickcheck]
     fn bool_err_wo_errno(start_errno: i32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "xyz";
 
@@ -603,8 +603,8 @@ mod tests {
     #[quickcheck]
     fn bool_success(output: bool, start_errno: i32, new_errno: NonZeroU32) {
         // Test boilerplate
-        let start_errno = Errno(start_errno.abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).abs());
+        let start_errno = Errno(start_errno.wrapping_abs());
+        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
         let api = "cthulhu_phtagn";
 
