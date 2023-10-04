@@ -3292,18 +3292,14 @@ mod tests {
 
     #[test]
     fn hwloc_numanode_attr_s() {
-        let default = super::hwloc_numanode_attr_s::default();
-        match default {
-            hwloc_numanode_attr_s {
-                local_memory,
-                page_types_len,
-                page_types,
-            } => {
-                assert_eq!(local_memory, 0);
-                assert_eq!(page_types_len, 0);
-                assert!(page_types.is_null());
-            }
-        }
+        let hwloc_numanode_attr_s {
+            local_memory,
+            page_types_len,
+            page_types,
+        } = super::hwloc_numanode_attr_s::default();
+        assert_eq!(local_memory, 0);
+        assert_eq!(page_types_len, 0);
+        assert!(page_types.is_null());
     }
 
     #[test]
@@ -3332,48 +3328,38 @@ mod tests {
     #[test]
     fn hwloc_topology_support() {
         let default = super::hwloc_topology_support::default();
-        match default {
-            #[cfg(not(feature = "hwloc-2_3_0"))]
-            hwloc_topology_support {
-                discovery,
-                cpubind,
-                membind,
-            } => {
-                assert!(discovery.is_null());
-                assert!(cpubind.is_null());
-                assert!(membind.is_null());
-            }
-            #[cfg(feature = "hwloc-2_3_0")]
-            hwloc_topology_support {
-                discovery,
-                cpubind,
-                membind,
-                misc,
-            } => {
-                assert!(discovery.is_null());
-                assert!(cpubind.is_null());
-                assert!(membind.is_null());
-                assert!(misc.is_null());
-            }
-        }
+        #[cfg(not(feature = "hwloc-2_3_0"))]
+        let hwloc_topology_support {
+            discovery,
+            cpubind,
+            membind,
+        } = default;
+        #[cfg(feature = "hwloc-2_3_0")]
+        let hwloc_topology_support {
+            discovery,
+            cpubind,
+            membind,
+            misc,
+        } = default;
+        assert!(discovery.is_null());
+        assert!(cpubind.is_null());
+        assert!(membind.is_null());
+        #[cfg(feature = "hwloc-2_3_0")]
+        assert!(misc.is_null());
     }
 
     #[test]
     fn hwloc_distances_s() {
-        let default = super::hwloc_distances_s::default();
-        match default {
-            hwloc_distances_s {
-                nbobj,
-                objs,
-                kind,
-                values,
-            } => {
-                assert_eq!(nbobj, 0);
-                assert!(objs.is_null());
-                assert_eq!(kind, 0);
-                assert!(values.is_null());
-            }
-        }
+        let hwloc_distances_s {
+            nbobj,
+            objs,
+            kind,
+            values,
+        } = super::hwloc_distances_s::default();
+        assert_eq!(nbobj, 0);
+        assert!(objs.is_null());
+        assert_eq!(kind, 0);
+        assert!(values.is_null());
     }
 
     #[cfg(feature = "hwloc-2_3_0")]
