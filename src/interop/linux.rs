@@ -126,7 +126,8 @@ impl Topology {
     ///
     /// # Example
     ///
-    /// ```rust
+    #[cfg_attr(target_os = "linux", doc = "```rust")]
+    #[cfg_attr(not(target_os = "linux"), doc = "```rust,ignore")]
     /// # use anyhow::Context;
     /// # use hwlocality::{topology::Topology, object::types::ObjectType};
     /// #
