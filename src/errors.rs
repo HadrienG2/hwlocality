@@ -404,12 +404,13 @@ mod tests {
 
         // Run the function
         let unwind_result = panic::catch_unwind(|| {
-            super::call_hwloc_int_normal(api, || {
+            let res = super::call_hwloc_int_normal(api, || {
                 errno::set_errno(new_errno);
                 output
-            })
+            });
+            assert_eq!(errno::errno(), start_errno);
+            res
         });
-        assert_eq!(errno::errno(), start_errno);
 
         // Interpret results
         match output {
@@ -512,6 +513,7 @@ mod tests {
 
         // Run the function
         let result = super::call_hwloc_int_raw(api, || output, lowest_good_value);
+        assert_eq!(errno::errno(), start_errno);
 
         // Interpret outcome
         if output >= lowest_good_value {
@@ -526,7 +528,6 @@ mod tests {
                 })
             );
         }
-        assert_eq!(errno::errno(), start_errno);
     }
 
     #[quickcheck]
@@ -539,12 +540,13 @@ mod tests {
 
         // Run the function
         let unwind_result = panic::catch_unwind(|| {
-            super::call_hwloc_bool(api, || {
+            let res = super::call_hwloc_bool(api, || {
                 errno::set_errno(new_errno);
                 output
-            })
+            });
+            assert_eq!(errno::errno(), start_errno);
+            res
         });
-        assert_eq!(errno::errno(), start_errno);
 
         // Interpret outcome
         match output {
