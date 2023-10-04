@@ -167,7 +167,12 @@ mod tests {
         assert_eq!(format!("{c:?}"), format!("{s:?}"));
 
         let backup = c.0;
-        assert_eq!(c.into_raw(), backup.cast::<c_char>().as_ptr());
+        let raw = c.into_raw();
+        assert_eq!(raw, backup.cast::<c_char>().as_ptr());
+
+        // SAFETY: Effectively replicates Drop. Correct because since into_raw()
+        //         has been called, Drop will not be called.
+        unsafe { libc::free(raw.cast::<c_void>()) };
     }
 
     #[quickcheck]
