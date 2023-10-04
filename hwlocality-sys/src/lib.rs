@@ -987,7 +987,7 @@ pub struct hwloc_pcidev_attr_s {
 }
 
 /// [`HWLOC_OBJ_BRIDGE`]-specific attributes
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s")]
 #[repr(C)]
 pub struct hwloc_bridge_attr_s {
@@ -1010,16 +1010,6 @@ pub struct hwloc_bridge_attr_s {
     /// Bridge depth
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::depth")]
     pub depth: c_uint,
-}
-//
-impl Debug for hwloc_bridge_attr_s {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("hwloc_bridge_attr_s")
-            .field("upstream_type", &self.upstream_type)
-            .field("downstream_type", &self.downstream_type)
-            .field("depth", &self.depth)
-            .finish_non_exhaustive()
-    }
 }
 
 /// Upstream device attributes
@@ -2205,7 +2195,7 @@ mod memory_attributes {
     pub const HWLOC_LOCAL_NUMANODE_FLAG_ALL: hwloc_local_numanode_flag_e = 1 << 2;
 
     /// Where to measure attributes from
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Debug)]
     #[repr(C)]
     pub struct hwloc_location {
         /// Type of location
@@ -2214,14 +2204,6 @@ mod memory_attributes {
 
         /// Actual location
         pub location: hwloc_location_u,
-    }
-    //
-    impl Debug for hwloc_location {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("hwloc_location")
-                .field("type", &self.ty)
-                .finish_non_exhaustive()
-        }
     }
 
     /// Type of location
@@ -3295,3 +3277,104 @@ extern_c_block!("hwloc");
 
 #[cfg(not(target_os = "windows"))]
 extern_c_block!("hwloc");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hwloc_obj_attr_u() {
+        let attr = super::hwloc_obj_attr_u {
+            cache: hwloc_cache_attr_s::default(),
+        };
+        assert_eq!(format!("{attr:?}"), "hwloc_obj_attr_u { .. }");
+    }
+
+    #[test]
+    fn hwloc_numanode_attr_s() {
+        let hwloc_numanode_attr_s {
+            local_memory,
+            page_types_len,
+            page_types,
+        } = super::hwloc_numanode_attr_s::default();
+        assert_eq!(local_memory, 0);
+        assert_eq!(page_types_len, 0);
+        assert!(page_types.is_null());
+    }
+
+    #[test]
+    fn hwloc_bridge_attr_s() {
+        let attr = super::hwloc_bridge_attr_s {
+            upstream: RawUpstreamAttributes {
+                pci: hwloc_pcidev_attr_s::default(),
+            },
+            upstream_type: HWLOC_OBJ_BRIDGE_PCI,
+            downstream: RawDownstreamAttributes {
+                pci: RawDownstreamPCIAttributes::default(),
+            },
+            downstream_type: HWLOC_OBJ_BRIDGE_PCI,
+            depth: 0,
+        };
+        assert_eq!(
+            format!("{attr:?}"),
+            "hwloc_bridge_attr_s { upstream: RawUpstreamAttributes { .. }, \
+                                   upstream_type: 1, \
+                                   downstream: RawDownstreamAttributes { .. }, \
+                                   downstream_type: 1, \
+                                   depth: 0 }"
+        );
+    }
+
+    #[test]
+    fn hwloc_topology_support() {
+        let default = super::hwloc_topology_support::default();
+        #[cfg(not(feature = "hwloc-2_3_0"))]
+        let hwloc_topology_support {
+            discovery,
+            cpubind,
+            membind,
+        } = default;
+        #[cfg(feature = "hwloc-2_3_0")]
+        let hwloc_topology_support {
+            discovery,
+            cpubind,
+            membind,
+            misc,
+        } = default;
+        assert!(discovery.is_null());
+        assert!(cpubind.is_null());
+        assert!(membind.is_null());
+        #[cfg(feature = "hwloc-2_3_0")]
+        assert!(misc.is_null());
+    }
+
+    #[test]
+    fn hwloc_distances_s() {
+        let hwloc_distances_s {
+            nbobj,
+            objs,
+            kind,
+            values,
+        } = super::hwloc_distances_s::default();
+        assert_eq!(nbobj, 0);
+        assert!(objs.is_null());
+        assert_eq!(kind, 0);
+        assert!(values.is_null());
+    }
+
+    #[cfg(feature = "hwloc-2_3_0")]
+    #[test]
+    fn hwloc_location() {
+        let location = super::hwloc_location {
+            ty: HWLOC_LOCATION_TYPE_CPUSET,
+            location: hwloc_location_u {
+                cpuset: ptr::null(),
+            },
+        };
+        assert_eq!(
+            format!("{location:?}"),
+            "hwloc_location { ty: 1, \
+                              location: hwloc_location_u { .. } }"
+        );
+    }
+}
