@@ -30,6 +30,9 @@ use bitflags::bitflags;
 use errno::Errno;
 use hwlocality_sys::{hwloc_bitmap_s, hwloc_topology, hwloc_type_filter_e};
 use libc::EINVAL;
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     convert::TryInto,
     ffi::c_ulong,

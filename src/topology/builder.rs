@@ -28,6 +28,9 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::Errno;
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;

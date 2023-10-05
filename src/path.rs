@@ -5,6 +5,9 @@
 //! associated error detection and reporting.
 
 use crate::{errors::NulError, ffi::string::LibcString};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::path::Path;
 use thiserror::Error;
 
@@ -45,6 +48,8 @@ pub(crate) fn make_hwloc_path(path: impl AsRef<Path>) -> Result<LibcString, Path
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
     use std::path::PathBuf;
 

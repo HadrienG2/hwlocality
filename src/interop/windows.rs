@@ -6,6 +6,9 @@ use crate::{
     ffi::int,
     topology::Topology,
 };
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
 
 /// # Windows-specific helpers

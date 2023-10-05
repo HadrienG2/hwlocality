@@ -165,6 +165,9 @@ rand = { version = "0.8", optional = true }
 # Used to simplify examples and test error reporting
 anyhow = { version = "1.0", features = ["backtrace"] }
 
+# Used to ease debugging of string tests
+pretty_assertions = "1.4"
+
 # Used for random testing
 quickcheck = "1.0"
 quickcheck_macros = "1.0"

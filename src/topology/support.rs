@@ -20,6 +20,9 @@ use hwlocality_sys::{
     hwloc_topology_cpubind_support, hwloc_topology_discovery_support,
     hwloc_topology_membind_support, hwloc_topology_support,
 };
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{ffi::c_uchar, fmt, hash::Hash};
 
 /// Set of flags describing actual hwloc feature support for this topology
@@ -415,6 +418,8 @@ fn support_flag(flag: c_uchar) -> bool {
 mod tests {
     use super::*;
     use crate::topology::Topology;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[allow(unused)]
     fn cpu_binding_supported(kind: fn(&CpuBindingSupport) -> bool) -> bool {

@@ -20,6 +20,9 @@
 //! This module helps you implement both of these strategies.
 
 use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(any(test, feature = "quickcheck"))]
@@ -3400,6 +3403,8 @@ impl Iterator for PositiveIntRangeFromIter {
 mod tests {
     #![allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
     use std::{
         collections::hash_map::DefaultHasher,

@@ -8,6 +8,9 @@ pub(crate) mod int;
 pub(crate) mod string;
 pub(crate) mod transparent;
 
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     ffi::{c_char, CStr},
     fmt, ptr,
@@ -131,6 +134,8 @@ pub(crate) unsafe fn write_snprintf(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use std::{
         ffi::CString,
         fmt::{self, Debug},

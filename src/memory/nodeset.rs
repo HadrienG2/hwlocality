@@ -6,6 +6,9 @@
 #[cfg(doc)]
 use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
 use crate::{cpu::cpuset::CpuSet, impl_bitmap_newtype, object::depth::Depth, topology::Topology};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::borrow::Borrow;
 
 /// # NodeSet-specific API

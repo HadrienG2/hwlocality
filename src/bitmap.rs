@@ -62,6 +62,9 @@ use crate::{
     Sealed,
 };
 use hwlocality_sys::hwloc_bitmap_s;
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "quickcheck"))]
 use quickcheck::{Arbitrary, Gen};
 #[cfg(doc)]
@@ -2430,6 +2433,8 @@ macro_rules! impl_bitmap_newtype {
 mod tests {
     #![allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
     use std::{
         collections::HashSet,

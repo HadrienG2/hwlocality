@@ -31,6 +31,9 @@ use hwlocality_sys::{
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::{HWLOC_OBJ_DIE, HWLOC_OBJ_MEMCACHE};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     cmp::{Ordering, PartialOrd},
     ffi::c_int,
@@ -460,11 +463,13 @@ impl PartialOrd for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn should_compare_object_types() {
-        assert!(ObjectType::Machine == ObjectType::Machine);
-        assert!(ObjectType::PU == ObjectType::PU);
+        assert_eq!(ObjectType::Machine, ObjectType::Machine);
+        assert_eq!(ObjectType::PU, ObjectType::PU);
 
         assert!(ObjectType::Machine < ObjectType::PU);
         assert!(ObjectType::PU > ObjectType::L1Cache);

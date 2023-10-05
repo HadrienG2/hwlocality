@@ -12,6 +12,9 @@ use crate::{
     topology::Topology,
 };
 use arrayvec::ArrayVec;
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 
 /// # CPU cache statistics
 impl Topology {

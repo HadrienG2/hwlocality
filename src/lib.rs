@@ -214,6 +214,9 @@ pub mod topology;
 
 use crate::ffi::int;
 use hwlocality_sys::{hwloc_pid_t, hwloc_thread_t};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 
 /// Thread identifier (OS-specific)
 ///
@@ -253,6 +256,8 @@ pub(crate) use sealed::Sealed;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn get_api_version() {
@@ -280,7 +285,7 @@ mod tests {
         let hwloc_version = hwloc_api_version();
         assert!(
             version_range.contains(&hwloc_version),
-            "hwloc version {hwloc_version:b} is outside expected range {:b}..{:b}",
+            "hwloc version {hwloc_version:x} is outside expected range {:x}..{:x}",
             version_range.start,
             version_range.end
         )
