@@ -3691,7 +3691,7 @@ mod tests {
         assert_eq!(actual.size_hint(), expected.size_hint());
         assert_panics(|| actual.clone().count());
         assert_panics(|| actual.clone().last());
-        compare_iters_infinite(actual, |i| i.next(), expected, |i| i.next());
+        compare_iters_infinite(actual, Iterator::next, expected, Iterator::next);
     }
 
     /// Test usize -> PositiveInt conversion and special positive-usize ops
@@ -4162,8 +4162,18 @@ mod tests {
             actual.clone().last(),
             expected.clone().last().map(PositiveInt)
         );
-        compare_iters_finite(actual.clone(), |i| i.next(), expected.clone(), |i| i.next());
-        compare_iters_finite(actual, |i| i.next_back(), expected, |i| i.next_back());
+        compare_iters_finite(
+            actual.clone(),
+            Iterator::next,
+            expected.clone(),
+            Iterator::next,
+        );
+        compare_iters_finite(
+            actual,
+            DoubleEndedIterator::next_back,
+            expected,
+            DoubleEndedIterator::next_back,
+        );
 
         // Check RangeInclusive-like PositiveInt iterator
         let actual = PositiveInt::iter_range_inclusive(i1, i2);
@@ -4175,8 +4185,18 @@ mod tests {
             actual.clone().last(),
             expected.clone().last().map(PositiveInt)
         );
-        compare_iters_finite(actual.clone(), |i| i.next(), expected.clone(), |i| i.next());
-        compare_iters_finite(actual, |i| i.next_back(), expected, |i| i.next_back());
+        compare_iters_finite(
+            actual.clone(),
+            Iterator::next,
+            expected.clone(),
+            Iterator::next,
+        );
+        compare_iters_finite(
+            actual,
+            DoubleEndedIterator::next_back,
+            expected,
+            DoubleEndedIterator::next_back,
+        );
     }
 
     /// Test int-u32 binary operations
