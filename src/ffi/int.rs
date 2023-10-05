@@ -3505,6 +3505,10 @@ mod tests {
         // Now let's test some properties that are specific to zero
         let zero = PositiveInt::ZERO;
 
+        // zero hits a narrow special code path for various operations
+        assert_eq!(zero.trailing_zeros(), PositiveInt::EFFECTIVE_BITS);
+        assert_eq!(zero.checked_neg(), Some(zero));
+
         // Logarithm fails for zero
         assert_panics(|| zero.ilog2());
         assert_panics(|| zero.ilog10());
