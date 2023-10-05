@@ -222,7 +222,9 @@ mod tests {
             match ($input.contains('\0'), $result) {
                 (false, Ok(result)) => result,
                 (true, Err(NulError)) => return,
-                (false, Err(NulError)) | (true, Ok(_)) => panic!("Should never happen"),
+                (false, Err(NulError)) | (true, Ok(_)) => {
+                    panic!("LibcString::new should error out if and only if NUL is present")
+                }
             }
         };
     }

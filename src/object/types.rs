@@ -455,7 +455,7 @@ impl PartialOrd for ObjectType {
             c if c > 0 => Some(Ordering::Greater),
             0 => Some(Ordering::Equal),
             c if c < 0 => Some(Ordering::Less),
-            _ => unreachable!(),
+            _ => unreachable!("Unexpected ordering from hwloc_compare_types: {result}"),
         }
     }
 }
