@@ -106,7 +106,7 @@ impl Arbitrary for LibcString {
     fn arbitrary(g: &mut Gen) -> Self {
         let mut rng = rand::thread_rng();
         // Start from a valid UTF-8 string...
-        let s: String = String::arbitrary(g)
+        let s = String::arbitrary(g)
             .chars()
             // ...but replace NUL with arbitrary other ASCII chars
             .map(|c| {
@@ -116,8 +116,8 @@ impl Arbitrary for LibcString {
                     c
                 }
             })
-            .collect();
-        Self::new(s).expect("Should not contain inner NULs")
+            .collect::<String>();
+        Self::new(s).expect("Ensured absence of NUL above")
     }
 
     #[cfg(not(tarpaulin_include))]
