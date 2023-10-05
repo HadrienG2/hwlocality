@@ -2450,7 +2450,10 @@ macro_rules! impl_bitmap_newtype_tests {
         mod $mod_name {
             use super::*;
             use $crate::{
-                bitmap::{Bitmap, BitmapRef, tests::INFINITE_EXPLORE_ITERS, OwnedBitmap, SpecializedBitmap},
+                bitmap::{
+                    tests::INFINITE_EXPLORE_ITERS, Bitmap, BitmapRef,
+                    OwnedBitmap, SpecializedBitmap
+                },
                 ffi::int::PositiveInt,
             };
             #[allow(unused)]
