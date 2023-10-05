@@ -39,6 +39,9 @@ use crate::{
 };
 use hwlocality_sys::{hwloc_get_type_depth_e, hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     borrow::Borrow,
     ffi::{c_char, c_uint, CStr},

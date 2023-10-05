@@ -27,6 +27,9 @@
 //! doing that while minimizing the safety impact of all the pointer casting
 //! that such a design inevitably leads to.
 
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::ptr::NonNull;
 
 /// Type that is a `repr(transparent)` wrapper around another type
@@ -198,6 +201,8 @@ mod tests {
     use super::*;
     use crate::info::TextualInfo;
     use hwlocality_sys::hwloc_info_s;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use std::ptr;
 
     #[test]

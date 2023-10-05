@@ -12,6 +12,9 @@
 #[cfg(doc)]
 use crate::{object::TopologyObject, topology::Topology};
 use errno::Errno;
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     error::Error,
     ffi::{c_int, c_uint},
@@ -268,6 +271,8 @@ pub struct ForeignObject;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
     use std::{
         num::{NonZeroU32, NonZeroUsize},

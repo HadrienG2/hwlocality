@@ -56,6 +56,9 @@ use hwlocality_sys::{
     HWLOC_RESTRICT_FLAG_REMOVE_CPULESS, HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS,
 };
 use libc::{EINVAL, ENOMEM};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     ffi::c_ulong,
     fmt::{self, Write},

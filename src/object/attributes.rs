@@ -22,6 +22,9 @@ use hwlocality_sys::{
     hwloc_numanode_attr_s, hwloc_obj_attr_u, hwloc_osdev_attr_s, hwloc_pcidev_attr_s,
     RawDownstreamAttributes, RawDownstreamPCIAttributes, RawUpstreamAttributes,
 };
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{ffi::c_uint, fmt, hash::Hash, num::NonZeroUsize};
 
 /// ObjectType-specific attributes

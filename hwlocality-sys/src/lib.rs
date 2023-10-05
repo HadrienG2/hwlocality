@@ -3313,7 +3313,7 @@ mod tests {
                 pci: RawDownstreamPCIAttributes::default(),
             },
             downstream_type: HWLOC_OBJ_BRIDGE_PCI,
-            depth: 0,
+            depth: 42,
         };
         assert_eq!(
             format!("{attr:?}"),
@@ -3321,7 +3321,7 @@ mod tests {
                                    upstream_type: 1, \
                                    downstream: RawDownstreamAttributes { .. }, \
                                    downstream_type: 1, \
-                                   depth: 0 }"
+                                   depth: 42 }"
         );
     }
 

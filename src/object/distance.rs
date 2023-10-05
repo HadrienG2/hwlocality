@@ -42,6 +42,9 @@ use hwlocality_sys::{
     HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
     HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 };
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     ffi::{c_int, c_uint, c_ulong},
     fmt::{self, Debug},

@@ -19,6 +19,9 @@ use hwlocality_sys::{
     HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_EXTENDED_TYPES,
     HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_V1,
 };
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::ffi::{c_char, CString};
 
 /// # Exporting Topologies to Synthetic

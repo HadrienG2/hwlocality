@@ -22,6 +22,9 @@ use crate::{
     topology::{editor::TopologyEditor, Topology},
 };
 use libc::{EINVAL, ENOENT, EXDEV};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     borrow::Borrow,
     ffi::{c_int, c_uint},

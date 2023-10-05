@@ -8,6 +8,9 @@ use crate::{
     path::{self, PathError},
     topology::Topology,
 };
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{borrow::Borrow, path::Path};
 
 // This file is rustdoc-visible so we must provide a substitute for
@@ -177,6 +180,8 @@ impl Topology {
 mod tests {
     use super::*;
     use crate::object::types::ObjectType;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn read_path_as_cpumask() {

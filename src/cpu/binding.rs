@@ -22,6 +22,9 @@ use hwlocality_sys::{
     HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT, HWLOC_CPUBIND_THREAD,
 };
 use libc::{ENOSYS, EXDEV};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
 use std::{borrow::Borrow, ffi::c_int, fmt::Display};
 use thiserror::Error;
 
