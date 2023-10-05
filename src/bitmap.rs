@@ -1078,6 +1078,7 @@ impl Arbitrary for Bitmap {
         result
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         // If this is infinite, start by removing the infinite part
         let mut local = self.clone();
@@ -2237,6 +2238,7 @@ macro_rules! impl_bitmap_newtype {
                 Self($crate::bitmap::Bitmap::arbitrary(g))
             }
 
+            #[cfg(not(tarpaulin_include))]
             fn shrink(&self) -> Box<dyn std::iter::Iterator<Item = Self>> {
                 Box::new(self.0.shrink().map(Self))
             }
@@ -2538,18 +2540,21 @@ mod tests {
 
     fn test_and_sub(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) {
         assert_eq!(b1 & b2, *and);
+        assert_eq!(b1.clone() & b2, *and);
         let mut buf = b1.clone();
         buf &= b2;
         assert_eq!(buf, *and);
 
         let b1_andnot_b2 = b1 & !b2;
         assert_eq!(b1 - b2, b1_andnot_b2);
+        assert_eq!(b1.clone() - b2, b1_andnot_b2);
         buf.copy_from(b1);
         buf -= b2;
         assert_eq!(buf, b1_andnot_b2);
 
         let b2_andnot_b1 = b2 & !b1;
         assert_eq!(b2 - b1, b2_andnot_b1);
+        assert_eq!(b2.clone() - b1, b2_andnot_b1);
         buf.copy_from(b2);
         buf -= b1;
         assert_eq!(buf, b2_andnot_b1);
@@ -2559,6 +2564,8 @@ mod tests {
     #[test]
     fn empty() {
         let empty = Bitmap::new();
+        let mut empty2 = Bitmap::full();
+        empty2.unset_range::<PositiveInt>(..);
         let inverse = Bitmap::full();
 
         let test_empty = |empty: &Bitmap| {
@@ -2575,6 +2582,14 @@ mod tests {
             for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
                 assert_eq!(expected, usize::from(idx));
             }
+            for (expected, idx) in empty
+                .clone()
+                .into_iter()
+                .enumerate()
+                .take(INFINITE_EXPLORE_ITERS)
+            {
+                assert_eq!(expected, usize::from(idx));
+            }
 
             assert_eq!(format!("{empty:?}"), "");
             assert_eq!(format!("{empty}"), "");
@@ -2582,6 +2597,7 @@ mod tests {
         };
         test_empty(&empty);
         test_empty(&empty.clone());
+        test_empty(&empty2);
         test_empty(&Bitmap::default());
 
         test_basic_inplace(&empty, &inverse);
@@ -2630,11 +2646,13 @@ mod tests {
         test_and_sub(&empty, &other, &empty);
 
         assert_eq!(&empty | &other, other);
+        assert_eq!(empty.clone() | &other, other);
         let mut buf = Bitmap::new();
         buf |= &other;
         assert_eq!(buf, other);
 
         assert_eq!(&empty ^ &other, other);
+        assert_eq!(empty ^ &other, other);
         buf.clear();
         buf ^= &other;
         assert_eq!(buf, other);
@@ -2644,6 +2662,9 @@ mod tests {
     #[test]
     fn full() {
         let full = Bitmap::full();
+        let full2 = Bitmap::from_range::<PositiveInt>(..);
+        let mut full3 = Bitmap::new();
+        full3.set_range::<PositiveInt>(..);
         let inverse = Bitmap::new();
 
         let test_full = |full: &Bitmap| {
@@ -2662,6 +2683,7 @@ mod tests {
                 }
             }
             test_iter_set(full.into_iter());
+            test_iter_set(full.clone().into_iter());
             test_iter_set(full.iter_set());
 
             assert_eq!(format!("{full:?}"), "0-");
@@ -2670,6 +2692,8 @@ mod tests {
         };
         test_full(&full);
         test_full(&full.clone());
+        test_full(&full2);
+        test_full(&full3);
 
         test_basic_inplace(&full, &inverse);
     }
@@ -2722,11 +2746,13 @@ mod tests {
         test_and_sub(&full, &other, &other);
 
         assert!((&full | &other).is_full());
+        assert!((full.clone() | &other).is_full());
         let mut buf = Bitmap::full();
         buf |= &other;
         assert!(buf.is_full());
 
         assert_eq!(&full ^ &other, not_other);
+        assert_eq!((full ^ &other), not_other);
         buf.fill();
         buf ^= &other;
         assert_eq!(buf, not_other);
@@ -2776,6 +2802,7 @@ mod tests {
             assert_eq!(ranged_bitmap.is_empty(), elems.is_empty());
             assert!(!ranged_bitmap.is_full());
             assert_eq!(ranged_bitmap.into_iter().collect::<Vec<_>>(), elems);
+            assert_eq!(ranged_bitmap.clone().into_iter().collect::<Vec<_>>(), elems);
             assert_eq!(ranged_bitmap.iter_set().collect::<Vec<_>>(), elems);
             assert_eq!(ranged_bitmap.last_set(), elems.last().copied());
             assert_eq!(ranged_bitmap.last_unset(), None);
@@ -2801,6 +2828,24 @@ mod tests {
         test_ranged(&ranged_bitmap.clone());
 
         test_basic_inplace(&ranged_bitmap, &inverse);
+
+        // Quickly check other kinds of ranges
+        let mut exclude_left = Bitmap::from_range((
+            Bound::Excluded(*range.start()),
+            Bound::Included(*range.end()),
+        ));
+        assert!(!exclude_left.is_set(*range.start()));
+        if range.contains(range.start()) {
+            exclude_left.set(*range.start());
+        }
+        assert_eq!(exclude_left, ranged_bitmap);
+        //
+        let mut exclude_right = Bitmap::from_range(*range.start()..*range.end());
+        assert!(!exclude_right.is_set(*range.end()));
+        if range.contains(range.end()) {
+            exclude_right.set(*range.end());
+        }
+        assert_eq!(exclude_right, ranged_bitmap);
     }
 
     #[quickcheck]
@@ -2933,12 +2978,14 @@ mod tests {
         let mut ranged_or_other = other.clone();
         ranged_or_other.set_range(range);
         assert_eq!(&ranged_bitmap | &other, ranged_or_other);
+        assert_eq!(ranged_bitmap.clone() | &other, ranged_or_other);
         let mut buf = ranged_bitmap.clone();
         buf |= &other;
         assert_eq!(buf, ranged_or_other);
 
         let ranged_xor_other = ranged_or_other - ranged_and_other;
         assert_eq!(&ranged_bitmap ^ &other, ranged_xor_other);
+        assert_eq!(ranged_bitmap.clone() ^ &other, ranged_xor_other);
         let mut buf = ranged_bitmap;
         buf ^= &other;
         assert_eq!(buf, ranged_xor_other);
@@ -3088,10 +3135,13 @@ mod tests {
             (inverse, display)
         }
         let (inverse, display) = test_iter(&bitmap, (&bitmap).into_iter());
-        let (inverse2, display2) = test_iter(&bitmap, bitmap.iter_set());
+        let (inverse2, display2) = test_iter(&bitmap, bitmap.clone().into_iter());
+        let (inverse3, display3) = test_iter(&bitmap, bitmap.iter_set());
         //
         assert_eq!(inverse, inverse2);
+        assert_eq!(inverse, inverse3);
         assert_eq!(display, display2);
+        assert_eq!(display, display3);
         assert_eq!(!&bitmap, inverse);
         assert_eq!(format!("{bitmap:?}"), display);
         assert_eq!(format!("{bitmap}"), display);
@@ -3309,12 +3359,14 @@ mod tests {
             bitmap_or_other.set_range(other_infinite);
         }
         assert_eq!(&bitmap | &other, bitmap_or_other);
+        assert_eq!(bitmap.clone() | &other, bitmap_or_other);
         let mut buf = bitmap.clone();
         buf |= &other;
         assert_eq!(buf, bitmap_or_other);
 
         let bitmap_xor_other = bitmap_or_other - bitmap_and_other;
         assert_eq!(&bitmap ^ &other, bitmap_xor_other);
+        assert_eq!(bitmap.clone() ^ &other, bitmap_xor_other);
         buf.copy_from(&bitmap);
         buf ^= &other;
         assert_eq!(buf, bitmap_xor_other);
