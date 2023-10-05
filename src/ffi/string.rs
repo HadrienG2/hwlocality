@@ -228,8 +228,10 @@ mod tests {
 
     #[quickcheck]
     fn unary(s: String) {
+        // Set up a C string
         let c = check_new!(LibcString::new(&s), &s);
 
+        // Test basic properties
         assert_eq!(c.len(), s.len() + 1);
         // SAFETY: Safe as a type invariant of LibcString
         assert_eq!(unsafe { CStr::from_ptr(c.borrow()) }.to_str().unwrap(), s);
@@ -237,6 +239,13 @@ mod tests {
         assert_eq!(c.to_string(), s);
         assert_eq!(format!("{c:?}"), format!("{s:?}"));
 
+        // Test cloning
+        let c2 = c.clone();
+        assert_eq!(c2.len(), c.len());
+        assert_ne!(c2.borrow(), c.borrow());
+        assert_eq!(c2.as_ref(), c.as_ref());
+
+        // Test raw char* extraction
         let backup = c.0;
         let raw = c.into_raw();
         assert_eq!(raw, backup.cast::<c_char>().as_ptr());
