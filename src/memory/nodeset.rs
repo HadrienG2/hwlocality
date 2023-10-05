@@ -52,3 +52,11 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_nodeset_t")]
     NodeSet
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::impl_bitmap_newtype_tests;
+
+    impl_bitmap_newtype_tests!(NodeSet);
+}

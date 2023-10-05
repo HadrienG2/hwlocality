@@ -3399,9 +3399,9 @@ impl Iterator for PositiveIntRangeFromIter {
     }
 }
 
+#[allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
