@@ -105,9 +105,10 @@ impl LibcString {
 impl Arbitrary for LibcString {
     fn arbitrary(g: &mut Gen) -> Self {
         let mut rng = rand::thread_rng();
+        // Start from a valid UTF-8 string...
         let s: String = String::arbitrary(g)
             .chars()
-            // Replace NUL with arbitrary ASCII chars
+            // ...but replace NUL with arbitrary other ASCII chars
             .map(|c| {
                 if c == '\0' {
                     char::from(rng.gen_range(1..=127))
