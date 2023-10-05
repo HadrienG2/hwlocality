@@ -129,8 +129,8 @@ impl Topology {
     ///
     /// - [`TypeToDepthError::Nonexistent`] if no object of this type is present or
     ///   if the OS doesn't provide this kind of information. If a similar type
-    ///   is acceptable, consider using [depth_or_below_for_type()] or
-    ///   [depth_or_above_for_type()] instead.
+    ///   is acceptable, consider using [`depth_or_below_for_type()`] or
+    ///   [`depth_or_above_for_type()`] instead.
     /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
     ///   depths (can happen when `object_type` is [`Group`]).
     ///
@@ -150,8 +150,8 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     ///
-    /// [depth_or_below_for_type()]: Topology::depth_or_below_for_type()
-    /// [depth_or_above_for_type()]: Topology::depth_or_above_for_type()
+    /// [`depth_or_below_for_type()`]: Self::depth_or_below_for_type()
+    /// [`depth_or_above_for_type()`]: Self::depth_or_above_for_type()
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
     pub fn depth_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
@@ -321,7 +321,7 @@ impl Topology {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     ///
-    /// [`depth_for_type()`]: Topology::depth_for_type()
+    /// [`depth_for_type()`]: Self::depth_for_type()
     #[doc(alias = "hwloc_get_cache_type_depth")]
     pub fn depth_for_cache(
         &self,
@@ -675,11 +675,11 @@ impl Topology {
     ///
     /// If you want to convert an entire CPU set into the PU objects it
     /// contains, using [`pus_from_cpuset()`] will be more efficient than
-    /// repeatedly calling this function with every OS index from the CpuSet.
+    /// repeatedly calling this function with every OS index from the [`CpuSet`].
     ///
     /// Requires [`DiscoverySupport::pu_count()`].
     ///
-    /// [`pus_from_cpuset()`]: Topology::pus_from_cpuset()
+    /// [`pus_from_cpuset()`]: Self::pus_from_cpuset()
     #[doc(alias = "hwloc_get_pu_obj_by_os_index")]
     pub fn pu_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::PU)
@@ -699,15 +699,17 @@ impl Topology {
             .filter_map(move |(pu, os_index)| cpuset.borrow().is_set(os_index).then_some(pu))
     }
 
-    /// Get the object of type [`ObjectType::NUMANode`] with the specified OS index
+    /// Get the object of type [`NUMANode`] with the specified OS index
     ///
-    /// If you want to convert an entire NodeSet into the NUMANode objects it
-    /// contains, using [`nodes_from_nodeset()`] will be more efficient than
-    /// repeatedly calling this function with every OS index from the NodeSet.
+    /// If you want to convert an entire [`NodeSet` into the [`NUMANode`]
+    /// objects it contains, using [`nodes_from_nodeset()`] will be more
+    /// efficient than repeatedly calling this function with every OS index from
+    /// the [`NodeSet`].
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
     ///
-    /// [`nodes_from_nodeset()`]: Topology::nodes_from_nodeset()
+    /// [`nodes_from_nodeset()`]: Self::nodes_from_nodeset()
+    /// [`NUMANode`]: ObjectType::NUMANode
     #[doc(alias = "hwloc_get_numanode_obj_by_os_index")]
     pub fn node_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
         self.objs_and_os_indices(ObjectType::NUMANode)
@@ -1241,8 +1243,8 @@ impl TopologyObject {
     /// the object in a Set or a Map, as long as that Set or Map only refers to
     /// [`TopologyObject`]s originating from a single [`Topology`].
     ///
-    /// [`logical_index()`]: TopologyObject::logical_index()
-    /// [`os_index()`]: TopologyObject::os_index()
+    /// [`logical_index()`]: Self::logical_index()
+    /// [`os_index()`]: Self::os_index()
     #[doc(alias = "hwloc_obj::gp_index")]
     pub fn global_persistent_index(&self) -> u64 {
         self.0.gp_index
@@ -1486,7 +1488,7 @@ impl TopologyObject {
     /// Horizontal index in the whole list of similar objects, hence guaranteed
     /// unique across the entire machine
     ///
-    /// Could be a "cousin_rank" since it's the rank within the "cousin" list.
+    /// Could be a "cousin rank" since it's the rank within the "cousin" list.
     ///
     /// Note that this index may change when restricting the topology
     /// or when inserting a group.
@@ -1593,8 +1595,8 @@ impl TopologyObject {
     /// Get the child covering at least the given cpuset `set`
     ///
     /// This function will always return `None` if the given set is empty or
-    /// this TopologyObject doesn't have a cpuset (I/O or Misc objects), as no
-    /// object is considered to cover the empty cpuset.
+    /// this topology object doesn't have a cpuset (I/O or Misc objects), as
+    /// no object is considered to cover the empty cpuset.
     #[doc(alias = "hwloc_get_child_covering_cpuset")]
     pub fn normal_child_covering_cpuset(&self, set: impl Borrow<CpuSet>) -> Option<&Self> {
         self.normal_children()
@@ -1794,7 +1796,7 @@ impl TopologyObject {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     ///
-    /// [`cpuset()`]: TopologyObject::cpuset()
+    /// [`cpuset()`]: Self::cpuset()
     #[doc(alias = "hwloc_obj::complete_cpuset")]
     pub fn complete_cpuset(&self) -> Option<BitmapRef<'_, CpuSet>> {
         // SAFETY: Per type invariant
@@ -1853,12 +1855,12 @@ impl TopologyObject {
     /// that are ignored when the [`BuildFlags::INCLUDE_DISALLOWED`] topology
     /// building configuration flag is not set.
     ///
-    /// Thus no corresponding NUMANode object may be found in the topology,
+    /// Thus no corresponding [`NUMANode`] object may be found in the topology,
     /// because the precise position is undefined. It is however known that it
     /// would be somewhere under this object.
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to
-    /// this object, so complete_nodeset is full.
+    /// this object, so the complete nodeset is full.
     ///
     /// # Example
     ///
@@ -1872,7 +1874,8 @@ impl TopologyObject {
     /// # Ok::<_, anyhow::Error>(())
     /// ```
     ///
-    /// [`nodeset()`]: TopologyObject::nodeset()
+    /// [`nodeset()`]: Self::nodeset()
+    /// [`NUMANode`]: ObjectType::NUMANode
     #[doc(alias = "hwloc_obj::complete_nodeset")]
     pub fn complete_nodeset(&self) -> Option<BitmapRef<'_, NodeSet>> {
         // SAFETY: Per type invariant

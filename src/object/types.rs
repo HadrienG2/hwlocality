@@ -341,7 +341,9 @@ impl ObjectType {
         self == Self::PU || self == Self::NUMANode
     }
 
-    /// Truth that this is a CPU-side cache type (not MemCache)
+    /// Truth that this is a CPU-side cache type (not [`MemCache`])
+    ///
+    /// [`MemCache`]: Self::MemCache
     #[doc(alias = "hwloc_obj_type_is_cache")]
     pub fn is_cpu_cache(self) -> bool {
         // SAFETY: hwloc_obj_type_is_cache behaves like hwloc_obj_type_is_normal
@@ -353,7 +355,9 @@ impl ObjectType {
         }
     }
 
-    /// Truth that this is a CPU-side data or unified cache type (not MemCache)
+    /// Truth that this is a CPU-side data or unified cache type (not [`MemCache`])
+    ///
+    /// [`MemCache`]: Self::MemCache
     #[doc(alias = "hwloc_obj_type_is_dcache")]
     pub fn is_cpu_data_cache(self) -> bool {
         // SAFETY: hwloc_obj_type_is_dcache behaves like hwloc_obj_type_is_normal
@@ -365,7 +369,9 @@ impl ObjectType {
         }
     }
 
-    /// Truth that this is a CPU-side instruction cache type (not MemCache)
+    /// Truth that this is a CPU-side instruction cache type (not [`MemCache`])
+    ///
+    /// [`MemCache`]: Self::MemCache
     #[doc(alias = "hwloc_obj_type_is_icache")]
     pub fn is_cpu_instruction_cache(self) -> bool {
         // SAFETY: hwloc_obj_type_is_icache behaves like hwloc_obj_type_is_normal
