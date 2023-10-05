@@ -2442,7 +2442,9 @@ mod tests {
         collections::HashSet,
         ffi::c_ulonglong,
         fmt::Write,
+        mem::ManuallyDrop,
         ops::{Range, RangeFrom, RangeInclusive},
+        ptr,
     };
 
     // We can't fully check the value of infinite iterators because that would
@@ -2560,6 +2562,120 @@ mod tests {
         assert_eq!(buf, b2_andnot_b1);
     }
 
+    #[test]
+    fn test_low_level_null() {
+        // SAFETY: All of the following are safe on null input
+        unsafe {
+            assert_eq!(Bitmap::from_owned_raw_mut(ptr::null_mut()), None);
+            assert_eq!(Bitmap::borrow_from_raw(ptr::null()), None);
+            assert_eq!(Bitmap::borrow_from_raw_mut(ptr::null_mut()), None);
+        }
+    }
+
+    fn test_low_level_nonnull(bitmap: Bitmap) {
+        test_bitmap_ref(&bitmap, BitmapRef::from(&bitmap));
+        let bitmap = ManuallyDrop::new(bitmap);
+        let inner = bitmap.0;
+        // SAFETY: We won't use this pointer to mutate
+        assert_eq!(unsafe { bitmap.as_raw() }, inner);
+        {
+            // SAFETY: If it worked for the original bitmap, it works here too,
+            //         as long as we leave the original aside and refrain from
+            //         dropping the bitmap on either side.
+            let bitmap = unsafe { Bitmap::from_owned_nonnull(inner) };
+            assert_eq!(bitmap.0, inner);
+            std::mem::forget(bitmap);
+        }
+        {
+            // SAFETY: If it worked for the original bitmap, it works here too,
+            //         as long as we leave the original aside and refrain from
+            //         dropping the bitmap on either side.
+            let bitmap = unsafe { Bitmap::from_owned_raw_mut(inner.as_ptr()).unwrap() };
+            assert_eq!(bitmap.0, inner);
+            std::mem::forget(bitmap);
+        }
+        let bitmap = ManuallyDrop::into_inner(bitmap);
+        {
+            // SAFETY: Safe as long as we don't invalidate the original
+            let borrow = unsafe { Bitmap::borrow_from_nonnull(inner) };
+            assert_eq!(borrow.0, inner);
+            test_bitmap_ref(&bitmap, borrow);
+        }
+        {
+            // SAFETY: Safe as long as we don't invalidate the original
+            let borrow = unsafe { Bitmap::borrow_from_raw(bitmap.as_ptr()).unwrap() };
+            assert_eq!(borrow.0, inner);
+            test_bitmap_ref(&bitmap, borrow);
+        }
+        let mut bitmap = bitmap;
+        {
+            // SAFETY: Safe as long as we don't invalidate the original
+            let borrow = unsafe { Bitmap::borrow_from_raw_mut(bitmap.as_mut_ptr()).unwrap() };
+            assert_eq!(borrow.0, inner);
+            test_bitmap_ref(&bitmap, borrow);
+        }
+    }
+
+    fn test_bitmap_ref(bitmap: &Bitmap, bitmap_ref: BitmapRef<'_, Bitmap>) {
+        let clone: Bitmap = bitmap_ref.clone_target();
+        assert_eq!(clone, bitmap);
+
+        assert_eq!(
+            <BitmapRef<'_, _> as AsRef<Bitmap>>::as_ref(&bitmap_ref).as_ptr(),
+            bitmap.as_ptr()
+        );
+        assert_eq!(
+            <BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&bitmap_ref).as_ptr(),
+            bitmap.as_ptr()
+        );
+        assert_eq!(
+            <&BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&&bitmap_ref).as_ptr(),
+            bitmap.as_ptr()
+        );
+        assert_eq!(
+            <BitmapRef<'_, _> as Deref>::deref(&bitmap_ref).as_ptr(),
+            bitmap.as_ptr()
+        );
+
+        assert_eq!(format!("{bitmap:?}"), format!("{bitmap_ref:?}"));
+        assert_eq!(bitmap.to_string(), bitmap_ref.to_string());
+        assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
+
+        if bitmap.weight().is_some() {
+            assert!(bitmap.iter_set().eq(bitmap_ref.into_iter()));
+            assert!(bitmap.iter_set().eq((&bitmap_ref).into_iter()));
+        } else {
+            assert!(bitmap
+                .iter_set()
+                .take(INFINITE_EXPLORE_ITERS)
+                .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
+            assert!(bitmap
+                .iter_set()
+                .take(INFINITE_EXPLORE_ITERS)
+                .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+        }
+
+        assert_eq!(!bitmap, !bitmap_ref);
+        assert_eq!(!bitmap, !&bitmap_ref);
+    }
+
+    fn test_bitmap_ref_binops(bitmap: &Bitmap, other: &Bitmap) {
+        let bitmap_ref = BitmapRef::from(bitmap);
+
+        assert_eq!(bitmap_ref & other, bitmap & other);
+        assert_eq!(&bitmap_ref & other, bitmap & other);
+        assert_eq!(bitmap_ref | other, bitmap | other);
+        assert_eq!(&bitmap_ref | other, bitmap | other);
+        assert_eq!(bitmap_ref ^ other, bitmap ^ other);
+        assert_eq!(&bitmap_ref ^ other, bitmap ^ other);
+        assert_eq!(bitmap_ref - other, bitmap - other);
+        assert_eq!(&bitmap_ref - other, bitmap - other);
+
+        assert_eq!(bitmap_ref == other, bitmap == other);
+        assert_eq!(bitmap_ref.partial_cmp(other), bitmap.partial_cmp(other));
+        assert_eq!(bitmap_ref.cmp(&BitmapRef::from(other)), bitmap.cmp(other));
+    }
+
     #[allow(clippy::redundant_clone)]
     #[test]
     fn empty() {
@@ -2594,6 +2710,7 @@ mod tests {
             assert_eq!(format!("{empty:?}"), "");
             assert_eq!(format!("{empty}"), "");
             assert_eq!(!empty, inverse);
+            assert_eq!(!(empty.clone()), inverse);
         };
         test_empty(&empty);
         test_empty(&empty.clone());
@@ -2601,6 +2718,8 @@ mod tests {
         test_empty(&Bitmap::default());
 
         test_basic_inplace(&empty, &inverse);
+
+        test_low_level_nonnull(empty);
     }
 
     #[quickcheck]
@@ -2652,10 +2771,12 @@ mod tests {
         assert_eq!(buf, other);
 
         assert_eq!(&empty ^ &other, other);
-        assert_eq!(empty ^ &other, other);
+        assert_eq!(empty.clone() ^ &other, other);
         buf.clear();
         buf ^= &other;
         assert_eq!(buf, other);
+
+        test_bitmap_ref_binops(&empty, &other);
     }
 
     #[allow(clippy::redundant_clone)]
@@ -2689,6 +2810,7 @@ mod tests {
             assert_eq!(format!("{full:?}"), "0-");
             assert_eq!(format!("{full}"), "0-");
             assert_eq!(!full, inverse);
+            assert_eq!(!(full.clone()), inverse);
         };
         test_full(&full);
         test_full(&full.clone());
@@ -2696,6 +2818,7 @@ mod tests {
         test_full(&full3);
 
         test_basic_inplace(&full, &inverse);
+        test_low_level_nonnull(full);
     }
 
     #[quickcheck]
@@ -2752,10 +2875,12 @@ mod tests {
         assert!(buf.is_full());
 
         assert_eq!(&full ^ &other, not_other);
-        assert_eq!((full ^ &other), not_other);
+        assert_eq!((full.clone() ^ &other), not_other);
         buf.fill();
         buf ^= &other;
         assert_eq!(buf, not_other);
+
+        test_bitmap_ref_binops(&full, &other);
     }
 
     #[allow(clippy::redundant_clone)]
@@ -2763,6 +2888,7 @@ mod tests {
     fn from_range(range: RangeInclusive<BitmapIndex>) {
         let ranged_bitmap = Bitmap::from_range(range.clone());
 
+        // Predict bitmap properties from range properties
         let elems = (usize::from(*range.start())..=usize::from(*range.end()))
             .map(|idx| BitmapIndex::try_from(idx).unwrap())
             .collect::<Vec<_>>();
@@ -2796,6 +2922,7 @@ mod tests {
             Bitmap::full()
         };
 
+        // Check that the bitmap has the expected properties
         let test_ranged = |ranged_bitmap: &Bitmap| {
             assert_eq!(ranged_bitmap.first_set(), elems.first().copied());
             assert_eq!(ranged_bitmap.first_unset(), first_unset);
@@ -2823,11 +2950,14 @@ mod tests {
             assert_eq!(format!("{ranged_bitmap:?}"), display);
             assert_eq!(format!("{ranged_bitmap}"), display);
             assert_eq!(!ranged_bitmap, inverse);
+            assert_eq!(!(ranged_bitmap.clone()), inverse);
         };
         test_ranged(&ranged_bitmap);
         test_ranged(&ranged_bitmap.clone());
 
+        // Run unary tests common to all bitmaps
         test_basic_inplace(&ranged_bitmap, &inverse);
+        test_low_level_nonnull(ranged_bitmap.clone());
 
         // Quickly check other kinds of ranges
         let mut exclude_left = Bitmap::from_range((
@@ -2986,9 +3116,11 @@ mod tests {
         let ranged_xor_other = ranged_or_other - ranged_and_other;
         assert_eq!(&ranged_bitmap ^ &other, ranged_xor_other);
         assert_eq!(ranged_bitmap.clone() ^ &other, ranged_xor_other);
-        let mut buf = ranged_bitmap;
+        let mut buf = ranged_bitmap.clone();
         buf ^= &other;
         assert_eq!(buf, ranged_xor_other);
+
+        test_bitmap_ref_binops(&ranged_bitmap, &other);
     }
 
     #[quickcheck]
@@ -3143,11 +3275,13 @@ mod tests {
         assert_eq!(display, display2);
         assert_eq!(display, display3);
         assert_eq!(!&bitmap, inverse);
+        assert_eq!(!bitmap.clone(), inverse);
         assert_eq!(format!("{bitmap:?}"), display);
         assert_eq!(format!("{bitmap}"), display);
 
-        // Test in-place operations
+        // Test properties that should be true of all bitmaps
         test_basic_inplace(&bitmap, &inverse);
+        test_low_level_nonnull(bitmap.clone());
 
         // Test that a clone is indistinguishable from the original bitmap
         let clone = bitmap.clone();
@@ -3196,7 +3330,7 @@ mod tests {
         //
         assert_eq!(format!("{clone:?}"), display);
         assert_eq!(format!("{clone}"), display);
-        assert_eq!(!clone, inverse);
+        assert_eq!(!&clone, inverse);
     }
 
     #[quickcheck]
@@ -3370,5 +3504,7 @@ mod tests {
         buf.copy_from(&bitmap);
         buf ^= &other;
         assert_eq!(buf, bitmap_xor_other);
+
+        test_bitmap_ref_binops(&bitmap, &other);
     }
 }
