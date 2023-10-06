@@ -544,7 +544,7 @@ pub const HWLOC_OBJ_DIE: hwloc_obj_type_t = 19;
 // === Object Structure and Attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__objects.html
 
 /// Hardware topology object
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct hwloc_obj {
     /// Type of object
@@ -1073,7 +1073,10 @@ pub struct hwloc_osdev_attr_s {
 ///
 /// See also [Consulting and Adding Info
 /// Attributes](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html).
-#[derive(Debug)]
+///
+/// This type does not implement [`Default`] because hwloc all but guarantees
+/// that the inner pointers of this struct will not be null.
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct hwloc_info_s {
     /// Info name
@@ -1550,7 +1553,7 @@ pub const HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS: hwloc_topology_flags_e = 1 << 8;
 pub const HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS: hwloc_topology_flags_e = 1 << 9;
 
 /// Set of flags describing actual hwloc feature support for this topology
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct hwloc_topology_support {
     /// Support for discovering information about the topology
@@ -2047,7 +2050,7 @@ pub use distances_transform::*;
     doc = "See also [`hwloc_distances_transform()`] for applying some"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct hwloc_distances_s {
     /// Number of objects described by the distance matrix
@@ -3281,6 +3284,90 @@ extern_c_block!("hwloc");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use static_assertions::assert_impl_all;
+    use std::{
+        hash::Hash,
+        panic::{RefUnwindSafe, UnwindSafe},
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(hwloc_bridge_attr_s:
+        Clone, Copy, Debug, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_cache_attr_s:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_distances_s:
+        Clone, Copy, Debug, Default, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_group_attr_s:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_info_s:
+        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_impl_all!(hwloc_location:
+        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_impl_all!(hwloc_location_u:
+        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_memory_page_type_s:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_numanode_attr_s:
+        Clone, Copy, Debug, Default, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_obj:
+        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_obj_attr_u:
+        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_osdev_attr_s:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_pcidev_attr_s:
+        Clone, Copy, Debug, Default, PartialEq, RefUnwindSafe, Send, Sized,
+        Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_topology_cpubind_support:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_topology_discovery_support:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_topology_membind_support:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_impl_all!(hwloc_topology_misc_support:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(hwloc_topology_support:
+        Clone, Copy, Debug, Default, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    );
+    assert_impl_all!(RawDownstreamAttributes:
+        Clone, Copy, Debug, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(RawDownstreamPCIAttributes:
+        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(RawUpstreamAttributes:
+        Clone, Copy, Debug, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
 
     #[test]
     fn hwloc_obj_attr_u() {
