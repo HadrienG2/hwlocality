@@ -10,7 +10,7 @@
 //! familiar builder pattern) and one for the fully built topology. This module
 //! is all about implementing the former type.
 
-use super::{hwloc_topology, Topology};
+use super::Topology;
 #[cfg(all(doc, feature = "hwloc-2_8_0"))]
 use crate::object::TopologyObject;
 #[cfg(all(doc, feature = "hwloc-2_5_0"))]
@@ -28,20 +28,17 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::Errno;
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
-
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
-#[cfg(feature = "hwloc-2_1_0")]
-use hwlocality_sys::{hwloc_topology_components_flag_e, HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST};
 use hwlocality_sys::{
-    hwloc_topology_flags_e, hwloc_type_filter_e, HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED,
-    HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM, HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES,
-    HWLOC_TYPE_FILTER_KEEP_ALL, HWLOC_TYPE_FILTER_KEEP_IMPORTANT, HWLOC_TYPE_FILTER_KEEP_NONE,
+    hwloc_topology, hwloc_topology_flags_e, hwloc_type_filter_e,
+    HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED, HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM,
+    HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES, HWLOC_TYPE_FILTER_KEEP_ALL,
+    HWLOC_TYPE_FILTER_KEEP_IMPORTANT, HWLOC_TYPE_FILTER_KEEP_NONE,
     HWLOC_TYPE_FILTER_KEEP_STRUCTURE,
 };
+#[cfg(feature = "hwloc-2_1_0")]
+use hwlocality_sys::{hwloc_topology_components_flag_e, HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST};
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
     HWLOC_TOPOLOGY_FLAG_DONT_CHANGE_BINDING, HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING,
@@ -54,7 +51,10 @@ use hwlocality_sys::{
 };
 use libc::{EINVAL, ENOSYS};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::{fmt::Debug, path::Path, ptr::NonNull};
+#[allow(unused)]
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
+use std::{path::Path, ptr::NonNull};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
@@ -130,9 +130,9 @@ impl TopologyBuilder {
         }
 
         // Transfer hwloc_topology ownership to a Topology
-        let result = Topology(self.0);
+        let inner = self.0;
         std::mem::forget(self);
-        Ok(result)
+        Ok(Topology(inner))
     }
 }
 
@@ -358,7 +358,7 @@ impl TopologyBuilder {
 }
 
 /// Attempted to configure the topology from an invalid process ID
-#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("topology cannot be configured from process {0}")]
 pub struct ProcessIDError(ProcessId);
 //
@@ -918,6 +918,8 @@ impl TopologyBuilder {
     }
 }
 
+// NOTE: Do not implement AsRef, AsMut, Borrow, etc: the topology isn't built yet
+
 impl Default for TopologyBuilder {
     fn default() -> Self {
         Self::new()
@@ -946,3 +948,52 @@ unsafe impl Send for TopologyBuilder {}
 
 // SAFETY: No internal mutability
 unsafe impl Sync for TopologyBuilder {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitflags::Flags;
+    use static_assertions::assert_impl_all;
+    use std::{
+        error::Error,
+        fmt::{Binary, Debug, LowerHex, Octal, UpperHex},
+        hash::Hash,
+        ops::{
+            BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Sub, SubAssign,
+        },
+        panic::{RefUnwindSafe, UnwindSafe},
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(BuildFlags:
+        Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign,
+        Clone, Copy, Debug, Default, Eq, Extend<BuildFlags>, Flags,
+        FromIterator<BuildFlags>, Hash, IntoIterator<Item=BuildFlags>,
+        LowerHex, Not, Octal, RefUnwindSafe, Send, Sized, Sub, SubAssign, Sync,
+        UpperHex, Unpin, UnwindSafe
+    );
+    assert_impl_all!(ProcessIDError:
+        Clone, Copy, Debug, Default, Error, Eq, From<ProcessId>, Hash,
+        RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(TextInputError:
+        Clone, Copy, Debug, Error, Eq, From<NulError>, Hash, RefUnwindSafe,
+        Send, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(TopologyBuilder:
+        Debug, Default, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(TypeFilter:
+        Clone, Copy, Debug, Eq, Hash, Into<hwloc_type_filter_e>, RefUnwindSafe,
+        Send, Sized, Sync, TryFrom<hwloc_type_filter_e>, Unpin, UnwindSafe
+    );
+    assert_impl_all!(TypeFilterError:
+        Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(XMLFileInputError:
+        Clone, Copy, Debug, Error, Eq, From<PathError>, Hash, RefUnwindSafe,
+        Send, Sized, Sync, Unpin, UnwindSafe
+    );
+}

@@ -76,6 +76,7 @@ use std::{
     convert::TryFrom,
     ffi::{c_int, c_uint},
     fmt::{self, Debug, Display},
+    hash::{self, Hash},
     iter::{FromIterator, FusedIterator},
     marker::PhantomData,
     ops::{
@@ -1309,6 +1310,15 @@ impl<BI: Borrow<BitmapIndex>> FromIterator<BI> for Bitmap {
     }
 }
 
+impl Hash for Bitmap {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        for index in self {
+            index.hash(state);
+        }
+        PositiveInt::MIN.hash(state)
+    }
+}
+
 /// Iterator over set or unset [`Bitmap`] indices
 #[derive(Copy, Clone, Debug)]
 pub struct Iter<B> {
@@ -1671,6 +1681,7 @@ where
 
 // NOTE: This seemingly useless impl is needed in order to have impls of
 //       BitXyz<&BitmapRef> for Target
+#[doc(hidden)]
 impl<Target: OwnedBitmap> Borrow<Target> for &BitmapRef<'_, Target> {
     fn borrow(&self) -> &Target {
         self.as_ref()
@@ -1718,6 +1729,12 @@ impl<'target, Target: OwnedBitmap> From<&'target Target> for BitmapRef<'target, 
     fn from(input: &'target Target) -> Self {
         // SAFETY: A `BitmapRef` does not allow mutating the target object
         Self(unsafe { input.as_raw() }, PhantomData)
+    }
+}
+
+impl<'target, Target: OwnedBitmap + Hash> Hash for BitmapRef<'target, Target> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state)
     }
 }
 
@@ -2317,6 +2334,15 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        // NOTE: This seemingly useless impl is needed in order to have impls of
+        //       IntoIterator<Item=BitmapIndex> for &BitmapRef<$newtype>
+        #[doc(hidden)]
+        impl Borrow<$crate::bitmap::Bitmap> for &$newtype {
+            fn borrow(&self) -> &$crate::bitmap::Bitmap {
+                self.as_ref()
+            }
+        }
+
         impl<'target> std::borrow::Borrow<$crate::bitmap::Bitmap> for $newtype {
             fn borrow(&self) -> &$crate::bitmap::Bitmap {
                 self.as_ref()
@@ -2361,9 +2387,27 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        impl<'target> From<$crate::bitmap::BitmapRef<'target, $crate::bitmap::Bitmap>> for $crate::bitmap::BitmapRef<'target, $newtype> {
+            fn from(input: $crate::bitmap::BitmapRef<'target, $crate::bitmap::Bitmap>) -> Self {
+                input.cast()
+            }
+        }
+
+        impl<'target> From<$crate::bitmap::BitmapRef<'target, $newtype>> for $crate::bitmap::BitmapRef<'target, $crate::bitmap::Bitmap> {
+            fn from(input: $crate::bitmap::BitmapRef<'target, $newtype>) -> Self {
+                input.cast()
+            }
+        }
+
         impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> FromIterator<BI> for $newtype {
             fn from_iter<I: IntoIterator<Item = BI>>(iter: I) -> Self {
                 Self($crate::bitmap::Bitmap::from_iter(iter))
+            }
+        }
+
+        impl std::hash::Hash for $newtype {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.0.hash(state)
             }
         }
 
@@ -2451,8 +2495,9 @@ macro_rules! impl_bitmap_newtype_tests {
             use super::*;
             use $crate::{
                 bitmap::{
-                    tests::INFINITE_EXPLORE_ITERS, Bitmap, BitmapRef,
-                    OwnedBitmap, SpecializedBitmap
+                    tests::INFINITE_EXPLORE_ITERS, Bitmap, BitmapIndex,
+                    BitmapKind, BitmapRef, OwnedBitmap, OwnedSpecializedBitmap,
+                    SpecializedBitmap
                 },
                 ffi::int::PositiveInt,
             };
@@ -2461,10 +2506,132 @@ macro_rules! impl_bitmap_newtype_tests {
             use quickcheck_macros::quickcheck;
             use std::{
                 borrow::{Borrow, BorrowMut},
+                fmt::{Debug, Display, Pointer},
+                hash::Hash,
                 mem::ManuallyDrop,
-                ops::{Deref, RangeInclusive},
+                ops::{
+                    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
+                    BitXorAssign, Deref, Not, RangeInclusive, Sub, SubAssign
+                },
+                panic::{RefUnwindSafe, UnwindSafe},
                 ptr::{self, NonNull}
             };
+            use static_assertions::assert_impl_all;
+
+            // Check that newtypes keep implementing all expected traits,
+            // in the interest of detecting future semver-breaking changes
+            assert_impl_all!($newtype:
+                AsMut<Bitmap>,
+                BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                BitAnd<BitmapRef<'static, $newtype>>,
+                BitAnd<&'static BitmapRef<'static, $newtype>>,
+                BitAndAssign<$newtype>, BitAndAssign<&'static $newtype>,
+                BitAndAssign<BitmapRef<'static, $newtype>>,
+                BitAndAssign<&'static BitmapRef<'static, $newtype>>,
+                BitOr<$newtype>, BitOr<&'static $newtype>,
+                BitOr<BitmapRef<'static, $newtype>>,
+                BitOr<&'static BitmapRef<'static, $newtype>>,
+                BitOrAssign<$newtype>, BitOrAssign<&'static $newtype>,
+                BitOrAssign<BitmapRef<'static, $newtype>>,
+                BitOrAssign<&'static BitmapRef<'static, $newtype>>,
+                BitXor<$newtype>, BitXor<&'static $newtype>,
+                BitXor<BitmapRef<'static, $newtype>>,
+                BitXor<&'static BitmapRef<'static, $newtype>>,
+                BitXorAssign<$newtype>, BitXorAssign<&'static $newtype>,
+                BitXorAssign<BitmapRef<'static, $newtype>>,
+                BitXorAssign<&'static BitmapRef<'static, $newtype>>,
+                BorrowMut<Bitmap>, Clone, Debug, Default, Display, Eq,
+                Extend<BitmapIndex>, Extend<&'static BitmapIndex>,
+                From<Bitmap>, From<BitmapIndex>, From<&'static BitmapIndex>,
+                FromIterator<BitmapIndex>, FromIterator<&'static BitmapIndex>,
+                Hash, Into<Bitmap>, IntoIterator<Item=BitmapIndex>, Not, Ord,
+                OwnedSpecializedBitmap,
+                PartialEq<&'static $newtype>,
+                PartialEq<BitmapRef<'static, $newtype>>,
+                PartialEq<&'static BitmapRef<'static, $newtype>>,
+                PartialOrd<&'static $newtype>,
+                PartialOrd<BitmapRef<'static, $newtype>>,
+                PartialOrd<&'static BitmapRef<'static, $newtype>>,
+                RefUnwindSafe, Send, Sized,
+                Sub<$newtype>, Sub<&'static $newtype>,
+                Sub<BitmapRef<'static, $newtype>>,
+                Sub<&'static BitmapRef<'static, $newtype>>,
+                SubAssign<$newtype>, SubAssign<&'static $newtype>,
+                SubAssign<BitmapRef<'static, $newtype>>,
+                SubAssign<&'static BitmapRef<'static, $newtype>>,
+                Sync, Unpin, UnwindSafe
+            );
+            assert_impl_all!(&$newtype:
+                BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                BitAnd<BitmapRef<'static, $newtype>>,
+                BitAnd<&'static BitmapRef<'static, $newtype>>,
+                BitOr<$newtype>, BitOr<&'static $newtype>,
+                BitOr<BitmapRef<'static, $newtype>>,
+                BitOr<&'static BitmapRef<'static, $newtype>>,
+                BitXor<$newtype>, BitXor<&'static $newtype>,
+                BitXor<BitmapRef<'static, $newtype>>,
+                BitXor<&'static BitmapRef<'static, $newtype>>,
+                Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
+                Not<Output=$newtype>, RefUnwindSafe, Send, Sized,
+                Sub<$newtype>, Sub<&'static $newtype>,
+                Sub<BitmapRef<'static, $newtype>>,
+                Sub<&'static BitmapRef<'static, $newtype>>,
+                Sync, Unpin, UnwindSafe
+            );
+            assert_impl_all!(BitmapRef<'static, $newtype>:
+                AsRef<$newtype>, AsRef<Bitmap>,
+                BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                BitAnd<BitmapRef<'static, $newtype>>,
+                BitAnd<&'static BitmapRef<'static, $newtype>>,
+                BitOr<$newtype>, BitOr<&'static $newtype>,
+                BitOr<BitmapRef<'static, $newtype>>,
+                BitOr<&'static BitmapRef<'static, $newtype>>,
+                BitXor<$newtype>, BitXor<&'static $newtype>,
+                BitXor<BitmapRef<'static, $newtype>>,
+                BitXor<&'static BitmapRef<'static, $newtype>>,
+                Borrow<$newtype>, Borrow<Bitmap>, Clone, Debug,
+                Deref<Target=$newtype>, Display, Eq, From<&'static $newtype>,
+                Hash, Into<BitmapRef<'static, Bitmap>>,
+                IntoIterator<Item=BitmapIndex>, Not<Output=$newtype>, Ord,
+                PartialEq<&'static $newtype>,
+                PartialEq<BitmapRef<'static, $newtype>>,
+                PartialEq<&'static BitmapRef<'static, $newtype>>,
+                PartialOrd<&'static $newtype>,
+                PartialOrd<BitmapRef<'static, $newtype>>,
+                PartialOrd<&'static BitmapRef<'static, $newtype>>,
+                Pointer, RefUnwindSafe, Send, Sized,
+                SpecializedBitmap<Owned=$newtype>,
+                Sub<$newtype>, Sub<&'static $newtype>,
+                Sub<BitmapRef<'static, $newtype>>,
+                Sub<&'static BitmapRef<'static, $newtype>>,
+                Sync, Unpin, UnwindSafe
+            );
+            assert_impl_all!(&BitmapRef<'static, $newtype>:
+                BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                BitAnd<BitmapRef<'static, $newtype>>,
+                BitAnd<&'static BitmapRef<'static, $newtype>>,
+                BitOr<$newtype>, BitOr<&'static $newtype>,
+                BitOr<BitmapRef<'static, $newtype>>,
+                BitOr<&'static BitmapRef<'static, $newtype>>,
+                BitXor<$newtype>, BitXor<&'static $newtype>,
+                BitXor<BitmapRef<'static, $newtype>>,
+                BitXor<&'static BitmapRef<'static, $newtype>>,
+                Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
+                Not<Output=$newtype>, RefUnwindSafe, Send, Sized,
+                Sub<$newtype>, Sub<&'static $newtype>,
+                Sub<BitmapRef<'static, $newtype>>,
+                Sub<&'static BitmapRef<'static, $newtype>>,
+                Sync, Unpin, UnwindSafe
+            );
+
+            #[test]
+            fn static_checks() {
+                assert_eq!($newtype::BITMAP_KIND, BitmapKind::$newtype);
+                assert_eq!(
+                    BitmapRef::<'static, $newtype>::BITMAP_KIND,
+                    BitmapKind::$newtype
+                );
+            }
 
             #[test]
             fn nullary() {
@@ -2792,14 +2959,130 @@ pub(crate) mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
+    use static_assertions::assert_impl_all;
     use std::{
         collections::HashSet,
         ffi::c_ulonglong,
-        fmt::Write,
+        fmt::{Pointer, Write},
         mem::ManuallyDrop,
         ops::{Range, RangeFrom, RangeInclusive},
+        panic::{RefUnwindSafe, UnwindSafe},
         ptr,
     };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(Bitmap:
+        BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
+        BitAnd<BitmapRef<'static, Bitmap>>,
+        BitAnd<&'static BitmapRef<'static, Bitmap>>,
+        BitAndAssign<Bitmap>, BitAndAssign<&'static Bitmap>,
+        BitAndAssign<BitmapRef<'static, Bitmap>>,
+        BitAndAssign<&'static BitmapRef<'static, Bitmap>>,
+        BitOr<Bitmap>, BitOr<&'static Bitmap>,
+        BitOr<BitmapRef<'static, Bitmap>>,
+        BitOr<&'static BitmapRef<'static, Bitmap>>,
+        BitOrAssign<Bitmap>, BitOrAssign<&'static Bitmap>,
+        BitOrAssign<BitmapRef<'static, Bitmap>>,
+        BitOrAssign<&'static BitmapRef<'static, Bitmap>>,
+        BitXor<Bitmap>, BitXor<&'static Bitmap>,
+        BitXor<BitmapRef<'static, Bitmap>>,
+        BitXor<&'static BitmapRef<'static, Bitmap>>,
+        BitXorAssign<Bitmap>, BitXorAssign<&'static Bitmap>,
+        BitXorAssign<BitmapRef<'static, Bitmap>>,
+        BitXorAssign<&'static BitmapRef<'static, Bitmap>>,
+        Clone, Debug, Default, Display, Eq,
+        Extend<BitmapIndex>, Extend<&'static BitmapIndex>,
+        From<BitmapIndex>, From<&'static BitmapIndex>,
+        FromIterator<BitmapIndex>, FromIterator<&'static BitmapIndex>,
+        Hash, IntoIterator<Item=BitmapIndex>, Not, Ord, OwnedBitmap,
+        PartialEq<&'static Bitmap>,
+        PartialEq<BitmapRef<'static, Bitmap>>,
+        PartialEq<&'static BitmapRef<'static, Bitmap>>,
+        PartialOrd<&'static Bitmap>,
+        PartialOrd<BitmapRef<'static, Bitmap>>,
+        PartialOrd<&'static BitmapRef<'static, Bitmap>>,
+        RefUnwindSafe, Send, Sized,
+        Sub<Bitmap>, Sub<&'static Bitmap>,
+        Sub<BitmapRef<'static, Bitmap>>,
+        Sub<&'static BitmapRef<'static, Bitmap>>,
+        SubAssign<Bitmap>, SubAssign<&'static Bitmap>,
+        SubAssign<BitmapRef<'static, Bitmap>>,
+        SubAssign<&'static BitmapRef<'static, Bitmap>>,
+        Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(&Bitmap:
+        BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
+        BitAnd<BitmapRef<'static, Bitmap>>,
+        BitAnd<&'static BitmapRef<'static, Bitmap>>,
+        BitOr<Bitmap>, BitOr<&'static Bitmap>,
+        BitOr<BitmapRef<'static, Bitmap>>,
+        BitOr<&'static BitmapRef<'static, Bitmap>>,
+        BitXor<Bitmap>, BitXor<&'static Bitmap>,
+        BitXor<BitmapRef<'static, Bitmap>>,
+        BitXor<&'static BitmapRef<'static, Bitmap>>,
+        Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
+        Not<Output=Bitmap>, RefUnwindSafe, Send, Sized,
+        Sub<Bitmap>, Sub<&'static Bitmap>,
+        Sub<BitmapRef<'static, Bitmap>>,
+        Sub<&'static BitmapRef<'static, Bitmap>>,
+        Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(BitmapRef<'static, Bitmap>:
+        AsRef<Bitmap>,
+        BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
+        BitAnd<BitmapRef<'static, Bitmap>>,
+        BitAnd<&'static BitmapRef<'static, Bitmap>>,
+        BitOr<Bitmap>, BitOr<&'static Bitmap>,
+        BitOr<BitmapRef<'static, Bitmap>>,
+        BitOr<&'static BitmapRef<'static, Bitmap>>,
+        BitXor<Bitmap>, BitXor<&'static Bitmap>,
+        BitXor<BitmapRef<'static, Bitmap>>,
+        BitXor<&'static BitmapRef<'static, Bitmap>>,
+        Borrow<Bitmap>, Clone, Debug,
+        Deref<Target=Bitmap>, Display, Eq, From<&'static Bitmap>, Hash,
+        IntoIterator<Item=BitmapIndex>, Not<Output=Bitmap>, Ord,
+        PartialEq<&'static Bitmap>,
+        PartialEq<BitmapRef<'static, Bitmap>>,
+        PartialEq<&'static BitmapRef<'static, Bitmap>>,
+        PartialOrd<&'static Bitmap>,
+        PartialOrd<BitmapRef<'static, Bitmap>>,
+        PartialOrd<&'static BitmapRef<'static, Bitmap>>,
+        Pointer, RefUnwindSafe, Send, Sized,
+        Sub<Bitmap>, Sub<&'static Bitmap>,
+        Sub<BitmapRef<'static, Bitmap>>,
+        Sub<&'static BitmapRef<'static, Bitmap>>,
+        Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(&BitmapRef<'static, Bitmap>:
+        BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
+        BitAnd<BitmapRef<'static, Bitmap>>,
+        BitAnd<&'static BitmapRef<'static, Bitmap>>,
+        BitOr<Bitmap>, BitOr<&'static Bitmap>,
+        BitOr<BitmapRef<'static, Bitmap>>,
+        BitOr<&'static BitmapRef<'static, Bitmap>>,
+        BitXor<Bitmap>, BitXor<&'static Bitmap>,
+        BitXor<BitmapRef<'static, Bitmap>>,
+        BitXor<&'static BitmapRef<'static, Bitmap>>,
+        Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
+        Not<Output=Bitmap>, RefUnwindSafe, Send, Sized,
+        Sub<Bitmap>, Sub<&'static Bitmap>,
+        Sub<BitmapRef<'static, Bitmap>>,
+        Sub<&'static BitmapRef<'static, Bitmap>>,
+        Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(Iter<Bitmap>:
+        Clone, Debug, FusedIterator<Item=BitmapIndex>, RefUnwindSafe, Send,
+        Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(Iter<&Bitmap>:
+        Clone, Copy, Debug, FusedIterator<Item=BitmapIndex>, RefUnwindSafe,
+        Send, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(BitmapKind:
+        Clone, Copy, Debug, Eq, Hash, RefUnwindSafe, Send, Sized, Sync, Unpin,
+        UnwindSafe
+    );
 
     // We can't fully check the value of infinite iterators because that would
     // literally take forever, so we only check a small subrange of the final

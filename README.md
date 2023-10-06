@@ -63,11 +63,10 @@ myself](https://github.com/HadrienG2/hwlocality/issues/31): patches welcome!
 
 ## Usage
 
-First, add the following to your `Cargo.toml`:
+First, add `hwlocality` as a dependency:
 
-```toml
-[dependencies]
-hwlocality = "1.0.0"
+```bash
+cargo add hwlocality
 ```
 
 Then, inside of your code, set up a

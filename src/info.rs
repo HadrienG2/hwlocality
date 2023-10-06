@@ -116,11 +116,20 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
+    use static_assertions::assert_impl_all;
     use std::{
         collections::hash_map::RandomState,
         ffi::CString,
+        fmt::Debug,
         hash::{BuildHasher, Hasher},
+        panic::{RefUnwindSafe, UnwindSafe},
     };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(TextualInfo:
+        Debug, Eq, Hash, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
 
     #[quickcheck]
     fn unary(name: LibcString, value: LibcString) {
