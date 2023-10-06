@@ -200,7 +200,7 @@ pub(crate) fn call_hwloc_int_raw(
 /// If the hwloc documentation contains an exhaustive list of failure modes, we
 /// trust it and return a pure Rust error type, panicking if another hwloc
 /// error is observed.
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum HybridError<RustError: Error> {
     /// An error was caught on the Rust side
     #[error(transparent)]
@@ -217,7 +217,7 @@ pub enum HybridError<RustError: Error> {
     Hwloc(RawHwlocError),
 }
 
-/// Requested string contains the NUL char
+/// A string meant for hwloc consumption contained the NUL char
 ///
 /// hwloc, like most C APIs, cannot handle strings with inner NULs, so you
 /// should not pass a string containing such characters as a parameter to an
@@ -274,10 +274,40 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
+    use static_assertions::assert_impl_all;
     use std::{
+        hash::Hash,
         num::{NonZeroU32, NonZeroUsize},
-        panic, ptr,
+        panic::{self, RefUnwindSafe, UnwindSafe},
+        ptr,
     };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(FlagsError<()>:
+        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
+        Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(ForeignObject:
+        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
+        Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(HybridError<NulError>:
+        Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
+    assert_impl_all!(NulError:
+        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
+        Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(ParameterError<()>:
+        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
+        Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_impl_all!(RawHwlocError:
+        Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
+        Unpin, UnwindSafe
+    );
 
     #[quickcheck]
     fn check_errno_normal(output: i128, start_errno: i32, new_errno: NonZeroU32) {

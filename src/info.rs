@@ -35,7 +35,7 @@ use std::{ffi::CStr, fmt, hash::Hash};
 // Provided that objects do not link to strings allocated outside of the
 // topology they originate from, which is a minimally sane expectation from
 // hwloc, this should be enough.
-#[allow(clippy::non_send_fields_in_send_ty)]
+#[allow(clippy::non_send_fields_in_send_ty, missing_copy_implementations)]
 #[doc(alias = "hwloc_info_s")]
 #[repr(transparent)]
 pub struct TextualInfo(hwloc_info_s);
@@ -116,11 +116,20 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
+    use static_assertions::assert_impl_all;
     use std::{
         collections::hash_map::RandomState,
         ffi::CString,
+        fmt::Debug,
         hash::{BuildHasher, Hasher},
+        panic::{RefUnwindSafe, UnwindSafe},
     };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(TextualInfo:
+        Debug, Eq, Hash, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    );
 
     #[quickcheck]
     fn unary(name: LibcString, value: LibcString) {

@@ -1167,7 +1167,7 @@ impl Topology {
 // - infos_count is in sync with infos
 // - userdata should not be touched as topology duplication aliases it
 // - gp_index is stable by API contract
-#[allow(clippy::non_send_fields_in_send_ty)]
+#[allow(clippy::non_send_fields_in_send_ty, missing_copy_implementations)]
 #[doc(alias = "hwloc_obj")]
 #[doc(alias = "hwloc_obj_t")]
 #[repr(transparent)]

@@ -12,6 +12,7 @@ categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memor
 
 [workspace.dependencies]
 libc = "0.2"
+static_assertions = "1.1.0"
 windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [package]
@@ -172,6 +173,9 @@ pretty_assertions = "1.4"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 rand = "0.8"
+
+# Used to check trait implementations
+static_assertions.workspace = true
 
 # Used in examples to portably query the OS process list
 sysinfo = { version = "0.29", default-features = false }

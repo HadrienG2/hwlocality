@@ -51,7 +51,21 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
-    use std::path::PathBuf;
+    use static_assertions::assert_impl_all;
+    use std::{
+        error::Error,
+        fmt::Debug,
+        hash::Hash,
+        panic::{RefUnwindSafe, UnwindSafe},
+        path::PathBuf,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(PathError:
+        Clone, Copy, Debug, Error, Eq, From<NulError>, Hash, RefUnwindSafe,
+        Send, Sized, Sync, Unpin, UnwindSafe
+    );
 
     #[allow(clippy::option_if_let_else)]
     #[quickcheck]

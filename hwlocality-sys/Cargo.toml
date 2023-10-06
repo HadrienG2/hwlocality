@@ -41,6 +41,10 @@ cmake = { version = "0.1.50", optional = true }
 # Used to locate hwloc except in cmake bundled builds
 pkg-config = "0.3.8"
 
+[dev-dependencies]
+# Used to check trait implementations
+static_assertions.workspace = true
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
