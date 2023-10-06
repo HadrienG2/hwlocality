@@ -1312,10 +1312,24 @@ impl<BI: Borrow<BitmapIndex>> FromIterator<BI> for Bitmap {
 
 impl Hash for Bitmap {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        for index in self {
+        // Beware not to iterate infinitely over infinite bitmaps
+        let is_infinitely_set = self.weight().is_none();
+        let last_significant_index = self
+            .last_set()
+            .or_else(|| self.last_unset())
+            .unwrap_or(PositiveInt::MIN);
+
+        // Iterate over the finite part of the bitmap
+        for index in self
+            .iter_set()
+            .take_while(|&idx| idx <= last_significant_index)
+        {
             index.hash(state);
         }
-        PositiveInt::MIN.hash(state)
+
+        // Add a terminator that is different depending on if what follows the
+        // finite part of the bitmap is an infinite sequence of 1s or 0s.
+        is_infinitely_set.hash(state);
     }
 }
 
@@ -2506,8 +2520,9 @@ macro_rules! impl_bitmap_newtype_tests {
             use quickcheck_macros::quickcheck;
             use std::{
                 borrow::{Borrow, BorrowMut},
+                collections::hash_map::DefaultHasher,
                 fmt::{Debug, Display, Pointer},
-                hash::Hash,
+                hash::{Hash, Hasher},
                 mem::ManuallyDrop,
                 ops::{
                     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
@@ -2624,6 +2639,13 @@ macro_rules! impl_bitmap_newtype_tests {
                 Sync, Unpin, UnwindSafe
             );
 
+            /// Compute the hash of something
+            fn hash<T: Hash>(t: &T) -> u64 {
+                let mut s = DefaultHasher::new();
+                t.hash(&mut s);
+                s.finish()
+            }
+
             #[test]
             fn static_checks() {
                 assert_eq!($newtype::BITMAP_KIND, BitmapKind::$newtype);
@@ -2702,9 +2724,14 @@ macro_rules! impl_bitmap_newtype_tests {
                     <BitmapRef<'_, _> as Deref>::deref(&new_ref).as_ptr(),
                     new.as_ptr()
                 );
+                let bitmap_ref = BitmapRef::<Bitmap>::from(new_ref);
+                assert_eq!(bitmap_ref.as_ptr(), new_ref.as_ptr());
+                let new_ref2 = BitmapRef::<$newtype>::from(bitmap_ref);
+                assert_eq!(new_ref2.as_ptr(), new_ref.as_ptr());
 
                 assert_eq!(format!("{new:?}"), format!("{new_ref:?}"));
                 assert_eq!(new.to_string(), new_ref.to_string());
+                assert_eq!(hash(&new), hash(&new_ref));
                 assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
 
                 assert!(new
@@ -2736,6 +2763,7 @@ macro_rules! impl_bitmap_newtype_tests {
                     new.to_string(),
                     format!("{}({})", stringify!($newtype), new.0)
                 );
+                assert_eq!(hash(&new), hash(&new.0));
                 // SAFETY: No mutation going on
                 unsafe { assert_eq!(new.as_raw(), new.0.as_raw()) };
                 //
@@ -2961,9 +2989,10 @@ pub(crate) mod tests {
     use quickcheck_macros::quickcheck;
     use static_assertions::assert_impl_all;
     use std::{
-        collections::HashSet,
+        collections::{hash_map::DefaultHasher, HashSet},
         ffi::c_ulonglong,
         fmt::{Pointer, Write},
+        hash::Hasher,
         mem::ManuallyDrop,
         ops::{Range, RangeFrom, RangeInclusive},
         panic::{RefUnwindSafe, UnwindSafe},
@@ -3088,6 +3117,13 @@ pub(crate) mod tests {
     // literally take forever, so we only check a small subrange of the final
     // all-set/unset region, large enough to catch off-by-one-longword issues.
     pub(crate) const INFINITE_EXPLORE_ITERS: usize = std::mem::size_of::<c_ulonglong>() * 8;
+
+    /// Compute the hash of something
+    fn hash<T: Hash>(t: &T) -> u64 {
+        let mut s = DefaultHasher::new();
+        t.hash(&mut s);
+        s.finish()
+    }
 
     // Unfortunately, ranges of BitmapIndex cannot do everything that ranges of
     // built-in integer types can do due to some unstable integer traits, so
@@ -3276,6 +3312,7 @@ pub(crate) mod tests {
 
         assert_eq!(format!("{bitmap:?}"), format!("{bitmap_ref:?}"));
         assert_eq!(bitmap.to_string(), bitmap_ref.to_string());
+        assert_eq!(hash(&bitmap), hash(&bitmap_ref));
         assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
 
         assert!(bitmap
@@ -3390,7 +3427,9 @@ pub(crate) mod tests {
         assert!(!empty.intersects(&other));
 
         assert_eq!(empty == other, other.is_empty());
-        if !other.is_empty() {
+        if other.is_empty() {
+            assert_eq!(hash(&other), hash(&empty));
+        } else {
             assert!(empty < other);
         }
 
@@ -3489,6 +3528,9 @@ pub(crate) mod tests {
         assert_eq!(full.intersects(&other), !other.is_empty());
 
         assert_eq!(full == other, other.is_full());
+        if other.is_full() {
+            assert_eq!(hash(&other), hash(&full));
+        }
         assert_eq!(
             full.cmp(&other),
             if other.is_full() {
@@ -3700,6 +3742,9 @@ pub(crate) mod tests {
             ranged_bitmap == other,
             other.weight() == Some(usized.count()) && other.includes(&ranged_bitmap)
         );
+        if ranged_bitmap == other {
+            assert_eq!(hash(&other), hash(&ranged_bitmap));
+        }
 
         if ranged_bitmap.is_empty() {
             assert_eq!(
@@ -4063,6 +4108,9 @@ pub(crate) mod tests {
             bitmap == other,
             bitmap.includes(&other) && other.includes(&bitmap)
         );
+        if bitmap == other {
+            assert_eq!(hash(&other), hash(&bitmap));
+        }
 
         fn expected_cmp(bitmap: &Bitmap, reference: &Bitmap) -> Ordering {
             let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
