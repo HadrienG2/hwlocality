@@ -42,7 +42,7 @@ use std::{ffi::c_uchar, fmt, hash::Hash};
 // - The initial feature support that is set up by hwloc at topology
 //   construction time is trusted to be correct
 // - There is no API for modifying a loaded topology's feature support
-#[allow(clippy::non_send_fields_in_send_ty)]
+#[allow(clippy::non_send_fields_in_send_ty, missing_copy_implementations)]
 #[derive(Default)]
 #[doc(alias = "hwloc_topology_support")]
 #[repr(transparent)]

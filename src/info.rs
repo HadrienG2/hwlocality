@@ -35,7 +35,7 @@ use std::{ffi::CStr, fmt, hash::Hash};
 // Provided that objects do not link to strings allocated outside of the
 // topology they originate from, which is a minimally sane expectation from
 // hwloc, this should be enough.
-#[allow(clippy::non_send_fields_in_send_ty)]
+#[allow(clippy::non_send_fields_in_send_ty, missing_copy_implementations)]
 #[doc(alias = "hwloc_info_s")]
 #[repr(transparent)]
 pub struct TextualInfo(hwloc_info_s);

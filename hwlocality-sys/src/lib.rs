@@ -544,6 +544,9 @@ pub const HWLOC_OBJ_DIE: hwloc_obj_type_t = 19;
 // === Object Structure and Attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__objects.html
 
 /// Hardware topology object
+///
+/// This type does not implement [`Default`] because hwloc all but guarantees
+/// that some inner pointers of this struct will not be null.
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct hwloc_obj {
