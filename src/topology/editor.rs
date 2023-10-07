@@ -31,7 +31,7 @@
 //! as easy to use, cleanly implemented and feature-complete as it should be.
 
 use crate::{
-    bitmap::{BitmapKind, SpecializedBitmap},
+    bitmap::{BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObject, HybridError, ParameterError, RawHwlocError},
     ffi::{
@@ -50,8 +50,8 @@ use crate::{
 use bitflags::bitflags;
 use derive_more::Display;
 use hwlocality_sys::{
-    hwloc_obj, hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL,
-    HWLOC_ALLOW_FLAG_CUSTOM, HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS, HWLOC_RESTRICT_FLAG_ADAPT_IO,
+    hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
+    HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS, HWLOC_RESTRICT_FLAG_ADAPT_IO,
     HWLOC_RESTRICT_FLAG_ADAPT_MISC, HWLOC_RESTRICT_FLAG_BYNODESET,
     HWLOC_RESTRICT_FLAG_REMOVE_CPULESS, HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS,
 };
@@ -230,52 +230,60 @@ impl<'topology> TopologyEditor<'topology> {
     pub fn restrict<Set: SpecializedBitmap>(
         &mut self,
         set: &Set,
-        mut flags: RestrictFlags,
+        flags: RestrictFlags,
     ) -> Result<(), ParameterError<Set::Owned>> {
-        // Configure restrict flags correctly depending on the node set type
-        match Set::BITMAP_KIND {
-            BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
-            BitmapKind::NodeSet => flags.insert(RestrictFlags::BY_NODE_SET),
-        }
-        if flags.contains(RestrictFlags::REMOVE_EMPTIED) {
-            flags.remove(RestrictFlags::REMOVE_EMPTIED);
-            match Set::BITMAP_KIND {
-                BitmapKind::CpuSet => flags.insert(RestrictFlags::REMOVE_CPULESS),
-                BitmapKind::NodeSet => flags.insert(RestrictFlags::REMOVE_MEMLESS),
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<OwnedSet: OwnedSpecializedBitmap>(
+            self_: &mut TopologyEditor<'_>,
+            set: &OwnedSet,
+            mut flags: RestrictFlags,
+        ) -> Result<(), ParameterError<OwnedSet>> {
+            // Configure restrict flags correctly depending on the node set type
+            match OwnedSet::BITMAP_KIND {
+                BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
+                BitmapKind::NodeSet => flags.insert(RestrictFlags::BY_NODE_SET),
+            }
+            if flags.contains(RestrictFlags::REMOVE_EMPTIED) {
+                flags.remove(RestrictFlags::REMOVE_EMPTIED);
+                match OwnedSet::BITMAP_KIND {
+                    BitmapKind::CpuSet => flags.insert(RestrictFlags::REMOVE_CPULESS),
+                    BitmapKind::NodeSet => flags.insert(RestrictFlags::REMOVE_MEMLESS),
+                }
+            }
+
+            // Apply requested restriction
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - set trusted to be valid (Bitmap type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - By construction, only allowed flag combinations may be sent
+            //           to hwloc
+            let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
+                hwlocality_sys::hwloc_topology_restrict(
+                    self_.topology_mut_ptr(),
+                    set.as_ref().as_ptr(),
+                    flags.bits(),
+                )
+            });
+            match result {
+                Ok(_) => Ok(()),
+                Err(
+                    raw_err @ RawHwlocError {
+                        errno: Some(errno), ..
+                    },
+                ) => match errno.0 {
+                    EINVAL => Err(ParameterError::from(set.to_owned())),
+                    ENOMEM => {
+                        eprintln!("Topology stuck in an invalid state, must abort");
+                        std::process::abort()
+                    }
+                    _ => unreachable!("Unexpected hwloc error: {raw_err}"),
+                },
+                Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
             }
         }
-
-        // Apply requested restriction
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - set trusted to be valid (Bitmap type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - By construction, only allowed flag combinations may be sent
-        //           to hwloc
-        let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
-            hwlocality_sys::hwloc_topology_restrict(
-                self.topology_mut_ptr(),
-                set.as_ref().as_ptr(),
-                flags.bits(),
-            )
-        });
-        match result {
-            Ok(_) => Ok(()),
-            Err(
-                raw_err @ RawHwlocError {
-                    errno: Some(errno), ..
-                },
-            ) => match errno.0 {
-                EINVAL => Err(ParameterError::from(set.to_owned())),
-                ENOMEM => {
-                    eprintln!("Topology stuck in an invalid state, must abort");
-                    std::process::abort()
-                }
-                _ => unreachable!("Unexpected hwloc error: {raw_err}"),
-            },
-            Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
-        }
+        polymorphized(self, set.borrow(), flags)
     }
 
     /// Change the sets of allowed PUs and NUMA nodes in the topology
@@ -413,64 +421,62 @@ impl<'topology> TopologyEditor<'topology> {
         name: &str,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
     ) -> Result<&'topology mut TopologyObject, HybridError<InsertMiscError>> {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        ///
+        /// # Safety
+        ///
+        /// - `parent` must point to a [`TopologyObject`] that belongs to
+        ///   `self_`
+        /// - Any `&TopologyObject` that the pointer parent has been generated
+        ///   from must be dropped before calling this function: we'll modify
+        ///   its target, so reusing it would be UB.
+        unsafe fn polymorphized<'topology>(
+            self_: &mut TopologyEditor<'topology>,
+            name: &str,
+            parent: NonNull<TopologyObject>,
+        ) -> Result<&'topology mut TopologyObject, HybridError<InsertMiscError>> {
+            // Convert object name to a C string
+            let name = LibcString::new(name)
+                .map_err(|_| HybridError::Rust(InsertMiscError::NameContainsNul))?;
+
+            // Call hwloc entry point
+            let mut ptr =
+                // SAFETY: - Topology is trusted to contain a valid ptr (type
+                //           invariant)
+                //         - hwloc ops are trusted to keep *mut parameters in a
+                //           valid state unless stated otherwise
+                //         - LibcString should yield valid C strings, which
+                //           we're not using beyond their intended lifetime
+                //         - hwloc ops are trusted not to modify *const
+                //           parameters
+                //         - Per polymorphized safety constract, parent should
+                //           be correct and not be associated with a live &-ref
+                errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
+                    hwlocality_sys::hwloc_topology_insert_misc_object(
+                        self_.topology_mut_ptr(),
+                        parent.to_inner().as_ptr(),
+                        name.borrow(),
+                    )
+                })
+                .map_err(HybridError::Hwloc)?;
+            // SAFETY: - If hwloc succeeded, the output pointer is assumed valid
+            //         - Output lifetime is bound to the topology that it comes
+            //           from
+            Ok(unsafe { ptr.as_mut().to_newtype() })
+        }
+
         // Find parent object
-        let raw_parent_mut: *mut hwloc_obj = {
+        let parent: NonNull<TopologyObject> = {
             let topology = self.topology();
             let parent = find_parent(topology);
             if !topology.contains(parent) {
                 return Err(HybridError::Rust(InsertMiscError::ForeignParent));
             }
-            let raw_parent: *const hwloc_obj = parent.to_inner();
-            raw_parent.cast_mut()
+            parent.into()
         };
 
-        // Convert object name to a C string
-        let name = LibcString::new(name)
-            .map_err(|_| HybridError::Rust(InsertMiscError::NameContainsNul))?;
-
-        // Call hwloc entry point
-        //
-        // This is on the edge of violating Rust's aliasing rules, but I think
-        // it should work out because...
-        //
-        // - We discard the original parent reference before handing over the
-        //   *mut derived from it to hwloc, and thus we should not be able to
-        //   trigger UB consequences linked to the fact that we modified
-        //   something that we accessed via &T while the compiler is allowed to
-        //   assume that what's behind said &T doesn't change.
-        // - We hand over to hwloc a honestly acquired *mut hwloc_topology that
-        //   legally allows it to modify anything behind it, including the
-        //   *mut TopologyObject that `parent` points to.
-        //
-        // On the other hand, I think even with interior mutability it would be
-        // impossible to devise a safe API that directly takes an
-        // &TopologyObject to the `parent`, because unless we filled the entire
-        // TopologyStruct with interior mutability (which we don't want to do
-        // just to support this minor hwloc feature), the compiler would then be
-        // allowed to assume that nothing changed behind that shared reference.
-        // So letting the client keep hold of it would be highly problematic.
-        //
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - LibcString should yield valid C strings, which we're not
-        //           using beyond their intended lifetime
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - raw_parent_mut originates from safe code so it should be
-        //           correct, and it has been checked to come from the right
-        //           topology
-        //         - See note above with respect to raw_parent_mut aliasing
-        let mut ptr = errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
-            hwlocality_sys::hwloc_topology_insert_misc_object(
-                self.topology_mut_ptr(),
-                raw_parent_mut,
-                name.borrow(),
-            )
-        })
-        .map_err(HybridError::Hwloc)?;
-        // SAFETY: - If hwloc succeeded, the output pointer is assumed valid
-        //         - Output lifetime is bound to the topology that it comes from
-        Ok(unsafe { ptr.as_mut().to_newtype() })
+        // SAFETY: parent comes from this topology, source ref has been dropped
+        unsafe { polymorphized(self, name, parent) }
     }
 }
 
@@ -661,6 +667,43 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         &mut self,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
     ) -> Result<(), ForeignObject> {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        ///
+        /// # Safety
+        ///
+        /// - `group` must point to the inner group of an [`AllocatedGroup`]
+        /// - `children` must have been checked to belong to the topology of
+        ///   said [`AllocatedGroup`]
+        unsafe fn polymorphized(group: NonNull<TopologyObject>, children: Vec<&TopologyObject>) {
+            // Add children to this group
+            for child in children {
+                let result =
+                    // SAFETY: - group is assumed to be valid as a type
+                    //           invariant of AllocatedGroup
+                    //         - hwloc ops are trusted not to modify *const
+                    //           parameters
+                    //         - child was checked to belong to the same
+                    //           topology as group
+                    //         - ToInner is trusted to be implemented correctly
+                    errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
+                        hwlocality_sys::hwloc_obj_add_other_obj_sets(
+                            group.to_inner().as_ptr(),
+                            child.to_inner(),
+                        )
+                    });
+                match result {
+                    Ok(_) => {}
+                    Err(
+                        raw_err @ RawHwlocError {
+                            errno: Some(errno::Errno(ENOMEM)),
+                            ..
+                        },
+                    ) => panic!("Internal reallocation failed: {raw_err}"),
+                    Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+                }
+            }
+        }
+
         // Enumerate children, check they belong to this topology
         let topology = self.editor.topology();
         let children = find_children(topology);
@@ -668,29 +711,10 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             return Err(ForeignObject);
         }
 
-        // Add children to this group
-        for child in children {
-            // SAFETY: - group is assumed to be valid as a type invariant
-            //         - hwloc ops are trusted not to modify *const parameters
-            //         - child was checked to belong to the same topology as group
-            //         - ToInner is trusted to be implemented correctly
-            let result = errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
-                hwlocality_sys::hwloc_obj_add_other_obj_sets(
-                    self.group.to_inner().as_ptr(),
-                    child.to_inner(),
-                )
-            });
-            match result {
-                Ok(_) => {}
-                Err(
-                    raw_err @ RawHwlocError {
-                        errno: Some(errno::Errno(ENOMEM)),
-                        ..
-                    },
-                ) => panic!("Internal reallocation failed: {raw_err}"),
-                Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
-            }
-        }
+        // Call into the polymorphized function
+        // SAFETY: - This is indeed the inner group of this AllocatedGroup
+        //         - children have been checked to belong to its topology
+        unsafe { polymorphized(self.group, children) };
         Ok(())
     }
 

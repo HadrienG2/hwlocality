@@ -393,37 +393,39 @@ impl Topology {
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
     {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(self_: &Topology, depth: Depth) -> Option<ObjectType> {
+            // There cannot be any normal object at a depth below the topology depth
+            if let Depth::Normal(depth) = depth {
+                if depth >= self_.depth() {
+                    return None;
+                }
+            }
+
+            // Otherwise, ask hwloc
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - By construction, Depth only exposes values that map into
+            //           hwloc_get_depth_type_e values understood by the configured
+            //           version of hwloc, and build.rs checks that the active
+            //           version of hwloc is not older than that, so into() may only
+            //           generate valid hwloc_get_depth_type_e values for current hwloc
+            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.into()) }
+                .try_into()
+            {
+                Ok(depth) => Some(depth),
+                Err(TryFromPrimitiveError {
+                    number: hwloc_obj_type_t::MAX,
+                }) => None,
+                Err(unknown) => {
+                    unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
+                }
+            }
+        }
+
         // There cannot be any object at a depth below the hwloc-supported max
-        let Ok(depth) = depth.try_into() else {
-            return None;
-        };
-
-        // There cannot be any normal object at a depth below the topology depth
-        if let Depth::Normal(depth) = depth {
-            if depth >= self.depth() {
-                return None;
-            }
-        }
-
-        // Otherwise, ask hwloc
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - By construction, Depth only exposes values that map into
-        //           hwloc_get_depth_type_e values understood by the configured
-        //           version of hwloc, and build.rs checks that the active
-        //           version of hwloc is not older than that, so into() may only
-        //           generate valid hwloc_get_depth_type_e values for current hwloc
-        match unsafe { hwlocality_sys::hwloc_get_depth_type(self.as_ptr(), depth.into()) }
-            .try_into()
-        {
-            Ok(depth) => Some(depth),
-            Err(TryFromPrimitiveError {
-                number: hwloc_obj_type_t::MAX,
-            }) => None,
-            Err(unknown) => {
-                unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
-            }
-        }
+        let depth = depth.try_into().ok()?;
+        polymorphized(self, depth)
     }
 
     /// Number of objects at the given `depth`
@@ -498,33 +500,47 @@ impl Topology {
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
     {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(
+            self_: &Topology,
+            depth: Depth,
+        ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
+        {
+            let size = self_.num_objects_at_depth(depth);
+            let depth = hwloc_get_type_depth_e::from(depth);
+            (0..size).map(move |idx| {
+                let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
+                let ptr =
+                    // SAFETY: - Topology is trusted to contain a valid ptr
+                    //           (type invariant)
+                    //         - hwloc ops are trusted not to modify *const
+                    //           parameters
+                    //         - By construction, Depth only exposes values that
+                    //           map into hwloc_get_depth_type_e values
+                    //           understood by the configured version of hwloc,
+                    //           and build.rs checks that the active version of
+                    //           hwloc is not older than that, so into() may
+                    //           only generate valid hwloc_get_depth_type_e
+                    //           values for current hwloc
+                    //         - idx is in bounds by construction
+                    unsafe { hwlocality_sys::hwloc_get_obj_by_depth(self_.as_ptr(), depth, idx) };
+                assert!(
+                    !ptr.is_null(),
+                    "Got null pointer from hwloc_get_obj_by_depth"
+                );
+                // SAFETY: If hwloc_get_obj_by_depth returns a non-null pointer,
+                //         it's assumed to be successful and thus that the output
+                //         pointer is valid
+                unsafe { (&*ptr).to_newtype() }
+            })
+        }
+
         // This little hack works because hwloc topologies never get anywhere
         // close the maximum possible depth, which is c_int::MAX, so there will
         // never be any object at that depth. We need it because impl Trait
         // needs homogeneous return types.
         let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
-        let size = self.num_objects_at_depth(depth);
-        let depth = hwloc_get_type_depth_e::from(depth);
-        (0..size).map(move |idx| {
-            let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
-            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-            //         - hwloc ops are trusted not to modify *const parameters
-            //         - By construction, Depth only exposes values that map into
-            //           hwloc_get_depth_type_e values understood by the configured
-            //           version of hwloc, and build.rs checks that the active
-            //           version of hwloc is not older than that, so into() may only
-            //           generate valid hwloc_get_depth_type_e values for current hwloc
-            //         - idx is in bounds by construction
-            let ptr = unsafe { hwlocality_sys::hwloc_get_obj_by_depth(self.as_ptr(), depth, idx) };
-            assert!(
-                !ptr.is_null(),
-                "Got null pointer from hwloc_get_obj_by_depth"
-            );
-            // SAFETY: If hwloc_get_obj_by_depth returns a non-null pointer,
-            //         it's assumed to be successful and thus that the output
-            //         pointer is valid
-            unsafe { (&*ptr).to_newtype() }
-        })
+        polymorphized(self, depth)
     }
 
     /// [`TopologyObject`] at the root of the topology
@@ -1300,24 +1316,26 @@ impl TopologyObject {
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
     {
-        // There cannot be any ancestor at a depth below the hwloc-supported max
-        let Ok(depth) = depth.try_into() else {
-            return None;
-        };
-
-        // Fast failure path when depth is comparable
-        let self_depth = self.depth();
-        if let (Ok(self_depth), Ok(depth)) = (
-            NormalDepth::try_from(self_depth),
-            NormalDepth::try_from(depth),
-        ) {
-            if self_depth <= depth {
-                return None;
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(self_: &TopologyObject, depth: Depth) -> Option<&TopologyObject> {
+            // Fast failure path when depth is comparable
+            let self_depth = self_.depth();
+            if let (Ok(self_depth), Ok(depth)) = (
+                NormalDepth::try_from(self_depth),
+                NormalDepth::try_from(depth),
+            ) {
+                if self_depth <= depth {
+                    return None;
+                }
             }
+
+            // Otherwise, walk parents looking for the right depth
+            self_.ancestors().find(|ancestor| ancestor.depth() == depth)
         }
 
-        // Otherwise, walk parents looking for the right depth
-        self.ancestors().find(|ancestor| ancestor.depth() == depth)
+        // There cannot be any ancestor at a depth below the hwloc-supported max
+        let depth = depth.try_into().ok()?;
+        polymorphized(self, depth)
     }
 
     /// Search for the first ancestor with a certain type in ascending order

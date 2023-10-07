@@ -49,18 +49,22 @@ impl Drop for ErrnoGuard {
 ///
 /// When this function returns, errno is back to the state where it was before
 /// the user callback was invoked.
-fn check_errno<R>(callback: impl FnOnce() -> (R, bool)) -> (R, Option<Errno>) {
+fn check_errno<R: Copy + Ord>(
+    callback: impl FnOnce() -> R,
+    lowest_good_value: R,
+) -> (R, Option<Errno>) {
     let _guard = ErrnoGuard::new(Errno(0));
-    let (result, should_check_errno) = callback();
-
-    let mut new_errno = None;
-    if should_check_errno {
-        let errno = errno::errno();
-        if errno != Errno(0) {
-            new_errno = Some(errno);
-        }
+    let result = callback();
+    /// Outlined to reduce code bloat
+    fn interpret_errno(should_check_errno: bool) -> Option<Errno> {
+        should_check_errno
+            .then(|| {
+                let errno = errno::errno();
+                (errno != Errno(0)).then_some(errno)
+            })
+            .flatten()
     }
-    (result, new_errno)
+    (result, interpret_errno(result < lowest_good_value))
 }
 
 /// Raw error emitted by hwloc functions that follow the usual convention
@@ -95,10 +99,7 @@ pub(crate) fn call_hwloc_ptr_mut<T>(
     api: &'static str,
     call: impl FnOnce() -> *mut T,
 ) -> Result<NonNull<T>, RawHwlocError> {
-    let (result, errno) = check_errno(|| {
-        let result = call();
-        (result, result.is_null())
-    });
+    let (result, errno) = check_errno(call, 1 as *mut T);
     NonNull::new(result).ok_or(RawHwlocError { api, errno })
 }
 
@@ -127,17 +128,23 @@ pub(crate) fn call_hwloc_int_normal(
     api: &'static str,
     call: impl FnOnce() -> c_int,
 ) -> Result<c_uint, RawHwlocError> {
-    match call_hwloc_int_raw(api, call, 0) {
-        Ok(positive) => {
-            Ok(c_uint::try_from(positive).expect("Cannot happen due to 0 threshold above"))
+    /// Outlined to reduce code bloat
+    fn check_raw_result(
+        raw_result: Result<c_int, RawNegIntError>,
+    ) -> Result<c_uint, RawHwlocError> {
+        match raw_result {
+            Ok(positive) => {
+                Ok(c_uint::try_from(positive).expect("Cannot happen due to 0 threshold above"))
+            }
+            Err(RawNegIntError {
+                api,
+                result: -1,
+                errno,
+            }) => Err(RawHwlocError { api, errno }),
+            Err(other_err) => unreachable!("Unexpected hwloc output: {other_err}"),
         }
-        Err(RawNegIntError {
-            api,
-            result: -1,
-            errno,
-        }) => Err(RawHwlocError { api, errno }),
-        Err(other_err) => unreachable!("Unexpected hwloc output: {other_err}"),
     }
+    check_raw_result(call_hwloc_int_raw(api, call, 0))
 }
 
 /// Call an hwloc entry point that returns an `int` with standard boolean values
@@ -146,12 +153,19 @@ pub(crate) fn call_hwloc_bool(
     api: &'static str,
     call: impl FnOnce() -> c_int,
 ) -> Result<bool, RawHwlocError> {
-    match call_hwloc_int_normal(api, call) {
-        Ok(1) => Ok(true),
-        Ok(0) => Ok(false),
-        Ok(other) => unreachable!("Got unexpected boolean value {other} from {api}"),
-        Err(e) => Err(e),
+    /// Outlined to reduce code bloat
+    fn check_raw_result(
+        api: &'static str,
+        raw_result: Result<c_uint, RawHwlocError>,
+    ) -> Result<bool, RawHwlocError> {
+        match raw_result {
+            Ok(1) => Ok(true),
+            Ok(0) => Ok(false),
+            Ok(other) => unreachable!("Got unexpected boolean value {other} from {api}"),
+            Err(e) => Err(e),
+        }
     }
+    check_raw_result(api, call_hwloc_int_normal(api, call))
 }
 
 /// Raw error emitted by hwloc functions that returns a negative int on failure
@@ -181,13 +195,17 @@ pub(crate) fn call_hwloc_int_raw(
     call: impl FnOnce() -> c_int,
     lowest_good_value: c_int,
 ) -> Result<c_int, RawNegIntError> {
-    let (result, errno) = check_errno(|| {
-        let result = call();
-        (result, result < lowest_good_value)
-    });
-    (result >= lowest_good_value)
-        .then_some(result)
-        .ok_or(RawNegIntError { api, result, errno })
+    /// Outlined to reduce code bloat
+    fn check_raw_result(
+        api: &'static str,
+        (result, errno): (c_int, Option<Errno>),
+        lowest_good_value: c_int,
+    ) -> Result<c_int, RawNegIntError> {
+        (result >= lowest_good_value)
+            .then_some(result)
+            .ok_or(RawNegIntError { api, result, errno })
+    }
+    check_raw_result(api, check_errno(call, lowest_good_value), lowest_good_value)
 }
 
 /// A function errored out either on the Rust or hwloc side
@@ -310,39 +328,38 @@ mod tests {
     );
 
     #[quickcheck]
-    fn check_errno_normal(output: i128, start_errno: i32, new_errno: NonZeroU32) {
+    fn check_errno_normal(
+        output: i128,
+        lowest_good: i128,
+        start_errno: i32,
+        new_errno: NonZeroU32,
+    ) {
         // Test boilerplate
         let start_errno = Errno(start_errno.wrapping_abs());
         let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
 
-        // Errno is not checked on success
+        // Errno is only checked on failure
+        let expected_errno = (output < lowest_good).then_some(new_errno);
         assert_eq!(
-            super::check_errno(|| {
-                errno::set_errno(new_errno);
-                (output, false)
-            }),
-            (output, None)
-        );
-        assert_eq!(errno::errno(), start_errno);
-
-        // Errno is checked on failure
-        assert_eq!(
-            super::check_errno(|| {
-                errno::set_errno(new_errno);
-                (output, true)
-            }),
-            (output, Some(new_errno))
+            super::check_errno(
+                || {
+                    errno::set_errno(new_errno);
+                    output
+                },
+                lowest_good
+            ),
+            (output, expected_errno)
         );
         assert_eq!(errno::errno(), start_errno);
     }
 
     #[quickcheck]
-    fn check_errno_in_vain(output: i128, start_errno: i32) {
+    fn check_errno_in_vain(output: i128, lowest_good: i128, start_errno: i32) {
         // Not setting errno on failure is handled properly
         let start_errno = Errno(start_errno.wrapping_abs());
         let _errno_guard = ErrnoGuard::new(start_errno);
-        assert_eq!(super::check_errno(|| { (output, true) }), (output, None));
+        assert_eq!(super::check_errno(|| output, lowest_good), (output, None));
         assert_eq!(errno::errno(), start_errno);
     }
 

@@ -40,9 +40,13 @@ impl From<NulError> for PathError {
 /// - [`ContainsNul`] if `path` contains NUL chars.
 /// - [`NotUnicode`] if `path` contains non-Unicode data
 pub(crate) fn make_hwloc_path(path: impl AsRef<Path>) -> Result<LibcString, PathError> {
-    Ok(LibcString::new(
-        path.as_ref().to_str().ok_or(PathError::NotUnicode)?,
-    )?)
+    /// Polymorphized version of this function (avoids generics code bloat)
+    fn polymorphized(path: &Path) -> Result<LibcString, PathError> {
+        Ok(LibcString::new(
+            path.to_str().ok_or(PathError::NotUnicode)?,
+        )?)
+    }
+    polymorphized(path.as_ref())
 }
 
 #[cfg(test)]

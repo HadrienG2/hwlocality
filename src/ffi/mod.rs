@@ -95,21 +95,27 @@ pub(crate) unsafe fn deref_str(p: &*mut c_char) -> Option<&CStr> {
 pub(crate) unsafe fn call_snprintf(
     mut snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> Box<[c_char]> {
-    let len_i32 = snprintf(ptr::null_mut(), 0);
-    let len =
-        usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
-    let mut buf = vec![0i8; len + 1];
-    assert_eq!(
-        snprintf(buf.as_mut_ptr(), buf.len()),
-        len_i32,
-        "Got inconsistent string length from an snprintf-like API"
-    );
-    assert_eq!(
-        buf.last().copied(),
-        Some(0),
-        "Got non-NUL char at end of snprintf-like API output"
-    );
-    buf.into()
+    /// Polymorphized version of this function (avoids generics code bloat)
+    fn polymorphized(snprintf: &mut dyn FnMut(*mut c_char, usize) -> i32) -> Box<[c_char]> {
+        // SAFETY: Per input precondition
+        let len_i32 = snprintf(ptr::null_mut(), 0);
+        let len =
+            usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
+        let mut buf = vec![0i8; len + 1];
+        assert_eq!(
+            // SAFETY: Per input precondition
+            snprintf(buf.as_mut_ptr(), buf.len()),
+            len_i32,
+            "Got inconsistent string length from an snprintf-like API"
+        );
+        assert_eq!(
+            buf.last().copied(),
+            Some(0),
+            "Got non-NUL char at end of snprintf-like API output"
+        );
+        buf.into()
+    }
+    polymorphized(&mut snprintf)
 }
 
 /// Send the output of an snprintf-like function to a standard Rust formatter
@@ -119,16 +125,23 @@ pub(crate) unsafe fn call_snprintf(
 /// Same as [`call_snprintf()`].
 pub(crate) unsafe fn write_snprintf(
     f: &mut fmt::Formatter<'_>,
-    snprintf: impl FnMut(*mut c_char, usize) -> i32,
+    mut snprintf: impl FnMut(*mut c_char, usize) -> i32,
 ) -> fmt::Result {
-    // SAFETY: Per input precondition
-    let buf = unsafe { call_snprintf(snprintf) };
-    // SAFETY: - The memory comes from a Box<[c_char]> ending with a
-    //           NUL terminator.
-    //         - The original buf is not modified or deallocated as long as the
-    //           text CStr pointing to it is live.
-    let text = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy();
-    f.pad(&text)
+    /// Polymorphized version of this function (avoids generics code bloat)
+    fn polymorphized(
+        f: &mut fmt::Formatter<'_>,
+        snprintf: &mut dyn FnMut(*mut c_char, usize) -> i32,
+    ) -> fmt::Result {
+        // SAFETY: Per input precondition
+        let buf = unsafe { call_snprintf(snprintf) };
+        // SAFETY: - The memory comes from a Box<[c_char]> ending with a
+        //           NUL terminator.
+        //         - The original buf is not modified or deallocated as long as the
+        //           text CStr pointing to it is live.
+        let text = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy();
+        f.pad(&text)
+    }
+    polymorphized(f, &mut snprintf)
 }
 
 #[cfg(test)]

@@ -100,32 +100,39 @@ impl Topology {
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
     {
-        // There cannot be any object at a depth below the hwloc-supported max
-        let Ok(depth) = depth.try_into() else {
-            return Ok(Vec::new());
-        };
-
-        // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
-        //           curried away behaves indeed like hwloc_distances_get
-        //         - Depth only allows valid depth values to exist
-        //         - Other parameters are guaranteed valid per
-        //           get_distances_with_kind contract
-        unsafe {
-            self.get_distances(
-                kind,
-                "hwloc_distances_get_by_depth",
-                |topology, nr, distances, kind, flags| {
-                    hwlocality_sys::hwloc_distances_get_by_depth(
-                        topology,
-                        depth.into(),
-                        nr,
-                        distances,
-                        kind,
-                        flags,
-                    )
-                },
-            )
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(
+            self_: &Topology,
+            kind: DistancesKind,
+            depth: Depth,
+        ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+            // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
+            //           curried away behaves indeed like hwloc_distances_get
+            //         - Depth only allows valid depth values to exist
+            //         - Other parameters are guaranteed valid per
+            //           get_distances_with_kind contract
+            unsafe {
+                self_.get_distances(
+                    kind,
+                    "hwloc_distances_get_by_depth",
+                    |topology, nr, distances, kind, flags| {
+                        hwlocality_sys::hwloc_distances_get_by_depth(
+                            topology,
+                            depth.into(),
+                            nr,
+                            distances,
+                            kind,
+                            flags,
+                        )
+                    },
+                )
+            }
         }
+
+        // There cannot be any object at a depth below the hwloc-supported max
+        depth
+            .try_into()
+            .map_or_else(|_| Ok(Vec::new()), |depth| polymorphized(self, kind, depth))
     }
 
     /// Retrieve distance matrices for object with a specific type
@@ -264,39 +271,55 @@ impl Topology {
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
-        // Prepare to call hwloc
-        let mut nr = 0;
-        let mut call_ffi = |nr_mut, distances_out| {
-            errors::call_hwloc_int_normal(getter_name, || {
-                // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-                //         - hwloc ops are trusted not to modify *const parameters
-                //         - Per documentation, flags must be 0
-                //         - Correctness of nr_mut and distances_out is call
-                //           site dependent, see below
-                getter(self.as_ptr(), nr_mut, distances_out, 0)
-            })
-        };
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<'self_>(
+            self_: &'self_ Topology,
+            getter_name: &'static str,
+            getter: &mut dyn FnMut(
+                hwloc_const_topology_t,
+                *mut c_uint,
+                *mut *mut hwloc_distances_s,
+                c_ulong,
+            ) -> c_int,
+        ) -> Result<Vec<Distances<'self_>>, RawHwlocError> {
+            // Prepare to call hwloc
+            let mut nr = 0;
+            let mut call_ffi = |nr_mut, distances_out| {
+                errors::call_hwloc_int_normal(getter_name, || {
+                    // SAFETY: - Topology is trusted to contain a valid ptr
+                    //           (type invariant)
+                    //         - hwloc ops are trusted not to modify *const
+                    //           parameters
+                    //         - Per documentation, flags must be 0
+                    //         - Correctness of nr_mut and distances_out is call
+                    //           site dependent, see below
+                    getter(self_.as_ptr(), nr_mut, distances_out, 0)
+                })
+            };
 
-        // Allocate array of distances pointers
-        // SAFETY: 0 elements + null buffer pointers is the correct way to
-        //         request the buffer size to be allocated from hwloc
-        call_ffi(&mut nr, ptr::null_mut())?;
-        let mut distances_ptrs = vec![ptr::null_mut(); int::expect_usize(nr)];
+            // Allocate array of distances pointers
+            // SAFETY: 0 elements + null buffer pointers is the correct way to
+            //         request the buffer size to be allocated from hwloc
+            call_ffi(&mut nr, ptr::null_mut())?;
+            let mut distances_ptrs = vec![ptr::null_mut(); int::expect_usize(nr)];
 
-        // Let hwloc fill the distances array
-        let old_nr = nr;
-        // SAFETY: - distances_ptrs is indeed an array of nr elements
-        //         - Input array contents don't matter as this is an out-parameter
-        call_ffi(&mut nr, distances_ptrs.as_mut_ptr())?;
-        assert_eq!(nr, old_nr, "Inconsistent distances count from hwloc");
+            // Let hwloc fill the distances array
+            let old_nr = nr;
+            // SAFETY: - distances_ptrs is indeed an array of nr elements
+            //         - Input array contents don't matter as this is an
+            //           out-parameter
+            call_ffi(&mut nr, distances_ptrs.as_mut_ptr())?;
+            assert_eq!(nr, old_nr, "Inconsistent distances count from hwloc");
 
-        // Wrap them into a safe interface
-        Ok(distances_ptrs
-            .into_iter()
-            // SAFETY: If hwloc distance queries succeed, they are trusted to
-            //         emit valid distances pointers
-            .map(|raw| unsafe { Distances::wrap(self, raw) })
-            .collect())
+            // Wrap them into a safe interface
+            Ok(distances_ptrs
+                .into_iter()
+                // SAFETY: If hwloc distance queries succeed, they are trusted
+                //         to emit valid distances pointers
+                .map(|raw| unsafe { Distances::wrap(self_, raw) })
+                .collect())
+        }
+        polymorphized(self, getter_name, &mut getter)
     }
 }
 
@@ -356,100 +379,129 @@ impl TopologyEditor<'_> {
             &Topology,
         ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
     ) -> Result<(), HybridError<AddDistancesError>> {
-        // Prepare arguments for C consumption and validate them
-        let name = match name.map(LibcString::new).transpose() {
-            Ok(name) => name,
-            Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
-        };
-        let name = name.map_or(ptr::null(), |lcs| lcs.borrow());
-        //
-        if !kind.is_valid(true) {
-            return Err(AddDistancesError::BadKind(kind).into());
+        /// Polymorphized subset of this function (avoids generics code bloat)
+        ///
+        /// # Safety
+        ///
+        /// `objects` must contain pointers that are either null or point to
+        /// valid objects within this topology.
+        unsafe fn polymorphized(
+            self_: &mut TopologyEditor<'_>,
+            name: Option<&str>,
+            kind: DistancesKind,
+            flags: AddDistancesFlags,
+            object_ptrs: &[*const hwloc_obj],
+            distances: Vec<u64>,
+        ) -> Result<(), HybridError<AddDistancesError>> {
+            // Prepare arguments for C consumption and validate them
+            let name = match name.map(LibcString::new).transpose() {
+                Ok(name) => name,
+                Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
+            };
+            let name = name.map_or(ptr::null(), |lcs| lcs.borrow());
+            //
+            if !kind.is_valid(true) {
+                return Err(AddDistancesError::BadKind(kind).into());
+            }
+            let kind = kind.bits();
+            //
+            let create_add_flags = 0;
+            let commit_flags = flags.bits();
+            //
+            if object_ptrs.len() < 2 {
+                return Err(AddDistancesError::BadObjectsCount(object_ptrs.len()).into());
+            }
+            let Ok(nbobjs) = c_uint::try_from(object_ptrs.len()) else {
+                return Err(AddDistancesError::BadObjectsCount(object_ptrs.len()).into());
+            };
+            let expected_distances_len = object_ptrs.len().pow(2);
+            if distances.len() != expected_distances_len {
+                return Err(AddDistancesError::BadDistancesCount {
+                    expected_distances_len,
+                    actual_distances_len: distances.len(),
+                }
+                .into());
+            }
+            let values = distances.as_ptr();
+
+            // Create new empty distances structure
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - name is trusted to be a valid C string (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - kind was validated to be correct
+            //         - Per documentation, flags should be zero
+            let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
+                hwlocality_sys::hwloc_distances_add_create(
+                    self_.topology_mut_ptr(),
+                    name,
+                    kind,
+                    create_add_flags,
+                )
+            })
+            .map_err(HybridError::Hwloc)?;
+
+            // Add objects to the distance structure
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - handle comes from a successful hwloc_distances_add_create run
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - (nbobjs, objs) come from a single objects vec, which is
+            //           still in scope and thus not liberated, and only contains
+            //           objects from the active topology
+            //         - values comes from a distances that's still in scope and
+            //           whose length has been checked
+            errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
+                hwlocality_sys::hwloc_distances_add_values(
+                    self_.topology_mut_ptr(),
+                    handle.as_ptr(),
+                    nbobjs,
+                    object_ptrs.as_ptr(),
+                    values,
+                    create_add_flags,
+                )
+            })
+            .map_err(HybridError::Hwloc)?;
+
+            // Finalize the distance structure and insert it into the topology
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - handle comes from a successful hwloc_distances_add_create run
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - commit_flags only allows values supported by hwloc
+            errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
+                hwlocality_sys::hwloc_distances_add_commit(
+                    self_.topology_mut_ptr(),
+                    handle.as_ptr(),
+                    commit_flags,
+                )
+            })
+            .map_err(HybridError::Hwloc)?;
+            Ok(())
         }
-        let kind = kind.bits();
-        //
-        let create_add_flags = 0;
-        let commit_flags = flags.bits();
-        //
+
+        // Run user callback, validate results, and translate them into
+        // something that hwloc and the borrow checker will accept
         let topology = self.topology();
         let (objects, distances) = collect_objects_and_distances(topology);
-        if objects.len() < 2 {
-            return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
-        }
-        let Ok(nbobjs) = c_uint::try_from(objects.len()) else {
-            return Err(AddDistancesError::BadObjectsCount(objects.len()).into());
-        };
-        let expected_distances_len = objects.len().pow(2);
-        if distances.len() != expected_distances_len {
-            return Err(AddDistancesError::BadDistancesCount {
-                expected_distances_len,
-                actual_distances_len: distances.len(),
-            }
-            .into());
-        }
         if objects.iter().flatten().any(|obj| !topology.contains(obj)) {
             return Err(AddDistancesError::ForeignObjects.into());
         }
-        // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
-        let objs = objects.as_ptr().cast::<*const hwloc_obj>();
-        let values = distances.as_ptr();
+        let object_ptrs =
+            // SAFETY: TopologyObject is a repr(transparent) newtype of
+            //         hwloc_obj, and the (ptr, len) tuple is consistent
+            unsafe {
+                std::slice::from_raw_parts(
+                    objects.as_ptr().cast::<*const hwloc_obj>(),
+                    objects.len()
+                )
+            };
 
-        // Create new empty distances structure
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - name is trusted to be a valid C string (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - kind was validated to be correct
-        //         - Per documentation, flags should be zero
-        let handle = errors::call_hwloc_ptr_mut("hwloc_distances_add_create", || unsafe {
-            hwlocality_sys::hwloc_distances_add_create(
-                self.topology_mut_ptr(),
-                name,
-                kind,
-                create_add_flags,
-            )
-        })
-        .map_err(HybridError::Hwloc)?;
-
-        // Add objects to the distance structure
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - handle comes from a successful hwloc_distances_add_create run
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - (nbobjs, objs) come from a single objects vec, which is
-        //           still in scope and thus not liberated, and only contains
-        //           objects from the active topology
-        //         - values comes from a distances that's still in scope and
-        //           whose length has been checked
-        errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
-            hwlocality_sys::hwloc_distances_add_values(
-                self.topology_mut_ptr(),
-                handle.as_ptr(),
-                nbobjs,
-                objs,
-                values,
-                create_add_flags,
-            )
-        })
-        .map_err(HybridError::Hwloc)?;
-
-        // Finalize the distance structure and insert it into the topology
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - handle comes from a successful hwloc_distances_add_create run
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - commit_flags only allows values supported by hwloc
-        errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
-            hwlocality_sys::hwloc_distances_add_commit(
-                self.topology_mut_ptr(),
-                handle.as_ptr(),
-                commit_flags,
-            )
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(())
+        // Call the polymorphized version of this function
+        // SAFETY: objects do belong to this topology
+        unsafe { polymorphized(self, name, kind, flags, object_ptrs, distances) }
     }
 }
 
@@ -541,20 +593,36 @@ impl TopologyEditor<'_> {
         &mut self,
         find_distances: impl FnOnce(&Topology) -> Distances<'_>,
     ) -> Result<(), RawHwlocError> {
+        /// Polymorphized subset of this function (avoids generics code bloat)
+        ///
+        /// # Safety
+        ///
+        /// `distances` must point to a valid set of distances from this
+        /// topology, with no residual high-level wrapper remaining
+        unsafe fn polymorphized(
+            self_: &mut TopologyEditor<'_>,
+            distances: NonNull<hwloc_distances_s>,
+        ) -> Result<(), RawHwlocError> {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted to keep *mut parameters in a valid
+            //           state unless stated otherwise
+            //         - distances is trusted per function contract
+            errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
+                hwlocality_sys::hwloc_distances_release_remove(
+                    self_.topology_mut_ptr(),
+                    distances.as_ptr(),
+                )
+            })
+            .map(std::mem::drop)
+        }
+
+        // Run user callback and call polymorphized subset with result
         let distances = find_distances(self.topology()).into_inner();
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted to keep *mut parameters in a valid
-        //           state unless stated otherwise
-        //         - distances comes from find_distances, which is a safe
-        //           function and thus should only return valid Distances
-        //         - distances ptr has been extracted from Distances through the
-        //           consuming but non-liberating into_inner operation
-        //         - No safe function enables client code to reuse the
-        //           invalidated distances pointer after this function is done
-        errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
-            hwlocality_sys::hwloc_distances_release_remove(self.topology_mut_ptr(), distances)
-        })
-        .map(std::mem::drop)
+        // SAFETY: distances is indeed a valid distances pointer with no
+        //         remaining high level wrapper to bother us, since the
+        //         Distances struct that we just discarded with into_inner
+        //         assumed full ownership.
+        unsafe { polymorphized(self, distances) }
     }
 
     /// Remove all distance matrices from a topology
@@ -590,19 +658,29 @@ impl TopologyEditor<'_> {
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
     {
+        /// Polymorphized subset of this function (avoids generics code bloat)
+        fn polymorphized(
+            self_: &mut TopologyEditor<'_>,
+            depth: Depth,
+        ) -> Result<(), RawHwlocError> {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Distances lifetime is bound by the host topology, so this
+            //           will invalidate all Distances struct in existence and thus
+            //           use-after-free cannot happen
+            //         - hwloc should be able to handle any valid depth value
+            errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
+                hwlocality_sys::hwloc_distances_remove_by_depth(
+                    self_.topology_mut_ptr(),
+                    depth.into(),
+                )
+            })
+            .map(std::mem::drop)
+        }
+
         // There cannot be any object at a depth below the hwloc-supported max
-        let Ok(depth) = depth.try_into() else {
-            return Ok(());
-        };
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - Distances lifetime is bound by the host topology, so this
-        //           will invalidate all Distances struct in existence and thus
-        //           use-after-free cannot happen
-        //         - hwloc should be able to handle any valid depth value
-        errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
-            hwlocality_sys::hwloc_distances_remove_by_depth(self.topology_mut_ptr(), depth.into())
-        })
-        .map(std::mem::drop)
+        depth
+            .try_into()
+            .map_or_else(|_| Ok(()), |depth| polymorphized(self, depth))
     }
 
     /// Remove distance matrices for objects of a specific type in the topology
@@ -769,8 +847,8 @@ impl<'topology> Distances<'topology> {
     /// liberated through `hwloc_distances_release` or
     /// `hwloc_distances_release_remove`.
     #[allow(unused)]
-    pub(crate) fn into_inner(self) -> *mut hwloc_distances_s {
-        let inner = self.inner.as_ptr();
+    pub(crate) fn into_inner(self) -> NonNull<hwloc_distances_s> {
+        let inner = self.inner;
         std::mem::forget(self);
         inner
     }

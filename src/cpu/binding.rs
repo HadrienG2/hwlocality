@@ -25,7 +25,11 @@ use libc::{ENOSYS, EXDEV};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::{borrow::Borrow, ffi::c_int, fmt::Display};
+use std::{
+    borrow::Borrow,
+    ffi::{c_int, c_uint},
+    fmt::Display,
+};
 use thiserror::Error;
 
 /// # CPU binding
@@ -102,25 +106,33 @@ impl Topology {
         set: impl Borrow<CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), CpuBindingError> {
-        // SAFETY: - ThisProgram is the correct target for this operation
-        //         - hwloc_set_cpubind is accepted by definition
-        //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
-        let res = unsafe {
-            self.bind_cpu_impl(
-                set.borrow(),
-                flags,
-                CpuBoundObject::ThisProgram,
-                "hwloc_set_cpubind",
-                |topology, cpuset, flags| {
-                    hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
-                },
-            )
-        };
-        match res {
-            Ok(()) => Ok(()),
-            Err(HybridError::Rust(e)) => Err(e),
-            Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error: {e}"),
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(
+            self_: &Topology,
+            set: &CpuSet,
+            flags: CpuBindingFlags,
+        ) -> Result<(), CpuBindingError> {
+            // SAFETY: - ThisProgram is the correct target for this operation
+            //         - hwloc_set_cpubind is accepted by definition
+            //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
+            let res = unsafe {
+                self_.bind_cpu_impl(
+                    set,
+                    flags,
+                    CpuBoundObject::ThisProgram,
+                    "hwloc_set_cpubind",
+                    |topology, cpuset, flags| {
+                        hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
+                    },
+                )
+            };
+            match res {
+                Ok(()) => Ok(()),
+                Err(HybridError::Rust(e)) => Err(e),
+                Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error: {e}"),
+            }
         }
+        polymorphized(self, set.borrow(), flags)
     }
 
     /// Get the current process or thread CPU binding
@@ -825,25 +837,33 @@ pub(crate) fn call_hwloc(
     cpuset: Option<&CpuSet>,
     ffi: impl FnOnce() -> c_int,
 ) -> Result<(), HybridError<CpuBindingError>> {
-    match errors::call_hwloc_int_normal(api, ffi) {
-        Ok(_positive) => Ok(()),
-        Err(
-            raw_err @ RawHwlocError {
-                errno: Some(errno), ..
+    /// Polymorphized version of result translation (avoids generics code bloat)
+    fn translate_result(
+        object: CpuBoundObject,
+        cpuset: Option<&CpuSet>,
+        raw_result: Result<c_uint, RawHwlocError>,
+    ) -> Result<(), HybridError<CpuBindingError>> {
+        match raw_result {
+            Ok(_positive) => Ok(()),
+            Err(
+                raw_err @ RawHwlocError {
+                    errno: Some(errno), ..
+                },
+            ) => match errno.0 {
+                // Using errno documentation from
+                // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+                ENOSYS => Err(CpuBindingError::BadObject(object).into()),
+                EXDEV => Err(CpuBindingError::BadCpuSet(
+                    object,
+                    cpuset
+                        .expect("This error should only be observed on commands that bind to CPUs")
+                        .clone(),
+                )
+                .into()),
+                _ => Err(HybridError::Hwloc(raw_err)),
             },
-        ) => match errno.0 {
-            // Using errno documentation from
-            // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
-            ENOSYS => Err(CpuBindingError::BadObject(object).into()),
-            EXDEV => Err(CpuBindingError::BadCpuSet(
-                object,
-                cpuset
-                    .expect("This error should only be observed on commands that bind to CPUs")
-                    .clone(),
-            )
-            .into()),
-            _ => Err(HybridError::Hwloc(raw_err)),
-        },
-        Err(raw_err) => Err(HybridError::Hwloc(raw_err)),
+            Err(raw_err) => Err(HybridError::Hwloc(raw_err)),
+        }
     }
+    translate_result(object, cpuset, errors::call_hwloc_int_normal(api, ffi))
 }
