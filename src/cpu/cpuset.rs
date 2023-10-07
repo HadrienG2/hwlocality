@@ -74,58 +74,64 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Result<Vec<&TopologyObject>, CoarsestPartitionError> {
-        // Make sure each set index actually maps into a hardware PU
-        let root = self.root_object();
-        let root_cpuset = root.cpuset().expect("Root should have a CPU set");
-        let set = set.borrow();
-        if !root_cpuset.includes(set) {
-            return Err(CoarsestPartitionError {
-                query: set.clone(),
-                root: root_cpuset.clone_target(),
-            });
-        }
-
-        /// Recursive implementation of the partitioning algorithm
-        fn process_object<'a>(
-            parent: &'a TopologyObject,
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<'self_>(
+            self_: &'self_ Topology,
             set: &CpuSet,
-            result: &mut Vec<&'a TopologyObject>,
-            cpusets: &mut Vec<CpuSet>,
-        ) {
-            // If the current object does not have a cpuset, ignore it
-            let Some(parent_cpuset) = parent.cpuset() else {
-                return;
-            };
-
-            // If it exactly covers the target cpuset, we're done
-            if parent_cpuset == set {
-                result.push(parent);
-                return;
+        ) -> Result<Vec<&'self_ TopologyObject>, CoarsestPartitionError> {
+            // Make sure each set index actually maps into a hardware PU
+            let root = self_.root_object();
+            let root_cpuset = root.cpuset().expect("Root should have a CPU set");
+            if !root_cpuset.includes(set) {
+                return Err(CoarsestPartitionError {
+                    query: set.clone(),
+                    root: root_cpuset.clone_target(),
+                });
             }
 
-            // Otherwise, look for children that cover the target cpuset
-            let mut subset = cpusets.pop().unwrap_or_default();
-            for child in parent.normal_children() {
-                // Ignore children without a cpuset, or with a cpuset that
-                // doesn't intersect the target cpuset
-                let Some(child_cpuset) = child.cpuset() else {
-                    continue;
+            /// Recursive implementation of the partitioning algorithm
+            fn process_object<'a>(
+                parent: &'a TopologyObject,
+                set: &CpuSet,
+                result: &mut Vec<&'a TopologyObject>,
+                cpusets: &mut Vec<CpuSet>,
+            ) {
+                // If the current object does not have a cpuset, ignore it
+                let Some(parent_cpuset) = parent.cpuset() else {
+                    return;
                 };
-                if !child_cpuset.intersects(set) {
-                    continue;
+
+                // If it exactly covers the target cpuset, we're done
+                if parent_cpuset == set {
+                    result.push(parent);
+                    return;
                 }
 
-                // Split out the cpuset part corresponding to this child and recurse
-                subset.copy_from(set);
-                subset &= child_cpuset;
-                process_object(child, &subset, result, cpusets);
+                // Otherwise, look for children that cover the target cpuset
+                let mut subset = cpusets.pop().unwrap_or_default();
+                for child in parent.normal_children() {
+                    // Ignore children without a cpuset, or with a cpuset that
+                    // doesn't intersect the target cpuset
+                    let Some(child_cpuset) = child.cpuset() else {
+                        continue;
+                    };
+                    if !child_cpuset.intersects(set) {
+                        continue;
+                    }
+
+                    // Split out cpu subset corresponding to this child, recurse
+                    subset.copy_from(set);
+                    subset &= child_cpuset;
+                    process_object(child, &subset, result, cpusets);
+                }
+                cpusets.push(subset);
             }
-            cpusets.push(subset);
+            let mut result = Vec::new();
+            let mut cpusets = Vec::new();
+            process_object(root, set, &mut result, &mut cpusets);
+            Ok(result)
         }
-        let mut result = Vec::new();
-        let mut cpusets = Vec::new();
-        process_object(root, set, &mut result, &mut cpusets);
-        Ok(result)
+        polymorphized(self, set.borrow())
     }
 
     /// Enumerate objects included in the given cpuset `set` at a certain depth
@@ -219,39 +225,45 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Option<&TopologyObject> {
-        // If root object doesn't intersect this CPU set then no child will
-        let root = self.root_object();
-        let root_cpuset = root.cpuset().expect("Root should have a CPU set");
-        let set = set.borrow();
-        if !root_cpuset.intersects(set) {
-            return None;
-        }
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<'self_>(
+            self_: &'self_ Topology,
+            set: &CpuSet,
+        ) -> Option<&'self_ TopologyObject> {
+            // If root object doesn't intersect this CPU set then no child will
+            let root = self_.root_object();
+            let root_cpuset = root.cpuset().expect("Root should have a CPU set");
+            if !root_cpuset.intersects(set) {
+                return None;
+            }
 
-        // Walk the topology tree until we find an object included into set
-        let mut parent = root;
-        let mut parent_cpuset = root_cpuset;
-        while !set.includes(&parent_cpuset) {
-            // While the object intersects without being included, look at children
-            let old_parent = parent;
-            'iterate_children: for child in parent.normal_children() {
-                if let Some(child_cpuset) = child.cpuset() {
-                    // This child intersects, make it the new parent and recurse
-                    if set.intersects(&child_cpuset) {
-                        parent = child;
-                        parent_cpuset = child_cpuset;
-                        break 'iterate_children;
+            // Walk the topology tree until we find an object included into set
+            let mut parent = root;
+            let mut parent_cpuset = root_cpuset;
+            while !set.includes(&parent_cpuset) {
+                // While the object intersects without being included, look at children
+                let old_parent = parent;
+                'iterate_children: for child in parent.normal_children() {
+                    if let Some(child_cpuset) = child.cpuset() {
+                        // This child intersects, make it the new parent and recurse
+                        if set.intersects(&child_cpuset) {
+                            parent = child;
+                            parent_cpuset = child_cpuset;
+                            break 'iterate_children;
+                        }
                     }
                 }
+                assert!(
+                    !ptr::eq(parent, old_parent),
+                    "This should not happen because...\n\
+                     - The root intersects, so it has at least one index from the set\n\
+                     - The lowest-level children are PUs, which have only one index set,\
+                       so one of them should pass the includes() test"
+                );
             }
-            assert!(
-                !ptr::eq(parent, old_parent),
-                "This should not happen because...\n\
-                - The root intersects, so it has at least one index from the set\n\
-                - The lowest-level children are PUs, which have only one index set,\
-                  so one of them should pass the includes() test"
-            );
+            Some(parent)
         }
-        Some(parent)
+        polymorphized(self, set.borrow())
     }
 }
 
@@ -316,25 +328,38 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Option<&TopologyObject> {
-        let root = self.root_object();
-        let set = set.borrow();
-        if !root.covers_cpuset(set) || set.is_empty() {
-            return None;
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<'self_>(
+            self_: &'self_ Topology,
+            set: &CpuSet,
+        ) -> Option<&'self_ TopologyObject> {
+            let root = self_.root_object();
+            if !root.covers_cpuset(set) || set.is_empty() {
+                return None;
+            }
+            let mut parent = root;
+            while let Some(child) = parent.normal_child_covering_cpuset(set) {
+                parent = child;
+            }
+            Some(parent)
         }
-        let mut parent = root;
-        while let Some(child) = parent.normal_child_covering_cpuset(set) {
-            parent = child;
-        }
-        Some(parent)
+        polymorphized(self, set.borrow())
     }
 
     /// Get the first data (or unified) cache covering the given cpuset
     #[doc(alias = "hwloc_get_cache_covering_cpuset")]
     pub fn first_cache_covering_cpuset(&self, set: impl Borrow<CpuSet>) -> Option<&TopologyObject> {
-        let first_obj = self.smallest_object_covering_cpuset(set)?;
-        std::iter::once(first_obj)
-            .chain(first_obj.ancestors())
-            .find(|obj| obj.object_type().is_cpu_data_cache())
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<'self_>(
+            self_: &'self_ Topology,
+            set: &CpuSet,
+        ) -> Option<&'self_ TopologyObject> {
+            let first_obj = self_.smallest_object_covering_cpuset(set)?;
+            std::iter::once(first_obj)
+                .chain(first_obj.ancestors())
+                .find(|obj| obj.object_type().is_cpu_data_cache())
+        }
+        polymorphized(self, set.borrow())
     }
 
     /// Enumerate objects covering the given cpuset `set` at a certain depth
@@ -434,14 +459,17 @@ impl CpuSet {
     /// set of all CPUs that have some local NUMA nodes.
     #[doc(alias = "hwloc_cpuset_from_nodeset")]
     pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> Self {
-        let mut cpuset = Self::new();
-        let nodeset = nodeset.borrow();
-        for obj in topology.objects_at_depth(Depth::NUMANode) {
-            if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
-                cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
+            let mut cpuset = CpuSet::new();
+            for obj in topology.objects_at_depth(Depth::NUMANode) {
+                if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
+                    cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");
+                }
             }
+            cpuset
         }
-        cpuset
+        polymorphized(topology, nodeset.borrow())
     }
 }
 

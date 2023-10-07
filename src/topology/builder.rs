@@ -208,7 +208,7 @@ impl TopologyBuilder {
     /// [`ContainsNul`]: TextInputError::ContainsNul
     /// [`Invalid`]: TextInputError::Invalid
     #[doc(alias = "hwloc_topology_set_synthetic")]
-    pub fn from_synthetic(mut self, description: impl AsRef<str>) -> Result<Self, TextInputError> {
+    pub fn from_synthetic(mut self, description: &str) -> Result<Self, TextInputError> {
         let description = LibcString::new(description)?;
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
@@ -248,7 +248,7 @@ impl TopologyBuilder {
     /// [`ContainsNul`]: TextInputError::ContainsNul
     /// [`Invalid`]: TextInputError::Invalid
     #[doc(alias = "hwloc_topology_set_xmlbuffer")]
-    pub fn from_xml(mut self, xml: impl AsRef<str>) -> Result<Self, TextInputError> {
+    pub fn from_xml(mut self, xml: &str) -> Result<Self, TextInputError> {
         let xml = LibcString::new(xml)?;
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
@@ -297,23 +297,31 @@ impl TopologyBuilder {
     /// [`BadRustPath(NotUnicode)`]: PathError::NotUnicode
     /// [`Invalid`]: XMLFileInputError::Invalid
     #[doc(alias = "hwloc_topology_set_xml")]
-    pub fn from_xml_file(mut self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
-        let path = path::make_hwloc_path(path)?;
-        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - path has been validated for hwloc consumption
-        let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
-            hwlocality_sys::hwloc_topology_set_xml(self.as_mut_ptr(), path.borrow())
-        });
-        match result {
-            Ok(_) => Ok(self),
-            Err(RawHwlocError {
-                errno: Some(Errno(EINVAL)),
-                ..
-            }) => Err(XMLFileInputError::Invalid),
-            Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
+    pub fn from_xml_file(self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(
+            mut self_: TopologyBuilder,
+            path: &Path,
+        ) -> Result<TopologyBuilder, XMLFileInputError> {
+            let path = path::make_hwloc_path(path)?;
+            // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type
+            //           invariant)
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - path has been validated for hwloc consumption
+            let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
+                hwlocality_sys::hwloc_topology_set_xml(self_.as_mut_ptr(), path.borrow())
+            });
+            match result {
+                Ok(_) => Ok(self_),
+                Err(RawHwlocError {
+                    errno: Some(Errno(EINVAL)),
+                    ..
+                }) => Err(XMLFileInputError::Invalid),
+                Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
+            }
         }
+        polymorphized(self, path.as_ref())
     }
 
     /// Prevent a discovery component from being used for a topology

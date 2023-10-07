@@ -21,6 +21,7 @@ use crate::{
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
+use hwlocality_sys::hwloc_info_s;
 use libc::{EINVAL, ENOENT, EXDEV};
 #[allow(unused)]
 #[cfg(test)]
@@ -208,30 +209,38 @@ impl Topology {
         &self,
         set: impl Borrow<CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - Bitmap is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - Per documentation, flags should be zero
-        let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
-            hwlocality_sys::hwloc_cpukinds_get_by_cpuset(self.as_ptr(), set.borrow().as_ptr(), 0)
-        });
-        let kind_index = match result {
-            Ok(idx) => int::expect_usize(idx),
-            Err(
-                raw_error @ RawHwlocError {
-                    errno: Some(errno), ..
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized<'self_>(
+            self_: &'self_ Topology,
+            set: &CpuSet,
+        ) -> Result<(CpuSet, Option<CpuEfficiency>, &'self_ [TextualInfo]), CpuKindFromSetError>
+        {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - Per documentation, flags should be zero
+            let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
+                hwlocality_sys::hwloc_cpukinds_get_by_cpuset(self_.as_ptr(), set.as_ptr(), 0)
+            });
+            let kind_index = match result {
+                Ok(idx) => int::expect_usize(idx),
+                Err(
+                    raw_error @ RawHwlocError {
+                        errno: Some(errno), ..
+                    },
+                ) => match errno.0 {
+                    EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
+                    ENOENT => return Err(CpuKindFromSetError::NotIncluded),
+                    EINVAL => return Err(CpuKindFromSetError::InvalidSet),
+                    _ => unreachable!("Unexpected hwloc error: {raw_error}"),
                 },
-            ) => match errno.0 {
-                EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
-                ENOENT => return Err(CpuKindFromSetError::NotIncluded),
-                EINVAL => return Err(CpuKindFromSetError::InvalidSet),
-                _ => unreachable!("Unexpected hwloc error: {raw_error}"),
-            },
-            Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
-        };
-        // SAFETY: In absence of errors, we trust hwloc_cpukinds_get_by_cpuset
-        //         to produce correct CPU kind indices
-        Ok(unsafe { self.cpu_kind(kind_index) })
+                Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
+            };
+            // SAFETY: In absence of errors, we trust hwloc_cpukinds_get_by_cpuset
+            //         to produce correct CPU kind indices
+            Ok(unsafe { self_.cpu_kind(kind_index) })
+        }
+        polymorphized(self, set.borrow())
     }
 }
 
@@ -281,56 +290,79 @@ impl TopologyEditor<'_> {
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
     ) -> Result<(), CpuKindRegisterError> {
-        // Translate forced_efficiency into hwloc's preferred format
-        let forced_efficiency = if let Some(eff) = forced_efficiency {
-            c_int::try_from(eff).map_err(|_| CpuKindRegisterError::ExcessiveEfficiency(eff))?
-        } else {
-            -1
-        };
+        /// Polymorphized version of this function (avoids generics code bloat)
+        ///
+        /// # Safety
+        ///
+        /// The inner pointers of `raw_infos` must target valid NUL-terminated C
+        /// strings?
+        unsafe fn polymorphized(
+            self_: &mut TopologyEditor<'_>,
+            cpuset: &CpuSet,
+            forced_efficiency: Option<CpuEfficiency>,
+            raw_infos: Vec<hwloc_info_s>,
+        ) -> Result<(), CpuKindRegisterError> {
+            // Translate forced_efficiency into hwloc's preferred format
+            let forced_efficiency = if let Some(eff) = forced_efficiency {
+                c_int::try_from(eff).map_err(|_| CpuKindRegisterError::ExcessiveEfficiency(eff))?
+            } else {
+                -1
+            };
 
-        // Translate  infos into hwloc's preferred format
+            // Translate number of infos into hwloc's preferred format
+            let infos_ptr = raw_infos.as_ptr();
+            let num_infos = c_uint::try_from(raw_infos.len())
+                .map_err(|_| CpuKindRegisterError::TooManyInfos)?;
+
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - Above logic enforces that forced_efficiency be >= -1,
+            //           as hwloc demands
+            //         - num_infos and infos_ptr originate from the same slice,
+            //           so they should be valid and in sync
+            //         - The source raw_infos struct has valid contents per
+            //           function precondition
+            //         - Per documentation, flags should be zero
+            errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
+                hwlocality_sys::hwloc_cpukinds_register(
+                    self_.topology_mut_ptr(),
+                    cpuset.as_ptr(),
+                    forced_efficiency,
+                    num_infos,
+                    infos_ptr,
+                    0,
+                )
+            })
+            .map(std::mem::drop)
+            .expect("All known failure cases are prevented by API design");
+            Ok(())
+        }
+
+        // Translate infos into hwloc's preferred format
         let input_infos = infos.into_iter();
         let mut infos = Vec::new();
-        let mut infos_ptrs = Vec::new();
+        let mut raw_infos = Vec::new();
         if let Some(infos_len) = input_infos.size_hint().1 {
             infos.reserve(infos_len);
-            infos_ptrs.reserve(infos_len);
+            raw_infos.reserve(infos_len);
         }
         for (name, value) in input_infos {
             let new_string =
                 |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
             // SAFETY: The source name and value LibcStrings are unmodified and
-            //         retained by infos Vec until we're done using infos_ptrs
-            infos_ptrs.push(unsafe { TextualInfo::borrow_raw(&name, &value) });
+            //         retained by infos Vec until we're done using raw_infos
+            raw_infos.push(unsafe { TextualInfo::borrow_raw(&name, &value) });
             infos.push((name, value));
         }
-        let num_infos =
-            c_uint::try_from(infos_ptrs.len()).map_err(|_| CpuKindRegisterError::TooManyInfos)?;
 
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - Bitmap is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        //         - Above logic enforces that forced_efficiency be >= -1,
-        //           as hwloc demands
-        //         - num_infos and infos_ptrs originate from the same slice, so
-        //           they should be valid and in sync
-        //         - Per documentation, flags should be zero
-        errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
-            hwlocality_sys::hwloc_cpukinds_register(
-                self.topology_mut_ptr(),
-                cpuset.borrow().as_ptr(),
-                forced_efficiency,
-                num_infos,
-                infos_ptrs.as_ptr(),
-                0,
-            )
-        })
-        .map(std::mem::drop)
-        .expect("All known failure cases are prevented by API design");
-        Ok(())
+        // SAFETY: raw_infos contains valid infos (infos is still in scope,
+        //         target strings have been checked for C suitability and
+        //         converted to NUL-terminated format by LibcString)
+        unsafe { polymorphized(self, cpuset.borrow(), forced_efficiency, raw_infos) }
     }
 }
 

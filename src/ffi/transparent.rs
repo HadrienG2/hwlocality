@@ -44,15 +44,22 @@ pub(crate) unsafe trait TransparentNewtype: Sized {
     /// Assert that `Self` has the same size and alignment as `Self::Inner`
     ///
     /// This minimal layout check should be passed by any valid implementation
-    /// of this trait, and be fully evaluated at compile time in optimized
-    /// builds with no associated runtime costs.
+    /// of this trait, and be fully evaluated at compile time in release builds
+    /// with no associated runtime costs.
     #[inline]
     fn check_basic_layout() {
         use std::mem::{align_of, size_of};
-        /// Error emitted (hopefully at compile time) when layout check fails
-        const ERROR: &str = "Invalid TransparentNewtype impl detected";
-        assert_eq!(size_of::<Self>(), size_of::<Self::Inner>(), "{ERROR}");
-        assert_eq!(align_of::<Self>(), align_of::<Self::Inner>(), "{ERROR}");
+        /// Outlined to mitigate generics code bloat
+        #[cold]
+        fn failed() -> ! {
+            panic!("Invalid TransparentNewtype impl detected!");
+        }
+        if size_of::<Self>() != size_of::<Self::Inner>() {
+            failed()
+        }
+        if align_of::<Self>() != align_of::<Self::Inner>() {
+            failed()
+        }
     }
 }
 
@@ -242,5 +249,25 @@ mod tests {
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
             assert_eq!(p.to_inner(), mut_info);
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_transparent_newtype_size() {
+        // SAFETY: This is actually unsafe, don't do this!
+        unsafe impl TransparentNewtype for () {
+            type Inner = u8;
+        }
+        <()>::check_basic_layout();
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_transparent_newtype_alignment() {
+        // SAFETY: This is actually unsafe, don't do this!
+        unsafe impl TransparentNewtype for u16 {
+            type Inner = [u8; 2];
+        }
+        u16::check_basic_layout();
     }
 }

@@ -44,15 +44,19 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
     pub fn bind_tid_cpu(&self, tid: pid_t, set: impl Borrow<CpuSet>) -> Result<(), RawHwlocError> {
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - Bitmap is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - TID cannot be validated (think TOCTOU), but hwloc should be
-        //           able to handle an invalid TID
-        errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
-            hwlocality_sys::hwloc_linux_set_tid_cpubind(self.as_ptr(), tid, set.borrow().as_ptr())
-        })
-        .map(std::mem::drop)
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(self_: &Topology, tid: pid_t, set: &CpuSet) -> Result<(), RawHwlocError> {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - TID cannot be validated (think TOCTOU), but hwloc should be
+            //           able to handle an invalid TID
+            errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
+                hwlocality_sys::hwloc_linux_set_tid_cpubind(self_.as_ptr(), tid, set.as_ptr())
+            })
+            .map(std::mem::drop)
+        }
+        polymorphized(self, tid, set.borrow())
     }
 
     /// Current binding of thread `tid`.
@@ -161,18 +165,22 @@ impl Topology {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<CpuSet, HybridError<PathError>> {
-        let path = path::make_hwloc_path(path)?;
-        let mut set = CpuSet::new();
-        // SAFETY: - Path is trusted to contain a valid C string (type invariant)
-        //         - Bitmap is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
-            hwlocality_sys::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
-        })
-        .map_err(HybridError::Hwloc)?;
-        Ok(set)
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(path: &Path) -> Result<CpuSet, HybridError<PathError>> {
+            let path = path::make_hwloc_path(path)?;
+            let mut set = CpuSet::new();
+            // SAFETY: - Path is trusted to contain a valid C string (type invariant)
+            //         - Bitmap is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
+                hwlocality_sys::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
+            })
+            .map_err(HybridError::Hwloc)?;
+            Ok(set)
+        }
+        polymorphized(path.as_ref())
     }
 }
 
