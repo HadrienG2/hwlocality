@@ -130,9 +130,9 @@ impl Topology {
         }
 
         // There cannot be any object at a depth below the hwloc-supported max
-        depth.try_into().map_or_else(|_| Ok(Vec::new()), |depth| {
-            polymorphized(self, kind, depth)
-        })
+        depth
+            .try_into()
+            .map_or_else(|_| Ok(Vec::new()), |depth| polymorphized(self, kind, depth))
     }
 
     /// Retrieve distance matrices for object with a specific type
@@ -392,7 +392,7 @@ impl TopologyEditor<'_> {
             flags: AddDistancesFlags,
             object_ptrs: &[*const hwloc_obj],
             distances: Vec<u64>,
-        ) -> Result<(), HybridError<AddDistancesError>>  {
+        ) -> Result<(), HybridError<AddDistancesError>> {
             // Prepare arguments for C consumption and validate them
             let name = match name.map(LibcString::new).transpose() {
                 Ok(name) => name,
@@ -489,7 +489,7 @@ impl TopologyEditor<'_> {
         if objects.iter().flatten().any(|obj| !topology.contains(obj)) {
             return Err(AddDistancesError::ForeignObjects.into());
         }
-        let object_ptrs = 
+        let object_ptrs =
             // SAFETY: TopologyObject is a repr(transparent) newtype of
             //         hwloc_obj, and the (ptr, len) tuple is consistent
             unsafe {
@@ -601,14 +601,17 @@ impl TopologyEditor<'_> {
         /// topology, with no residual high-level wrapper remaining
         unsafe fn polymorphized(
             self_: &mut TopologyEditor<'_>,
-            distances: NonNull<hwloc_distances_s>
+            distances: NonNull<hwloc_distances_s>,
         ) -> Result<(), RawHwlocError> {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted to keep *mut parameters in a valid
             //           state unless stated otherwise
             //         - distances is trusted per function contract
             errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
-                hwlocality_sys::hwloc_distances_release_remove(self_.topology_mut_ptr(), distances.as_ptr())
+                hwlocality_sys::hwloc_distances_release_remove(
+                    self_.topology_mut_ptr(),
+                    distances.as_ptr(),
+                )
             })
             .map(std::mem::drop)
         }
@@ -658,7 +661,7 @@ impl TopologyEditor<'_> {
         /// Polymorphized subset of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &mut TopologyEditor<'_>,
-            depth: Depth
+            depth: Depth,
         ) -> Result<(), RawHwlocError> {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Distances lifetime is bound by the host topology, so this
@@ -666,13 +669,18 @@ impl TopologyEditor<'_> {
             //           use-after-free cannot happen
             //         - hwloc should be able to handle any valid depth value
             errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
-                hwlocality_sys::hwloc_distances_remove_by_depth(self_.topology_mut_ptr(), depth.into())
+                hwlocality_sys::hwloc_distances_remove_by_depth(
+                    self_.topology_mut_ptr(),
+                    depth.into(),
+                )
             })
             .map(std::mem::drop)
         }
 
         // There cannot be any object at a depth below the hwloc-supported max
-        depth.try_into().map_or_else(|_| Ok(()), |depth| polymorphized(self, depth))
+        depth
+            .try_into()
+            .map_or_else(|_| Ok(()), |depth| polymorphized(self, depth))
     }
 
     /// Remove distance matrices for objects of a specific type in the topology
