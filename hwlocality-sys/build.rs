@@ -156,7 +156,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
 fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
     // Locate CMake support files, make sure they are present
     // (should be the case on any hwloc release since 2.8)
-    let cmake_path = source_path.join("contrib").join("windows-cmake");
+    let cmake_path = source_path.as_ref().join("contrib").join("windows-cmake");
     assert!(
         cmake_path.join("CMakeLists.txt").exists(),
         "Need hwloc's CMake support to build on Windows (with MSVC)"
