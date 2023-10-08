@@ -301,12 +301,20 @@ impl From<NulError> for MemoryAttributeRegisterError {
         Self::NameContainsNul
     }
 }
+//
+impl From<MemoryAttributeFlags> for MemoryAttributeRegisterError {
+    fn from(value: MemoryAttributeFlags) -> Self {
+        Self::BadFlags(value)
+    }
+}
 
 /// Mechanism to configure a memory attribute
-///
-/// # Safety
-///
-/// `id` must be a valid new memory attribute ID from `hwloc_memattr_register()`
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// `id` must be a valid new memory attribute ID from `hwloc_memattr_register()`
 #[derive(Debug)]
 pub struct MemoryAttributeBuilder<'editor, 'topology> {
     /// Underlying [`TopologyEditor`]
@@ -518,7 +526,7 @@ macro_rules! wrap_ids_unchecked {
     };
 }
 
-/// Memory attribute identifier
+/// Memory attribute
 ///
 /// May be either one of the predefined attributes (see associated const fns)
 /// or a new attribute created using
