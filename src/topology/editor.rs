@@ -640,9 +640,9 @@ pub enum GroupMerge {
 impl From<bool> for GroupMerge {
     fn from(value: bool) -> Self {
         if value {
-            GroupMerge::Always
+            Self::Always
         } else {
-            GroupMerge::Never
+            Self::Never
         }
     }
 }
