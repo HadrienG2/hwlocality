@@ -35,29 +35,34 @@ fn setup_hwloc() {
 
     // If asked to build hwloc ourselves, do so
     #[cfg(feature = "bundled")]
-    setup_hwloc(required_version);
+    setup_bundled_hwloc(required_version);
 
     // If asked to use system hwloc, configure it using pkg-config
     #[cfg(not(feature = "bundled"))]
-    find_hwloc(required_version);
+    find_hwloc(Some(required_version));
 }
 
 /// Use pkg-config to locate and use a certain hwloc release
 #[cfg(not(all(feature = "bundled", windows)))]
-fn find_hwloc(required_version: &str) -> pkg_config::Library {
-    // Determine the first unsupported version
-    let first_unsupported_version = match required_version
-        .split('.')
-        .next()
-        .expect("No major version in required_version")
-    {
-        "2" => "3.0.0",
-        other => panic!("Please add support for hwloc v{other}.x"),
-    };
+fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
+    // Initialize pkg-config
+    let mut config = pkg_config::Config::new();
+
+    // Specify the required version range if instructed to do so
+    if let Some(required_version) = required_version {
+        let first_unsupported_version = match required_version
+            .split('.')
+            .next()
+            .expect("No major version in required_version")
+        {
+            "2" => "3.0.0",
+            other => panic!("Please add support for hwloc v{other}.x"),
+        };
+        config.range_version(required_version..first_unsupported_version);
+    }
 
     // Run pkg-config
-    let lib = pkg_config::Config::new()
-        .range_version(required_version..first_unsupported_version)
+    let lib = config
         .statik(cfg!(not(target_os = "macos")))
         .probe("hwloc")
         .expect("Could not find a suitable version of hwloc");
@@ -81,7 +86,7 @@ fn find_hwloc(required_version: &str) -> pkg_config::Library {
 
 /// Install hwloc ourselves
 #[cfg(feature = "bundled")]
-fn setup_hwloc(required_version: &str) {
+fn setup_bundled_hwloc(required_version: &str) {
     // Determine which version to fetch and where to fetch it
     let source_version = match required_version
         .split('.')
@@ -148,7 +153,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
 
 /// Compile hwloc using cmake, return local installation path
 #[cfg(all(feature = "bundled", windows))]
-fn install_hwloc_cmake(source_path: impl AsRef<Path>) -> PathBuf {
+fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
     // Locate CMake support files, make sure they are present
     // (should be the case on any hwloc release since 2.8)
     let cmake_path = source_path.join("contrib").join("windows-cmake");
@@ -183,7 +188,7 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) -> PathBuf {
 
 /// Compile hwloc using autotools, return local installation path
 #[cfg(all(feature = "bundled", not(windows)))]
-fn install_hwloc_autotools(source_path: impl AsRef<Path>) -> PathBuf {
+fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Build using autotools
     let mut config = autotools::Config::new(source_path);
     if cfg!(target_os = "macos") {
@@ -215,5 +220,5 @@ fn install_hwloc_autotools(source_path: impl AsRef<Path>) -> PathBuf {
     }
 
     // Configure this build to use hwloc via pkg-config
-    find_hwloc(required_version);
+    find_hwloc(None);
 }
