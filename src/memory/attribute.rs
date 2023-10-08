@@ -240,7 +240,7 @@ impl<'topology> TopologyEditor<'topology> {
         flags: MemoryAttributeFlags,
     ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError> {
         if !flags.is_valid() {
-            return Err(MemoryAttributeRegisterError::BadFlags(flags));
+            return Err(flags.into());
         }
         let name = LibcString::new(name)?;
         let mut id = hwloc_memattr_id_t::MAX;

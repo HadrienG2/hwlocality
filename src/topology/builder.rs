@@ -368,7 +368,7 @@ impl TopologyBuilder {
 /// Attempted to configure the topology from an invalid process ID
 #[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("topology cannot be configured from process {0}")]
-pub struct ProcessIDError(ProcessId);
+pub struct ProcessIDError(pub ProcessId);
 //
 impl From<ProcessId> for ProcessIDError {
     fn from(id: ProcessId) -> Self {
@@ -911,6 +911,12 @@ pub enum TypeFilterError {
     /// Topology structure doesn't matter for I/O and Misc objects
     #[error("topology structure doesn't matter for I/O and Misc objects")]
     StructureIrrelevant,
+}
+//
+impl From<ObjectType> for TypeFilterError {
+    fn from(value: ObjectType) -> Self {
+        Self::CantIgnore(value)
+    }
 }
 
 /// # General-purpose internal utilities
