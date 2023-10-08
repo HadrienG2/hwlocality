@@ -477,7 +477,7 @@ impl Topology {
                 set.borrow(),
                 policy,
                 flags,
-                MemoryBoundObject::Process,
+                MemoryBoundObject::Process(pid),
                 |topology, set, policy, flags| {
                     hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
                 },
@@ -521,7 +521,7 @@ impl Topology {
             self.unbind_memory_impl(
                 "hwloc_set_proc_membind",
                 flags,
-                MemoryBoundObject::Process,
+                MemoryBoundObject::Process(pid),
                 |topology, set, policy, flags| {
                     hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
                 },
@@ -573,7 +573,7 @@ impl Topology {
             self.memory_binding_impl(
                 "hwloc_get_proc_membind",
                 flags,
-                MemoryBoundObject::Process,
+                MemoryBoundObject::Process(pid),
                 MemoryBindingOperation::GetBinding,
                 |topology, set, policy, flags| {
                     hwlocality_sys::hwloc_get_proc_membind(topology, pid, set, policy, flags)
@@ -1166,7 +1166,7 @@ impl MemoryBindingFlags {
             .bits()
             .count_ones();
         let expected_num_target_flags = match target {
-            MemoryBoundObject::Area | MemoryBoundObject::Process => 1,
+            MemoryBoundObject::Area | MemoryBoundObject::Process(_) => 1,
             MemoryBoundObject::ThisProgram => 0,
         };
         if num_target_flags != expected_num_target_flags {
@@ -1174,7 +1174,7 @@ impl MemoryBindingFlags {
         }
 
         // The THREAD target flag should not be used when targeting other processes
-        if target == MemoryBoundObject::Process && self.contains(Self::THREAD) {
+        if matches!(target, MemoryBoundObject::Process(_)) && self.contains(Self::THREAD) {
             return None;
         }
 
@@ -1190,7 +1190,7 @@ impl MemoryBindingFlags {
                     return None;
                 }
                 match target {
-                    MemoryBoundObject::Area | MemoryBoundObject::Process => {}
+                    MemoryBoundObject::Area | MemoryBoundObject::Process(_) => {}
                     MemoryBoundObject::ThisProgram => {
                         if self.contains(Self::STRICT) && !self.contains(Self::PROCESS) {
                             return None;
@@ -1218,12 +1218,12 @@ impl MemoryBindingFlags {
 }
 //
 // NOTE: No default because user must consciously think about the need for PROCESS
-//
+
 /// Object that is being bound to particular NUMA nodes
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MemoryBoundObject {
     /// A process, identified by its PID
-    Process,
+    Process(ProcessId),
 
     /// A range of memory adresses, identified by a reference
     Area,
@@ -1235,14 +1235,20 @@ pub enum MemoryBoundObject {
 impl Display for MemoryBoundObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
-            Self::Process => "the target process",
-            Self::Area => "the target location",
-            Self::ThisProgram => "the current process/thread",
+            Self::Process(pid) => format!("the process with PID {pid}"),
+            Self::Area => "the target location".to_owned(),
+            Self::ThisProgram => "the current process/thread".to_owned(),
         };
-        f.pad(display)
+        f.pad(&display)
     }
 }
 //
+impl From<ProcessId> for MemoryBoundObject {
+    fn from(value: ProcessId) -> Self {
+        Self::Process(value)
+    }
+}
+
 /// Binding operation
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub(crate) enum MemoryBindingOperation {
