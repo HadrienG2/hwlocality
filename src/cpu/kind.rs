@@ -415,3 +415,9 @@ pub enum CpuKindRegisterError {
     #[error("there are too many CPU kind textual info (key, value) pairs for hwloc")]
     TooManyInfos,
 }
+//
+impl From<CpuEfficiency> for CpuKindRegisterError {
+    fn from(value: CpuEfficiency) -> Self {
+        Self::ExcessiveEfficiency(value)
+    }
+}

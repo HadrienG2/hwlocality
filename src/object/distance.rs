@@ -537,7 +537,7 @@ pub enum AddDistancesError {
     /// should contain N.pow(2) elements.
     #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
     BadDistancesCount {
-        /// Expected number of distances from the callback
+        /// Expected number of distances from the object count
         expected_distances_len: usize,
 
         /// Number of distances that the callback actually emitted
@@ -556,7 +556,8 @@ pub enum AddDistancesError {
 
     /// Provided callback returned too many or too few objects
     ///
-    /// hwloc only supports distances matrices with 2 to `c_uint::MAX` objects.
+    /// hwloc only supports distances matrices with 2 to [`c_uint::MAX`]
+    /// objects.
     #[error("callback emitted <2 or >c_uint::MAX objects: {0}")]
     BadObjectsCount(usize),
 
@@ -567,6 +568,13 @@ pub enum AddDistancesError {
     /// Provided `name` contains NUL chars
     #[error("provided name contains NUL chars")]
     NameContainsNul,
+}
+//
+#[cfg(feature = "hwloc-2_5_0")]
+impl From<DistancesKind> for AddDistancesError {
+    fn from(value: DistancesKind) -> Self {
+        Self::BadKind(value)
+    }
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]

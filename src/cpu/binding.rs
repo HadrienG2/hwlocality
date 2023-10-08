@@ -825,6 +825,12 @@ impl From<CpuBindingFlags> for CpuBindingError {
         Self::BadFlags(value.into())
     }
 }
+//
+impl From<CpuBoundObject> for CpuBindingError {
+    fn from(value: CpuBoundObject) -> Self {
+        Self::BadObject(value)
+    }
+}
 
 /// Call an hwloc API that is about getting or setting CPU bindings, translate
 /// known errors into higher-level `CpuBindingError`s.

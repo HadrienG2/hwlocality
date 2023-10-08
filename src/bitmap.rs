@@ -313,7 +313,7 @@ impl Bitmap {
     /// least 2^15-1, usually 2^31-1).
     pub fn from_range<Idx>(range: impl RangeBounds<Idx>) -> Self
     where
-        Idx: Copy + PartialEq + TryInto<BitmapIndex>,
+        Idx: Copy + TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         let mut bitmap = Self::new();
@@ -518,7 +518,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_set_range")]
     pub fn set_range<Idx>(&mut self, range: impl RangeBounds<Idx>)
     where
-        Idx: Copy + PartialEq + TryInto<BitmapIndex>,
+        Idx: Copy + TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         /// Polymorphized version of this function (avoids generics code bloat)
@@ -601,7 +601,7 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_clr_range")]
     pub fn unset_range<Idx>(&mut self, range: impl RangeBounds<Idx>)
     where
-        Idx: Copy + PartialEq + TryInto<BitmapIndex>,
+        Idx: Copy + TryInto<BitmapIndex>,
         <Idx as TryInto<BitmapIndex>>::Error: Debug,
     {
         /// Polymorphized version of this function (avoids generics code bloat)
@@ -2135,7 +2135,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::from_range`](crate::bitmap::Bitmap::from_range).
             pub fn from_range<Idx>(range: impl std::ops::RangeBounds<Idx>) -> Self
             where
-                Idx: Copy + PartialEq + TryInto<$crate::bitmap::BitmapIndex>,
+                Idx: Copy + TryInto<$crate::bitmap::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 Self::from($crate::bitmap::Bitmap::from_range(range))
@@ -2200,7 +2200,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::set_range`](crate::bitmap::Bitmap::set_range).
             pub fn set_range<Idx>(&mut self, range: impl std::ops::RangeBounds<Idx>)
             where
-                Idx: Copy + PartialEq + TryInto<$crate::bitmap::BitmapIndex>,
+                Idx: Copy + TryInto<$crate::bitmap::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.set_range(range)
@@ -2222,7 +2222,7 @@ macro_rules! impl_bitmap_newtype {
             /// See [`Bitmap::unset_range`](crate::bitmap::Bitmap::unset_range).
             pub fn unset_range<Idx>(&mut self, range: impl std::ops::RangeBounds<Idx>)
             where
-                Idx: Copy + PartialEq + TryInto<$crate::bitmap::BitmapIndex>,
+                Idx: Copy + TryInto<$crate::bitmap::BitmapIndex>,
                 <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
             {
                 self.0.unset_range(range)

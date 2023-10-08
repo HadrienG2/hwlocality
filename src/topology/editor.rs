@@ -33,7 +33,7 @@
 use crate::{
     bitmap::{BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, ForeignObject, HybridError, ParameterError, RawHwlocError},
+    errors::{self, ForeignObject, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
         string::LibcString,
         transparent::{ToInner, ToNewtype},
@@ -594,6 +594,24 @@ impl fmt::Display for AllowSet<'_> {
         }
     }
 }
+//
+impl<'set> From<&'set CpuSet> for AllowSet<'set> {
+    fn from(set: &'set CpuSet) -> Self {
+        Self::Custom {
+            cpuset: Some(set),
+            nodeset: None,
+        }
+    }
+}
+//
+impl<'set> From<&'set NodeSet> for AllowSet<'set> {
+    fn from(set: &'set NodeSet) -> Self {
+        Self::Custom {
+            cpuset: None,
+            nodeset: Some(set),
+        }
+    }
+}
 
 /// Attempted to change the allowed set of PUs and NUMA nodes without saying how
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
@@ -617,6 +635,16 @@ pub enum GroupMerge {
     #[doc(alias = "hwloc_group_attr_s::kind")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
     Always,
+}
+//
+impl From<bool> for GroupMerge {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Always
+        } else {
+            Self::Never
+        }
+    }
 }
 
 /// RAII guard for `Group` objects that have been allocated, but not inserted
@@ -854,6 +882,12 @@ pub enum InsertMiscError {
     /// Object name contains NUL chars, which hwloc can't handle
     #[error("requested object name contains NUL chars")]
     NameContainsNul,
+}
+//
+impl From<NulError> for InsertMiscError {
+    fn from(_: NulError) -> Self {
+        Self::NameContainsNul
+    }
 }
 
 // NOTE: Do not implement traits like AsRef/Deref/Borrow for TopologyEditor,
