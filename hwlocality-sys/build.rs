@@ -5,23 +5,65 @@ use std::{
     process::Command,
 };
 
-/// Use pkg-config to configure the build for a certain hwloc release
-#[cfg(not(all(feature = "bundled", windows)))]
-fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
-    // Determine the first unsupported version
-    let first_unsupported_version = match required_version
-        .split('.')
-        .next()
-        .expect("No major version in required_version")
-    {
-        "2" => "3.0.0",
-        other => panic!("Please add support for hwloc v{other}.x"),
+fn main() {
+    // We don't need hwloc on docs.rs since it only builds the docs
+    if std::env::var("DOCS_RS").is_err() {
+        setup_hwloc();
+    }
+}
+
+/// Configure the hwloc dependency
+fn setup_hwloc() {
+    // Determine the minimal supported hwloc version with current featurees
+    let required_version = if cfg!(feature = "hwloc-2_8_0") {
+        "2.8.0"
+    } else if cfg!(feature = "hwloc-2_5_0") {
+        "2.5.0"
+    } else if cfg!(feature = "hwloc-2_4_0") {
+        "2.4.0"
+    } else if cfg!(feature = "hwloc-2_3_0") {
+        "2.3.0"
+    } else if cfg!(feature = "hwloc-2_2_0") {
+        "2.2.0"
+    } else if cfg!(feature = "hwloc-2_1_0") {
+        "2.1.0"
+    } else if cfg!(feature = "hwloc-2_0_4") {
+        "2.0.4"
+    } else {
+        "2.0.0"
     };
 
+    // If asked to build hwloc ourselves, do so
+    #[cfg(feature = "bundled")]
+    setup_bundled_hwloc(required_version);
+
+    // If asked to use system hwloc, configure it using pkg-config
+    #[cfg(not(feature = "bundled"))]
+    find_hwloc(Some(required_version));
+}
+
+/// Use pkg-config to locate and use a certain hwloc release
+#[cfg(not(all(feature = "bundled", windows)))]
+fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
+    // Initialize pkg-config
+    let mut config = pkg_config::Config::new();
+
+    // Specify the required version range if instructed to do so
+    if let Some(required_version) = required_version {
+        let first_unsupported_version = match required_version
+            .split('.')
+            .next()
+            .expect("No major version in required_version")
+        {
+            "2" => "3.0.0",
+            other => panic!("Please add support for hwloc v{other}.x"),
+        };
+        config.range_version(required_version..first_unsupported_version);
+    }
+
     // Run pkg-config
-    let lib = pkg_config::Config::new()
-        .range_version(required_version..first_unsupported_version)
-        .statik(true)
+    let lib = config
+        .statik(cfg!(not(target_os = "macos")))
         .probe("hwloc")
         .expect("Could not find a suitable version of hwloc");
 
@@ -40,6 +82,33 @@ fn use_pkgconfig(required_version: &str) -> pkg_config::Library {
 
     // Forward pkg-config output for futher consumption
     lib
+}
+
+/// Install hwloc ourselves
+#[cfg(feature = "bundled")]
+fn setup_bundled_hwloc(required_version: &str) {
+    // Determine which version to fetch and where to fetch it
+    let source_version = match required_version
+        .split('.')
+        .next()
+        .expect("No major version in required_version")
+    {
+        "2" => "v2.x",
+        other => panic!("Please add support for bundling hwloc v{other}.x"),
+    };
+    let out_path = env::var("OUT_DIR").expect("No output directory given");
+
+    // Fetch latest supported hwloc from git
+    let source_path = fetch_hwloc(out_path, source_version);
+
+    // On Windows, we build using CMake because the autotools build
+    // procedure does not work with MSVC, which is often needed on this OS
+    #[cfg(target_os = "windows")]
+    install_hwloc_cmake(source_path);
+
+    // On other OSes, we use autotools and pkg-config
+    #[cfg(not(target_os = "windows"))]
+    install_hwloc_autotools(source_path);
 }
 
 /// Fetch hwloc from a git release branch, return repo path
@@ -82,16 +151,18 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
     repo_path
 }
 
-/// Compile hwloc using autotools, return local installation path
-#[cfg(all(feature = "bundled", not(windows)))]
-fn compile_hwloc_autotools(source_path: impl AsRef<Path>) -> PathBuf {
-    let mut config = autotools::Config::new(source_path);
-    config.fast_build(true).reconf("-ivf").build()
-}
-
 /// Compile hwloc using cmake, return local installation path
 #[cfg(all(feature = "bundled", windows))]
-fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
+fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
+    // Locate CMake support files, make sure they are present
+    // (should be the case on any hwloc release since 2.8)
+    let cmake_path = source_path.as_ref().join("contrib").join("windows-cmake");
+    assert!(
+        cmake_path.join("CMakeLists.txt").exists(),
+        "Need hwloc's CMake support to build on Windows (with MSVC)"
+    );
+
+    // Configure the CMake build
     let mut config = cmake::Config::new(cmake_path);
 
     // Allow specifying the CMake build profile
@@ -104,110 +175,50 @@ fn compile_hwloc_cmake(cmake_path: impl AsRef<Path>) -> PathBuf {
         config.define("CMAKE_TOOLCHAIN_FILE", &toolchain);
     }
 
-    config.always_configure(false).build()
+    // Build hwloc
+    let install_path = config.always_configure(false).build();
+
+    // Configure our own build to use this hwloc
+    println!("cargo:rustc-link-lib=static=hwloc");
+    println!(
+        "cargo:rustc-link-search={}",
+        install_path.join("lib").display()
+    );
 }
 
-/// Configure the hwloc dependency
-fn setup_hwloc() {
-    // Determine the minimal supported hwloc version with current featurees
-    let required_version = if cfg!(feature = "hwloc-2_8_0") {
-        "2.8.0"
-    } else if cfg!(feature = "hwloc-2_5_0") {
-        "2.5.0"
-    } else if cfg!(feature = "hwloc-2_4_0") {
-        "2.4.0"
-    } else if cfg!(feature = "hwloc-2_3_0") {
-        "2.3.0"
-    } else if cfg!(feature = "hwloc-2_2_0") {
-        "2.2.0"
-    } else if cfg!(feature = "hwloc-2_1_0") {
-        "2.1.0"
-    } else if cfg!(feature = "hwloc-2_0_4") {
-        "2.0.4"
+/// Compile hwloc using autotools, return local installation path
+#[cfg(all(feature = "bundled", not(windows)))]
+fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
+    // Build using autotools
+    let mut config = autotools::Config::new(source_path);
+    if cfg!(target_os = "macos") {
+        // macOS really doesn't like static builds...
+        config.disable_static();
+        config.enable_shared();
     } else {
-        "2.0.0"
-    };
+        // ...but they make life easier elsewhere
+        config.enable_static();
+        config.disable_shared();
+    }
+    let install_path = config.fast_build(true).reconf("-ivf").build();
 
-    // If asked to build hwloc ourselves...
-    #[cfg(feature = "bundled")]
-    {
-        // Bundled builds are not supported on macOS because for some strange
-        // reason the resulting library does not correctly emit the proper
-        // -framework flags in its pkg-config configuration. Patches welcome!
-        #[cfg(target_os = "macos")]
-        compile_error!("FATAL: Bundled builds are not currently supported on macOS");
+    // Compute the associated PKG_CONFIG_PATH
+    let new_path = |lib_dir: &str| install_path.join(lib_dir).join("pkgconfig");
+    let new_path = format!(
+        "{}:{}",
+        new_path("lib").display(),
+        new_path("lib64").display()
+    );
 
-        // Determine which version to fetch and where to fetch it
-        let source_version = match required_version
-            .split('.')
-            .next()
-            .expect("No major version in required_version")
-        {
-            "2" => "v2.x",
-            other => panic!("Please add support for bundling hwloc v{other}.x"),
-        };
-        let out_path = env::var("OUT_DIR").expect("No output directory given");
-
-        // Fetch latest supported hwloc from git
-        let source_path = fetch_hwloc(out_path, source_version);
-
-        // On Windows, we build using CMake because the autotools build
-        // procedure does not work with MSVC, which is often needed on this OS
-        #[cfg(target_os = "windows")]
-        {
-            // Locate CMake support files, make sure they are present
-            // (should be the case on any hwloc release since 2.8)
-            let cmake_path = source_path.join("contrib").join("windows-cmake");
-            assert!(
-                cmake_path.join("CMakeLists.txt").exists(),
-                "Need hwloc's CMake support to build on Windows (with MSVC)"
-            );
-
-            // Build hwloc, configure our own build to use it
-            let install_path = compile_hwloc_cmake(cmake_path);
-            println!("cargo:rustc-link-lib=static=hwloc");
-            println!(
-                "cargo:rustc-link-search={}",
-                install_path.join("lib").display()
-            );
+    // Combine it with any pre-existing PKG_CONFIG_PATH
+    match env::var("PKG_CONFIG_PATH") {
+        Ok(old_path) if !old_path.is_empty() => {
+            env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}"))
         }
-
-        // On other OSes, we use autotools and pkg-config
-        #[cfg(not(target_os = "windows"))]
-        {
-            // Build using autotools
-            let install_path = compile_hwloc_autotools(source_path);
-
-            // Compute the associated PKG_CONFIG_PATH
-            let new_path = |lib_dir: &str| install_path.join(lib_dir).join("pkgconfig");
-            let new_path = format!(
-                "{}:{}",
-                new_path("lib").display(),
-                new_path("lib64").display()
-            );
-
-            // Combine it with any pre-existing PKG_CONFIG_PATH
-            match env::var("PKG_CONFIG_PATH") {
-                Ok(old_path) if !old_path.is_empty() => {
-                    env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}"))
-                }
-                Ok(_) | Err(env::VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
-                Err(other_err) => panic!("Failed to check PKG_CONFIG_PATH: {other_err}"),
-            }
-
-            // Configure this build to use hwloc via pkg-config
-            use_pkgconfig(required_version);
-        }
+        Ok(_) | Err(env::VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
+        Err(other_err) => panic!("Failed to check PKG_CONFIG_PATH: {other_err}"),
     }
 
-    // If asked to use system hwloc, we configure it using pkg-config
-    #[cfg(not(feature = "bundled"))]
-    use_pkgconfig(required_version);
-}
-
-fn main() {
-    // We don't need hwloc on docs.rs since it only builds the docs
-    if std::env::var("DOCS_RS").is_err() {
-        setup_hwloc();
-    }
+    // Configure this build to use hwloc via pkg-config
+    find_hwloc(None);
 }

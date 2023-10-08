@@ -164,10 +164,6 @@ jobs:
           - '--features=hwloc-2_8_0'
           - '--features=hwloc-latest,bundled'
           - '--features=hwloc-latest,quickcheck'
-        exclude:
-          # FIXME: Bundled builds don't currently work on macOS
-          - os: macos-latest
-            features: '--features=hwloc-latest,bundled'
 
     steps:
       - name: Checkout sources
@@ -423,10 +419,6 @@ jobs:
           - '--features=hwloc-2_8_0'
           - '--features=hwloc-latest,bundled'
           - '--features=hwloc-latest,quickcheck'
-        exclude:
-          # FIXME: Bundled builds don't currently work on macOS
-          - os: macos-latest
-            features: '--features=hwloc-latest,bundled'
 
     steps:
       - name: Checkout sources
