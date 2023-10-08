@@ -125,7 +125,6 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 
 # Automatically fetch and build the latest compatible hwloc version from github.
 # Otherwise, the system installation of hwloc will be used.
-# This feature is not currently supported on macOS, see build.rs for details.
 bundled = ["hwlocality-sys/bundled"]
 
 # Implement quickcheck's Arbitrary trait for types where it makes sense
