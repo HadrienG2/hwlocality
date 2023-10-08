@@ -141,7 +141,7 @@ arrayvec = "0.7"
 bitflags = "2.3"
 
 # Used to simplify the implementation of newtypes
-derive_more = "0.99"
+derive_more = { version = "0.99", default-features = false, features = ["as_mut", "as_ref", "display", "from", "into", "into_iterator", "not"] }
 
 # Used to interpret and report hwloc error codes
 errno = "0.3"
@@ -153,7 +153,7 @@ hwlocality-sys = { path = "./hwlocality-sys" }
 libc.workspace = true
 
 # Used to interface hwloc enums
-num_enum = "0.7"
+num_enum = { version = "0.7", default-features = false }
 
 # Used to simplify error reporting
 thiserror = "1.0"
