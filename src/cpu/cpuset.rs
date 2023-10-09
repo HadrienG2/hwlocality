@@ -25,7 +25,7 @@ use crate::{
 use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(feature = "hwloc-2_2_0")]
 use std::ffi::c_uint;
-use std::{borrow::Borrow, clone::Clone, fmt::Debug, iter::FusedIterator, ptr};
+use std::{borrow::Borrow, fmt::Debug, iter::FusedIterator, ptr};
 use thiserror::Error;
 
 /// # Finding objects inside a CPU set
@@ -300,7 +300,7 @@ impl FusedIterator for LargestObjectsInsideCpuSet<'_> {}
 /// (topology-wide) cpuset. In that case, it is impossible to find topology
 /// objects covering all of the input cpuset.
 #[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("input cpuset {query} is not a subset of root cpuset {root}")]
+#[error("can't partition {query} that isn't included in topology root {root}")]
 pub struct CoarsestPartitionError {
     /// Requested cpuset
     pub query: CpuSet,

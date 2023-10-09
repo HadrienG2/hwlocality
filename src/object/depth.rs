@@ -190,14 +190,14 @@ impl From<Depth> for hwloc_get_type_depth_e {
 pub enum TypeToDepthError {
     /// No object of the requested type exists in the topology
     #[doc(alias = "HWLOC_TYPE_DEPTH_UNKNOWN")]
-    #[error("no object of given type exists in the topology")]
+    #[error("no object of requested type exists in the topology")]
     Nonexistent,
 
     /// Objects of the requested type exist at different depths in the topology
     ///
     /// At the time of writing, this can only happen with [`ObjectType::Group`].
     #[doc(alias = "HWLOC_TYPE_DEPTH_MULTIPLE")]
-    #[error("objects of given type exist at different depths in the topology")]
+    #[error("objects of requested type exist at different depths in the topology")]
     Multiple,
 
     /// Unexpected special depth value or hwloc error
@@ -210,7 +210,7 @@ pub enum TypeToDepthError {
     /// - hwloc failed to probe the requested depth and returned a negative
     ///   value to indicate that, but this negative value is not documented so
     ///   the Rust bindings couldn't figure out what's going on.
-    #[error("unexpected special depth value or hwloc error: {0}")]
+    #[error("got unexpected special object depth value or hwloc error code {0}")]
     Unexpected(c_int),
 }
 

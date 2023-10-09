@@ -80,6 +80,18 @@ impl LibcString {
         polymorphized(s.as_ref())
     }
 
+    /// Query the Rust version of this C string
+    pub(crate) fn as_str(&self) -> &str {
+        // SAFETY: Per type invariant, this is a C string composed of an &str
+        //         followed by a terminating NUL.
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                self.borrow().cast::<u8>(),
+                self.len() - 1,
+            ))
+        }
+    }
+
     /// Check the length of the string, including NUL terminator
     pub(crate) fn len(&self) -> usize {
         self.0.len()
@@ -136,14 +148,7 @@ impl Arbitrary for LibcString {
 
 impl AsRef<str> for LibcString {
     fn as_ref(&self) -> &str {
-        // SAFETY: Per type invariant, this is a C string composed of an &str
-        //         followed by a terminating NUL.
-        unsafe {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                self.borrow().cast::<u8>(),
-                self.len() - 1,
-            ))
-        }
+        self.as_str()
     }
 }
 

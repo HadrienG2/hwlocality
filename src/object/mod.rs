@@ -27,7 +27,7 @@ use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
-    errors::{self, HybridError, NulError, ParameterError},
+    errors::{self, ForeignObjectError, HybridError, NulError, ParameterError},
     ffi::{
         self, int,
         string::LibcString,
@@ -787,21 +787,23 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`ForeignTarget`] if `obj` does not belong to this topology.
+    /// - [`ForeignObject`] if `obj` does not belong to this topology.
     /// - [`MissingCpuSet`] if `obj` does not have a cpuset.
     ///
-    /// [`ForeignTarget`]: ClosestObjsError::ForeignTarget
-    /// [`MissingCpuSet`]: ClosestObjsError::MissingCpuSet
+    /// [`ForeignObject`]: ClosestObjectsError::ForeignObject
+    /// [`MissingCpuSet`]: ClosestObjectsError::MissingCpuSet
     #[doc(alias = "hwloc_get_closest_objs")]
     pub fn objects_closest_to<'result>(
         &'result self,
         obj: &'result TopologyObject,
-    ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, ClosestObjsError> {
+    ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, ClosestObjectsError> {
         // Validate input object
         if !self.contains(obj) {
-            return Err(ClosestObjsError::ForeignTarget);
+            return Err(ClosestObjectsError::ForeignObject(obj.into()));
         }
-        let obj_cpuset = obj.cpuset().ok_or(ClosestObjsError::MissingCpuSet)?;
+        let obj_cpuset = obj
+            .cpuset()
+            .ok_or_else(|| ClosestObjectsError::MissingCpuSet(obj.into()))?;
 
         /// Assert that an object has a cpuset, return both
         fn obj_and_cpuset<'obj>(
@@ -888,7 +890,7 @@ impl Topology {
     ) -> Result<Option<&TopologyObject>, MissingCpuSetError> {
         let mut obj = self.root_object();
         for &(ty, idx) in path {
-            let cpuset = obj.cpuset().ok_or(MissingCpuSetError)?;
+            let cpuset = obj.cpuset().ok_or_else(|| MissingCpuSetError::from(obj))?;
             if let Some(next_obj) = self.objects_inside_cpuset_with_type(cpuset, ty).nth(idx) {
                 obj = next_obj;
             } else {
@@ -901,7 +903,7 @@ impl Topology {
     /// Find an object of a different type with the same locality
     ///
     /// The source object `src` must belong to this topology, otherwise a
-    /// [`ForeignTarget`] error will be returned.
+    /// [`ForeignSource`] error will be returned.
     ///
     /// If the source object is a normal or memory type, this function returns
     /// an object of type `ty` with the same CPU and node sets, either below or
@@ -934,11 +936,11 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`ForeignTarget`] if `src` does not belong to this topology.
+    /// - [`ForeignSource`] if `src` does not belong to this topology.
     /// - [`StringContainsNul`] if `subtype` or `name_prefix` contains NUL chars.
     ///
-    /// [`ForeignTarget`]: LocalObjError::ForeignTarget
-    /// [`StringContainsNul`]: LocalObjError::StringContainsNul
+    /// [`ForeignSource`]: LocalObjectError::ForeignSource
+    /// [`StringContainsNul`]: LocalObjectError::StringContainsNul
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_get_obj_with_same_locality")]
     pub fn object_with_same_locality(
@@ -947,9 +949,9 @@ impl Topology {
         ty: ObjectType,
         subtype: Option<&str>,
         name_prefix: Option<&str>,
-    ) -> Result<Option<&TopologyObject>, LocalObjError> {
+    ) -> Result<Option<&TopologyObject>, LocalObjectError> {
         if !self.contains(src) {
-            return Err(LocalObjError::ForeignTarget);
+            return Err(src.into());
         }
         let subtype = subtype.map(LibcString::new).transpose()?;
         let name_prefix = name_prefix.map(LibcString::new).transpose()?;
@@ -984,15 +986,15 @@ impl Topology {
 }
 
 /// Error returned by [`Topology::objects_closest_to()`]
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
-pub enum ClosestObjsError {
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum ClosestObjectsError {
     /// Target object does not belong to this topology
-    #[error("target object does not belong to this topology")]
-    ForeignTarget,
+    #[error(transparent)]
+    ForeignObject(#[from] ForeignObjectError),
 
     /// Target object does not have a cpuset and this search requires one
-    #[error("target object does not have a cpuset")]
-    MissingCpuSet,
+    #[error(transparent)]
+    MissingCpuSet(#[from] MissingCpuSetError),
 }
 
 /// Error returned when a search algorithm that requires a cpuset is applied to
@@ -1004,27 +1006,46 @@ pub enum ClosestObjsError {
 /// relatively complex search operations may only be applied to objects with a
 /// cpuset (i.e. normal and memory objects) and will fail with this error if
 /// applied to other object types.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("an operation that requires a cpuset was applied to an object without one")]
-pub struct MissingCpuSetError;
+//
+// --- Implementation notes ---
+//
+// Not implementing Copy at this point because I want to leave options open for
+// switching to another way to describe objects (Debug string, etc).
+#[allow(missing_copy_implementations)]
+#[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
+#[error("object #{0} doesn't have a cpuset but we need one for this search")]
+pub struct MissingCpuSetError(TopologyObjectID);
+//
+impl<'topology> From<&'topology TopologyObject> for MissingCpuSetError {
+    fn from(object: &'topology TopologyObject) -> Self {
+        Self(object.global_persistent_index())
+    }
+}
 
 /// Error returned by [`Topology::object_with_same_locality()`]
 #[cfg(feature = "hwloc-2_5_0")]
-#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
-pub enum LocalObjError {
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum LocalObjectError {
     /// Target object does not belong to this topology
-    #[error("target object does not belong to this topology")]
-    ForeignTarget,
+    #[error(transparent)]
+    ForeignSource(#[from] ForeignObjectError),
 
     /// Subtype or name prefix string contains a NUL char
-    #[error("input string contains a NUL char")]
+    #[error("local object query string can't contain NUL chars")]
     StringContainsNul,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-impl From<NulError> for LocalObjError {
+impl From<NulError> for LocalObjectError {
     fn from(_: NulError) -> Self {
         Self::StringContainsNul
+    }
+}
+//
+#[cfg(feature = "hwloc-2_5_0")]
+impl<'topology> From<&'topology TopologyObject> for LocalObjectError {
+    fn from(object: &'topology TopologyObject) -> Self {
+        Self::ForeignSource(object.into())
     }
 }
 
@@ -1265,10 +1286,17 @@ impl TopologyObject {
     /// [`logical_index()`]: Self::logical_index()
     /// [`os_index()`]: Self::os_index()
     #[doc(alias = "hwloc_obj::gp_index")]
-    pub fn global_persistent_index(&self) -> u64 {
+    pub fn global_persistent_index(&self) -> TopologyObjectID {
         self.0.gp_index
     }
 }
+
+/// Global persistent [`TopologyObject`] ID
+///
+/// Generated by hwloc, unique across a given topology and persistent across
+/// topology changes. Basically, the only collisions you can expect are between
+/// objects from different topologies, which you normally shouldn't mix.
+pub type TopologyObjectID = u64;
 
 /// # Depth and ancestors
 //

@@ -816,7 +816,7 @@ pub enum CpuBindingError {
     /// set. Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
-    #[error("cannot bind {0} to {1}")]
+    #[error("cannot change the CPU binding of {0} to {1}")]
     BadCpuSet(CpuBoundObject, CpuSet),
 }
 //

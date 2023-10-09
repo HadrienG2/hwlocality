@@ -9,8 +9,10 @@
 // At the implementation level, this is also the place where all the low-level
 // handling of hwloc errors is implemented.
 
+use crate::object::{TopologyObject, TopologyObjectID};
 #[cfg(doc)]
-use crate::{object::TopologyObject, topology::Topology};
+use crate::topology::Topology;
+use derive_more::From;
 use errno::Errno;
 #[allow(unused)]
 #[cfg(test)]
@@ -81,7 +83,7 @@ fn check_errno<R: Copy + Ord>(
 /// assume they are the only errors that can occur, translate them into a
 /// higher-level Rust errors and panic if another errno value is observed.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-#[error("hwloc API {api} failed with errno {errno:?}")]
+#[error("{api} failed with errno {errno:?}")]
 pub struct RawHwlocError {
     /// Hwloc entry point that failed
     pub api: &'static str,
@@ -175,7 +177,7 @@ pub(crate) fn call_hwloc_bool(
 /// type is an extension of [`RawHwlocError`] that allows you to catch and
 /// process those negative return values.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-#[error("hwloc API {api} failed with result {result} and errno {errno:?}")]
+#[error("{api} failed with result {result} and errno {errno:?}")]
 pub(crate) struct RawNegIntError {
     /// Hwloc entry point that failed
     pub(crate) api: &'static str,
@@ -245,7 +247,7 @@ pub enum HybridError<RustError: Error> {
 /// that the input string is invalid. Otherwise, a more complex error type that
 /// accounts for the possibility of NUL errors among others will be emitted.
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("string cannot be used by hwloc, it contains the NUL char")]
+#[error("can't pass a string with NUL chars to hwloc")]
 pub struct NulError;
 
 /// A method was passed an invalid parameter
@@ -254,15 +256,9 @@ pub struct NulError;
 /// function parameter can be invalid, and the fact that it is invalid does
 /// not depend on the value of another parameter. Otherwise, a more descriptive
 /// dedicated error type will be used.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("parameter {0:?} is not valid for this operation")]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, From, Hash, PartialEq)]
+#[error("parameter {0:?} isn't valid for this operation")]
 pub struct ParameterError<Parameter: Debug>(pub Parameter);
-//
-impl<Parameter: Debug> From<Parameter> for ParameterError<Parameter> {
-    fn from(value: Parameter) -> Self {
-        Self(value)
-    }
-}
 
 /// An invalid set of flags was passed to a function
 ///
@@ -282,9 +278,21 @@ pub type FlagsError<Flags> = ParameterError<Flags>;
 /// the real world, it is not systematically reported as an error. Methods
 /// whose semantics boil down to "return entity that matches this query if it
 /// exists and `None` otherwise" may instead return `None` in this scenario.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("topology method was passed in a foreign topology object")]
-pub struct ForeignObject;
+//
+// --- Implementation notes ---
+//
+// Not implementing Copy at this point because I want to leave options open for
+// switching to another way to describe objects (Debug string, etc).
+#[allow(missing_copy_implementations)]
+#[derive(Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[error("object #{0} doesn't belong to this topology")]
+pub struct ForeignObjectError(TopologyObjectID);
+//
+impl<'topology> From<&'topology TopologyObject> for ForeignObjectError {
+    fn from(object: &'topology TopologyObject) -> Self {
+        Self(object.global_persistent_index())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -306,8 +314,8 @@ mod tests {
         Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
         Sized, Sync, Unpin, UnwindSafe
     );
-    assert_impl_all!(ForeignObject:
-        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
+    assert_impl_all!(ForeignObjectError:
+        Clone, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
         Sized, Sync, Unpin, UnwindSafe
     );
     assert_impl_all!(HybridError<NulError>:

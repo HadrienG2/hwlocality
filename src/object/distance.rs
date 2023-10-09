@@ -14,8 +14,10 @@
 //! The module itself only hosts type definitions that are related to this
 //! functionality.
 
+#[cfg(feature = "hwloc-2_5_0")]
+use crate::errors::FlagsError;
 use crate::{
-    errors::{self, ForeignObject, RawHwlocError},
+    errors::{self, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
     object::{depth::Depth, types::ObjectType, TopologyObject},
     topology::Topology,
@@ -349,7 +351,7 @@ impl TopologyEditor<'_> {
     ///
     /// # Errors
     ///
-    /// - [`BadDistancesCount`] if the number of distances returned by the
+    /// - [`InconsistentData`] if the number of distances returned by the
     ///   callback is not compatible with the number of objects (it should be
     ///   the square of it)
     /// - [`BadKind`] if the provided `kind` contains [`HETEROGENEOUS_TYPES`] or
@@ -357,14 +359,14 @@ impl TopologyEditor<'_> {
     /// - [`BadObjectsCount`] if less than 2 or more than `c_uint::MAX` objects
     ///   are returned by the callback(hwloc does not support such
     ///   configurations)
-    /// - [`ForeignObjects`] if the callback returned objects that do not belong
-    ///   to this topology
+    /// - [`ForeignEndpoint`] if the callback returned objects that do not
+    ///   belong to this topology
     /// - [`NameContainsNul`] if the provided `name` contains NUL chars
     ///
-    /// [`BadDistancesCount`]: AddDistancesError::BadDistancesCount
+    /// [`InconsistentData`]: AddDistancesError::InconsistentData
     /// [`BadKind`]: AddDistancesError::BadKind
     /// [`BadObjectsCount`]: AddDistancesError::BadObjectsCount
-    /// [`ForeignObjects`]: AddDistancesError::ForeignObjects
+    /// [`ForeignEndpoint`]: AddDistancesError::ForeignEndpoint
     /// [`HETEROGENEOUS_TYPES`]: DistancesKind::HETEROGENEOUS_TYPES
     /// [`NameContainsNul`]: AddDistancesError::NameContainsNul
     #[doc(alias = "hwloc_distances_add_create")]
@@ -401,7 +403,7 @@ impl TopologyEditor<'_> {
             let name = name.map_or(ptr::null(), |lcs| lcs.borrow());
             //
             if !kind.is_valid(true) {
-                return Err(AddDistancesError::BadKind(kind).into());
+                return Err(AddDistancesError::BadKind(kind.into()).into());
             }
             let kind = kind.bits();
             //
@@ -416,11 +418,7 @@ impl TopologyEditor<'_> {
             };
             let expected_distances_len = object_ptrs.len().pow(2);
             if distances.len() != expected_distances_len {
-                return Err(AddDistancesError::BadDistancesCount {
-                    expected_distances_len,
-                    actual_distances_len: distances.len(),
-                }
-                .into());
+                return Err(AddDistancesError::InconsistentData.into());
             }
             let values = distances.as_ptr();
 
@@ -486,8 +484,10 @@ impl TopologyEditor<'_> {
         // something that hwloc and the borrow checker will accept
         let topology = self.topology();
         let (objects, distances) = collect_objects_and_distances(topology);
-        if objects.iter().flatten().any(|obj| !topology.contains(obj)) {
-            return Err(AddDistancesError::ForeignObjects.into());
+        for obj in objects.iter().flatten().copied() {
+            if !topology.contains(obj) {
+                return Err(AddDistancesError::ForeignEndpoint(obj.into()).into());
+            }
         }
         let object_ptrs =
             // SAFETY: TopologyObject is a repr(transparent) newtype of
@@ -529,21 +529,8 @@ bitflags! {
 
 /// Failed to add a new distance matrix to the topology
 #[cfg(feature = "hwloc-2_5_0")]
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum AddDistancesError {
-    /// Provided callback returned incompatible objects and distances arrays
-    ///
-    /// If we denote N the length of the objects array, the distances array
-    /// should contain N.pow(2) elements.
-    #[error("callback emitted an invalid amount of distances (expected {expected_distances_len}, got {actual_distances_len})")]
-    BadDistancesCount {
-        /// Expected number of distances from the object count
-        expected_distances_len: usize,
-
-        /// Number of distances that the callback actually emitted
-        actual_distances_len: usize,
-    },
-
     /// Provided `kind` is invalid
     ///
     /// Either it contains [`DistancesKind::HETEROGENEOUS_TYPES`], which should
@@ -551,29 +538,37 @@ pub enum AddDistancesError {
     /// scanning of the provided object list), or it contains several of the
     /// "FROM_" and "MEANS_" kinds, which are mutually exclusive.
     #[cfg(feature = "hwloc-2_1_0")]
-    #[error("provided kind is not valid: {0:?}")]
-    BadKind(DistancesKind),
+    #[error(transparent)]
+    BadKind(#[from] FlagsError<DistancesKind>),
 
     /// Provided callback returned too many or too few objects
     ///
-    /// hwloc only supports distances matrices with 2 to [`c_uint::MAX`]
+    /// hwloc only supports distances matrices involving 2 to [`c_uint::MAX`]
     /// objects.
-    #[error("callback emitted <2 or >c_uint::MAX objects: {0}")]
+    #[error("can't add distances between {0} objects")]
     BadObjectsCount(usize),
 
-    /// Provided callback returned objects that do not belong to this [`Topology`]
-    #[error("callback emitted some objects that don't belong to this topology")]
-    ForeignObjects,
+    /// Provided callback returned one or more enpoint objects that do not
+    /// belong to this [`Topology`]
+    #[error("distance endpoint {0}")]
+    ForeignEndpoint(#[from] ForeignObjectError),
+
+    /// Provided callback returned incompatible objects and distances arrays
+    ///
+    /// If we denote N the length of the objects array, the distances array
+    /// should contain N.pow(2) elements.
+    #[error("number of specified objects and distances isn't consistent")]
+    InconsistentData,
 
     /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars")]
+    #[error("distances name can't contain NUL chars")]
     NameContainsNul,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
 impl From<DistancesKind> for AddDistancesError {
     fn from(value: DistancesKind) -> Self {
-        Self::BadKind(value)
+        Self::BadKind(value.into())
     }
 }
 //
@@ -581,6 +576,13 @@ impl From<DistancesKind> for AddDistancesError {
 impl From<NulError> for AddDistancesError {
     fn from(_: NulError) -> Self {
         Self::NameContainsNul
+    }
+}
+//
+#[cfg(feature = "hwloc-2_5_0")]
+impl<'topology> From<&'topology TopologyObject> for AddDistancesError {
+    fn from(object: &'topology TopologyObject) -> Self {
+        Self::ForeignEndpoint(object.into())
     }
 }
 
@@ -1003,12 +1005,12 @@ impl<'topology> Distances<'topology> {
     fn obj_to_checked_ptr(
         topology: &'topology Topology,
         obj: Option<&'topology TopologyObject>,
-    ) -> Result<*const TopologyObject, ForeignObject> {
+    ) -> Result<*const TopologyObject, ForeignObjectError> {
         if let Some(obj) = obj {
             if topology.contains(obj) {
                 Ok(obj)
             } else {
-                Err(ForeignObject)
+                Err(obj.into())
             }
         } else {
             Ok(std::ptr::null())
@@ -1024,7 +1026,7 @@ impl<'topology> Distances<'topology> {
     ///
     /// # Errors
     ///
-    /// [`ForeignObject`] if `new_object` does not belong to the same
+    /// [`ForeignObjectError`] if `new_object` does not belong to the same
     /// [`Topology`] as this distances matrix.
     ///
     /// [`distances_mut()`]: Distances::distances_mut()
@@ -1034,7 +1036,7 @@ impl<'topology> Distances<'topology> {
         &mut self,
         idx: usize,
         new_object: Option<&'topology TopologyObject>,
-    ) -> Result<(), ForeignObject> {
+    ) -> Result<(), ForeignObjectError> {
         let topology = self.topology;
         // SAFETY: Overwriting with a valid topology object pointer from
         //         topology, as checked by obj_to_checked_ptr
@@ -1049,13 +1051,13 @@ impl<'topology> Distances<'topology> {
     ///
     /// # Errors
     ///
-    /// [`ForeignObject`] if any of the [`TopologyObject`]s returned by
+    /// [`ForeignObjectError`] if any of the [`TopologyObject`]s returned by
     /// `mapping` does not belong to the same [`Topology`] as this distances
     /// matrix.
     pub fn replace_objects(
         &mut self,
         mut mapping: impl FnMut(usize, Option<&TopologyObject>) -> Option<&'topology TopologyObject>,
-    ) -> Result<(), ForeignObject> {
+    ) -> Result<(), ForeignObjectError> {
         let topology = self.topology;
         // SAFETY: Overwriting these with a valid topology object pointers from topology
         for (idx, obj) in unsafe { self.objects_mut().iter_mut().enumerate() } {
@@ -1463,5 +1465,5 @@ pub enum DistancesTransform {
 /// [`DistancesTransform::RemoveNone`].
 #[cfg(feature = "hwloc-2_5_0")]
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("cannot empty a distance matrix using DistancesTransform::RemoveNone")]
+#[error("can't empty a distance matrix using DistancesTransform::RemoveNone")]
 pub struct TransformError;

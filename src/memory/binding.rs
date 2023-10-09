@@ -18,7 +18,7 @@ use crate::{
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
-use errno::{errno, Errno};
+use errno::Errno;
 use hwlocality_sys::{
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
     hwloc_membind_policy_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET, HWLOC_MEMBIND_DEFAULT,
@@ -1335,7 +1335,7 @@ pub enum MemoryBindingPolicy {
 
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// Memory allocation failed even before trying to bind
     ///
@@ -1363,11 +1363,11 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// This error might not be reported if [`MemoryBindingFlags::STRICT`] is
     /// not set. Instead, the implementation is allowed to try using a smaller
     /// or larger set to make the operation succeed.
-    #[error("cannot bind {0} to {1}")]
+    #[error("cannot bind memory of {0} to {1}")]
     BadSet(MemoryBoundObject, OwnedSet),
 
     /// Cannot get/set the memory binding of a zero-sized memory region
-    #[error("cannot query the memory location of zero-sized target")]
+    #[error("cannot query the memory location of a zero-sized target")]
     BadTarget,
 
     /// Memory policies and nodesets vary from one thread to another
@@ -1379,7 +1379,7 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     ///
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`STRICT`]: MemoryBindingFlags::STRICT
-    #[error("binding varies from one thread of the process to another")]
+    #[error("memory binding varies from one thread of the process to another")]
     #[doc(alias = "HWLOC_MEMBIND_MIXED")]
     MixedResults,
 
@@ -1393,7 +1393,7 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// not set. Instead, the implementation is allowed to try to use a slightly
     /// different operation (with side-effects, binding more objects, etc.) when
     /// the requested operation is not exactly supported.
-    #[error("requested memory binding action or policy is not supported")]
+    #[error("requested memory binding action or policy isn't supported")]
     Unsupported,
 }
 //

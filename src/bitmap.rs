@@ -71,7 +71,6 @@ use quickcheck::{Arbitrary, Gen};
 use std::collections::BTreeSet;
 use std::{
     borrow::{Borrow, BorrowMut},
-    clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},

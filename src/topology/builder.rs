@@ -27,6 +27,7 @@ use crate::{
     ProcessId,
 };
 use bitflags::bitflags;
+use derive_more::From;
 use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
@@ -54,7 +55,10 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::{path::Path, ptr::NonNull};
+use std::{
+    path::{Path, PathBuf},
+    ptr::NonNull,
+};
 use thiserror::Error;
 
 /// Mechanism to build a `Topology` with custom configuration
@@ -166,10 +170,10 @@ impl TopologyBuilder {
     ///
     /// # Errors
     ///
-    /// - [`ProcessIDError`] if the topology cannot be configured from this
+    /// - [`FromPIDError`] if the topology cannot be configured from this
     ///   process.
     #[doc(alias = "hwloc_topology_set_pid")]
-    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, HybridError<ProcessIDError>> {
+    pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, HybridError<FromPIDError>> {
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
@@ -183,7 +187,7 @@ impl TopologyBuilder {
             Err(RawHwlocError {
                 errno: Some(Errno(ENOSYS)),
                 ..
-            }) => Err(ProcessIDError(pid).into()),
+            }) => Err(FromPIDError(pid).into()),
             Err(other_err) => Err(HybridError::Hwloc(other_err)),
         }
     }
@@ -205,10 +209,10 @@ impl TopologyBuilder {
     /// - [`Invalid`] if `description` failed hwloc-side validation (most
     ///   likely it is not a valid Synthetic topology description)
     ///
-    /// [`ContainsNul`]: TextInputError::ContainsNul
-    /// [`Invalid`]: TextInputError::Invalid
+    /// [`ContainsNul`]: StringInputError::ContainsNul
+    /// [`Invalid`]: StringInputError::Invalid
     #[doc(alias = "hwloc_topology_set_synthetic")]
-    pub fn from_synthetic(mut self, description: &str) -> Result<Self, TextInputError> {
+    pub fn from_synthetic(mut self, description: &str) -> Result<Self, StringInputError> {
         let description = LibcString::new(description)?;
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
@@ -224,7 +228,7 @@ impl TopologyBuilder {
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
-            }) => Err(TextInputError::Invalid),
+            }) => Err(StringInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
@@ -245,10 +249,10 @@ impl TopologyBuilder {
     /// - [`Invalid`] if `description` failed hwloc-side validation (most
     ///   likely it is not a valid XML topology description)
     ///
-    /// [`ContainsNul`]: TextInputError::ContainsNul
-    /// [`Invalid`]: TextInputError::Invalid
+    /// [`ContainsNul`]: StringInputError::ContainsNul
+    /// [`Invalid`]: StringInputError::Invalid
     #[doc(alias = "hwloc_topology_set_xmlbuffer")]
-    pub fn from_xml(mut self, xml: &str) -> Result<Self, TextInputError> {
+    pub fn from_xml(mut self, xml: &str) -> Result<Self, StringInputError> {
         let xml = LibcString::new(xml)?;
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
@@ -271,7 +275,7 @@ impl TopologyBuilder {
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
-            }) => Err(TextInputError::Invalid),
+            }) => Err(StringInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
@@ -295,14 +299,14 @@ impl TopologyBuilder {
     ///
     /// [`BadRustPath(ContainsNul)`]: PathError::ContainsNul
     /// [`BadRustPath(NotUnicode)`]: PathError::NotUnicode
-    /// [`Invalid`]: XMLFileInputError::Invalid
+    /// [`Invalid`]: FileInputError::Invalid
     #[doc(alias = "hwloc_topology_set_xml")]
-    pub fn from_xml_file(self, path: impl AsRef<Path>) -> Result<Self, XMLFileInputError> {
+    pub fn from_xml_file(self, path: impl AsRef<Path>) -> Result<Self, FileInputError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             mut self_: TopologyBuilder,
             path: &Path,
-        ) -> Result<TopologyBuilder, XMLFileInputError> {
+        ) -> Result<TopologyBuilder, FileInputError> {
             let path = path::make_hwloc_path(path)?;
             // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type
             //           invariant)
@@ -317,7 +321,7 @@ impl TopologyBuilder {
                 Err(RawHwlocError {
                     errno: Some(Errno(EINVAL)),
                     ..
-                }) => Err(XMLFileInputError::Invalid),
+                }) => Err(FileInputError::Invalid(PathBuf::from(path.as_str()).into())),
                 Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
             }
         }
@@ -366,44 +370,43 @@ impl TopologyBuilder {
 }
 
 /// Attempted to configure the topology from an invalid process ID
-#[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
-#[error("topology cannot be configured from process {0}")]
-pub struct ProcessIDError(pub ProcessId);
-//
-impl From<ProcessId> for ProcessIDError {
-    fn from(id: ProcessId) -> Self {
-        Self(id)
-    }
-}
+#[derive(Copy, Clone, Debug, Default, Error, From, Eq, Hash, PartialEq)]
+#[error("can't configure a Topology from process {0}")]
+pub struct FromPIDError(pub ProcessId);
 
 /// Invalid text was specified as the topology source
+//
+// --- Implementation notes ---
+//
+// Not exposing the data string in this error because it can be arbitrarily
+// large and complex, so including it in the error would not clarify anything.
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum TextInputError {
+pub enum StringInputError {
     /// Input string contains NUL chars and hwloc cannot handle that
-    #[error("string cannot be used by hwloc, it contains the NUL char")]
+    #[error("topology data string can't contain the NUL char")]
     ContainsNul,
 
     /// Hwloc rejected the input string as invalid for the specified input type
-    #[error("hwloc rejected the input string as invalid")]
+    #[error("hwloc rejected the topology data string as invalid")]
     Invalid,
 }
 //
-impl From<NulError> for TextInputError {
+impl From<NulError> for StringInputError {
     fn from(NulError: NulError) -> Self {
         Self::ContainsNul
     }
 }
 
-/// An invalid XML file path was specified as the topology source
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum XMLFileInputError {
+/// An invalid input file path was specified as the topology source
+#[derive(Clone, Debug, Error, Eq, Hash, PartialEq)]
+pub enum FileInputError {
     /// Rust-side file path is not suitable for hwloc consumption
     #[error(transparent)]
     BadRustPath(#[from] PathError),
 
-    /// Hwloc rejected the XML file path or its contents as invalid
-    #[error("hwloc rejected the input file as invalid")]
-    Invalid,
+    /// Hwloc rejected the file path or the file contents as invalid
+    #[error("hwloc rejected topology input file {0} as invalid")]
+    Invalid(Box<Path>),
 }
 
 #[cfg(feature = "hwloc-2_1_0")]
@@ -901,11 +904,11 @@ pub enum TypeFilterError {
     /// Cannot force keeping Group objects with [`TypeFilter::KeepAll`]
     ///
     /// Groups are designed only to add more structure to the topology.
-    #[error("can't force keeping groups")]
+    #[error("can't force hwloc to keep group objects")]
     CantKeepGroup,
 
     /// Top-level and bottom-level types cannot be ignored
-    #[error("can't ignore top- or bottom-level type {0}")]
+    #[error("can't ignore top- or bottom-level object type {0}")]
     CantIgnore(ObjectType),
 
     /// Topology structure doesn't matter for I/O and Misc objects
@@ -987,11 +990,11 @@ mod tests {
         LowerHex, Not, Octal, RefUnwindSafe, Send, Sized, Sub, SubAssign, Sync,
         UpperHex, Unpin, UnwindSafe
     );
-    assert_impl_all!(ProcessIDError:
+    assert_impl_all!(FromPIDError:
         Clone, Copy, Debug, Default, Error, Eq, From<ProcessId>, Hash,
         RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
     );
-    assert_impl_all!(TextInputError:
+    assert_impl_all!(StringInputError:
         Clone, Copy, Debug, Error, Eq, From<NulError>, Hash, RefUnwindSafe,
         Send, Sized, Sync, Unpin, UnwindSafe
     );
@@ -1006,8 +1009,8 @@ mod tests {
         Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
         Unpin, UnwindSafe
     );
-    assert_impl_all!(XMLFileInputError:
-        Clone, Copy, Debug, Error, Eq, From<PathError>, Hash, RefUnwindSafe,
+    assert_impl_all!(FileInputError:
+        Clone, Debug, Error, Eq, From<PathError>, Hash, RefUnwindSafe,
         Send, Sized, Sync, Unpin, UnwindSafe
     );
 }
