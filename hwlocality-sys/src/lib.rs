@@ -1845,6 +1845,15 @@ mod topology_editing {
 #[cfg(feature = "hwloc-2_3_0")]
 pub use topology_editing::*;
 
+// === Distributing items over a topology:
+// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html
+
+/// Flags to be given to [`hwloc_distrib()`]
+pub type hwloc_distrib_flags_e = c_ulong;
+
+/// Distrib in reverse order, starting from the last objects
+pub const HWLOC_DISTRIB_FLAG_REVERSE: hwloc_distrib_flags_e = 1 << 0;
+
 // === The bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
 /// Opaque bitmap struct

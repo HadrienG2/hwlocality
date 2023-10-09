@@ -56,6 +56,15 @@ pub enum BridgeType {
     #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for BridgeType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
+}
 
 /// Cache type
 #[cfg_attr(test, derive(Sequence))]
@@ -75,6 +84,15 @@ pub enum CacheType {
     /// Instruction cache (filtered out by default)
     #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CacheType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
 }
 
 /// Type of a OS device
@@ -129,6 +147,15 @@ pub enum OSDeviceType {
     #[cfg(feature = "hwloc-3_0_0")]
     #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for OSDeviceType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
 }
 
 /// Represents the type of a [`TopologyObject`].
@@ -330,7 +357,7 @@ pub enum ObjectType {
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die = HWLOC_OBJ_DIE,
 }
-
+//
 impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     #[doc(alias = "hwloc_obj_type_is_normal")]
@@ -447,7 +474,16 @@ impl ObjectType {
             .expect("Object type queries should not fail")
     }
 }
-
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for ObjectType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
+}
+//
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // SAFETY: By construction, ObjectType only exposes values that map into

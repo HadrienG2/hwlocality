@@ -243,11 +243,16 @@ impl<'topology> TopologyEditor<'topology> {
                 BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
                 BitmapKind::NodeSet => flags.insert(RestrictFlags::BY_NODE_SET),
             }
+            flags.remove(RestrictFlags::REMOVE_CPULESS | RestrictFlags::REMOVE_MEMLESS);
             if flags.contains(RestrictFlags::REMOVE_EMPTIED) {
                 flags.remove(RestrictFlags::REMOVE_EMPTIED);
                 match OwnedSet::BITMAP_KIND {
-                    BitmapKind::CpuSet => flags.insert(RestrictFlags::REMOVE_CPULESS),
-                    BitmapKind::NodeSet => flags.insert(RestrictFlags::REMOVE_MEMLESS),
+                    BitmapKind::CpuSet => {
+                        flags.insert(RestrictFlags::REMOVE_CPULESS);
+                    }
+                    BitmapKind::NodeSet => {
+                        flags.insert(RestrictFlags::REMOVE_MEMLESS);
+                    }
                 }
             }
 
@@ -499,7 +504,7 @@ bitflags! {
         // `REMOVE_CPULESS` or `REMOVE_MEMLESS` as appropriate.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_CPULESS")]
         #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS")]
-        const REMOVE_EMPTIED = c_ulong::MAX;
+        const REMOVE_EMPTIED = hwloc_restrict_flags_e::MAX;
 
         /// Remove all objects that became CPU-less
         //
@@ -540,6 +545,18 @@ bitflags! {
         /// their parents are removed.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_ADAPT_IO")]
         const ADAPT_IO = HWLOC_RESTRICT_FLAG_ADAPT_IO;
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for RestrictFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        RestrictFlags::from_bits_truncate(hwloc_restrict_flags_e::arbitrary(g))
+    }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
     }
 }
 
@@ -636,6 +653,16 @@ pub enum GroupMerge {
     #[doc(alias = "hwloc_group_attr_s::kind")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
     Always,
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for GroupMerge {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use enum_iterator::Sequence;
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
 }
 //
 impl From<bool> for GroupMerge {

@@ -837,6 +837,18 @@ impl BuildFlags {
         valid
     }
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for BuildFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_topology_flags_e::arbitrary(g))
+    }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+    }
+}
 
 /// Type filtering flags
 ///
@@ -848,7 +860,7 @@ impl BuildFlags {
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
-#[cfg_attr(test, derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
 #[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
 #[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]
@@ -897,6 +909,16 @@ pub enum TypeFilter {
     /// since they are likely important.
     #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_IMPORTANT")]
     KeepImportant = HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for TypeFilter {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use enum_iterator::Sequence;
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
 }
 
 /// Errors that can occur when filtering types
