@@ -78,6 +78,11 @@ const DATA_CACHE_LEVELS: &[ObjectType] = &[
 /// These statistics can be used to perform simple cache locality optimizations
 /// when your performance requirements do not call for full locality-aware
 /// scheduling with manual task and memory pinning.
+//
+// --- Implementation notes ---
+//
+// Not implementing Copy to leave room for future growth in case people really
+// insist that I use a Vec instead of an ArrayVec someday.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CpuCacheStats {
     /// Size of the smallest caches of each type

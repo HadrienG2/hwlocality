@@ -21,6 +21,7 @@ use crate::{
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
+use derive_more::Display;
 use hwlocality_sys::hwloc_info_s;
 use libc::{EINVAL, ENOENT, EXDEV};
 #[allow(unused)]
@@ -90,9 +91,9 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
+    /// - [`NoData`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_nr")]
-    pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, CpuKindsUnknown> {
+    pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, NoData> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, flags should be zero
@@ -100,7 +101,7 @@ impl Topology {
             hwlocality_sys::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
-        NonZeroUsize::new(int::expect_usize(count)).ok_or(CpuKindsUnknown)
+        NonZeroUsize::new(int::expect_usize(count)).ok_or(NoData)
     }
 
     /// Enumerate CPU kinds, from least efficient efficient to most efficient
@@ -112,7 +113,7 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`CpuKindsUnknown`] if no information about CPU kinds was found
+    /// - [`NoData`] if no information about CPU kinds was found
     #[doc(alias = "hwloc_cpukinds_get_info")]
     pub fn cpu_kinds(
         &self,
@@ -121,7 +122,7 @@ impl Topology {
             + Clone
             + ExactSizeIterator
             + FusedIterator,
-        CpuKindsUnknown,
+        NoData,
     > {
         // Iterate over all CPU kinds
         let num_cpu_kinds = usize::from(self.num_cpu_kinds()?);
@@ -201,20 +202,19 @@ impl Topology {
     ///   (i.e. CPU kind info isn't known or CPU set does not cover real CPUs)
     /// - [`InvalidSet`] if the CPU set is considered invalid for another reason
     ///
-    /// [`InvalidSet`]: CpuKindFromSetError::InvalidSet
-    /// [`NotIncluded`]: CpuKindFromSetError::NotIncluded
-    /// [`PartiallyIncluded`]: CpuKindFromSetError::PartiallyIncluded
+    /// [`InvalidSet`]: FromSetProblem::InvalidSet
+    /// [`NotIncluded`]: FromSetProblem::NotIncluded
+    /// [`PartiallyIncluded`]: FromSetProblem::PartiallyIncluded
     #[doc(alias = "hwloc_cpukinds_get_by_cpuset")]
     pub fn cpu_kind_from_set(
         &self,
         set: impl Borrow<CpuSet>,
-    ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), CpuKindFromSetError> {
+    ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), FromSetError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
             set: &CpuSet,
-        ) -> Result<(CpuSet, Option<CpuEfficiency>, &'self_ [TextualInfo]), CpuKindFromSetError>
-        {
+        ) -> Result<(CpuSet, Option<CpuEfficiency>, &'self_ [TextualInfo]), FromSetError> {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
@@ -229,9 +229,11 @@ impl Topology {
                         errno: Some(errno), ..
                     },
                 ) => match errno.0 {
-                    EXDEV => return Err(CpuKindFromSetError::PartiallyIncluded),
-                    ENOENT => return Err(CpuKindFromSetError::NotIncluded),
-                    EINVAL => return Err(CpuKindFromSetError::InvalidSet),
+                    EXDEV => {
+                        return Err(FromSetError(set.clone(), FromSetProblem::PartiallyIncluded))
+                    }
+                    ENOENT => return Err(FromSetError(set.clone(), FromSetProblem::NotIncluded)),
+                    EINVAL => return Err(FromSetError(set.clone(), FromSetProblem::InvalidSet)),
                     _ => unreachable!("Unexpected hwloc error: {raw_error}"),
                 },
                 Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
@@ -279,9 +281,9 @@ impl TopologyEditor<'_> {
     /// - [`TooManyInfos`] if the number of specified (key, value) info tuples
     ///   exceeds hwloc's [`c_uint::MAX`] limit.
     ///
-    /// [`ExcessiveEfficiency`]: CpuKindRegisterError::ExcessiveEfficiency
-    /// [`InfoContainsNul`]: CpuKindRegisterError::InfoContainsNul
-    /// [`TooManyInfos`]: CpuKindRegisterError::TooManyInfos
+    /// [`ExcessiveEfficiency`]: RegisterError::ExcessiveEfficiency
+    /// [`InfoContainsNul`]: RegisterError::InfoContainsNul
+    /// [`TooManyInfos`]: RegisterError::TooManyInfos
     #[allow(clippy::collection_is_never_read)]
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
@@ -289,7 +291,7 @@ impl TopologyEditor<'_> {
         cpuset: impl Borrow<CpuSet>,
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
-    ) -> Result<(), CpuKindRegisterError> {
+    ) -> Result<(), RegisterError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         ///
         /// # Safety
@@ -301,18 +303,18 @@ impl TopologyEditor<'_> {
             cpuset: &CpuSet,
             forced_efficiency: Option<CpuEfficiency>,
             raw_infos: Vec<hwloc_info_s>,
-        ) -> Result<(), CpuKindRegisterError> {
+        ) -> Result<(), RegisterError> {
             // Translate forced_efficiency into hwloc's preferred format
             let forced_efficiency = if let Some(eff) = forced_efficiency {
-                c_int::try_from(eff).map_err(|_| CpuKindRegisterError::ExcessiveEfficiency(eff))?
+                c_int::try_from(eff).map_err(|_| RegisterError::ExcessiveEfficiency(eff))?
             } else {
                 -1
             };
 
             // Translate number of infos into hwloc's preferred format
             let infos_ptr = raw_infos.as_ptr();
-            let num_infos = c_uint::try_from(raw_infos.len())
-                .map_err(|_| CpuKindRegisterError::TooManyInfos)?;
+            let num_infos =
+                c_uint::try_from(raw_infos.len()).map_err(|_| RegisterError::TooManyInfos)?;
 
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
@@ -351,7 +353,7 @@ impl TopologyEditor<'_> {
         }
         for (name, value) in input_infos {
             let new_string =
-                |s: &str| LibcString::new(s).map_err(|_| CpuKindRegisterError::InfoContainsNul);
+                |s: &str| LibcString::new(s).map_err(|_| RegisterError::InfoContainsNul);
             let (name, value) = (new_string(name)?, new_string(value)?);
             // SAFETY: The source name and value LibcStrings are unmodified and
             //         retained by infos Vec until we're done using raw_infos
@@ -375,48 +377,63 @@ impl TopologyEditor<'_> {
 pub type CpuEfficiency = usize;
 
 /// No information about CPU kinds was found
+///
+/// The reason this is an error rather than a `None` option is that we know
+/// there has to be at least one CPU kind in the system. hwloc just failed to
+/// enumerate CPU kinds for some unknown reason.
 #[derive(Copy, Clone, Debug, Default, Error, Eq, Hash, PartialEq)]
 #[error("no information about CPU kinds was found")]
-pub struct CpuKindsUnknown;
+pub struct NoData;
 
 /// Error while querying a CPU kind from a CPU set
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum CpuKindFromSetError {
+#[derive(Clone, Debug, Error, Eq, Hash, PartialEq)]
+#[error("CPU set {0} {1}")]
+pub struct FromSetError(pub CpuSet, pub FromSetProblem);
+
+/// Problem that was encountered while querying a CPU kind from a CPU set
+//
+// --- Implementation notes ---
+//
+// Not implementing Copy to leave room for future growth in case hwloc error
+// semantics get clarified in a way that could use non-copy members someday.
+#[allow(missing_copy_implementations)]
+#[derive(Clone, Debug, Display, Eq, Hash, PartialEq)]
+pub enum FromSetProblem {
     /// CPU set is only partially included in some kind
     ///
     /// i.e. some CPUs in the set belong to one kind, other CPUs belong to one
     /// or more other kinds.
-    #[error("CPU set is only partially included in some kind")]
+    #[display(fmt = "is only partially included in some CPU kind")]
     PartiallyIncluded,
 
     /// CPU set is not included in any kind, even partially
     ///
     /// i.e. CPU kind info isn't known or this CPU set does not cover real CPUs.
-    #[error("CPU set is not included in any kind, even partially")]
+    #[display(fmt = "isn't part of any known CPU kind")]
     NotIncluded,
 
     /// CPU set is considered invalid by hwloc for another reason
-    #[error("CPU set is invalid")]
+    #[display(fmt = "was rejected by hwloc CPU kind query for unknown reasons")]
     InvalidSet,
 }
 
 /// Error while registering a new CPU kind
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum CpuKindRegisterError {
+pub enum RegisterError {
     /// `forced_efficiency` value is above what hwloc can handle on this platform
-    #[error("forced_efficiency value {0} is too high for hwloc")]
+    #[error("CPU kind forced_efficiency value {0} is too high for hwloc")]
     ExcessiveEfficiency(CpuEfficiency),
 
     /// One of the CPU kind's textual info strings contains the NUL char
-    #[error("one of the CPU kind's textual info strings contains the NUL char")]
+    #[error("CPU kind textual info can't contain the NUL char")]
     InfoContainsNul,
 
     /// There are too many CPU kind textual info (key, value) pairs for hwloc
-    #[error("there are too many CPU kind textual info (key, value) pairs for hwloc")]
+    #[error("hwloc can't handle that much CPU kind textual info")]
     TooManyInfos,
 }
 //
-impl From<CpuEfficiency> for CpuKindRegisterError {
+impl From<CpuEfficiency> for RegisterError {
     fn from(value: CpuEfficiency) -> Self {
         Self::ExcessiveEfficiency(value)
     }

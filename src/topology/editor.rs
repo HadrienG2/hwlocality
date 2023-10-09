@@ -33,7 +33,7 @@
 use crate::{
     bitmap::{BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, ForeignObject, HybridError, NulError, ParameterError, RawHwlocError},
+    errors::{self, ForeignObjectError, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
         string::LibcString,
         transparent::{ToInner, ToNewtype},
@@ -124,7 +124,7 @@ impl Topology {
             hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
         if let Err(e) = result {
-            eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
+            eprintln!("ERROR: Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules. Must abort...");
             std::process::abort()
         }
 
@@ -275,7 +275,7 @@ impl<'topology> TopologyEditor<'topology> {
                 ) => match errno.0 {
                     EINVAL => Err(ParameterError::from(set.to_owned())),
                     ENOMEM => {
-                        eprintln!("Topology stuck in an invalid state, must abort");
+                        eprintln!("ERROR: Topology is stuck in an invalid state. Must abort...");
                         std::process::abort()
                     }
                     _ => unreachable!("Unexpected hwloc error: {raw_err}"),
@@ -301,10 +301,10 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`BadAllowSet`] if an `AllowSet` with neither a `cpuset` nor a
-    ///   `nodeset` is passed in.
+    /// - [`AllowSetError`] if an `AllowSet::Custom` with both `cpuset` and
+    ///   `nodeset` set to `None` is passed in.
     #[doc(alias = "hwloc_topology_allow")]
-    pub fn allow(&mut self, allow_set: AllowSet<'_>) -> Result<(), HybridError<BadAllowSet>> {
+    pub fn allow(&mut self, allow_set: AllowSet<'_>) -> Result<(), HybridError<AllowSetError>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
         let (cpuset, nodeset, flags) = match allow_set {
             AllowSet::All => (ptr::null(), ptr::null(), HWLOC_ALLOW_FLAG_ALL),
@@ -317,7 +317,7 @@ impl<'topology> TopologyEditor<'topology> {
                 let cpuset = cpuset.map_or(ptr::null(), CpuSet::as_ptr);
                 let nodeset = nodeset.map_or(ptr::null(), NodeSet::as_ptr);
                 if cpuset.is_null() && nodeset.is_null() {
-                    return Err(BadAllowSet.into());
+                    return Err(AllowSetError.into());
                 }
                 (cpuset, nodeset, HWLOC_ALLOW_FLAG_CUSTOM)
             }
@@ -358,7 +358,7 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`ForeignObject`] if some of the child `&TopologyObject`s specified
+    /// - [`ForeignObjectError`] if some of the child `&TopologyObject`s specified
     ///   by the `find_children` callback do not belong to this [`Topology`].
     /// - [`RawHwlocError`]s are documented to happen if...
     ///     - There are conflicting sets in the topology tree
@@ -380,7 +380,7 @@ impl<'topology> TopologyEditor<'topology> {
         &mut self,
         merge: Option<GroupMerge>,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<InsertedGroup<'topology>, HybridError<ForeignObject>> {
+    ) -> Result<InsertedGroup<'topology>, HybridError<ForeignObjectError>> {
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_children)?;
         if let Some(merge) = merge {
@@ -470,7 +470,7 @@ impl<'topology> TopologyEditor<'topology> {
             let topology = self.topology();
             let parent = find_parent(topology);
             if !topology.contains(parent) {
-                return Err(HybridError::Rust(InsertMiscError::ForeignParent));
+                return Err(InsertMiscError::ForeignParent(parent.into()).into());
             }
             parent.into()
         };
@@ -616,7 +616,7 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
 /// Attempted to change the allowed set of PUs and NUMA nodes without saying how
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("AllowSet::Custom cannot have both empty cpuset AND nodeset members")]
-pub struct BadAllowSet;
+pub struct AllowSetError;
 
 /// Control merging of newly inserted groups with existing objects
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
@@ -689,12 +689,12 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// # Errors
     ///
-    /// [`ForeignObject`] if some of the designated children do not come from
+    /// [`ForeignObjectError`] if some of the designated children do not come from
     /// the same topology as this group.
     pub(self) fn add_children(
         &mut self,
         find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<(), ForeignObject> {
+    ) -> Result<(), ForeignObjectError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         ///
         /// # Safety
@@ -735,8 +735,10 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         // Enumerate children, check they belong to this topology
         let topology = self.editor.topology();
         let children = find_children(topology);
-        if children.iter().any(|child| !topology.contains(child)) {
-            return Err(ForeignObject);
+        for child in children.iter().copied() {
+            if !topology.contains(child) {
+                return Err(child.into());
+            }
         }
 
         // Call into the polymorphized function
@@ -829,6 +831,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
 }
 //
 impl Drop for AllocatedGroup<'_, '_> {
+    #[allow(clippy::print_stderr)]
     fn drop(&mut self) {
         // FIXME: As of hwloc v2.9.4, there is no API to delete a previously
         //        allocated Group object without attempting to insert it into
@@ -842,9 +845,8 @@ impl Drop for AllocatedGroup<'_, '_> {
             TopologyObject::delete_all_sets(self.group);
         }
         // SAFETY: - AllocatedGroup will not be droppable again after Drop
-        unsafe {
-            self.insert_impl()
-                .expect_err("Group insertion with NULL sets should fail and deallocate the group");
+        if unsafe { self.insert_impl().is_ok() } {
+            eprintln!("ERROR: Failed to deallocate group object.");
         }
     }
 }
@@ -863,24 +865,15 @@ pub enum InsertedGroup<'topology> {
     Existing(&'topology mut TopologyObject),
 }
 
-/// Attempted to create a group with invalid children
-///
-/// The `find_children` callback that was passed to
-/// [`TopologyEditor::insert_group_object()`] returned "children" which don't
-/// actually belong to the topology that is being edited.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("Provided find_children callback returned invalid (foreign) children")]
-pub struct BadGroupChildren;
-
 /// Error returned by [`TopologyEditor::insert_misc_object()`]
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum InsertMiscError {
     /// Specified parent does not belong to this topology
-    #[error("the specified parent does not belong to this topology")]
-    ForeignParent,
+    #[error("Misc object parent {0}")]
+    ForeignParent(#[from] ForeignObjectError),
 
     /// Object name contains NUL chars, which hwloc can't handle
-    #[error("requested object name contains NUL chars")]
+    #[error("Misc object name can't contain NUL chars")]
     NameContainsNul,
 }
 //

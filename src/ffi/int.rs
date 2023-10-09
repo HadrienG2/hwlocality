@@ -31,7 +31,6 @@ use rand::Rng;
 use std::ops::{Range, RangeFrom, RangeInclusive};
 use std::{
     borrow::Borrow,
-    clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},

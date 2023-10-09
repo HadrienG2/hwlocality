@@ -26,6 +26,8 @@ use pretty_assertions::{assert_eq, assert_ne};
 use std::{ffi::c_uchar, fmt, hash::Hash};
 
 /// Set of flags describing actual hwloc feature support for this topology
+///
+/// You cannot create an owned object of this type, it belongs to the topology.
 //
 // --- Implementation details ---
 //

@@ -71,7 +71,6 @@ use quickcheck::{Arbitrary, Gen};
 use std::collections::BTreeSet;
 use std::{
     borrow::{Borrow, BorrowMut},
-    clone::Clone,
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},
@@ -1904,6 +1903,8 @@ impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
     }
 }
 
+impl<Target: OwnedBitmap> Sealed for BitmapRef<'_, Target> {}
+
 // SAFETY: BitmapRef exposes no internal mutability
 unsafe impl<Target: OwnedBitmap + Sync> Send for BitmapRef<'_, Target> {}
 
@@ -1949,7 +1950,7 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 /// specialized bitmap type was passed in.
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 #[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]
-pub trait SpecializedBitmap: AsRef<Bitmap> + Borrow<Self::Owned> {
+pub trait SpecializedBitmap: AsRef<Bitmap> + Borrow<Self::Owned> + Sealed {
     /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;
 

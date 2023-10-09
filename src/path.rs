@@ -11,11 +11,11 @@ use pretty_assertions::{assert_eq, assert_ne};
 use std::path::Path;
 use thiserror::Error;
 
-/// Requested file path is not valid
+/// Requested file path is not suitable for hwloc consumption
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum PathError {
     /// Path contains the NUL char, and is thus not compatible with C
-    #[error("path contains the NUL char")]
+    #[error("hwloc file paths can't contain NUL chars")]
     ContainsNul,
 
     /// Path contains non-Unicode data
@@ -23,7 +23,7 @@ pub enum PathError {
     /// We need paths to be valid Unicode, even though most operating systems do
     /// not mandate it, because that is a prerequisite for portably converting
     /// paths to `char*` for C/hwloc consumption.
-    #[error("path contains non-Unicode data")]
+    #[error("hwloc file paths can't contain non-Unicode data")]
     NotUnicode,
 }
 //

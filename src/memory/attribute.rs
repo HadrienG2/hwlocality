@@ -18,7 +18,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
-    errors::{self, ForeignObject, HybridError, NulError, RawHwlocError},
+    errors::{self, FlagsError, ForeignObjectError, HybridError, NulError, RawHwlocError},
     ffi::{
         int,
         string::LibcString,
@@ -28,7 +28,7 @@ use crate::{
     topology::{editor::TopologyEditor, Topology},
 };
 use bitflags::bitflags;
-use derive_more::Display;
+use derive_more::{Display, From};
 use errno::Errno;
 use hwlocality_sys::{
     hwloc_const_topology_t, hwloc_location, hwloc_location_u, hwloc_memattr_flag_e,
@@ -149,19 +149,19 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`ForeignObject`] if `target` refers to a [`TopologyObject`] that
+    /// - [`ForeignObjectError`] if `target` refers to a [`TopologyObject`] that
     ///   does not belong to this topology.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
     pub fn local_numa_nodes<'target>(
         &self,
         target: impl Into<TargetNumaNodes<'target>>,
-    ) -> Result<Vec<&TopologyObject>, HybridError<ForeignObject>> {
+    ) -> Result<Vec<&TopologyObject>, HybridError<ForeignObjectError>> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
             target: TargetNumaNodes<'_>,
-        ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignObject>> {
+        ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignObjectError>> {
             // Prepare to call hwloc
             // SAFETY: Will only be used before returning from this function
             let (location, flags) = unsafe { target.into_checked_raw(self_)? };
@@ -228,24 +228,25 @@ impl<'topology> TopologyEditor<'topology> {
     /// - [`NameContainsNul`] if `name` contains NUL chars.
     /// - [`NameTaken`] if another attribute called `name` already exists.
     ///
-    /// [`BadFlags`]: MemoryAttributeRegisterError::BadFlags
+    /// [`BadFlags`]: RegisterError::BadFlags
     /// [`HIGHER_IS_BEST`]: [`MemoryAttributeFlags::HIGHER_IS_BEST`]
     /// [`LOWER_IS_BEST`]: [`MemoryAttributeFlags::LOWER_IS_BEST`]
-    /// [`NameContainsNul`]: MemoryAttributeRegisterError::NameContainsNul
-    /// [`NameTaken`]: MemoryAttributeRegisterError::NameTaken
+    /// [`NameContainsNul`]: RegisterError::NameContainsNul
+    /// [`NameTaken`]: RegisterError::NameTaken
     #[doc(alias = "hwloc_memattr_register")]
     pub fn register_memory_attribute(
         &mut self,
         name: &str,
         flags: MemoryAttributeFlags,
-    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, MemoryAttributeRegisterError> {
+    ) -> Result<MemoryAttributeBuilder<'_, 'topology>, RegisterError> {
         if !flags.is_valid() {
             return Err(flags.into());
         }
-        let name = LibcString::new(name)?;
+        let libc_name = LibcString::new(name)?;
         let mut id = hwloc_memattr_id_t::MAX;
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - name is trusted to be a valid C string (type invariant)
+        //         - libc_name is trusted to be a valid C string (type
+        //           invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
@@ -254,7 +255,7 @@ impl<'topology> TopologyEditor<'topology> {
         let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
             hwlocality_sys::hwloc_memattr_register(
                 self.topology_mut_ptr(),
-                name.borrow(),
+                libc_name.borrow(),
                 flags.bits(),
                 &mut id,
             )
@@ -264,26 +265,28 @@ impl<'topology> TopologyEditor<'topology> {
                 editor: self,
                 flags,
                 id,
+                name: name.into(),
             }),
             Err(RawHwlocError {
                 errno: Some(Errno(EBUSY)),
                 ..
-            }) => Err(MemoryAttributeRegisterError::NameTaken),
+            }) => Err(RegisterError::NameTaken(name.into())),
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
 }
 
 /// Error returned when trying to create an memory attribute
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum MemoryAttributeRegisterError {
+#[cfg_attr(windows, allow(variant_size_differences))]
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum RegisterError {
     /// Provided `name` contains NUL chars
-    #[error("provided name contains NUL chars")]
+    #[error("memory attribute name can't contain NUL chars")]
     NameContainsNul,
 
     /// Another attribute already uses this name
-    #[error("provided name is already used by another attribute")]
-    NameTaken,
+    #[error("there is already a memory attribute named \"{0}\"")]
+    NameTaken(Box<str>),
 
     /// Specified flags are not correct
     ///
@@ -292,19 +295,19 @@ pub enum MemoryAttributeRegisterError {
     ///
     /// [`HIGHER_IS_BEST`]: [`MemoryAttributeFlags::HIGHER_IS_BEST`]
     /// [`LOWER_IS_BEST`]: [`MemoryAttributeFlags::LOWER_IS_BEST`]
-    #[error("flags {0:?} do not contain exactly one of the _IS_BEST flags")]
-    BadFlags(MemoryAttributeFlags),
+    #[error(transparent)]
+    BadFlags(#[from] FlagsError<MemoryAttributeFlags>),
 }
 //
-impl From<NulError> for MemoryAttributeRegisterError {
+impl From<NulError> for RegisterError {
     fn from(_: NulError) -> Self {
         Self::NameContainsNul
     }
 }
 //
-impl From<MemoryAttributeFlags> for MemoryAttributeRegisterError {
+impl From<MemoryAttributeFlags> for RegisterError {
     fn from(value: MemoryAttributeFlags) -> Self {
-        Self::BadFlags(value)
+        Self::BadFlags(value.into())
     }
 }
 
@@ -325,6 +328,9 @@ pub struct MemoryAttributeBuilder<'editor, 'topology> {
 
     /// ID that `hwloc_memattr_register` allocated to this memory attribute
     id: hwloc_memattr_id_t,
+
+    /// Name of this memory attribute
+    name: Box<str>,
 }
 //
 impl MemoryAttributeBuilder<'_, '_> {
@@ -353,22 +359,22 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///
     /// # Errors
     ///
-    /// - [`BadInitiatorsCount`] if the number of provided initiators and
+    /// - [`InconsistentData`] if the number of provided initiators and
     ///   attribute values does not match
-    /// - [`ForeignInitiators`] if some of the provided initiators are
+    /// - [`ForeignInitiator`] if some of the provided initiators are
     ///   [`TopologyObject`]s that do not belong to this [`Topology`]
-    /// - [`ForeignTargets`] if some of the provided targets are
+    /// - [`ForeignTarget`] if some of the provided targets are
     ///   [`TopologyObject`]s that do not belong to this [`Topology`]
-    /// - [`NeedInitiators`] if initiators were not specified for an attribute
+    /// - [`NeedInitiator`] if initiators were not specified for an attribute
     ///   that requires them
-    /// - [`UnwantedInitiators`] if initiators were specified for an attribute
+    /// - [`UnwantedInitiator`] if initiators were specified for an attribute
     ///   that does not requires them
     ///
-    /// [`BadInitiatorsCount`]: BadAttributeValues::BadInitiatorsCount
-    /// [`ForeignInitiators`]: BadAttributeValues::ForeignInitiators
-    /// [`ForeignTargets`]: BadAttributeValues::ForeignTargets
-    /// [`NeedInitiators`]: BadAttributeValues::NeedInitiators
-    /// [`UnwantedInitiators`]: BadAttributeValues::UnwantedInitiators
+    /// [`InconsistentData`]: ValueInputError::InconsistentData
+    /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
+    /// [`ForeignTarget`]: ValueInputError::ForeignTarget
+    /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
+    /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_set_value")]
     pub fn set_values(
         &mut self,
@@ -378,7 +384,7 @@ impl MemoryAttributeBuilder<'_, '_> {
             Option<Vec<MemoryAttributeLocation<'_>>>,
             Vec<(&TopologyObject, u64)>,
         ),
-    ) -> Result<(), HybridError<BadAttributeValues>> {
+    ) -> Result<(), HybridError<ValueInputError>> {
         /// Polymorphized subset of this function (avoids generics code bloat)
         ///
         /// # Safety
@@ -391,17 +397,25 @@ impl MemoryAttributeBuilder<'_, '_> {
             self_: &mut MemoryAttributeBuilder<'_, '_>,
             initiators: Option<Vec<hwloc_location>>,
             target_ptrs_and_values: Vec<(NonNull<hwloc_obj>, u64)>,
-        ) -> Result<(), HybridError<BadAttributeValues>> {
+        ) -> Result<(), HybridError<ValueInputError>> {
             // Validate initiator and target correctness
             if self_.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_none() {
-                return Err(BadAttributeValues::NeedInitiators.into());
+                return Err(
+                    ValueInputError::BadInitiators(InitiatorInputError::NeedInitiator(
+                        self_.name.clone(),
+                    ))
+                    .into(),
+                );
             }
             if !self_.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_some() {
-                return Err(BadAttributeValues::UnwantedInitiators.into());
+                return Err(ValueInputError::BadInitiators(
+                    InitiatorInputError::UnwantedInitiator(self_.name.clone()),
+                )
+                .into());
             }
             if let Some(initiators) = &initiators {
                 if initiators.len() != target_ptrs_and_values.len() {
-                    return Err(BadAttributeValues::BadInitiatorsCount.into());
+                    return Err(ValueInputError::InconsistentData.into());
                 }
             }
 
@@ -449,11 +463,11 @@ impl MemoryAttributeBuilder<'_, '_> {
                 vec.into_iter()
                     // SAFETY: Will only be used before returning from this function
                     .map(|initiator| unsafe {
-                        initiator
-                            .into_checked_raw(topology)
-                            .map_err(|_| BadAttributeValues::ForeignInitiators)
+                        initiator.into_checked_raw(topology).map_err(|e| {
+                            ValueInputError::BadInitiators(InitiatorInputError::ForeignInitiator(e))
+                        })
                     })
-                    .collect::<Result<Vec<_>, BadAttributeValues>>()
+                    .collect::<Result<Vec<_>, ValueInputError>>()
             })
             .transpose()
             .map_err(HybridError::Rust)?;
@@ -461,12 +475,12 @@ impl MemoryAttributeBuilder<'_, '_> {
             .into_iter()
             .map(|(target_ref, value)| {
                 if !topology.contains(target_ref) {
-                    return Err(BadAttributeValues::ForeignTargets);
+                    return Err(ValueInputError::ForeignTarget(target_ref.into()));
                 }
                 let target_ptr = NonNull::from(target_ref).to_inner();
                 Ok((target_ptr, value))
             })
-            .collect::<Result<Vec<_>, BadAttributeValues>>()?;
+            .collect::<Result<Vec<_>, ValueInputError>>()?;
 
         // Invoke polymorphized subser with the results
         // SAFETY: Initiators and target_ptrs_and_values have been checked to
@@ -478,29 +492,20 @@ impl MemoryAttributeBuilder<'_, '_> {
 
 /// Error returned by [`MemoryAttributeBuilder::set_values`] when the
 /// `find_values` callback returns incorrect initiators or targets
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum BadAttributeValues {
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum ValueInputError {
     /// The number of provided initiators does not match the number of attribute values
-    #[error("the number of initiators doesn't match the number of attribute values")]
-    BadInitiatorsCount,
+    #[error("number of memory attribute values doesn't match number of initiators")]
+    InconsistentData,
 
-    /// Some provided initiators are [`TopologyObject`]s that do not belong to
-    /// the topology being modified
-    #[error("some provided initiators don't belong to this topology")]
-    ForeignInitiators,
+    /// Specified initiators for these attribute values are not valid
+    #[error(transparent)]
+    BadInitiators(#[from] InitiatorInputError),
 
     /// Some provided targets are [`TopologyObject`]s that do not belong to
     /// the topology being modified
-    #[error("some provided targets don't belong to this topology")]
-    ForeignTargets,
-
-    /// An initiator was needed, but none was provided
-    #[error("this attribute has an initiator, but none was provided")]
-    NeedInitiators,
-
-    /// Initiators were not needed, but some were provided
-    #[error("initiators were provided, but this attribute does not have them")]
-    UnwantedInitiators,
+    #[error("memory attribute target {0}")]
+    ForeignTarget(ForeignObjectError),
 }
 
 /// Generate [`MemoryAttribute`] constructors around a predefined memory
@@ -719,33 +724,33 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
     ///   attribute doesn't need one
     ///
-    /// [`ForeignInitiator`]: BadInitiatorParam::ForeignInitiator
-    /// [`ForeignTarget`]: BadValueQuery::ForeignTarget
-    /// [`NeedInitiator`]: BadInitiatorParam::NeedInitiator
-    /// [`UnwantedInitiator`]: BadInitiatorParam::UnwantedInitiator
+    /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
+    /// [`ForeignTarget`]: ValueQueryError::ForeignTarget
+    /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
+    /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_get_value")]
     pub fn value<'initiator>(
         &self,
         initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
         target_node: &TopologyObject,
-    ) -> Result<u64, HybridError<BadValueQuery>> {
+    ) -> Result<u64, HybridError<ValueQueryError>> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &MemoryAttribute<'_>,
             initiator: Option<MemoryAttributeLocation<'_>>,
             target_node: &TopologyObject,
-        ) -> Result<u64, HybridError<BadValueQuery>> {
+        ) -> Result<u64, HybridError<ValueQueryError>> {
             // Check and translate initiator argument
             // SAFETY: Will only be used before returning from this function
             let initiator = unsafe {
                 self_
                     .checked_initiator(initiator, false)
-                    .map_err(|err| HybridError::Rust(BadValueQuery::BadInitiator(err)))?
+                    .map_err(|err| HybridError::Rust(ValueQueryError::BadInitiator(err)))?
             };
 
             // Check target argument
             if !self_.topology.contains(target_node) {
-                return Err(BadValueQuery::ForeignTarget.into());
+                return Err(ValueQueryError::ForeignTarget(target_node.into()).into());
             }
 
             // Run the query
@@ -795,19 +800,19 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
     ///   attribute doesn't need one
     ///
-    /// [`ForeignInitiator`]: BadInitiatorParam::ForeignInitiator
-    /// [`NeedInitiator`]: BadInitiatorParam::NeedInitiator
-    /// [`UnwantedInitiator`]: BadInitiatorParam::UnwantedInitiator
+    /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
+    /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
+    /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_get_best_target")]
     pub fn best_target<'initiator>(
         &self,
         initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
-    ) -> Result<Option<(&'topology TopologyObject, u64)>, BadInitiatorParam> {
+    ) -> Result<Option<(&'topology TopologyObject, u64)>, InitiatorInputError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'topology>(
             self_: &MemoryAttribute<'topology>,
             initiator: Option<MemoryAttributeLocation<'_>>,
-        ) -> Result<Option<(&'topology TopologyObject, u64)>, BadInitiatorParam> {
+        ) -> Result<Option<(&'topology TopologyObject, u64)>, InitiatorInputError> {
             // Validate the query
             // SAFETY: Will only be used before returning from this function,
             let initiator = unsafe { self_.checked_initiator(initiator, false)? };
@@ -856,13 +861,13 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - [`NoInitiators`] if this memory attribute doesn't have initiators
     /// - [`ForeignTarget`] if `target` does not belong to this topology
     ///
-    /// [`ForeignTarget`]: BadInitiatorQuery::ForeignTarget
-    /// [`NoInitiators`]: BadInitiatorQuery::NoInitiators
+    /// [`ForeignTarget`]: InitiatorQueryError::ForeignTarget
+    /// [`NoInitiators`]: InitiatorQueryError::NoInitiators
     #[doc(alias = "hwloc_memattr_get_best_initiator")]
     pub fn best_initiator(
         &self,
         target: &TopologyObject,
-    ) -> Result<Option<(MemoryAttributeLocation<'topology>, u64)>, BadInitiatorQuery> {
+    ) -> Result<Option<(MemoryAttributeLocation<'topology>, u64)>, InitiatorQueryError> {
         // Validate the query
         self.check_initiator_query_target(target)?;
 
@@ -922,19 +927,19 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
     ///   attribute doesn't need one
     ///
-    /// [`ForeignInitiator`]: BadInitiatorParam::ForeignInitiator
-    /// [`NeedInitiator`]: BadInitiatorParam::NeedInitiator
-    /// [`UnwantedInitiator`]: BadInitiatorParam::UnwantedInitiator
+    /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
+    /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
+    /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_get_targets")]
     pub fn targets<'initiator>(
         &self,
         initiator: Option<impl Into<MemoryAttributeLocation<'initiator>>>,
-    ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<BadInitiatorParam>> {
+    ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<InitiatorInputError>> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'topology>(
             self_: &MemoryAttribute<'topology>,
             initiator: Option<MemoryAttributeLocation<'_>>,
-        ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<BadInitiatorParam>>
+        ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<InitiatorInputError>>
         {
             // Validate the query + translate initiator to hwloc format
             // SAFETY: - Will only be used before returning from this function,
@@ -986,13 +991,13 @@ impl<'topology> MemoryAttribute<'topology> {
     /// - [`NoInitiators`] if this memory attribute doesn't have initiators
     /// - [`ForeignTarget`] if `target` does not belong to this topology
     ///
-    /// [`ForeignTarget`]: BadInitiatorQuery::ForeignTarget
-    /// [`NoInitiators`]: BadInitiatorQuery::NoInitiators
+    /// [`ForeignTarget`]: InitiatorQueryError::ForeignTarget
+    /// [`NoInitiators`]: InitiatorQueryError::NoInitiators
     #[doc(alias = "hwloc_memattr_get_initiators")]
     pub fn initiators(
         &self,
         target_node: &TopologyObject,
-    ) -> Result<(Vec<MemoryAttributeLocation<'topology>>, Vec<u64>), HybridError<BadInitiatorQuery>>
+    ) -> Result<(Vec<MemoryAttributeLocation<'topology>>, Vec<u64>), HybridError<InitiatorQueryError>>
     {
         // Validate the query
         self.check_initiator_query_target(target_node)?;
@@ -1186,7 +1191,7 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         initiator: Option<MemoryAttributeLocation<'initiator>>,
         is_optional: bool,
-    ) -> Result<hwloc_location, BadInitiatorParam> {
+    ) -> Result<hwloc_location, InitiatorInputError> {
         // Collect flags
         let flags = self.flags();
 
@@ -1195,12 +1200,12 @@ impl<'topology> MemoryAttribute<'topology> {
             && initiator.is_none()
             && !is_optional
         {
-            return Err(BadInitiatorParam::NeedInitiator);
+            return Err(InitiatorInputError::NeedInitiator(self.error_name()));
         }
 
         // Handle unexpected initiator case
         if !flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiator.is_some() {
-            return Err(BadInitiatorParam::UnwantedInitiator);
+            return Err(InitiatorInputError::UnwantedInitiator(self.error_name()));
         }
 
         // Handle expected absence of initiator
@@ -1215,7 +1220,7 @@ impl<'topology> MemoryAttribute<'topology> {
         unsafe {
             initiator
                 .into_checked_raw(self.topology)
-                .map_err(|_| BadInitiatorParam::ForeignInitiator)
+                .map_err(InitiatorInputError::ForeignInitiator)
         }
     }
 
@@ -1223,56 +1228,73 @@ impl<'topology> MemoryAttribute<'topology> {
     fn check_initiator_query_target(
         &self,
         target: &TopologyObject,
-    ) -> Result<(), BadInitiatorQuery> {
+    ) -> Result<(), InitiatorQueryError> {
         if !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) {
-            return Err(BadInitiatorQuery::NoInitiators);
+            return Err(InitiatorQueryError::NoInitiators(self.error_name()));
         }
         if !self.topology.contains(target) {
-            return Err(BadInitiatorQuery::ForeignTarget);
+            return Err(target.into());
         }
         Ok(())
     }
+
+    /// Translate this attribute's name to a form suitable for error reporting
+    fn error_name(&self) -> Box<str> {
+        self.name().to_string_lossy().into()
+    }
 }
 
-/// An invalid initiator was passed to a memory attribute query
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum BadInitiatorParam {
-    /// Provided `initiator` is a [`TopologyObject`] that does not belong to
-    /// this topology
-    #[error("specified initiator does not belong to this topology")]
-    ForeignInitiator,
+/// An invalid initiator was passed to a memory attribute function
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum InitiatorInputError {
+    /// Provided initiator is a [`TopologyObject`] that does not belong to this
+    /// topology
+    #[error("memory attribute initiator {0}")]
+    ForeignInitiator(#[from] ForeignObjectError),
 
-    /// An `initiator` had to be provided, but was not provided
-    #[error("this attribute needs an initiator, but none was provided")]
-    NeedInitiator,
+    /// An initiator had to be provided, but was not provided
+    #[error("memory attribute {0} needs an initiator but none was provided")]
+    NeedInitiator(Box<str>),
 
-    /// No `initiator` should have been provided, but one was provided
-    #[error("this attribute has no initiator, but one was provided")]
-    UnwantedInitiator,
+    /// No initiator should have been provided, but one was provided
+    #[error("memory attribute {0} has no initiator but an initiator was provided")]
+    UnwantedInitiator(Box<str>),
+}
+//
+impl<'topology> From<&'topology TopologyObject> for InitiatorInputError {
+    fn from(object: &'topology TopologyObject) -> Self {
+        Self::ForeignInitiator(object.into())
+    }
 }
 
 /// A query for memory attribute initiators is invalid
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum BadInitiatorQuery {
-    /// The specified target object does not belong to this topology
-    #[error("target object does not belong to this topology")]
-    ForeignTarget,
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum InitiatorQueryError {
+    /// The specified `target` object does not belong to this topology
+    #[error("memory attribute target {0}")]
+    ForeignTarget(#[from] ForeignObjectError),
 
     /// This memory attribute doesn't have initiators
-    #[error("this memory attribute doesn't have initiators")]
-    NoInitiators,
+    #[error("memory attribute {0} has no initiator but its initiator was queried")]
+    NoInitiators(Box<str>),
+}
+//
+impl<'topology> From<&'topology TopologyObject> for InitiatorQueryError {
+    fn from(object: &'topology TopologyObject) -> Self {
+        Self::ForeignTarget(object.into())
+    }
 }
 
 /// A memory attribute value query is invalid
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum BadValueQuery {
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum ValueQueryError {
     /// Specified `initiator` is bad
     #[error(transparent)]
-    BadInitiator(#[from] BadInitiatorParam),
+    BadInitiator(#[from] InitiatorInputError),
 
     /// Specified target object does not belong to this topology
-    #[error("target object does not belong to this topology")]
-    ForeignTarget,
+    #[error("memory attribute target {0}")]
+    ForeignTarget(ForeignObjectError),
 }
 
 /// Where to measure attributes from
@@ -1312,7 +1334,7 @@ impl<'target> MemoryAttributeLocation<'target> {
     ///
     /// # Errors
     ///
-    /// [`ForeignObject`] if this [`MemoryAttributeLocation`] is constructed
+    /// [`ForeignObjectError`] if this [`MemoryAttributeLocation`] is constructed
     /// from an `&TopologyObject` that does not belong to the target [`Topology`].
     ///
     /// # Safety
@@ -1321,7 +1343,7 @@ impl<'target> MemoryAttributeLocation<'target> {
     pub(crate) unsafe fn into_checked_raw(
         self,
         topology: &Topology,
-    ) -> Result<hwloc_location, ForeignObject> {
+    ) -> Result<hwloc_location, ForeignObjectError> {
         match self {
             Self::CpuSet(cpuset) => Ok(hwloc_location {
                 ty: HWLOC_LOCATION_TYPE_CPUSET,
@@ -1338,7 +1360,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                         },
                     })
                 } else {
-                    Err(ForeignObject)
+                    Err(object.into())
                 }
             }
         }
@@ -1354,7 +1376,7 @@ impl<'target> MemoryAttributeLocation<'target> {
     unsafe fn from_raw(
         _topology: &'target Topology,
         raw: hwloc_location,
-    ) -> Result<Self, UnknownLocationType> {
+    ) -> Result<Self, LocationTypeError> {
         // SAFETY: - Location type information from hwloc is assumed to be
         //           correct and tells us which union variant we should read.
         //         - Pointer is assumed to point to a valid CpuSet or
@@ -1373,7 +1395,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                         .expect("Unexpected null TopologyObject from hwloc");
                     Ok(MemoryAttributeLocation::Object(ptr.as_ref().to_newtype()))
                 }
-                unknown => Err(UnknownLocationType(unknown)),
+                unknown => Err(LocationTypeError(unknown)),
             }
         }
     }
@@ -1398,9 +1420,9 @@ impl<'target> From<&'target TopologyObject> for MemoryAttributeLocation<'target>
 }
 
 /// Error returned when an unknown location type is observed
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
-#[error("hwloc provided a location of unknown type {0}")]
-struct UnknownLocationType(c_int);
+#[derive(Copy, Clone, Debug, Eq, Error, From, Hash, PartialEq)]
+#[error("hwloc provided a memory attribute location of unknown type {0}")]
+struct LocationTypeError(c_int);
 
 /// Invalid `hwloc_location`, which hwloc is assumed not to observe
 ///
@@ -1475,7 +1497,7 @@ impl TargetNumaNodes<'_> {
     ///
     /// # Errors
     ///
-    /// [`ForeignObject`] if the input location is a [`TopologyObject`] that
+    /// [`ForeignObjectError`] if the input location is a [`TopologyObject`] that
     /// does not belong to the target [`Topology`]
     ///
     /// # Safety
@@ -1484,7 +1506,7 @@ impl TargetNumaNodes<'_> {
     pub(crate) unsafe fn into_checked_raw(
         self,
         topology: &Topology,
-    ) -> Result<(hwloc_location, LocalNUMANodeFlags), ForeignObject> {
+    ) -> Result<(hwloc_location, LocalNUMANodeFlags), ForeignObjectError> {
         match self {
             Self::Local { location, flags } => {
                 // SAFETY: Per function precondition

@@ -21,7 +21,7 @@ use crate::topology::support::MiscSupport;
 use crate::{
     bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, RawHwlocError},
+    errors::{self, ForeignObjectError, RawHwlocError},
     ffi::transparent::ToNewtype,
     memory::nodeset::NodeSet,
     object::{types::ObjectType, TopologyObject},
@@ -374,9 +374,9 @@ impl Topology {
     ///
     /// The set of CPUs over which work items are distributed is designated by a
     /// set of root [`TopologyObject`]s with associated CPUs. The root objects
-    /// must be part of this [`Topology`], or the [`ForeignRoots`] error will
-    /// be returned. You can distribute items across all CPUs in the topology
-    /// by setting `roots` to `&[topology.root_object()]`.
+    /// must be part of this [`Topology`], or the [`ForeignRoot`] error will be
+    /// returned. You can distribute items across all CPUs in the topology by
+    /// setting `roots` to `&[topology.root_object()]`.
     ///
     /// Since the purpose of `roots` is to designate which CPUs items should be
     /// allocated to, root objects should normally have a CPU set. If that is
@@ -404,11 +404,11 @@ impl Topology {
     ///
     /// - [`EmptyRoots`] if there are no CPUs to distribute work to (the
     ///   union of all root cpusets is empty).
-    /// - [`ForeignRoots`] if some of the specified roots do not belong to this
+    /// - [`ForeignRoot`] if some of the specified roots do not belong to this
     ///   topology.
     ///
     /// [`EmptyRoots`]: DistributeError::EmptyRoots
-    /// [`ForeignRoots`]: DistributeError::ForeignRoots
+    /// [`ForeignRoot`]: DistributeError::ForeignRoot
     #[allow(clippy::missing_docs_in_private_items)]
     #[doc(alias = "hwloc_distrib")]
     pub fn distribute_items(
@@ -419,8 +419,10 @@ impl Topology {
         flags: DistributeFlags,
     ) -> Result<Vec<CpuSet>, DistributeError> {
         // Make sure all roots belong to this topology
-        if roots.iter().any(|root| !self.contains(root)) {
-            return Err(DistributeError::ForeignRoots);
+        for root in roots.iter().copied() {
+            if !self.contains(root) {
+                return Err(DistributeError::ForeignRoot(root.into()));
+            }
         }
 
         // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
@@ -558,19 +560,19 @@ impl Default for DistributeFlags {
 }
 //
 /// Error returned by [`Topology::distribute_items()`]
-#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum DistributeError {
     /// Error returned when the specified roots contain no accessible CPUs
     ///
     /// This can happen if either an empty roots list is specified, or if the
     /// topology was built with [`BuildFlags::INCLUDE_DISALLOWED`] and the
     /// specified roots only contain disallowed CPUs.
-    #[error("no CPU is accessible from provided roots")]
+    #[error("no CPU is accessible from the distribution roots")]
     EmptyRoots,
 
     /// Some of the specified roots do not belong to this topology
-    #[error("specified roots do not all belong to this topology")]
-    ForeignRoots,
+    #[error("distribution root {0}")]
+    ForeignRoot(#[from] ForeignObjectError),
 }
 
 /// Part of the implementation of `Topology::distribute_items()` that tells,

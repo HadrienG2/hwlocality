@@ -206,6 +206,7 @@ pub mod cpu;
 pub mod errors;
 pub mod ffi;
 pub mod info;
+#[doc(hidden)] // Does not currently expose any public interface
 pub mod interop;
 pub mod memory;
 pub mod object;
@@ -246,7 +247,7 @@ pub use topology::Topology;
 
 /// This module is an implementation detail of [`Sealed`]
 mod sealed {
-    /// This trait can only be implemented by types inside this crate
+    /// Traits with this bound can only be implemented inside this crate
     pub trait Sealed {}
 }
 
