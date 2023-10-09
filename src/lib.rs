@@ -206,7 +206,7 @@ pub mod cpu;
 pub mod errors;
 pub mod ffi;
 pub mod info;
-pub mod interop;
+mod interop; // Does not currently expose any public interface
 pub mod memory;
 pub mod object;
 pub mod path;

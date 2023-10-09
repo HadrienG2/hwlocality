@@ -15,6 +15,8 @@ use std::{ffi::CStr, fmt, hash::Hash};
 ///
 /// Used in multiple places of the hwloc API to provide extensible free-form
 /// textual metadata.
+///
+/// You cannot create an owned object of this type, it belongs to the topology.
 //
 // --- Implementation details ---
 //

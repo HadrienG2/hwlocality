@@ -763,6 +763,8 @@ impl TopologyEditor<'_> {
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
 ///
+/// You cannot create an owned object of this type, it belongs to the topology.
+///
 /// [`kind()`]: Self::kind()
 //
 // --- Implementation details

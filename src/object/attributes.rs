@@ -99,6 +99,8 @@ impl<'object> ObjectAttributes<'object> {
 
 /// [`NUMANode`]-specific attributes
 ///
+/// You cannot create an owned object of this type, it belongs to the topology.
+///
 /// [`NUMANode`]: ObjectType::NUMANode
 //
 // --- Implementation details ---
@@ -107,7 +109,8 @@ impl<'object> ObjectAttributes<'object> {
 //
 // If non-null, `page_types` is trusted to point to a C-style array of
 // `page_types_len` memory page types, sorted by increasing page size.
-#[derive(Copy, Clone, Debug, Default)]
+#[allow(missing_copy_implementations)]
+#[derive(Debug, Default)]
 #[doc(alias = "hwloc_numanode_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s")]
 #[repr(transparent)]

@@ -1154,6 +1154,8 @@ impl Topology {
 /// - [CPU set](#cpu-set)
 /// - [NUMA node set](#numa-node-set)
 /// - [Key-value information](#key-value-information)
+///
+/// You cannot create an owned object of this type, it belongs to the topology.
 //
 // --- Implementation details ---
 //
