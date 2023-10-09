@@ -277,6 +277,7 @@ impl<'topology> TopologyEditor<'topology> {
 }
 
 /// Error returned when trying to create an memory attribute
+#[cfg_attr(windows, allow(variant_size_differences))]
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum RegisterError {
     /// Provided `name` contains NUL chars
