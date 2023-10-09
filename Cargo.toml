@@ -182,6 +182,9 @@ static_assertions.workspace = true
 # Used in examples to portably query the OS process list
 sysinfo = { version = "0.29", default-features = false }
 
+# Used to test file I/O
+tempfile = "3.8"
+
 [target.'cfg(windows)'.dev-dependencies]
 # Used in examples for thread queries
 windows-sys.workspace = true
