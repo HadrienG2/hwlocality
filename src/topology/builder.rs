@@ -615,24 +615,6 @@ impl TopologyBuilder {
         .map_err(HybridError::Hwloc)?;
         Ok(self)
     }
-
-    /// Current filtering for the given object type
-    #[allow(clippy::missing_errors_doc)]
-    pub fn type_filter(&self, ty: ObjectType) -> Result<TypeFilter, RawHwlocError> {
-        let mut filter = hwloc_type_filter_e::MAX;
-        // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - By construction, ObjectType only exposes values that map into
-        //           hwloc_obj_type_t values understood by the configured version
-        //           of hwloc, and build.rs checks that the active version of
-        //           hwloc is not older than that, so into() may only generate
-        //           valid hwloc_obj_type_t values for current hwloc
-        //         - filter is an out-parameter, initial value shouldn't matter
-        errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
-            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
-        })?;
-        Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
-    }
 }
 
 bitflags! {
@@ -971,6 +953,8 @@ unsafe impl Sync for TopologyBuilder {}
 mod tests {
     use super::*;
     use bitflags::Flags;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::assert_impl_all;
     use std::{
         error::Error,
@@ -1014,4 +998,44 @@ mod tests {
         Clone, Debug, Error, Eq, From<PathError>, Hash, RefUnwindSafe,
         Send, Sized, Sync, Unpin, UnwindSafe
     );
+
+    #[test]
+    fn default_build() {
+        let builder = TopologyBuilder::new();
+        //
+        assert_eq!(builder.flags(), BuildFlags::default());
+        //
+        let expected_filter = |object_type| match object_type {
+            ObjectType::Group => TypeFilter::KeepStructure,
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::Die => {
+                // What hwloc claims to do in its docs
+                /* TypeFilter::KeepStructure */
+                // What hwloc actually does...
+                TypeFilter::KeepAll
+            }
+            ObjectType::Misc => TypeFilter::KeepNone,
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::MemCache => TypeFilter::KeepNone,
+            ty if ty.is_cpu_instruction_cache() || ty.is_io() => TypeFilter::KeepNone,
+            _ => TypeFilter::KeepAll,
+        };
+
+        let topology = builder.build().unwrap();
+        //
+        assert!(topology.is_abi_compatible());
+        assert!(topology.is_this_system());
+        //
+        assert_eq!(topology.build_flags(), BuildFlags::default());
+        for object_type in enum_iterator::all::<ObjectType>() {
+            assert_eq!(
+                topology.type_filter(object_type).unwrap(),
+                expected_filter(object_type),
+                "Unexpected filtering for objects of type {object_type:?}"
+            );
+        }
+        //
+        assert_eq!(topology.allowed_cpuset(), topology.cpuset());
+        assert!(topology.complete_cpuset().includes(&topology.cpuset()));
+    }
 }
