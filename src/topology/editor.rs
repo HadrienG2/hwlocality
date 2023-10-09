@@ -124,7 +124,7 @@ impl Topology {
             hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
         if let Err(e) = result {
-            eprintln!("Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules, aborting...");
+            eprintln!("ERROR: Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules. Must abort...");
             std::process::abort()
         }
 
@@ -275,7 +275,7 @@ impl<'topology> TopologyEditor<'topology> {
                 ) => match errno.0 {
                     EINVAL => Err(ParameterError::from(set.to_owned())),
                     ENOMEM => {
-                        eprintln!("Topology stuck in an invalid state, must abort");
+                        eprintln!("ERROR: Topology is stuck in an invalid state. Must abort...");
                         std::process::abort()
                     }
                     _ => unreachable!("Unexpected hwloc error: {raw_err}"),
@@ -829,6 +829,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
 }
 //
 impl Drop for AllocatedGroup<'_, '_> {
+    #[allow(clippy::print_stderr)]
     fn drop(&mut self) {
         // FIXME: As of hwloc v2.9.4, there is no API to delete a previously
         //        allocated Group object without attempting to insert it into
@@ -842,9 +843,8 @@ impl Drop for AllocatedGroup<'_, '_> {
             TopologyObject::delete_all_sets(self.group);
         }
         // SAFETY: - AllocatedGroup will not be droppable again after Drop
-        unsafe {
-            self.insert_impl()
-                .expect_err("Group insertion with NULL sets should fail and deallocate the group");
+        if unsafe { self.insert_impl().is_ok() } {
+            eprintln!("ERROR: Failed to deallocate group object.");
         }
     }
 }

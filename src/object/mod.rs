@@ -2037,6 +2037,10 @@ impl TopologyObject {
     /// This is needed as part of a dirty topology editing workaround that will
     /// hopefully not be needed anymore after hwloc v2.10.
     ///
+    /// # (Absence of) Panics
+    ///
+    /// This method is called inside of destructors, it should never panic.
+    ///
     /// # Safety
     ///
     /// `self_` must designate a valid `Group` object that has been allocated

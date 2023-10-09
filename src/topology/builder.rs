@@ -942,7 +942,7 @@ impl Default for TopologyBuilder {
 
 impl Drop for TopologyBuilder {
     fn drop(&mut self) {
-        // Check topology for correctness in debug builds
+        // Check modified topology for correctness in debug builds
         if cfg!(debug_assertions) {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters

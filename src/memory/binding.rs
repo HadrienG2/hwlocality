@@ -1547,6 +1547,7 @@ impl DerefMut for Bytes<'_> {
 }
 //
 impl Drop for Bytes<'_> {
+    #[allow(clippy::print_stderr)]
     #[doc(alias = "hwloc_free")]
     fn drop(&mut self) {
         let len = self.data.len();
@@ -1555,19 +1556,17 @@ impl Drop for Bytes<'_> {
             //         - self.data is trusted to be valid (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - Bytes will not be usable again after Drop
-            let result = unsafe {
+            let result = errors::call_hwloc_int_normal("hwloc_free", || unsafe {
                 hwlocality_sys::hwloc_free(
                     self.topology.as_ptr(),
                     self.data.as_ptr().cast::<c_void>(),
                     len,
                 )
-            };
-            assert_eq!(
-                result,
-                0,
-                "Got unexpected result from hwloc_free with errno {}",
-                errno()
-            );
+            });
+            if let Err(e) = result {
+                // Cannot panic in Drop
+                eprintln!("ERROR: Failed to liberate hwloc allocation ({e}).",);
+            }
         }
     }
 }
