@@ -246,7 +246,7 @@ pub use topology::Topology;
 
 /// This module is an implementation detail of [`Sealed`]
 mod sealed {
-    /// This trait can only be implemented by types inside this crate
+    /// Traits with this bound can only be implemented inside this crate
     pub trait Sealed {}
 }
 
