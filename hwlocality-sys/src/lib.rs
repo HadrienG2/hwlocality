@@ -772,6 +772,8 @@ pub struct hwloc_obj {
     /// Application-given private data pointer, initialized to NULL, use it as
     /// you wish
     //
+    // --- Implementation details ---
+    //
     // TODO: Add once support is ready: "See
     // [`hwloc_topology_set_userdata_export_callback()`] if you wish to export
     // this field to XML."
@@ -2280,8 +2282,6 @@ mod memory_attributes {
 #[cfg(feature = "hwloc-2_3_0")]
 pub use memory_attributes::*;
 
-// === TODO: Remaining sections
-
 // === Entry points
 
 /// Implement all the entry points with the right link name
@@ -2420,6 +2420,8 @@ macro_rules! extern_c_block {
             ///
             /// - `0` on success
             /// - `-1` with errno set to `EINVAL` if incompatible
+            //
+            // --- Implementation details ---
             //
             // TODO: Propagate note about interprocess sharing from upstream docs
             //       once interprocess sharing is implemented.
