@@ -656,10 +656,7 @@ impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> Iterator
         (self.size, Some(self.size))
     }
 
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
+    fn count(self) -> usize {
         self.size
     }
 }

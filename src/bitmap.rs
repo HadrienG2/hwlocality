@@ -1837,10 +1837,7 @@ where
     }
 }
 
-impl<'target, Target> IntoIterator for BitmapRef<'target, Target>
-where
-    Target: OwnedBitmap,
-{
+impl<'target, Target: OwnedBitmap> IntoIterator for BitmapRef<'target, Target> {
     type Item = BitmapIndex;
     type IntoIter = Iter<BitmapRef<'target, Bitmap>>;
 
