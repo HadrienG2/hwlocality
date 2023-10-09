@@ -619,6 +619,7 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
 pub struct AllowSetError;
 
 /// Control merging of newly inserted groups with existing objects
+#[cfg_attr(test, derive(enum_iterator::Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another

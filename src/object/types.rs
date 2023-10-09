@@ -18,6 +18,8 @@ use crate::{
     },
 };
 use derive_more::Display;
+#[cfg(test)]
+use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
     HWLOC_OBJ_CACHE_DATA, HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE,
@@ -39,7 +41,8 @@ use std::{
     ffi::c_int,
 };
 
-/// Type of one side (upstream or downstream) of an I/O bridge.
+/// Type of one side (upstream or downstream) of an I/O bridge
+#[cfg_attr(test, derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_bridge_type_e")]
 #[doc(alias = "hwloc_obj_bridge_type_t")]
@@ -55,6 +58,7 @@ pub enum BridgeType {
 }
 
 /// Cache type
+#[cfg_attr(test, derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_cache_type_e")]
 #[doc(alias = "hwloc_obj_cache_type_t")]
@@ -74,6 +78,7 @@ pub enum CacheType {
 }
 
 /// Type of a OS device
+#[cfg_attr(test, derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_osdev_type_e")]
 #[doc(alias = "hwloc_obj_osdev_type_t")]
@@ -140,6 +145,7 @@ pub enum OSDeviceType {
 /// It can also help to think of it as comparing the relative depths of each type, so
 /// a `ObjectType::Machine` will be smaller than a `ObjectType::PU` since the machine
 /// contains processing units.
+#[cfg_attr(test, derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_type_e")]
 #[doc(alias = "hwloc_obj_type_t")]

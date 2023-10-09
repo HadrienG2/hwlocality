@@ -848,6 +848,7 @@ impl BuildFlags {
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
+#[cfg_attr(test, derive(enum_iterator::Sequence))]
 #[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
 #[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]

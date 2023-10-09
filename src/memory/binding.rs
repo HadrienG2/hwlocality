@@ -1268,11 +1268,12 @@ pub(crate) enum MemoryBindingOperation {
     Unbind,
 }
 
-/// Memory binding policy.
+/// Memory binding policy
 ///
 /// Not all systems support all kinds of binding.
 /// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
+#[cfg_attr(test, derive(enum_iterator::Sequence))]
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]

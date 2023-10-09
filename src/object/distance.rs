@@ -1398,6 +1398,7 @@ impl DistancesKind {
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
+#[cfg_attr(test, derive(enum_iterator::Sequence))]
 #[derive(
     Copy,
     Clone,
