@@ -1848,7 +1848,10 @@ pub use topology_editing::*;
 // === Distributing items over a topology:
 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html
 
-/// Flags to be given to [`hwloc_distrib()`]
+/// Flags to be given to `hwloc_distrib()`
+///
+/// Note that the C version of `hwloc_distrib()` is not actually exposed in the
+/// Rust binding as it is a static header function in the C library.
 pub type hwloc_distrib_flags_e = c_ulong;
 
 /// Distrib in reverse order, starting from the last objects

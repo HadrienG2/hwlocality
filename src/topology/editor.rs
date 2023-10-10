@@ -550,7 +550,7 @@ bitflags! {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for RestrictFlags {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        RestrictFlags::from_bits_truncate(hwloc_restrict_flags_e::arbitrary(g))
+        Self::from_bits_truncate(hwloc_restrict_flags_e::arbitrary(g))
     }
 
     #[cfg(not(tarpaulin_include))]
