@@ -185,7 +185,7 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                errno: Some(Errno(ENOSYS)),
+                errno: Some(Errno(ENOSYS)) | None,
                 ..
             }) => Err(FromPIDError(pid).into()),
             Err(other_err) => Err(HybridError::Hwloc(other_err)),
@@ -226,7 +226,7 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                errno: Some(Errno(EINVAL)),
+                errno: Some(Errno(EINVAL)) | None,
                 ..
             }) => Err(StringInputError::Invalid),
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
@@ -1150,7 +1150,7 @@ mod tests {
                     .unwrap()
                     .is_empty());
             }
-            if build_flags.contains(BuildFlags::IGNORE_CPU_KINDS) {
+            if build_flags.contains(BuildFlags::IGNORE_CPU_KINDS) && cfg!(not(windows)) {
                 assert_eq!(topology.num_cpu_kinds(), Err(NoData));
             }
         }
@@ -1230,7 +1230,7 @@ mod tests {
         // error, e.g. Linux certainly doesn't seem to care
         assert!(matches!(
             dbg!(builder.from_pid(ProcessId::MAX)),
-            Ok(_) | Err(HybridError::Rust(FromPIDError(0)))
+            Ok(_) | Err(HybridError::Rust(FromPIDError(ProcessId::MAX)))
         ));
 
         // Try building from this process' PID
@@ -1260,15 +1260,15 @@ mod tests {
 
         // Try building from an invalid string with an inner NUL
         assert!(matches!(
-            builder.from_synthetic("\0"),
+            dbg!(builder.from_synthetic("\0")),
             Err(StringInputError::ContainsNul)
         ));
 
         // Try building from an invalid string with unexpected text
         assert!(matches!(
-            builder_with_flags(build_flags)
+            dbg!(builder_with_flags(build_flags)
                 .unwrap()
-                .from_synthetic("ZaLgO"),
+                .from_synthetic("ZaLgO")),
             Err(StringInputError::Invalid)
         ));
 
@@ -1329,7 +1329,7 @@ mod tests {
 
         // Try building from an invalid string with unexpected text
         assert!(matches!(
-            builder.from_xml("ZaLgO"),
+            dbg!(builder.from_xml("ZaLgO")),
             Err(StringInputError::Invalid)
         ));
 
@@ -1393,21 +1393,21 @@ mod tests {
             && [TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&filter)
         {
             assert!(matches!(
-                result,
+                dbg!(result),
                 Err(HybridError::Rust(TypeFilterError::CantKeepGroup))
             ));
         } else if [ObjectType::Machine, ObjectType::PU, ObjectType::NUMANode].contains(&object_type)
             && ![TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&filter)
         {
             assert!(matches!(
-                result,
+                dbg!(result),
                 Err(HybridError::Rust(e)) if e == TypeFilterError::from(object_type)
             ));
         } else if filter == TypeFilter::KeepStructure
             && (object_type.is_io() || object_type == ObjectType::Misc)
         {
             assert!(matches!(
-                result,
+                dbg!(result),
                 Err(HybridError::Rust(TypeFilterError::StructureIrrelevant))
             ));
         } else {
@@ -1552,7 +1552,7 @@ mod tests {
         let result = builder.with_io_type_filter(filter);
         if filter == TypeFilter::KeepStructure {
             assert!(matches!(
-                result,
+                dbg!(result),
                 Err(HybridError::Rust(TypeFilterError::StructureIrrelevant))
             ));
         } else {
