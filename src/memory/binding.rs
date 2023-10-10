@@ -1217,6 +1217,19 @@ impl MemoryBindingFlags {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for MemoryBindingFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_membind_flags_t::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+    }
+}
+//
 // NOTE: No default because user must consciously think about the need for PROCESS
 
 /// Object that is being bound to particular NUMA nodes
@@ -1268,11 +1281,12 @@ pub(crate) enum MemoryBindingOperation {
     Unbind,
 }
 
-/// Memory binding policy.
+/// Memory binding policy
 ///
 /// Not all systems support all kinds of binding.
 /// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
+#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]
@@ -1331,6 +1345,16 @@ pub enum MemoryBindingPolicy {
     /// Requires [`MemoryBindingSupport::next_touch_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for MemoryBindingPolicy {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use enum_iterator::Sequence;
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
 }
 
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,

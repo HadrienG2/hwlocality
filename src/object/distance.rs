@@ -526,6 +526,20 @@ bitflags! {
         const GROUP_INACCURATE = HWLOC_DISTANCES_ADD_FLAG_GROUP | HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE;
     }
 }
+//
+#[cfg(feature = "hwloc-2_5_0")]
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for AddDistancesFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_distances_add_flag_e::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+    }
+}
 
 /// Failed to add a new distance matrix to the topology
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1395,9 +1409,23 @@ impl DistancesKind {
         result
     }
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for DistancesKind {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_distances_kind_e::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+    }
+}
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
+#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
 #[derive(
     Copy,
     Clone,
@@ -1461,6 +1489,17 @@ pub enum DistancesTransform {
     /// All pairs of GPUs will be reported as directly connected.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
+}
+//
+#[cfg(feature = "hwloc-2_5_0")]
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for DistancesTransform {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use enum_iterator::Sequence;
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
 }
 
 /// Error returned when attempting to remove all distances using

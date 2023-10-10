@@ -18,6 +18,8 @@ use crate::{
     },
 };
 use derive_more::Display;
+#[cfg(any(test, feature = "quickcheck"))]
+use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
     HWLOC_OBJ_CACHE_DATA, HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE,
@@ -39,7 +41,8 @@ use std::{
     ffi::c_int,
 };
 
-/// Type of one side (upstream or downstream) of an I/O bridge.
+/// Type of one side (upstream or downstream) of an I/O bridge
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_bridge_type_e")]
 #[doc(alias = "hwloc_obj_bridge_type_t")]
@@ -53,8 +56,18 @@ pub enum BridgeType {
     #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for BridgeType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
+}
 
 /// Cache type
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_cache_type_e")]
 #[doc(alias = "hwloc_obj_cache_type_t")]
@@ -72,8 +85,18 @@ pub enum CacheType {
     #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CacheType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
+}
 
 /// Type of a OS device
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_osdev_type_e")]
 #[doc(alias = "hwloc_obj_osdev_type_t")]
@@ -125,6 +148,15 @@ pub enum OSDeviceType {
     #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for OSDeviceType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
+}
 
 /// Represents the type of a [`TopologyObject`].
 ///
@@ -140,6 +172,7 @@ pub enum OSDeviceType {
 /// It can also help to think of it as comparing the relative depths of each type, so
 /// a `ObjectType::Machine` will be smaller than a `ObjectType::PU` since the machine
 /// contains processing units.
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_type_e")]
 #[doc(alias = "hwloc_obj_type_t")]
@@ -324,7 +357,7 @@ pub enum ObjectType {
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die = HWLOC_OBJ_DIE,
 }
-
+//
 impl ObjectType {
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     #[doc(alias = "hwloc_obj_type_is_normal")]
@@ -441,7 +474,16 @@ impl ObjectType {
             .expect("Object type queries should not fail")
     }
 }
-
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for ObjectType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        enum_iterator::all::<Self>()
+            .nth(usize::arbitrary(g) % Self::CARDINALITY)
+            .expect("Per above modulo, this cannot happen")
+    }
+}
+//
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // SAFETY: By construction, ObjectType only exposes values that map into

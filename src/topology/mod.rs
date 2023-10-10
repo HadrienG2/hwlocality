@@ -28,14 +28,16 @@ use crate::{
 };
 use bitflags::bitflags;
 use errno::Errno;
-use hwlocality_sys::{hwloc_bitmap_s, hwloc_topology, hwloc_type_filter_e};
+use hwlocality_sys::{
+    hwloc_bitmap_s, hwloc_distrib_flags_e, hwloc_topology, hwloc_type_filter_e,
+    HWLOC_DISTRIB_FLAG_REVERSE,
+};
 use libc::EINVAL;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     convert::TryInto,
-    ffi::c_ulong,
     num::NonZeroUsize,
     ptr::{self, NonNull},
 };
@@ -129,7 +131,6 @@ impl Topology {
         TopologyBuilder::new().build()
     }
 
-    #[doc(hidden)]
     /// Test topology instance
     ///
     /// Used to avoid redundant calls to Topology::new() in unit tests and
@@ -142,6 +143,7 @@ impl Topology {
     /// NOTE: In an ideal world, this would be cfg(any(test, doctest)), but that
     ///       doesn't work for doctests yet:
     ///       https://github.com/rust-lang/rust/issues/67295
+    #[doc(hidden)]
     pub fn test_instance() -> &'static Self {
         use std::sync::OnceLock;
         static INSTANCE: OnceLock<Topology> = OnceLock::new();
@@ -547,9 +549,23 @@ impl Topology {
 bitflags! {
     /// Flags to be given to [`Topology::distribute_items()`]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-    pub struct DistributeFlags: c_ulong {
+    #[doc(alias = "hwloc_distrib_flags_e")]
+    pub struct DistributeFlags: hwloc_distrib_flags_e {
         /// Distribute in reverse order, starting from the last objects
-        const REVERSE = (1<<0);
+        const REVERSE = HWLOC_DISTRIB_FLAG_REVERSE;
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for DistributeFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_distrib_flags_e::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
     }
 }
 //

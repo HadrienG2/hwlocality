@@ -97,6 +97,26 @@ impl Depth {
     ];
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for Depth {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        if bool::arbitrary(g) {
+            NormalDepth::arbitrary(g).into()
+        } else {
+            Self::VIRTUAL_DEPTHS[usize::arbitrary(g) % Self::VIRTUAL_DEPTHS.len()]
+        }
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        if let Self::Normal(normal) = self {
+            Box::new(normal.shrink().map(Self::Normal))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+}
+//
 impl fmt::Display for Depth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::wildcard_enum_match_arm)]

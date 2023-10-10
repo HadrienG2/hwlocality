@@ -741,6 +741,19 @@ impl CpuBindingFlags {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CpuBindingFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_cpubind_flags_t::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+    }
+}
+
 /// Object that is being bound to particular CPUs
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CpuBoundObject {
@@ -770,7 +783,7 @@ impl Display for CpuBoundObject {
         f.pad(&display)
     }
 }
-//
+
 /// Operation on that object's CPU binding
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub(crate) enum CpuBindingOperation {

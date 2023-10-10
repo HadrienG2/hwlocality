@@ -31,11 +31,12 @@ use bitflags::bitflags;
 use derive_more::{Display, From};
 use errno::Errno;
 use hwlocality_sys::{
-    hwloc_const_topology_t, hwloc_location, hwloc_location_u, hwloc_memattr_flag_e,
-    hwloc_memattr_id_t, hwloc_obj, HWLOC_LOCATION_TYPE_CPUSET, HWLOC_LOCATION_TYPE_OBJECT,
-    HWLOC_MEMATTR_FLAG_HIGHER_FIRST, HWLOC_MEMATTR_FLAG_LOWER_FIRST,
-    HWLOC_MEMATTR_FLAG_NEED_INITIATOR, HWLOC_MEMATTR_ID_BANDWIDTH, HWLOC_MEMATTR_ID_CAPACITY,
-    HWLOC_MEMATTR_ID_LATENCY, HWLOC_MEMATTR_ID_LOCALITY,
+    hwloc_const_topology_t, hwloc_local_numanode_flag_e, hwloc_location, hwloc_location_u,
+    hwloc_memattr_flag_e, hwloc_memattr_id_t, hwloc_obj, HWLOC_LOCAL_NUMANODE_FLAG_ALL,
+    HWLOC_LOCAL_NUMANODE_FLAG_LARGER_LOCALITY, HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY,
+    HWLOC_LOCATION_TYPE_CPUSET, HWLOC_LOCATION_TYPE_OBJECT, HWLOC_MEMATTR_FLAG_HIGHER_FIRST,
+    HWLOC_MEMATTR_FLAG_LOWER_FIRST, HWLOC_MEMATTR_FLAG_NEED_INITIATOR, HWLOC_MEMATTR_ID_BANDWIDTH,
+    HWLOC_MEMATTR_ID_CAPACITY, HWLOC_MEMATTR_ID_LATENCY, HWLOC_MEMATTR_ID_LOCALITY,
 };
 #[cfg(feature = "hwloc-2_8_0")]
 use hwlocality_sys::{
@@ -1444,20 +1445,20 @@ bitflags! {
     /// are selected.
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_local_numanode_flag_e")]
-    pub struct LocalNUMANodeFlags: c_ulong {
+    pub struct LocalNUMANodeFlags: hwloc_local_numanode_flag_e {
         /// Select NUMA nodes whose locality is larger than the given cpuset
         ///
         /// For instance, if a single PU (or its cpuset) is given in `initiator`,
         /// select all nodes close to the package that contains this PU.
         #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_LARGER_LOCALITY")]
-        const LARGER_LOCALITY = (1<<0);
+        const LARGER_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_LARGER_LOCALITY;
 
         /// Select NUMA nodes whose locality is smaller than the given cpuset
         ///
         /// For instance, if a package (or its cpuset) is given in `initiator`,
         /// also select nodes that are attached to only a half of that package.
         #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY")]
-        const SMALLER_LOCALITY = (1<<1);
+        const SMALLER_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY;
 
         /// Select all NUMA nodes in the topology
         ///
@@ -1466,7 +1467,20 @@ bitflags! {
         /// This flag is automatically set when users specify
         /// [`TargetNumaNodes::All`] as the target NUMA node set.
         #[doc(hidden)]
-        const ALL = (1<<2);
+        const ALL = HWLOC_LOCAL_NUMANODE_FLAG_ALL;
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for LocalNUMANodeFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_local_numanode_flag_e::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
     }
 }
 
@@ -1508,7 +1522,11 @@ impl TargetNumaNodes<'_> {
         topology: &Topology,
     ) -> Result<(hwloc_location, LocalNUMANodeFlags), ForeignObjectError> {
         match self {
-            Self::Local { location, flags } => {
+            Self::Local {
+                location,
+                mut flags,
+            } => {
+                flags.remove(LocalNUMANodeFlags::ALL);
                 // SAFETY: Per function precondition
                 Ok((unsafe { location.into_checked_raw(topology)? }, flags))
             }
@@ -1575,5 +1593,18 @@ impl MemoryAttributeFlags {
     /// Truth that these flags are in a valid state
     pub(crate) fn is_valid(self) -> bool {
         self.contains(Self::HIGHER_IS_BEST) ^ self.contains(Self::LOWER_IS_BEST)
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for MemoryAttributeFlags {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self::from_bits_truncate(hwloc_memattr_flag_e::arbitrary(g))
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_copy = *self;
+        Box::new(self.into_iter().map(move |value| self_copy ^ value))
     }
 }
