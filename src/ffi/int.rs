@@ -2643,16 +2643,8 @@ where
     }
 }
 
-// NOTE: Guaranteed to succeed because C mandates that int is >=16 bits
-//       u16 would not work because it allows u16::MAX > i16::MAX.
-//       From<u8> would also be safe to implement, but would break integer type
-//       inference when an integer literal is passed to a function that expects
-//       T with PositiveInt: TryFrom<T>.
-impl From<bool> for PositiveInt {
-    fn from(x: bool) -> Self {
-        Self(x.into())
-    }
-}
+// NOTE: Not implementing From<bool> nor From<u8> in order to avoid breaking
+//       type inference or accepting weird things in bitmap indexing.
 
 // NOTE: Assumed to work, otherwise the whole premise of allowing users to use
 //       usize/isize instead of c_u?int for indexing falls flat.
@@ -3440,8 +3432,7 @@ mod tests {
         DivAssign<PositiveInt>, DivAssign<&'static PositiveInt>,
         Div<usize>, Div<&'static usize>,
         DivAssign<usize>, DivAssign<&'static usize>,
-        Eq, From<bool>, FromStr, Hash, Into<isize>, Into<usize>,
-        LowerExp, LowerHex,
+        Eq, FromStr, Hash, Into<isize>, Into<usize>, LowerExp, LowerHex,
         Mul<PositiveInt>, Mul<&'static PositiveInt>,
         MulAssign<PositiveInt>, MulAssign<&'static PositiveInt>,
         Mul<usize>, Mul<&'static usize>,
@@ -3652,8 +3643,6 @@ mod tests {
             (1usize << PositiveInt::EFFECTIVE_BITS) - 1
         );
         assert_eq!(PositiveInt::default(), 0);
-        assert_eq!(PositiveInt::from(false), 0);
-        assert_eq!(PositiveInt::from(true), 1);
 
         // Now let's test some properties that are specific to zero
         let zero = PositiveInt::ZERO;

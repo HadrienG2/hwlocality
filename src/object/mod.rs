@@ -850,7 +850,7 @@ impl Topology {
                 // Look for a cousin that is covered by the current ancestor
                 let (ancestor, ancestor_cpuset) = ancestor_and_cpuset.take()?;
                 while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.pop() {
-                    if ancestor_cpuset.includes(&cousin_cpuset) {
+                    if ancestor_cpuset.includes(cousin_cpuset) {
                         return Some(cousin);
                     } else {
                         next_cousins_and_cpusets.push((cousin, cousin_cpuset));
@@ -1806,7 +1806,7 @@ impl TopologyObject {
         let Some(object_cpuset) = self.cpuset() else {
             return false;
         };
-        set.borrow().includes(&object_cpuset) && !object_cpuset.is_empty()
+        set.borrow().includes(object_cpuset) && !object_cpuset.is_empty()
     }
 
     /// Truth that this object covers the given cpuset `set`

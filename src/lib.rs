@@ -62,7 +62,6 @@
     clippy::iter_not_returning_iterator,
     clippy::iter_on_empty_collections,
     clippy::iter_on_single_items,
-    clippy::iter_with_drain,
     clippy::large_digit_groups,
     clippy::large_stack_arrays,
     clippy::large_types_passed_by_value,
@@ -101,7 +100,6 @@
     clippy::or_fun_call,
     clippy::partial_pub_fields,
     clippy::path_buf_push_overwrite,
-    clippy::print_stderr,
     clippy::print_stdout,
     clippy::ptr_as_ptr,
     clippy::ptr_cast_constness,
@@ -155,7 +153,6 @@
     clippy::unused_peekable,
     clippy::unused_rounding,
     clippy::unwrap_used,
-    clippy::use_debug,
     clippy::use_self,
     clippy::used_underscore_binding,
     clippy::useless_let_if_seq,
@@ -191,6 +188,8 @@
 )]
 #![warn(
     clippy::dbg_macro,
+    clippy::print_stderr,
+    clippy::use_debug,
     future_incompatible,
     keyword_idents,
     let_underscore,

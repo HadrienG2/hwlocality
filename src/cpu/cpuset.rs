@@ -240,13 +240,13 @@ impl Topology {
             // Walk the topology tree until we find an object included into set
             let mut parent = root;
             let mut parent_cpuset = root_cpuset;
-            while !set.includes(&parent_cpuset) {
+            while !set.includes(parent_cpuset) {
                 // While the object intersects without being included, look at children
                 let old_parent = parent;
                 'iterate_children: for child in parent.normal_children() {
                     if let Some(child_cpuset) = child.cpuset() {
                         // This child intersects, make it the new parent and recurse
-                        if set.intersects(&child_cpuset) {
+                        if set.intersects(child_cpuset) {
                             parent = child;
                             parent_cpuset = child_cpuset;
                             break 'iterate_children;

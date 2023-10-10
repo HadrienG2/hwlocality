@@ -61,7 +61,7 @@ use std::{
 };
 use thiserror::Error;
 
-/// Mechanism to build a `Topology` with custom configuration
+/// Mechanism to build a [`Topology`] with custom configuration
 //
 // --- Implementation details ---
 //
@@ -1009,7 +1009,7 @@ unsafe impl Send for TopologyBuilder {}
 unsafe impl Sync for TopologyBuilder {}
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::topology::export::xml::XMLExportFlags;
     use bitflags::Flags;
@@ -1066,7 +1066,7 @@ mod tests {
     // NOTE: While this doesn't match the documentation of hwloc v2.9 at the
     //       time of writing, an hwloc maintainer confirmed it's correct:
     //       https://github.com/open-mpi/hwloc/issues/622#issuecomment-1753130738
-    fn default_type_filter(object_type: ObjectType) -> TypeFilter {
+    pub(crate) fn default_type_filter(object_type: ObjectType) -> TypeFilter {
         match object_type {
             ObjectType::Group => TypeFilter::KeepStructure,
             ObjectType::Misc => TypeFilter::KeepNone,
@@ -1091,13 +1091,13 @@ mod tests {
     }
 
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-    enum DataSource {
+    pub(crate) enum DataSource {
         ThisSystem,
         Synthetic,
         Xml,
     }
 
-    fn check_topology(
+    pub(crate) fn check_topology(
         topology: &Topology,
         data_source: DataSource,
         build_flags: BuildFlags,
@@ -1123,15 +1123,15 @@ mod tests {
             || data_source == DataSource::ThisSystem
         {
             if build_flags.contains(BuildFlags::INCLUDE_DISALLOWED) {
-                assert!(topology.allowed_cpuset().includes(&topology.cpuset()));
-                assert!(topology.allowed_nodeset().includes(&topology.nodeset()));
+                assert!(topology.allowed_cpuset().includes(topology.cpuset()));
+                assert!(topology.allowed_nodeset().includes(topology.nodeset()));
             } else {
                 assert_eq!(topology.allowed_cpuset(), topology.cpuset());
                 assert_eq!(topology.allowed_nodeset(), topology.nodeset());
             }
         }
-        assert!(topology.complete_cpuset().includes(&topology.cpuset()));
-        assert!(topology.complete_nodeset().includes(&topology.nodeset()));
+        assert!(topology.complete_cpuset().includes(topology.cpuset()));
+        assert!(topology.complete_nodeset().includes(topology.nodeset()));
 
         #[cfg(feature = "hwloc-2_3_0")]
         {
