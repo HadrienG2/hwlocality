@@ -1222,32 +1222,46 @@ mod tests {
     #[quickcheck]
     fn from_pid(build_flags: BuildFlags) -> TestResult {
         // Filter out invalid build flags
-        let Some(builder) = builder_with_flags(build_flags) else {
+        if builder_with_flags(build_flags).is_none() {
             return TestResult::discard();
         };
 
-        // Try building from an invalid PID. Not every platform will detect this
-        // error, e.g. Linux certainly doesn't seem to care...
-        assert!(matches!(
-            dbg!(builder.from_pid(ProcessId::MAX)),
-            Ok(_) | Err(HybridError::Rust(FromPIDError(ProcessId::MAX)))
-        ));
+        // Attempt to configure a builder to loading from a certain PID
+        let builder_from_pid =
+            |pid: ProcessId| builder_with_flags(build_flags).unwrap().from_pid(pid);
+
+        // Expect readout from a certain pid to fail
+        let expect_fail = |pid: ProcessId| match builder_from_pid(pid) {
+            Ok(builder) => {
+                // Not validating PID early is acceptable due to TOCTOU race
+                builder
+                    .build()
+                    .expect_err(&format!("Should fail to load topology from PID {pid}"));
+            }
+            Err(HybridError::Rust(FromPIDError(p))) => assert_eq!(p, pid),
+            Err(other) => panic!("Unexpected error while loading topology from PID {pid}: {other}"),
+        };
+
+        // Try building from an invalid PID The fact that it does not error out
+        // on Linux was confirmed to be expected by upstream at
+        // https://github.com/open-mpi/hwloc/issues/624
+        if cfg!(not(target_os = "linux")) {
+            expect_fail(ProcessId::MAX);
+        }
 
         // Building from this process' PID should be supported if building from
         // a PID is supported at all.
         let my_pid = ProcessId::try_from(sysinfo::get_current_pid().unwrap().as_u32()).unwrap();
-        let result = builder_with_flags(build_flags).unwrap().from_pid(my_pid);
 
         // Windows and macOS do not seem to allow construction from PID at all
-        let builder = if cfg!(any(windows, target_os = "macos")) {
-            assert!(matches!(dbg!(result), Err(HybridError::Rust(FromPIDError(p))) if p == my_pid));
+        let topology = if cfg!(any(windows, target_os = "macos")) {
+            expect_fail(my_pid);
             return TestResult::passed();
         } else {
-            result.unwrap()
+            builder_from_pid(my_pid).unwrap().build().unwrap()
         };
 
         // Check topology building outcome
-        let topology = builder.build().unwrap();
         check_topology(
             &topology,
             DataSource::ThisSystem,
@@ -1334,11 +1348,22 @@ mod tests {
             return TestResult::discard();
         };
 
-        // Try building from an invalid string with unexpected text
-        assert!(matches!(
-            dbg!(builder.from_xml("<ZaLgO>")),
-            Err(StringInputError::Invalid)
-        ));
+        // Try building from an invalid XML string
+        match builder.from_xml("<ZaLgO>") {
+            Ok(builder) => {
+                if cfg!(windows) {
+                    // Lack of Windows input validation was closed as WONTFIX by
+                    // upstream at https://github.com/open-mpi/hwloc/issues/623
+                    builder
+                        .build()
+                        .expect_err("Should fail to load topology from invalid XML");
+                } else {
+                    panic!("Input XML should be validated early");
+                }
+            }
+            Err(StringInputError::Invalid) => {}
+            Err(other) => panic!("Unexpected error while loading from invalid XML: {other}"),
+        }
 
         // Use a default-built topology as our reference
         let default = builder_with_flags(build_flags).unwrap().build().unwrap();
