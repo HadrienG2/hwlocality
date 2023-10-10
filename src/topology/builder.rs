@@ -1218,7 +1218,7 @@ mod tests {
     ///
     /// The outcome of building from a different PID is unpredictable, and thus
     /// not suitable for testing. It may fail altogether if the OS forbids us
-    /// from querying another PID..
+    /// from querying another PID.
     #[quickcheck]
     fn from_pid(build_flags: BuildFlags) -> TestResult {
         // Filter out invalid build flags
@@ -1227,20 +1227,27 @@ mod tests {
         };
 
         // Try building from an invalid PID. Not every platform will detect this
-        // error, e.g. Linux certainly doesn't seem to care
+        // error, e.g. Linux certainly doesn't seem to care...
         assert!(matches!(
             dbg!(builder.from_pid(ProcessId::MAX)),
             Ok(_) | Err(HybridError::Rust(FromPIDError(ProcessId::MAX)))
         ));
 
-        // Try building from this process' PID
+        // Building from this process' PID should be supported if building from
+        // a PID is supported at all.
         let my_pid = ProcessId::try_from(sysinfo::get_current_pid().unwrap().as_u32()).unwrap();
-        let topology = builder_with_flags(build_flags)
-            .unwrap()
-            .from_pid(my_pid)
-            .unwrap()
-            .build()
-            .unwrap();
+        let result = builder_with_flags(build_flags).unwrap().from_pid(my_pid);
+
+        // Windows and macOS do not seem to allow construction from PID at all
+        let builder = if cfg!(any(windows, target_os = "macos")) {
+            assert!(matches!(dbg!(result), Err(HybridError::Rust(FromPIDError(p))) if p == my_pid));
+            return TestResult::passed();
+        } else {
+            result.unwrap()
+        };
+
+        // Check topology building outcome
+        let topology = builder.build().unwrap();
         check_topology(
             &topology,
             DataSource::ThisSystem,
@@ -1329,7 +1336,7 @@ mod tests {
 
         // Try building from an invalid string with unexpected text
         assert!(matches!(
-            dbg!(builder.from_xml("ZaLgO")),
+            dbg!(builder.from_xml("<ZaLgO>")),
             Err(StringInputError::Invalid)
         ));
 
