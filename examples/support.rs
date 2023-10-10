@@ -53,11 +53,11 @@ fn main() -> anyhow::Result<()> {
 
     // Check if memory allocations can be bound to NUMA nodes
     println!(
-        "- New allocation: {}",
-        memory_binding_support(MemoryBindingSupport::alloc)
+        "- New bound allocation: {}",
+        memory_binding_support(MemoryBindingSupport::allocate_bound)
     );
     println!(
-        "- Pre-existing allocation: {}",
+        "- Bind pre-existing allocation: {}",
         memory_binding_support(MemoryBindingSupport::set_area)
     );
 

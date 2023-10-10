@@ -138,7 +138,7 @@ impl Topology {
     /// Binding target flags [`ASSUME_SINGLE_THREAD`], [`PROCESS`],
     /// [`THREAD`] and [`MIGRATE`] should not be used with this method.
     ///
-    /// Requires [`MemoryBindingSupport::alloc()`].
+    /// Requires [`MemoryBindingSupport::allocate_bound()`].
     ///
     /// # Errors
     ///
@@ -209,7 +209,7 @@ impl Topology {
     /// You must specify exactly one of the [`ASSUME_SINGLE_THREAD`],
     /// [`PROCESS`] and [`THREAD`] binding target flags when using this method.
     ///
-    /// Requires either [`MemoryBindingSupport::alloc()`], or one of
+    /// Requires either [`MemoryBindingSupport::allocate_bound()`], or one of
     /// [`MemoryBindingSupport::set_current_process()`] and
     /// [`MemoryBindingSupport::set_current_thread()`] depending on flags.
     ///

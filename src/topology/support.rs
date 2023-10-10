@@ -343,7 +343,7 @@ impl MemoryBindingSupport {
 
     /// Allocating a bound memory area is supported
     #[doc(alias = "hwloc_topology_membind_support::alloc_membind")]
-    pub fn alloc(&self) -> bool {
+    pub fn allocate_bound(&self) -> bool {
         support_flag(self.0.alloc_membind)
     }
 
@@ -416,44 +416,364 @@ fn support_flag(flag: c_uchar) -> bool {
     flag == 1
 }
 
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::topology::Topology;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
+    use std::{collections::hash_map::DefaultHasher, hash::Hasher, ptr};
 
-    #[allow(unused)]
-    fn cpu_binding_supported(kind: fn(&CpuBindingSupport) -> bool) -> bool {
-        Topology::test_instance().supports(FeatureSupport::cpu_binding, kind)
+    fn expect_support(
+        discovery: hwloc_topology_discovery_support,
+        cpubind: hwloc_topology_cpubind_support,
+        membind: hwloc_topology_membind_support,
+    ) {
+        let support = Topology::test_instance().feature_support();
+        let flag = |flag: c_uchar| flag != 0;
+
+        let discovery_support = support.discovery().unwrap();
+        assert_eq!(discovery_support.pu_count(), flag(discovery.pu));
+        assert_eq!(discovery_support.numa_count(), flag(discovery.numa));
+        assert_eq!(discovery_support.numa_memory(), flag(discovery.numa_memory));
+        #[cfg(feature = "hwloc-2_1_0")]
+        {
+            assert_eq!(
+                discovery_support.disallowed_pu(),
+                flag(discovery.disallowed_pu)
+            );
+            assert_eq!(
+                discovery_support.disallowed_numa(),
+                flag(discovery.disallowed_numa)
+            );
+        }
+        #[cfg(feature = "hwloc-2_4_0")]
+        assert_eq!(
+            discovery_support.cpukind_efficiency(),
+            flag(discovery.cpukind_efficiency)
+        );
+
+        let cpubind_support = support.cpu_binding().unwrap();
+        assert_eq!(
+            cpubind_support.set_current_process(),
+            flag(cpubind.set_thisproc_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.get_current_process(),
+            flag(cpubind.get_thisproc_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.set_process(),
+            flag(cpubind.set_proc_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.get_process(),
+            flag(cpubind.get_proc_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.set_current_thread(),
+            flag(cpubind.set_thisthread_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.get_current_thread(),
+            flag(cpubind.get_thisthread_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.set_thread(),
+            flag(cpubind.set_thread_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.get_thread(),
+            flag(cpubind.get_thread_cpubind)
+        );
+        assert_eq!(
+            cpubind_support.get_current_process_last_cpu_location(),
+            flag(cpubind.get_thisproc_last_cpu_location)
+        );
+        assert_eq!(
+            cpubind_support.get_process_last_cpu_location(),
+            flag(cpubind.get_proc_last_cpu_location)
+        );
+        assert_eq!(
+            cpubind_support.get_current_thread_last_cpu_location(),
+            flag(cpubind.get_thisthread_last_cpu_location)
+        );
+
+        let membind_support = support.memory_binding().unwrap();
+        assert_eq!(
+            membind_support.set_current_process(),
+            flag(membind.set_thisproc_membind)
+        );
+        assert_eq!(
+            membind_support.get_current_process(),
+            flag(membind.get_thisproc_membind)
+        );
+        assert_eq!(
+            membind_support.set_process(),
+            flag(membind.set_proc_membind)
+        );
+        assert_eq!(
+            membind_support.get_process(),
+            flag(membind.get_proc_membind)
+        );
+        assert_eq!(
+            membind_support.set_current_thread(),
+            flag(membind.set_thisthread_membind)
+        );
+        assert_eq!(
+            membind_support.get_current_thread(),
+            flag(membind.get_thisthread_membind)
+        );
+        assert_eq!(membind_support.set_area(), flag(membind.set_area_membind));
+        assert_eq!(membind_support.get_area(), flag(membind.get_area_membind));
+        assert_eq!(
+            membind_support.get_area_memory_location(),
+            flag(membind.get_area_memlocation)
+        );
+        assert_eq!(
+            membind_support.allocate_bound(),
+            flag(membind.alloc_membind)
+        );
+        assert_eq!(
+            membind_support.first_touch_policy(),
+            flag(membind.firsttouch_membind)
+        );
+        assert_eq!(membind_support.bind_policy(), flag(membind.bind_membind));
+        assert_eq!(
+            membind_support.interleave_policy(),
+            flag(membind.interleave_membind)
+        );
+        assert_eq!(
+            membind_support.next_touch_policy(),
+            flag(membind.nexttouch_membind)
+        );
+        assert_eq!(
+            membind_support.migrate_flag(),
+            flag(membind.migrate_membind)
+        );
+
+        #[cfg(feature = "hwloc-2_3_0")]
+        assert!(!support.misc().unwrap().imported());
     }
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn should_support_cpu_binding_on_linux() {
-        assert!(cpu_binding_supported(
-            CpuBindingSupport::set_current_process
-        ));
-        assert!(cpu_binding_supported(CpuBindingSupport::set_current_thread));
-    }
-
-    #[test]
-    #[cfg(target_os = "freebsd")]
-    fn should_support_cpu_binding_on_freebsd() {
-        assert!(cpu_binding_supported(
-            CpuBindingSupport::set_current_process
-        ));
-        assert!(cpu_binding_supported(CpuBindingSupport::set_current_thread));
+    fn linux() {
+        expect_support(
+            hwloc_topology_discovery_support {
+                pu: 1,
+                numa: 1,
+                numa_memory: 1,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_pu: 1,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_numa: 1,
+                #[cfg(feature = "hwloc-2_4_0")]
+                cpukind_efficiency: 1,
+            },
+            hwloc_topology_cpubind_support {
+                set_thisproc_cpubind: 1,
+                get_thisproc_cpubind: 1,
+                set_proc_cpubind: 1,
+                get_proc_cpubind: 1,
+                set_thisthread_cpubind: 1,
+                get_thisthread_cpubind: 1,
+                set_thread_cpubind: 1,
+                get_thread_cpubind: 1,
+                get_thisproc_last_cpu_location: 1,
+                get_proc_last_cpu_location: 1,
+                get_thisthread_last_cpu_location: 1,
+            },
+            hwloc_topology_membind_support {
+                set_thisproc_membind: 0,
+                get_thisproc_membind: 0,
+                set_proc_membind: 0,
+                get_proc_membind: 0,
+                set_thisthread_membind: 1,
+                get_thisthread_membind: 1,
+                set_area_membind: 1,
+                get_area_membind: 1,
+                alloc_membind: 1,
+                firsttouch_membind: 1,
+                bind_membind: 1,
+                interleave_membind: 1,
+                nexttouch_membind: 0,
+                migrate_membind: 1,
+                get_area_memlocation: 1,
+            },
+        );
     }
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn should_not_support_cpu_binding_on_macos() {
-        assert!(!cpu_binding_supported(
-            CpuBindingSupport::set_current_process
-        ));
-        assert!(!cpu_binding_supported(
-            CpuBindingSupport::set_current_thread
-        ));
+    fn macos() {
+        expect_support(
+            hwloc_topology_discovery_support {
+                pu: 1,
+                numa: 1,
+                numa_memory: 0,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_pu: 0,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_numa: 0,
+                #[cfg(feature = "hwloc-2_4_0")]
+                cpukind_efficiency: 1,
+            },
+            hwloc_topology_cpubind_support {
+                set_thisproc_cpubind: 0,
+                get_thisproc_cpubind: 0,
+                set_proc_cpubind: 0,
+                get_proc_cpubind: 0,
+                set_thisthread_cpubind: 0,
+                get_thisthread_cpubind: 0,
+                set_thread_cpubind: 0,
+                get_thread_cpubind: 0,
+                get_thisproc_last_cpu_location: 0,
+                get_proc_last_cpu_location: 0,
+                get_thisthread_last_cpu_location: 0,
+            },
+            hwloc_topology_membind_support {
+                set_thisproc_membind: 0,
+                get_thisproc_membind: 0,
+                set_proc_membind: 0,
+                get_proc_membind: 0,
+                set_thisthread_membind: 0,
+                get_thisthread_membind: 0,
+                set_area_membind: 0,
+                get_area_membind: 0,
+                alloc_membind: 0,
+                firsttouch_membind: 0,
+                bind_membind: 0,
+                interleave_membind: 0,
+                nexttouch_membind: 0,
+                migrate_membind: 0,
+                get_area_memlocation: 0,
+            },
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows() {
+        expect_support(
+            hwloc_topology_discovery_support {
+                pu: 1,
+                numa: 1,
+                numa_memory: 1,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_pu: 0,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_numa: 0,
+                #[cfg(feature = "hwloc-2_4_0")]
+                cpukind_efficiency: 1,
+            },
+            hwloc_topology_cpubind_support {
+                set_thisproc_cpubind: 1,
+                get_thisproc_cpubind: 1,
+                set_proc_cpubind: 1,
+                get_proc_cpubind: 1,
+                set_thisthread_cpubind: 1,
+                get_thisthread_cpubind: 1,
+                set_thread_cpubind: 1,
+                get_thread_cpubind: 1,
+                get_thisproc_last_cpu_location: 0,
+                get_proc_last_cpu_location: 0,
+                get_thisthread_last_cpu_location: 1,
+            },
+            hwloc_topology_membind_support {
+                set_thisproc_membind: 1,
+                get_thisproc_membind: 1,
+                set_proc_membind: 1,
+                get_proc_membind: 1,
+                set_thisthread_membind: 1,
+                get_thisthread_membind: 1,
+                set_area_membind: 0,
+                get_area_membind: 0,
+                alloc_membind: 1,
+                firsttouch_membind: 0,
+                bind_membind: 1,
+                interleave_membind: 0,
+                nexttouch_membind: 0,
+                migrate_membind: 0,
+                get_area_memlocation: 1,
+            },
+        );
+    }
+
+    #[test]
+    fn feature_support() {
+        let default_support = Topology::test_instance().feature_support();
+        let null_support = &FeatureSupport(hwloc_topology_support {
+            discovery: ptr::null(),
+            cpubind: ptr::null(),
+            membind: ptr::null(),
+            #[cfg(feature = "hwloc-2_3_0")]
+            misc: ptr::null(),
+        });
+        let null_discovery = &FeatureSupport(hwloc_topology_support {
+            discovery: ptr::null(),
+            ..default_support.0
+        });
+        let null_cpubind = &FeatureSupport(hwloc_topology_support {
+            cpubind: ptr::null(),
+            ..default_support.0
+        });
+        let null_membind = &FeatureSupport(hwloc_topology_support {
+            membind: ptr::null(),
+            ..default_support.0
+        });
+        #[cfg(feature = "hwloc-2_3_0")]
+        let null_misc = &FeatureSupport(hwloc_topology_support {
+            misc: ptr::null(),
+            ..default_support.0
+        });
+
+        fn check_debug(support: &FeatureSupport) {
+            #[cfg(feature = "hwloc-2_3_0")]
+            let misc_debug = format!(", misc: {:?}", support.misc());
+            #[cfg(not(feature = "hwloc-2_3_0"))]
+            let misc_debug = String::new();
+            assert_eq!(
+                format!("{support:?}"),
+                format!(
+                    "FeatureSupport {{ discovery: {:?}, cpubind: {:?}, membind: {:?}{} }}",
+                    support.discovery(),
+                    support.cpu_binding(),
+                    support.memory_binding(),
+                    misc_debug,
+                )
+            );
+        }
+        check_debug(default_support);
+        check_debug(null_support);
+        check_debug(null_discovery);
+        check_debug(null_cpubind);
+        check_debug(null_membind);
+        #[cfg(feature = "hwloc-2_3_0")]
+        check_debug(null_misc);
+
+        fn hash<T: Hash>(t: &T) -> u64 {
+            let mut s = DefaultHasher::new();
+            t.hash(&mut s);
+            s.finish()
+        }
+        fn compare(support1: &FeatureSupport, support2: &FeatureSupport, equal: bool) {
+            if equal {
+                assert_eq!(support1, support2);
+                assert_eq!(hash(support1), hash(support2));
+            } else {
+                assert_ne!(support1, support2);
+                assert_ne!(hash(support1), hash(support2));
+            }
+        }
+        compare(default_support, default_support, true);
+        compare(null_support, null_support, true);
+        compare(default_support, null_support, false);
+        compare(default_support, null_discovery, false);
+        compare(default_support, null_cpubind, false);
+        compare(default_support, null_membind, false);
+        #[cfg(feature = "hwloc-2_3_0")]
+        compare(default_support, null_misc, false);
     }
 }

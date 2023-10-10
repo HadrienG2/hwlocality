@@ -13,7 +13,8 @@ fn main() -> anyhow::Result<()> {
         println!("This example requires memory binding support");
         return Ok(());
     };
-    if !(support.alloc() || support.set_current_process() || support.set_current_thread()) {
+    if !(support.allocate_bound() || support.set_current_process() || support.set_current_thread())
+    {
         println!(
             "This example needs support for querying and setting current process CPU bindings"
         );
