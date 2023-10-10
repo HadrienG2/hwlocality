@@ -448,11 +448,8 @@ mod tests {
                 flag(discovery.disallowed_numa)
             );
         }
-        #[cfg(feature = "hwloc-2_4_0")]
-        assert_eq!(
-            discovery_support.cpukind_efficiency(),
-            flag(discovery.cpukind_efficiency)
-        );
+        // NOTE: Support for cpukind_efficiency has varied over time, so can't
+        //       test its value for a given OS
 
         let cpubind_support = support.cpu_binding().unwrap();
         assert_eq!(
