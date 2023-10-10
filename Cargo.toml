@@ -128,7 +128,7 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 bundled = ["hwlocality-sys/bundled"]
 
 # Implement quickcheck's Arbitrary trait for types where it makes sense
-quickcheck = ["dep:quickcheck", "rand"]
+quickcheck = ["dep:enum_iterator", "dep:quickcheck", "dep:rand"]
 
 [dependencies]
 # === Last dependency usage review performed 2023-09-30 ===
