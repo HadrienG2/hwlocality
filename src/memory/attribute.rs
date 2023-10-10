@@ -1477,6 +1477,7 @@ impl quickcheck::Arbitrary for LocalNUMANodeFlags {
         Self::from_bits_truncate(hwloc_local_numanode_flag_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))
@@ -1601,6 +1602,7 @@ impl quickcheck::Arbitrary for MemoryAttributeFlags {
         Self::from_bits_truncate(hwloc_memattr_flag_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))

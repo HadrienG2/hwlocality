@@ -134,6 +134,7 @@ impl quickcheck::Arbitrary for SyntheticExportFlags {
         Self::from_bits_truncate(hwloc_topology_export_synthetic_flags_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))

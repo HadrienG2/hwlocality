@@ -534,6 +534,7 @@ impl quickcheck::Arbitrary for AddDistancesFlags {
         Self::from_bits_truncate(hwloc_distances_add_flag_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))
@@ -1415,6 +1416,7 @@ impl quickcheck::Arbitrary for DistancesKind {
         Self::from_bits_truncate(hwloc_distances_kind_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))

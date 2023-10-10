@@ -409,6 +409,7 @@ pub enum FileInputError {
     Invalid(Box<Path>),
 }
 
+#[cfg(not(tarpaulin_include))]
 #[cfg(feature = "hwloc-2_1_0")]
 bitflags! {
     /// Flags to be passed to `hwloc_topology_set_components()`
@@ -483,7 +484,7 @@ impl TopologyBuilder {
     ///
     /// - [`CantKeepGroup`] if one attempts to set [`TypeFilter::KeepAll`] for
     ///   [`Group`] objects, which is not allowed by hwloc.
-    /// - [`CantIgnore`] if one attempt's to ignore the top- and bottom-level
+    /// - [`CantIgnore`] if one attempts to ignore the top- and bottom-level
     ///   [`Machine`], [`PU`] and [`NUMANode`] types.
     /// - [`StructureIrrelevant`] if one attempts to set
     ///   [`TypeFilter::KeepStructure`] for I/O and [`Misc`] objects, for which
@@ -501,14 +502,17 @@ impl TopologyBuilder {
     pub fn with_type_filter(
         mut self,
         ty: ObjectType,
-        filter: TypeFilter,
+        mut filter: TypeFilter,
     ) -> Result<Self, HybridError<TypeFilterError>> {
+        if filter == TypeFilter::KeepImportant && !ty.is_io() {
+            filter = TypeFilter::KeepAll;
+        }
         match (ty, filter) {
             (ObjectType::Group, TypeFilter::KeepAll) => {
                 return Err(TypeFilterError::CantKeepGroup.into())
             }
-            (_, TypeFilter::KeepNone) => {
-                if let ObjectType::Machine | ObjectType::PU | ObjectType::NUMANode = ty {
+            (ObjectType::Machine | ObjectType::PU | ObjectType::NUMANode, _) => {
+                if filter != TypeFilter::KeepAll {
                     return Err(TypeFilterError::CantIgnore(ty).into());
                 }
             }
@@ -550,6 +554,14 @@ impl TopologyBuilder {
         errors::call_hwloc_int_normal("hwloc_topology_set_all_types_filter", || unsafe {
             hwlocality_sys::hwloc_topology_set_all_types_filter(self.as_mut_ptr(), filter.into())
         })?;
+
+        // Workaround for hwloc check assertion failure that shouldn't fail
+        if filter == TypeFilter::KeepImportant {
+            self = self
+                .with_type_filter(ObjectType::Group, TypeFilter::KeepStructure)
+                .expect("Known to be a supported combination");
+        }
+
         Ok(self)
     }
 
@@ -558,7 +570,13 @@ impl TopologyBuilder {
     /// Memory-side caches are not involved since they are not CPU caches.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_set_cache_types_filter")]
-    pub fn with_cpu_cache_type_filter(mut self, filter: TypeFilter) -> Result<Self, RawHwlocError> {
+    pub fn with_cpu_cache_type_filter(
+        mut self,
+        mut filter: TypeFilter,
+    ) -> Result<Self, RawHwlocError> {
+        if filter == TypeFilter::KeepImportant {
+            filter = TypeFilter::KeepAll
+        }
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
@@ -576,8 +594,11 @@ impl TopologyBuilder {
     #[doc(alias = "hwloc_topology_set_icache_types_filter")]
     pub fn with_cpu_icache_type_filter(
         mut self,
-        filter: TypeFilter,
+        mut filter: TypeFilter,
     ) -> Result<Self, RawHwlocError> {
+        if filter == TypeFilter::KeepImportant {
+            filter = TypeFilter::KeepAll
+        }
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
@@ -635,6 +656,7 @@ impl TopologyBuilder {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Topology building configuration flags
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -844,6 +866,7 @@ impl quickcheck::Arbitrary for BuildFlags {
         Self::from_bits_truncate(hwloc_topology_flags_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))
@@ -989,6 +1012,7 @@ unsafe impl Sync for TopologyBuilder {}
 mod tests {
     use super::*;
     use crate::topology::export::xml::XMLExportFlags;
+    use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck::TestResult;
@@ -1137,7 +1161,11 @@ mod tests {
     #[test]
     fn default() {
         let mut default_topologies = vec![Topology::new().unwrap()];
-        for default_builder in [Topology::builder(), TopologyBuilder::new()] {
+        for default_builder in [
+            Topology::builder(),
+            TopologyBuilder::new(),
+            TopologyBuilder::default(),
+        ] {
             check_default_builder(&default_builder);
             default_topologies.push(default_builder.build().unwrap());
         }
@@ -1193,17 +1221,33 @@ mod tests {
     /// from querying another PID..
     #[quickcheck]
     fn from_pid(build_flags: BuildFlags) -> TestResult {
-        builder_with_flags(build_flags).map_or_else(TestResult::discard, |builder| {
-            let my_pid = ProcessId::try_from(sysinfo::get_current_pid().unwrap().as_u32()).unwrap();
-            let topology = builder.from_pid(my_pid).unwrap().build().unwrap();
-            check_topology(
-                &topology,
-                DataSource::ThisSystem,
-                build_flags,
-                default_type_filter,
-            );
-            TestResult::passed()
-        })
+        // Filter out invalid build flags
+        let Some(builder) = builder_with_flags(build_flags) else {
+            return TestResult::discard();
+        };
+
+        // Try building from an invalid PID. Not every platform will detect this
+        // error, e.g. Linux certainly doesn't seem to care
+        assert!(matches!(
+            dbg!(builder.from_pid(ProcessId::MAX)),
+            Ok(_) | Err(HybridError::Rust(FromPIDError(0)))
+        ));
+
+        // Try building from this process' PID
+        let my_pid = ProcessId::try_from(sysinfo::get_current_pid().unwrap().as_u32()).unwrap();
+        let topology = builder_with_flags(build_flags)
+            .unwrap()
+            .from_pid(my_pid)
+            .unwrap()
+            .build()
+            .unwrap();
+        check_topology(
+            &topology,
+            DataSource::ThisSystem,
+            build_flags,
+            default_type_filter,
+        );
+        TestResult::passed()
     }
 
     /// Test building from a Synthetic description
@@ -1213,6 +1257,20 @@ mod tests {
         let Some(builder) = builder_with_flags(build_flags) else {
             return TestResult::discard();
         };
+
+        // Try building from an invalid string with an inner NUL
+        assert!(matches!(
+            builder.from_synthetic("\0"),
+            Err(StringInputError::ContainsNul)
+        ));
+
+        // Try building from an invalid string with unexpected text
+        assert!(matches!(
+            builder_with_flags(build_flags)
+                .unwrap()
+                .from_synthetic("ZaLgO"),
+            Err(StringInputError::Invalid)
+        ));
 
         // Example from https://hwloc.readthedocs.io/en/v2.9/synthetic.html
         let synthetic = "Package:2 NUMANode:3 L2Cache:4 Core:5 PU:6";
@@ -1227,7 +1285,12 @@ mod tests {
             _ => 0,
         };
 
-        let topology = builder.from_synthetic(synthetic).unwrap().build().unwrap();
+        let topology = builder_with_flags(build_flags)
+            .unwrap()
+            .from_synthetic(synthetic)
+            .unwrap()
+            .build()
+            .unwrap();
         check_topology(
             &topology,
             DataSource::Synthetic,
@@ -1264,8 +1327,14 @@ mod tests {
             return TestResult::discard();
         };
 
+        // Try building from an invalid string with unexpected text
+        assert!(matches!(
+            builder.from_xml("ZaLgO"),
+            Err(StringInputError::Invalid)
+        ));
+
         // Use a default-built topology as our reference
-        let default = builder.build().unwrap();
+        let default = builder_with_flags(build_flags).unwrap().build().unwrap();
         let check_xml_topology = |topology: &Topology| {
             check_topology(topology, DataSource::Xml, build_flags, default_type_filter);
             for object_type in enum_iterator::all::<ObjectType>() {
@@ -1302,6 +1371,205 @@ mod tests {
                 .build()
                 .unwrap();
             check_xml_topology(&topology);
+        }
+        TestResult::passed()
+    }
+
+    /// Add a targeted type filter
+    #[quickcheck]
+    fn with_type_filter(
+        build_flags: BuildFlags,
+        object_type: ObjectType,
+        filter: TypeFilter,
+    ) -> TestResult {
+        // Filter out invalid build flags
+        let Some(builder) = builder_with_flags(build_flags) else {
+            return TestResult::discard();
+        };
+
+        // Predict and check type filtering outcome
+        let result = builder.with_type_filter(object_type, filter);
+        if object_type == ObjectType::Group
+            && [TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&filter)
+        {
+            assert!(matches!(
+                result,
+                Err(HybridError::Rust(TypeFilterError::CantKeepGroup))
+            ));
+        } else if [ObjectType::Machine, ObjectType::PU, ObjectType::NUMANode].contains(&object_type)
+            && ![TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&filter)
+        {
+            assert!(matches!(
+                result,
+                Err(HybridError::Rust(e)) if e == TypeFilterError::from(object_type)
+            ));
+        } else if filter == TypeFilter::KeepStructure
+            && (object_type.is_io() || object_type == ObjectType::Misc)
+        {
+            assert!(matches!(
+                result,
+                Err(HybridError::Rust(TypeFilterError::StructureIrrelevant))
+            ));
+        } else {
+            let topology = result.unwrap().build().unwrap();
+            let predicted_filter = |ty: ObjectType| {
+                if ty == object_type {
+                    // Important is equivalent to All for Non-IO objects
+                    if filter == TypeFilter::KeepImportant && !ty.is_io() {
+                        TypeFilter::KeepAll
+                    } else {
+                        filter
+                    }
+                } else {
+                    default_type_filter(ty)
+                }
+            };
+            check_topology(
+                &topology,
+                DataSource::ThisSystem,
+                build_flags,
+                predicted_filter,
+            );
+        }
+        TestResult::passed()
+    }
+
+    /// Add a common type filter
+    #[quickcheck]
+    fn with_common_type_filter(build_flags: BuildFlags, filter: TypeFilter) -> TestResult {
+        // Filter out invalid build flags
+        let Some(builder) = builder_with_flags(build_flags) else {
+            return TestResult::discard();
+        };
+
+        let topology = builder
+            .with_common_type_filter(filter)
+            .unwrap()
+            .build()
+            .unwrap();
+        let predicted_filter = |ty: ObjectType| {
+            if (ty == ObjectType::Group
+                && [TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&filter))
+                || [ObjectType::Machine, ObjectType::PU, ObjectType::NUMANode].contains(&ty)
+                || (filter == TypeFilter::KeepStructure && (ty.is_io() || ty == ObjectType::Misc))
+            {
+                default_type_filter(ty)
+            } else if filter == TypeFilter::KeepImportant && !ty.is_io() {
+                let actual = topology.type_filter(ty).unwrap();
+                assert!([TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&actual));
+                actual
+            } else {
+                filter
+            }
+        };
+
+        check_topology(
+            &topology,
+            DataSource::ThisSystem,
+            build_flags,
+            predicted_filter,
+        );
+        TestResult::passed()
+    }
+
+    /// Add a CPU cache type filter
+    #[quickcheck]
+    fn with_cpu_cache_type_filter(build_flags: BuildFlags, filter: TypeFilter) -> TestResult {
+        // Filter out invalid build flags
+        let Some(builder) = builder_with_flags(build_flags) else {
+            return TestResult::discard();
+        };
+
+        let topology = builder
+            .with_cpu_cache_type_filter(filter)
+            .unwrap()
+            .build()
+            .unwrap();
+        let predicted_filter = |ty: ObjectType| {
+            if ty.is_cpu_cache() {
+                if filter == TypeFilter::KeepImportant {
+                    TypeFilter::KeepAll
+                } else {
+                    filter
+                }
+            } else {
+                default_type_filter(ty)
+            }
+        };
+
+        check_topology(
+            &topology,
+            DataSource::ThisSystem,
+            build_flags,
+            predicted_filter,
+        );
+        TestResult::passed()
+    }
+
+    /// Add a CPU instruction cache type filter
+    #[quickcheck]
+    fn with_cpu_icache_type_filter(build_flags: BuildFlags, filter: TypeFilter) -> TestResult {
+        // Filter out invalid build flags
+        let Some(builder) = builder_with_flags(build_flags) else {
+            return TestResult::discard();
+        };
+
+        let topology = builder
+            .with_cpu_icache_type_filter(filter)
+            .unwrap()
+            .build()
+            .unwrap();
+        let predicted_filter = |ty: ObjectType| {
+            if ty.is_cpu_instruction_cache() {
+                if filter == TypeFilter::KeepImportant {
+                    TypeFilter::KeepAll
+                } else {
+                    filter
+                }
+            } else {
+                default_type_filter(ty)
+            }
+        };
+
+        check_topology(
+            &topology,
+            DataSource::ThisSystem,
+            build_flags,
+            predicted_filter,
+        );
+        TestResult::passed()
+    }
+
+    /// Add an I/O object type filter
+    #[quickcheck]
+    fn with_io_type_filter(build_flags: BuildFlags, filter: TypeFilter) -> TestResult {
+        // Filter out invalid build flags
+        let Some(builder) = builder_with_flags(build_flags) else {
+            return TestResult::discard();
+        };
+
+        // Predict and check type filtering outcome
+        let result = builder.with_io_type_filter(filter);
+        if filter == TypeFilter::KeepStructure {
+            assert!(matches!(
+                result,
+                Err(HybridError::Rust(TypeFilterError::StructureIrrelevant))
+            ));
+        } else {
+            let topology = result.unwrap().build().unwrap();
+            let predicted_filter = |ty: ObjectType| {
+                if ty.is_io() {
+                    filter
+                } else {
+                    default_type_filter(ty)
+                }
+            };
+            check_topology(
+                &topology,
+                DataSource::ThisSystem,
+                build_flags,
+                predicted_filter,
+            );
         }
         TestResult::passed()
     }

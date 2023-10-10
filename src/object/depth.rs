@@ -107,6 +107,7 @@ impl quickcheck::Arbitrary for Depth {
         }
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         if let Self::Normal(normal) = self {
             Box::new(normal.shrink().map(Self::Normal))

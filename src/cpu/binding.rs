@@ -747,6 +747,7 @@ impl quickcheck::Arbitrary for CpuBindingFlags {
         Self::from_bits_truncate(hwloc_cpubind_flags_t::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))

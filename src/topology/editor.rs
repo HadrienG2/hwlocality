@@ -60,7 +60,6 @@ use libc::{EINVAL, ENOMEM};
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
-    ffi::c_ulong,
     fmt::{self, Write},
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr::{self, NonNull},
@@ -554,6 +553,7 @@ impl quickcheck::Arbitrary for RestrictFlags {
         RestrictFlags::from_bits_truncate(hwloc_restrict_flags_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))

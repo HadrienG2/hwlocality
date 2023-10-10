@@ -559,9 +559,10 @@ bitflags! {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for DistributeFlags {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        DistributeFlags::from_bits_truncate(hwloc_distrib_flags_e::arbitrary(g))
+        Self::from_bits_truncate(hwloc_distrib_flags_e::arbitrary(g))
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
         Box::new(self.into_iter().map(move |value| self_copy ^ value))
