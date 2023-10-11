@@ -74,7 +74,7 @@ use std::{
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},
-    fmt::{self, Debug, Display},
+    fmt::{self, Debug, Display, Pointer},
     hash::{self, Hash},
     iter::{FromIterator, FusedIterator},
     marker::PhantomData,
@@ -1451,7 +1451,7 @@ impl Hash for Bitmap {
 }
 
 /// Iterator over set or unset [`Bitmap`] indices
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Iter<B> {
     /// Bitmap over which we're iterating
     bitmap: B,
@@ -1564,6 +1564,12 @@ impl<B: Borrow<Self>> PartialEq<B> for Bitmap {
 impl<B: Borrow<Self>> PartialOrd<B> for Bitmap {
     fn partial_cmp(&self, other: &B) -> Option<Ordering> {
         Some(self.cmp(other.borrow()))
+    }
+}
+
+impl Pointer for Bitmap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
 }
 
@@ -1952,7 +1958,7 @@ where
     }
 }
 
-impl<Target> fmt::Pointer for BitmapRef<'_, Target> {
+impl<Target> Pointer for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
@@ -2591,6 +2597,12 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
+        impl std::fmt::Pointer for $newtype {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                <$crate::bitmap::Bitmap as std::fmt::Pointer>::fmt(&self.0, f)
+            }
+        }
+
         impl $crate::Sealed for $newtype {}
 
         impl<B: std::borrow::Borrow<$newtype>> std::ops::Sub<B> for &$newtype {
@@ -2649,17 +2661,20 @@ macro_rules! impl_bitmap_newtype_tests {
             use std::{
                 borrow::{Borrow, BorrowMut},
                 collections::hash_map::DefaultHasher,
-                fmt::{Debug, Display, Pointer},
+                fmt::{
+                    self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+                },
                 hash::{Hash, Hasher},
+                io::{self, Read},
                 mem::ManuallyDrop,
                 ops::{
-                    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor,
-                    BitXorAssign, Deref, Not, RangeInclusive, Sub, SubAssign
+                    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Deref, Drop,
+                    BitXorAssign, Not, RangeInclusive, Sub, SubAssign
                 },
-                panic::{RefUnwindSafe, UnwindSafe},
+                panic::{UnwindSafe},
                 ptr::{self, NonNull}
             };
-            use static_assertions::assert_impl_all;
+            use static_assertions::{assert_impl_all, assert_not_impl_any};
 
             // Check that newtypes keep implementing all expected traits,
             // in the interest of detecting future semver-breaking changes
@@ -2695,7 +2710,7 @@ macro_rules! impl_bitmap_newtype_tests {
                 PartialOrd<&'static $newtype>,
                 PartialOrd<BitmapRef<'static, $newtype>>,
                 PartialOrd<&'static BitmapRef<'static, $newtype>>,
-                RefUnwindSafe, Send, Sized,
+                Pointer, Sized,
                 Sub<$newtype>, Sub<&'static $newtype>,
                 Sub<BitmapRef<'static, $newtype>>,
                 Sub<&'static BitmapRef<'static, $newtype>>,
@@ -2703,6 +2718,10 @@ macro_rules! impl_bitmap_newtype_tests {
                 SubAssign<BitmapRef<'static, $newtype>>,
                 SubAssign<&'static BitmapRef<'static, $newtype>>,
                 Sync, Unpin, UnwindSafe
+            );
+            assert_not_impl_any!($newtype:
+                Binary, Copy, Deref, LowerExp, LowerHex, Octal, Read, UpperExp,
+                UpperHex, fmt::Write, io::Write
             );
             assert_impl_all!(&$newtype:
                 BitAnd<$newtype>, BitAnd<&'static $newtype>,
@@ -2714,12 +2733,11 @@ macro_rules! impl_bitmap_newtype_tests {
                 BitXor<$newtype>, BitXor<&'static $newtype>,
                 BitXor<BitmapRef<'static, $newtype>>,
                 BitXor<&'static BitmapRef<'static, $newtype>>,
-                Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
-                Not<Output=$newtype>, RefUnwindSafe, Send, Sized,
+                IntoIterator<Item=BitmapIndex>,
+                Not<Output=$newtype>,
                 Sub<$newtype>, Sub<&'static $newtype>,
                 Sub<BitmapRef<'static, $newtype>>,
                 Sub<&'static BitmapRef<'static, $newtype>>,
-                Sync, Unpin, UnwindSafe
             );
             assert_impl_all!(BitmapRef<'static, $newtype>:
                 AsRef<$newtype>, AsRef<Bitmap>,
@@ -2732,7 +2750,7 @@ macro_rules! impl_bitmap_newtype_tests {
                 BitXor<$newtype>, BitXor<&'static $newtype>,
                 BitXor<BitmapRef<'static, $newtype>>,
                 BitXor<&'static BitmapRef<'static, $newtype>>,
-                Borrow<$newtype>, Borrow<Bitmap>, Clone, Debug,
+                Borrow<$newtype>, Borrow<Bitmap>, Copy, Debug,
                 Deref<Target=$newtype>, Display, Eq, From<&'static $newtype>,
                 Hash, Into<BitmapRef<'static, Bitmap>>,
                 IntoIterator<Item=BitmapIndex>, Not<Output=$newtype>, Ord,
@@ -2742,12 +2760,15 @@ macro_rules! impl_bitmap_newtype_tests {
                 PartialOrd<&'static $newtype>,
                 PartialOrd<BitmapRef<'static, $newtype>>,
                 PartialOrd<&'static BitmapRef<'static, $newtype>>,
-                Pointer, RefUnwindSafe, Send, Sized,
-                SpecializedBitmap<Owned=$newtype>,
+                Pointer, Sized, SpecializedBitmap<Owned=$newtype>,
                 Sub<$newtype>, Sub<&'static $newtype>,
                 Sub<BitmapRef<'static, $newtype>>,
                 Sub<&'static BitmapRef<'static, $newtype>>,
                 Sync, Unpin, UnwindSafe
+            );
+            assert_not_impl_any!(BitmapRef<'_, $newtype>:
+                Binary, Default, Drop, LowerExp, LowerHex, Octal, Read,
+                UpperExp, UpperHex, fmt::Write, io::Write
             );
             assert_impl_all!(&BitmapRef<'static, $newtype>:
                 BitAnd<$newtype>, BitAnd<&'static $newtype>,
@@ -2759,12 +2780,11 @@ macro_rules! impl_bitmap_newtype_tests {
                 BitXor<$newtype>, BitXor<&'static $newtype>,
                 BitXor<BitmapRef<'static, $newtype>>,
                 BitXor<&'static BitmapRef<'static, $newtype>>,
-                Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
-                Not<Output=$newtype>, RefUnwindSafe, Send, Sized,
+                IntoIterator<Item=BitmapIndex>,
+                Not<Output=$newtype>,
                 Sub<$newtype>, Sub<&'static $newtype>,
                 Sub<BitmapRef<'static, $newtype>>,
                 Sub<&'static BitmapRef<'static, $newtype>>,
-                Sync, Unpin, UnwindSafe
             );
 
             /// Compute the hash of something
@@ -2887,6 +2907,7 @@ macro_rules! impl_bitmap_newtype_tests {
                     format!("{new:?}"),
                     format!("{}({:?})", stringify!($newtype), new.0)
                 );
+                assert_eq!(format!("{:p}", new), format!("{:p}", new.0));
                 assert_eq!(
                     new.to_string(),
                     format!("{}({})", stringify!($newtype), new.0)
@@ -3115,20 +3136,28 @@ pub(crate) mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{
+        assert_eq_align, assert_eq_size, assert_impl_all, assert_not_impl_any, assert_type_eq_all,
+    };
     use std::{
         collections::{hash_map::DefaultHasher, HashSet},
         ffi::c_ulonglong,
-        fmt::{Pointer, Write},
-        hash::Hasher,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+            Write,
+        },
+        hash::{Hash, Hasher},
+        io::{self, Read},
         mem::ManuallyDrop,
-        ops::{Range, RangeFrom, RangeInclusive},
-        panic::{RefUnwindSafe, UnwindSafe},
+        ops::{Deref, Drop, Range, RangeFrom, RangeInclusive},
+        panic::UnwindSafe,
         ptr,
     };
 
     // Check that public types in this module keep implementing all expected
     // traits, in the interest of detecting future semver-breaking changes
+    assert_eq_align!(Bitmap, NonNull<hwloc_bitmap_s>);
+    assert_eq_size!(Bitmap, NonNull<hwloc_bitmap_s>);
     assert_impl_all!(Bitmap:
         BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
         BitAnd<BitmapRef<'static, Bitmap>>,
@@ -3148,7 +3177,7 @@ pub(crate) mod tests {
         BitXorAssign<Bitmap>, BitXorAssign<&'static Bitmap>,
         BitXorAssign<BitmapRef<'static, Bitmap>>,
         BitXorAssign<&'static BitmapRef<'static, Bitmap>>,
-        Clone, Debug, Default, Display, Eq,
+        Clone, Debug, Default, Display,
         Extend<BitmapIndex>, Extend<&'static BitmapIndex>,
         From<BitmapIndex>, From<&'static BitmapIndex>,
         FromIterator<BitmapIndex>, FromIterator<&'static BitmapIndex>,
@@ -3159,7 +3188,7 @@ pub(crate) mod tests {
         PartialOrd<&'static Bitmap>,
         PartialOrd<BitmapRef<'static, Bitmap>>,
         PartialOrd<&'static BitmapRef<'static, Bitmap>>,
-        RefUnwindSafe, Send, Sized,
+        Pointer, Sized,
         Sub<Bitmap>, Sub<&'static Bitmap>,
         Sub<BitmapRef<'static, Bitmap>>,
         Sub<&'static BitmapRef<'static, Bitmap>>,
@@ -3167,6 +3196,10 @@ pub(crate) mod tests {
         SubAssign<BitmapRef<'static, Bitmap>>,
         SubAssign<&'static BitmapRef<'static, Bitmap>>,
         Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(Bitmap:
+        Binary, Copy, Deref, LowerExp, LowerHex, Octal, Read, UpperExp,
+        UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(&Bitmap:
         BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
@@ -3178,13 +3211,14 @@ pub(crate) mod tests {
         BitXor<Bitmap>, BitXor<&'static Bitmap>,
         BitXor<BitmapRef<'static, Bitmap>>,
         BitXor<&'static BitmapRef<'static, Bitmap>>,
-        Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
-        Not<Output=Bitmap>, RefUnwindSafe, Send, Sized,
+        IntoIterator<Item=BitmapIndex>,
+        Not<Output=Bitmap>,
         Sub<Bitmap>, Sub<&'static Bitmap>,
         Sub<BitmapRef<'static, Bitmap>>,
         Sub<&'static BitmapRef<'static, Bitmap>>,
-        Sync, Unpin, UnwindSafe
     );
+    assert_eq_align!(BitmapRef<'static, Bitmap>, NonNull<hwloc_bitmap_s>);
+    assert_eq_size!(BitmapRef<'static, Bitmap>, NonNull<hwloc_bitmap_s>);
     assert_impl_all!(BitmapRef<'static, Bitmap>:
         AsRef<Bitmap>,
         BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
@@ -3196,8 +3230,8 @@ pub(crate) mod tests {
         BitXor<Bitmap>, BitXor<&'static Bitmap>,
         BitXor<BitmapRef<'static, Bitmap>>,
         BitXor<&'static BitmapRef<'static, Bitmap>>,
-        Borrow<Bitmap>, Clone, Debug,
-        Deref<Target=Bitmap>, Display, Eq, From<&'static Bitmap>, Hash,
+        Borrow<Bitmap>, Copy, Debug,
+        Deref<Target=Bitmap>, Display, From<&'static Bitmap>, Hash,
         IntoIterator<Item=BitmapIndex>, Not<Output=Bitmap>, Ord,
         PartialEq<&'static Bitmap>,
         PartialEq<BitmapRef<'static, Bitmap>>,
@@ -3205,11 +3239,15 @@ pub(crate) mod tests {
         PartialOrd<&'static Bitmap>,
         PartialOrd<BitmapRef<'static, Bitmap>>,
         PartialOrd<&'static BitmapRef<'static, Bitmap>>,
-        Pointer, RefUnwindSafe, Send, Sized,
+        Pointer, Sized,
         Sub<Bitmap>, Sub<&'static Bitmap>,
         Sub<BitmapRef<'static, Bitmap>>,
         Sub<&'static BitmapRef<'static, Bitmap>>,
         Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(BitmapRef<'_, Bitmap>:
+        Binary, Default, Drop, LowerExp, LowerHex, Octal, Read, UpperExp,
+        UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(&BitmapRef<'static, Bitmap>:
         BitAnd<Bitmap>, BitAnd<&'static Bitmap>,
@@ -3221,25 +3259,37 @@ pub(crate) mod tests {
         BitXor<Bitmap>, BitXor<&'static Bitmap>,
         BitXor<BitmapRef<'static, Bitmap>>,
         BitXor<&'static BitmapRef<'static, Bitmap>>,
-        Clone, Debug, Display, Hash, IntoIterator<Item=BitmapIndex>,
-        Not<Output=Bitmap>, RefUnwindSafe, Send, Sized,
+        IntoIterator<Item=BitmapIndex>,
+        Not<Output=Bitmap>,
         Sub<Bitmap>, Sub<&'static Bitmap>,
         Sub<BitmapRef<'static, Bitmap>>,
         Sub<&'static BitmapRef<'static, Bitmap>>,
-        Sync, Unpin, UnwindSafe
     );
     assert_impl_all!(Iter<Bitmap>:
-        Clone, Debug, FusedIterator<Item=BitmapIndex>, RefUnwindSafe, Send,
-        Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_impl_all!(Iter<&Bitmap>:
-        Clone, Copy, Debug, FusedIterator<Item=BitmapIndex>, RefUnwindSafe,
-        Send, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_impl_all!(BitmapKind:
-        Clone, Copy, Debug, Eq, Hash, RefUnwindSafe, Send, Sized, Sync, Unpin,
+        Clone, Debug, FusedIterator<Item=BitmapIndex>, Hash, Sized, Sync, Unpin,
         UnwindSafe
     );
+    assert_not_impl_any!(Iter<Bitmap>:
+        Binary, Copy, Default, Deref, Display, LowerExp, LowerHex, Octal,
+        Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(Iter<&Bitmap>:
+        Copy, Debug, FusedIterator<Item=BitmapIndex>, Hash, Sized, Sync, Unpin,
+        UnwindSafe
+    );
+    assert_not_impl_any!(Iter<&Bitmap>:
+        Binary, Default, Deref, Display, LowerExp, LowerHex, Octal, Pointer,
+        Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(BitmapKind:
+        Copy, Debug, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(BitmapKind:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_type_eq_all!(BitmapIndex, PositiveInt);
 
     // We can't fully check the value of infinite iterators because that would
     // literally take forever, so we only check a small subrange of the final
@@ -3280,6 +3330,8 @@ pub(crate) mod tests {
     }
 
     fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) {
+        assert_eq!(format!("{:p}", *initial), format!("{:p}", initial.0));
+
         let mut buf = initial.clone();
         buf.clear();
         assert!(buf.is_empty());

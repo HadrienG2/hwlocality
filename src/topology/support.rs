@@ -423,7 +423,59 @@ mod tests {
     use crate::topology::Topology;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use std::{collections::hash_map::DefaultHasher, hash::Hasher, ptr};
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::{Hash, Hasher},
+        io::{self, Read},
+        ops::Deref,
+        panic::UnwindSafe,
+        ptr,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(FeatureSupport:
+        Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(FeatureSupport:
+        Binary, Clone, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, ToOwned, UpperExp, UpperHex,
+        fmt::Write, io::Write
+    );
+    assert_impl_all!(CpuBindingSupport:
+        Copy, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(CpuBindingSupport:
+        Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(DiscoverySupport:
+        Copy, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(DiscoverySupport:
+        Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(MemoryBindingSupport:
+        Copy, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(MemoryBindingSupport:
+        Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_impl_all!(MiscSupport:
+        Copy, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_not_impl_any!(MiscSupport:
+        Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
 
     fn expect_support(
         discovery: hwloc_topology_discovery_support,

@@ -3397,13 +3397,15 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::DefaultHasher,
         ffi::c_uint,
-        fmt::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex},
+        fmt::{self, Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::{Hash, Hasher},
+        io::{self, Read},
         num::IntErrorKind,
+        ops::Deref,
         panic::{RefUnwindSafe, UnwindSafe},
     };
 
@@ -3427,17 +3429,17 @@ mod tests {
         BitXorAssign<PositiveInt>, BitXorAssign<&'static PositiveInt>,
         BitXor<usize>, BitXor<&'static usize>,
         BitXorAssign<usize>, BitXorAssign<&'static usize>,
-        Clone, Copy, Debug, Default, Display,
+        Copy, Debug, Default, Display,
         Div<PositiveInt>, Div<&'static PositiveInt>,
         DivAssign<PositiveInt>, DivAssign<&'static PositiveInt>,
         Div<usize>, Div<&'static usize>,
         DivAssign<usize>, DivAssign<&'static usize>,
-        Eq, FromStr, Hash, Into<isize>, Into<usize>, LowerExp, LowerHex,
+        FromStr, Hash, Into<isize>, Into<usize>, LowerExp, LowerHex,
         Mul<PositiveInt>, Mul<&'static PositiveInt>,
         MulAssign<PositiveInt>, MulAssign<&'static PositiveInt>,
         Mul<usize>, Mul<&'static usize>,
         MulAssign<usize>, MulAssign<&'static usize>,
-        Not, Octal, Ord, Product, RefUnwindSafe, Send, Sized,
+        Not, Octal, Ord, Product, Sized,
         Rem<PositiveInt>, Rem<&'static PositiveInt>,
         RemAssign<PositiveInt>, RemAssign<&'static PositiveInt>,
         Rem<usize>, Rem<&'static usize>,
@@ -3507,23 +3509,22 @@ mod tests {
         TryInto<i128>, TryInto<u128>,
         Unpin, UnwindSafe, UpperExp, UpperHex
     );
+    assert_not_impl_any!(PositiveInt:
+        Deref, Drop, IntoIterator, Pointer, Read, fmt::Write, io::Write
+    );
     assert_impl_all!(&PositiveInt:
         Add<PositiveInt>, Add<&'static PositiveInt>,
         Add<isize>, Add<&'static isize>,
-        Binary,
         BitAnd<PositiveInt>, BitAnd<&'static PositiveInt>,
         BitAnd<usize>, BitAnd<&'static usize>,
         BitOr<PositiveInt>, BitOr<&'static PositiveInt>,
         BitOr<usize>, BitOr<&'static usize>,
         BitXor<PositiveInt>, BitXor<&'static PositiveInt>,
         BitXor<usize>, BitXor<&'static usize>,
-        Clone, Copy, Debug, Display,
         Div<PositiveInt>, Div<&'static PositiveInt>,
         Div<usize>, Div<&'static usize>,
-        Eq, Hash, LowerExp, LowerHex,
         Mul<PositiveInt>, Mul<&'static PositiveInt>,
         Mul<usize>, Mul<&'static usize>,
-        Not, Octal, Ord, RefUnwindSafe, Send, Sized,
         Rem<PositiveInt>, Rem<&'static PositiveInt>,
         Rem<usize>, Rem<&'static usize>,
         Shl<PositiveInt>, Shl<&'static PositiveInt>,
@@ -3555,7 +3556,6 @@ mod tests {
         Shr<PositiveInt>, Shr<&'static PositiveInt>,
         Sub<PositiveInt>, Sub<&'static PositiveInt>,
         Sub<isize>, Sub<&'static isize>,
-        Sync, Unpin, UnwindSafe, UpperExp, UpperHex
     );
 
     /// Inner bits of [`PositiveInt`] that are not used by the implementation

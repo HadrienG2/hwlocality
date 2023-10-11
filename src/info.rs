@@ -118,19 +118,28 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,
         ffi::CString,
-        fmt::Debug,
-        hash::{BuildHasher, Hasher},
-        panic::{RefUnwindSafe, UnwindSafe},
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::{BuildHasher, Hash, Hasher},
+        io::{self, Read},
+        ops::{Deref, Drop},
+        panic::UnwindSafe,
     };
 
     // Check that public types in this module keep implementing all expected
     // traits, in the interest of detecting future semver-breaking changes
     assert_impl_all!(TextualInfo:
-        Debug, Eq, Hash, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+        Debug, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(TextualInfo:
+        Binary, Clone, Default, Deref, Display, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read, ToOwned,
+        UpperExp, UpperHex, fmt::Write, io::Write
     );
 
     #[quickcheck]

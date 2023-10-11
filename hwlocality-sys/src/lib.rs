@@ -203,10 +203,14 @@
 
 #[cfg(target_os = "linux")]
 use libc::pid_t;
+#[cfg(doc)]
+use std::panic::UnwindSafe;
 use std::{
+    cell::UnsafeCell,
     ffi::{c_char, c_float, c_int, c_uchar, c_uint, c_ulong, c_ushort, c_void},
     fmt::Debug,
     marker::{PhantomData, PhantomPinned},
+    panic::RefUnwindSafe,
     ptr,
 };
 
@@ -233,8 +237,9 @@ struct IncompleteType {
     /// into compiler black magic than I do, so let's keep it that way...
     _data: [u8; 0],
 
-    /// Ensures `Send`, `Sync` and `Unpin` are not implemented
-    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+    /// Ensures `RefUnwindSafe`, `Send`, `Sync`, `Unpin` and `UndindSafe` are
+    /// not implemented
+    _marker: PhantomData<(*mut u8, PhantomPinned, &'static UnsafeCell<u8>)>,
 }
 
 /// Thread identifier (OS-specific)
@@ -860,7 +865,7 @@ impl Default for hwloc_numanode_attr_s {
 }
 
 /// Local memory page type
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 #[doc(alias = "hwloc_numanode_attr_s::hwloc_memory_page_type_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::hwloc_memory_page_type_s")]
 #[repr(C)]
@@ -1096,12 +1101,27 @@ pub struct hwloc_info_s {
 ///
 /// Models the incomplete type that [`hwloc_topology_t`] API pointers map to.
 ///
-/// This type purposely implements no traits, not even Debug, because you should
-/// never, ever deal with it directly, only with raw pointers to it that you
-/// blindly pass to the hwloc API.
+/// This type purposely implements almost no traits, not even Debug, because you
+/// should never, ever deal with it directly, only with raw pointers to it that
+/// you blindly pass to the hwloc API.
+///
+/// The only exception to this rule is [`RefUnwindSafe`], which is special
+/// because...
+///
+/// - You cannot implement [`UnwindSafe`] yourself for standard pointer types
+///   due to orphan rules
+/// - Rust implements it for pointers to [`RefUnwindSafe`], i.e. it assumes you
+///   use pointers to such data responsibly.
+/// - The ergonomic impact of everyday types not being [`UnwindSafe`] is
+///   annoying (need [`AssertUnwindSafe`] in every [`catch_unwind()`]).
+///
+/// [`AssertUnwindSafe`]: std::panic::AssertUnwindSafe
+/// [`catch_unwind()`]: std::panic::catch_unwind()
 #[allow(missing_debug_implementations)]
 #[repr(C)]
 pub struct hwloc_topology(IncompleteType);
+//
+impl RefUnwindSafe for hwloc_topology {}
 
 /// Topology context
 ///
@@ -1863,12 +1883,27 @@ pub const HWLOC_DISTRIB_FLAG_REVERSE: hwloc_distrib_flags_e = 1 << 0;
 /// Represents the private `hwloc_bitmap_s` type that `hwloc_bitmap_t` API
 /// pointers map to.
 ///
-/// This type purposely implements no traits, not even Debug, because you should
-/// never, ever deal with it directly, only with raw pointers to it that you
-/// blindly pass to the hwloc API.
+/// This type purposely implements almost no traits, not even Debug, because you
+/// should never, ever deal with it directly, only with raw pointers to it that
+/// you blindly pass to the hwloc API.
+///
+/// The only exception to this rule is [`RefUnwindSafe`], which is special
+/// because...
+///
+/// - You cannot implement [`UnwindSafe`] yourself for standard pointer types
+///   due to orphan rules
+/// - Rust implements it for pointers to [`RefUnwindSafe`], i.e. it assumes you
+///   use pointers to such data responsibly.
+/// - The ergonomic impact of everyday types not being [`UnwindSafe`] is
+///   annoying (need [`AssertUnwindSafe`] in every [`catch_unwind()`]).
+///
+/// [`AssertUnwindSafe`]: std::panic::AssertUnwindSafe
+/// [`catch_unwind()`]: std::panic::catch_unwind()
 #[allow(missing_debug_implementations)]
 #[repr(C)]
 pub struct hwloc_bitmap_s(IncompleteType);
+//
+impl RefUnwindSafe for hwloc_bitmap_s {}
 
 /// Set of bits represented as an opaque pointer to an internal bitmap
 pub type hwloc_bitmap_t = *mut hwloc_bitmap_s;
@@ -3300,89 +3335,229 @@ extern_c_block!("hwloc");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
         hash::Hash,
+        io::{self, Read},
+        ops::{Deref, Drop},
         panic::{RefUnwindSafe, UnwindSafe},
     };
 
-    // Check that public types in this module keep implementing all expected
-    // traits, in the interest of detecting future semver-breaking changes
-    assert_impl_all!(hwloc_bridge_attr_s:
-        Clone, Copy, Debug, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    // Opaque types implement almost no trait since the user shouldn't
+    // manipulate them
+    assert_impl_all!(IncompleteType: Sized);
+    assert_not_impl_any!(IncompleteType:
+        Binary, Clone, Debug, Default, Deref, Display, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialEq, Pointer, Read, Send, ToOwned,
+        Unpin, RefUnwindSafe, UpperExp, UpperHex, fmt::Write, io::Write
     );
-    assert_impl_all!(hwloc_cache_attr_s:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+    assert_impl_all!(hwloc_bitmap_s: Sized, RefUnwindSafe);
+    assert_not_impl_any!(hwloc_bitmap_s:
+        Binary, Clone, Debug, Default, Deref, Display, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialEq, Pointer, Read, Send, ToOwned,
+        Unpin, UnwindSafe, UpperExp, UpperHex, fmt::Write, io::Write
     );
-    assert_impl_all!(hwloc_distances_s:
-        Clone, Copy, Debug, Default, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    assert_impl_all!(hwloc_topology: Sized, RefUnwindSafe);
+    assert_not_impl_any!(hwloc_topology:
+        Binary, Clone, Debug, Default, Deref, Display, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialEq, Pointer, Read, Send, ToOwned,
+        Unpin, UnwindSafe, UpperExp, UpperHex, fmt::Write, io::Write
     );
-    assert_impl_all!(hwloc_group_attr_s:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
-    );
+
+    // Types with inner pointers that shouldn't be null and have unspecified
+    // semantics implement a basic set of traits
     assert_impl_all!(hwloc_info_s:
-        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+        Copy, Debug, Sized, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_info_s:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Pointer, Read, Send, UpperExp, UpperHex, fmt::Write,
+        io::Write
     );
     #[cfg(feature = "hwloc-2_3_0")]
-    assert_impl_all!(hwloc_location:
-        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    mod hwloc_location_impls {
+        use super::*;
+        assert_impl_all!(hwloc_location:
+            Copy, Debug, Sized, Unpin, UnwindSafe
+        );
+        assert_not_impl_any!(hwloc_location:
+            Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp,
+            LowerHex, Octal, PartialEq, Pointer, Read, Send, UpperExp, UpperHex,
+            fmt::Write, io::Write
+        );
+        assert_impl_all!(hwloc_location_u:
+            Copy, Debug, Sized, Unpin, UnwindSafe
+        );
+        assert_not_impl_any!(hwloc_location_u:
+            Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp,
+            LowerHex, Octal, PartialEq, Pointer, Read, Send, UpperExp, UpperHex,
+            fmt::Write, io::Write
+        );
+    }
+    assert_impl_all!(hwloc_obj:
+        Copy, Debug, Sized, Unpin, UnwindSafe
     );
-    #[cfg(feature = "hwloc-2_3_0")]
-    assert_impl_all!(hwloc_location_u:
-        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    assert_not_impl_any!(hwloc_obj:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Pointer, Read, Send, UpperExp, UpperHex, fmt::Write,
+        io::Write
     );
-    assert_impl_all!(hwloc_memory_page_type_s:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+
+    // Types with pointers that can reasonably be null are like types with
+    // non-nullable pointers, but also implement Default
+    assert_impl_all!(hwloc_distances_s:
+        Copy, Debug, Default, Sized, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_distances_s:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialEq, Pointer, Read, Send, UpperExp, UpperHex, fmt::Write,
+        io::Write
     );
     assert_impl_all!(hwloc_numanode_attr_s:
-        Clone, Copy, Debug, Default, RefUnwindSafe, Sized, Unpin, UnwindSafe
+        Copy, Debug, Default, Sized, Unpin, UnwindSafe
     );
-    assert_impl_all!(hwloc_obj:
-        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+    assert_not_impl_any!(hwloc_numanode_attr_s:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialEq, Pointer, Read, Send, UpperExp, UpperHex, fmt::Write,
+        io::Write
     );
+    assert_impl_all!(hwloc_topology_support:
+        Copy, Debug, Default, Sized, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_topology_support:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialEq, Pointer, Read, Send, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+
+    // As the union of all attribute structs, hwloc_obj_attr_u can only
+    // implement the common subset of their inner traits. It also cannot
+    // implement any trait that requires looking into the active variant since
+    // it doesn't know what the active variant is, nor if there is even one.
     assert_impl_all!(hwloc_obj_attr_u:
-        Clone, Copy, Debug, RefUnwindSafe, Sized, Unpin, UnwindSafe
+        Copy, Debug, Sized, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_obj_attr_u:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Pointer, Read, Send, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+
+    // Unions that contain only Sync types can additionally impl Sync, and this
+    // also applies to types that contain such unions
+    assert_impl_all!(hwloc_bridge_attr_s:
+        Copy, Debug, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_bridge_attr_s:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(RawDownstreamAttributes:
+        Copy, Debug, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(RawDownstreamAttributes:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(RawUpstreamAttributes:
+        Copy, Debug, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(RawUpstreamAttributes:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+
+    // Most plain old data structs implement Default, Sync and comparisons
+    //
+    // Implemented comparisons are mostly equality+hashing and not order, since
+    // ordering random structs with unrelated members doesn't make much sense.
+    // We make an exception for hwloc_memory_page_type_s which has an officially
+    // defined order.
+    assert_impl_all!(hwloc_cache_attr_s:
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_cache_attr_s:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(hwloc_group_attr_s:
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_group_attr_s:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(hwloc_osdev_attr_s:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
     );
-    assert_impl_all!(hwloc_pcidev_attr_s:
-        Clone, Copy, Debug, Default, PartialEq, RefUnwindSafe, Send, Sized,
-        Sync, Unpin, UnwindSafe
+    assert_not_impl_any!(hwloc_osdev_attr_s:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(hwloc_topology_cpubind_support:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_topology_cpubind_support:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(hwloc_topology_discovery_support:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_topology_discovery_support:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(hwloc_topology_membind_support:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_topology_membind_support:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     #[cfg(feature = "hwloc-2_3_0")]
     assert_impl_all!(hwloc_topology_misc_support:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
     );
-    assert_impl_all!(hwloc_topology_support:
-        Clone, Copy, Debug, Default, RefUnwindSafe, Sized, Unpin, UnwindSafe
-    );
-    assert_impl_all!(RawDownstreamAttributes:
-        Clone, Copy, Debug, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_not_impl_any!(hwloc_topology_misc_support:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(RawDownstreamPCIAttributes:
-        Clone, Copy, Debug, Default, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
     );
-    assert_impl_all!(RawUpstreamAttributes:
-        Clone, Copy, Debug, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
+    assert_not_impl_any!(RawDownstreamPCIAttributes:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+
+    // hwloc_memory_page_type_s has an officially defined order and has its
+    // comparison abilities expanded accordingly
+    assert_impl_all!(hwloc_memory_page_type_s:
+        Copy, Debug, Default, Hash, Ord, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_memory_page_type_s:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+
+    // PCIDevice attributes, contain a floating-point value and have their
+    // comparison abilities restricted accordingly
+    assert_impl_all!(hwloc_pcidev_attr_s:
+        Copy, Debug, Default, PartialEq, Sized, Sync, Unpin,
+        UnwindSafe
+    );
+    assert_not_impl_any!(hwloc_pcidev_attr_s:
+        Binary, Deref, Display, Drop, Eq, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
     );
 
     #[test]

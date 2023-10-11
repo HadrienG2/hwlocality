@@ -56,6 +56,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
+    fmt::{self, Pointer},
     path::{Path, PathBuf},
     ptr::NonNull,
 };
@@ -1002,6 +1003,12 @@ impl Drop for TopologyBuilder {
     }
 }
 
+impl Pointer for TopologyBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <NonNull<hwloc_topology> as Pointer>::fmt(&self.0, f)
+    }
+}
+
 // SAFETY: No internal mutability
 unsafe impl Send for TopologyBuilder {}
 
@@ -1017,15 +1024,19 @@ pub(crate) mod tests {
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck::TestResult;
     use quickcheck_macros::quickcheck;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,
-        fmt::{Binary, Debug, LowerHex, Octal, UpperHex},
-        hash::Hash,
-        ops::{
-            BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Sub, SubAssign,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
         },
-        panic::{RefUnwindSafe, UnwindSafe},
+        hash::Hash,
+        io::{self, Read},
+        ops::{
+            BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref, Not, Sub,
+            SubAssign,
+        },
+        panic::UnwindSafe,
     };
     use sysinfo::PidExt;
     use tempfile::NamedTempFile;
@@ -1034,33 +1045,63 @@ pub(crate) mod tests {
     // traits, in the interest of detecting future semver-breaking changes
     assert_impl_all!(BuildFlags:
         Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign,
-        Clone, Copy, Debug, Default, Eq, Extend<BuildFlags>, Flags,
+        Copy, Debug, Default, Extend<BuildFlags>, Flags,
         FromIterator<BuildFlags>, Hash, IntoIterator<Item=BuildFlags>,
-        LowerHex, Not, Octal, RefUnwindSafe, Send, Sized, Sub, SubAssign, Sync,
-        UpperHex, Unpin, UnwindSafe
+        LowerHex, Not, Octal, Sized, Sub, SubAssign, Sync, UpperHex, Unpin,
+        UnwindSafe
     );
-    assert_impl_all!(FromPIDError:
-        Clone, Copy, Debug, Default, Error, Eq, From<ProcessId>, Hash,
-        RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_impl_all!(StringInputError:
-        Clone, Copy, Debug, Error, Eq, From<NulError>, Hash, RefUnwindSafe,
-        Send, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_impl_all!(TopologyBuilder:
-        Debug, Default, RefUnwindSafe, Send, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_impl_all!(TypeFilter:
-        Clone, Copy, Debug, Eq, Hash, Into<hwloc_type_filter_e>, RefUnwindSafe,
-        Send, Sized, Sync, TryFrom<hwloc_type_filter_e>, Unpin, UnwindSafe
-    );
-    assert_impl_all!(TypeFilterError:
-        Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+    assert_not_impl_any!(BuildFlags:
+        Display, Drop, PartialOrd, Pointer, LowerExp, Read, UpperExp,
+        fmt::Write, io::Write
     );
     assert_impl_all!(FileInputError:
-        Clone, Debug, Error, Eq, From<PathError>, Hash, RefUnwindSafe,
-        Send, Sized, Sync, Unpin, UnwindSafe
+        Clone, Error, From<PathError>, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(FileInputError:
+        Binary, Copy, Default, Deref, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
+        UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(FromPIDError:
+        Copy, Default, Error, From<ProcessId>, Hash, Sized, Sync, Unpin,
+        UnwindSafe
+    );
+    assert_not_impl_any!(FromPIDError:
+        Binary, Deref, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
+        UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(StringInputError:
+        Copy, Error, From<NulError>, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(StringInputError:
+        Binary, Default, Deref, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
+        UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(TopologyBuilder:
+        Debug, Default, Drop, Pointer, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(TopologyBuilder:
+        Binary, Clone, Deref, Display, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialEq, Read, ToOwned, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(TypeFilter:
+        Copy, Debug, Hash, Into<hwloc_type_filter_e>, Sized, Sync,
+        TryFrom<hwloc_type_filter_e>, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(TypeFilter:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(TypeFilterError:
+        Copy, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(TypeFilterError:
+        Binary, Default, Deref, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
+        UpperExp, UpperHex, fmt::Write, io::Write
     );
 
     // NOTE: While this doesn't match the documentation of hwloc v2.9 at the
@@ -1080,6 +1121,7 @@ pub(crate) mod tests {
     }
 
     fn check_default_builder(builder: &TopologyBuilder) {
+        assert_eq!(format!("{:p}", *builder), format!("{:p}", builder.0));
         assert_eq!(builder.flags(), BuildFlags::default());
         for object_type in enum_iterator::all::<ObjectType>() {
             assert_eq!(
@@ -1103,6 +1145,7 @@ pub(crate) mod tests {
         build_flags: BuildFlags,
         type_filter: impl Fn(ObjectType) -> TypeFilter,
     ) {
+        assert_eq!(format!("{:p}", *topology), format!("{:p}", topology.0));
         assert!(topology.is_abi_compatible());
         assert_eq!(topology.build_flags(), build_flags);
         assert_eq!(

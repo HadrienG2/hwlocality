@@ -12,7 +12,7 @@ use std::path::Path;
 use thiserror::Error;
 
 /// Requested file path is not suitable for hwloc consumption
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Error, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PathError {
     /// Path contains the NUL char, and is thus not compatible with C
     #[error("hwloc file paths can't contain NUL chars")]
@@ -55,20 +55,25 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,
-        fmt::Debug,
+        fmt::{self, Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
-        panic::{RefUnwindSafe, UnwindSafe},
+        io::{self, Read},
+        ops::Deref,
+        panic::UnwindSafe,
         path::PathBuf,
     };
 
     // Check that public types in this module keep implementing all expected
     // traits, in the interest of detecting future semver-breaking changes
     assert_impl_all!(PathError:
-        Clone, Copy, Debug, Error, Eq, From<NulError>, Hash, RefUnwindSafe,
-        Send, Sized, Sync, Unpin, UnwindSafe
+        Copy, Error, From<NulError>, Hash, Ord, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(PathError:
+        Binary, Default, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
     #[allow(clippy::option_if_let_else)]

@@ -11,6 +11,10 @@ keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
 categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memory-management", "os"]
 
 [workspace.dependencies]
+enum-iterator = "1.4.1"
+quickcheck = "1.0"
+quickcheck_macros = "1.0"
+rand = "0.8"
 libc = "0.2"
 static_assertions = "1.1.0"
 windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
@@ -157,25 +161,25 @@ num_enum = { version = "0.7", default-features = false }
 # Used to simplify error reporting
 thiserror = "1.0"
 
-# Used for random testing (tests + quickcheck feature)
-enum-iterator = { version = "1.4.1", optional = true }
-quickcheck = { version = "1.0", optional = true }
-rand = { version = "0.8", optional = true }
+# Used for optional quickcheck feature
+enum-iterator = { workspace = true, optional = true }
+quickcheck = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Used to simplify examples and test error reporting
 anyhow = { version = "1.0", features = ["backtrace"] }
 
-# Used to exhaustively test enum variants
-enum-iterator = "1.4.1"
+# Used to exhaustively test enum variants and for random testing
+enum-iterator.workspace = true
 
 # Used to ease debugging of string tests
 pretty_assertions = "1.4"
 
 # Used for random testing
-quickcheck = "1.0"
-quickcheck_macros = "1.0"
-rand = "0.8"
+quickcheck.workspace = true
+quickcheck_macros.workspace = true
+rand.workspace = true
 
 # Used to check trait implementations
 static_assertions.workspace = true
