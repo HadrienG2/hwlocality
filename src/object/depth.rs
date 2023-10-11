@@ -121,13 +121,13 @@ impl Depth {
     pub(crate) fn to_raw(self) -> hwloc_get_type_depth_e {
         match self {
             Self::Normal(value) => value.into_c_int(),
-            Self::NUMANode => -3,
-            Self::Bridge => -4,
-            Self::PCIDevice => -5,
-            Self::OSDevice => -6,
-            Self::Misc => -7,
+            Self::NUMANode => HWLOC_TYPE_DEPTH_NUMANODE,
+            Self::Bridge => HWLOC_TYPE_DEPTH_BRIDGE,
+            Self::PCIDevice => HWLOC_TYPE_DEPTH_PCI_DEVICE,
+            Self::OSDevice => HWLOC_TYPE_DEPTH_OS_DEVICE,
+            Self::Misc => HWLOC_TYPE_DEPTH_MISC,
             #[cfg(feature = "hwloc-2_1_0")]
-            Self::MemCache => -8,
+            Self::MemCache => HWLOC_TYPE_DEPTH_MEMCACHE,
         }
     }
 }
@@ -152,6 +152,12 @@ impl quickcheck::Arbitrary for Depth {
     }
 }
 //
+impl Default for Depth {
+    fn default() -> Self {
+        Self::from(NormalDepth::default())
+    }
+}
+//
 impl fmt::Display for Depth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::wildcard_enum_match_arm)]
@@ -168,6 +174,30 @@ impl fmt::Display for Depth {
 impl From<NormalDepth> for Depth {
     fn from(value: NormalDepth) -> Self {
         Self::Normal(value)
+    }
+}
+//
+impl PartialEq<NormalDepth> for Depth {
+    fn eq(&self, other: &NormalDepth) -> bool {
+        *self == Self::Normal(*other)
+    }
+}
+//
+impl PartialEq<Depth> for NormalDepth {
+    fn eq(&self, other: &Depth) -> bool {
+        other == self
+    }
+}
+//
+impl PartialEq<usize> for Depth {
+    fn eq(&self, other: &usize) -> bool {
+        Self::try_from(*other).map_or(false, |other| *self == other)
+    }
+}
+//
+impl PartialEq<Depth> for usize {
+    fn eq(&self, other: &Depth) -> bool {
+        other == self
     }
 }
 //
@@ -228,5 +258,138 @@ pub enum TypeToDepthError {
     Unexpected(c_int),
 }
 
-/// Result from an hwloc query looking for the depth of a certain object type
-pub type TypeToDepthResult = Result<Depth, TypeToDepthError>;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
+    use quickcheck_macros::quickcheck;
+    use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
+    use std::{
+        error::Error,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::Hash,
+        io::{self, Read},
+        ops::Deref,
+        panic::UnwindSafe,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(Depth:
+        Copy, Debug, Default, Display, From<NormalDepth>, Hash,
+        PartialEq<NormalDepth>, PartialEq<usize>, Sized, Sync, TryFrom<usize>,
+        TryInto<NormalDepth>, TryInto<usize>, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(Depth:
+        Binary, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_type_eq_all!(NormalDepth, PositiveInt);
+    assert_impl_all!(TypeToDepthError:
+        Copy, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(TypeToDepthError:
+        Binary, Default, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+
+    #[test]
+    fn special_values() {
+        assert_eq!(Depth::default(), Depth::from(NormalDepth::default()));
+        assert_eq!(
+            Depth::from_raw(HWLOC_TYPE_DEPTH_UNKNOWN),
+            Err(TypeToDepthError::Nonexistent)
+        );
+        assert_eq!(
+            Depth::from_raw(HWLOC_TYPE_DEPTH_MULTIPLE),
+            Err(TypeToDepthError::Multiple)
+        );
+        const RAW_DEPTHS: &[hwloc_get_type_depth_e] = &[
+            HWLOC_TYPE_DEPTH_NUMANODE,
+            HWLOC_TYPE_DEPTH_BRIDGE,
+            HWLOC_TYPE_DEPTH_PCI_DEVICE,
+            HWLOC_TYPE_DEPTH_OS_DEVICE,
+            HWLOC_TYPE_DEPTH_MISC,
+            #[cfg(feature = "hwloc-2_1_0")]
+            {
+                HWLOC_TYPE_DEPTH_MEMCACHE
+            },
+        ];
+        assert_eq!(RAW_DEPTHS.len(), Depth::VIRTUAL_DEPTHS.len());
+        for (&raw, &depth) in RAW_DEPTHS.iter().zip(Depth::VIRTUAL_DEPTHS) {
+            assert_eq!(Depth::from_raw(raw), Ok(depth))
+        }
+    }
+
+    #[quickcheck]
+    fn unary(depth: Depth) {
+        // A depth is either normal or virtual
+        assert!(matches!(depth, Depth::Normal(_)) || Depth::VIRTUAL_DEPTHS.contains(&depth));
+        assert_eq!(depth.clone(), depth);
+
+        if let Depth::Normal(normal) = depth {
+            assert_eq!(depth.to_string(), normal.to_string());
+            assert_eq!(NormalDepth::try_from(depth), Ok(normal));
+            assert_eq!(usize::try_from(depth).unwrap(), normal);
+            assert_eq!(depth.assume_normal(), normal);
+            assert!(depth.to_raw() >= 0);
+        } else {
+            assert_eq!(depth.to_string(), format!("<{depth:?}>"));
+            NormalDepth::try_from(depth).unwrap_err();
+            usize::try_from(depth).unwrap_err();
+            std::panic::catch_unwind(|| depth.assume_normal()).unwrap_err();
+            assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
+        }
+    }
+
+    #[quickcheck]
+    fn from_normal(normal: NormalDepth) {
+        assert_eq!(Depth::from(normal), normal);
+        assert_eq!(normal, Depth::from(normal));
+    }
+
+    #[quickcheck]
+    fn from_usize(value: usize) {
+        if value < usize::from(NormalDepth::MAX) {
+            assert_eq!(Depth::try_from(value).unwrap(), value);
+            assert_eq!(value, Depth::try_from(value).unwrap());
+        } else {
+            Depth::try_from(value).unwrap_err();
+        }
+    }
+
+    #[quickcheck]
+    fn from_raw(value: hwloc_get_type_depth_e) {
+        let depth_res = Depth::from_raw(value);
+        if value >= 0 {
+            assert_eq!(depth_res.unwrap(), usize::try_from(value).unwrap());
+        } else if value == HWLOC_TYPE_DEPTH_UNKNOWN {
+            assert_eq!(depth_res, Err(TypeToDepthError::Nonexistent));
+        } else if value == HWLOC_TYPE_DEPTH_MULTIPLE {
+            assert_eq!(depth_res, Err(TypeToDepthError::Multiple));
+        } else if value
+            > -2 - hwloc_get_type_depth_e::try_from(Depth::VIRTUAL_DEPTHS.len()).unwrap()
+        {
+            depth_res.unwrap();
+        } else {
+            assert_eq!(depth_res, Err(TypeToDepthError::Unexpected(value)));
+        }
+    }
+
+    #[quickcheck]
+    fn eq_int(depth: Depth, normal: NormalDepth) {
+        assert_eq!(depth == normal, depth == Depth::Normal(normal));
+    }
+
+    #[quickcheck]
+    fn eq_usize(depth: Depth, value: usize) {
+        assert_eq!(
+            depth == value,
+            PositiveInt::try_from(value).map_or(false, |value| depth == value)
+        );
+    }
+}

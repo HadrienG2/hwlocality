@@ -19,7 +19,7 @@ pub mod types;
 
 use self::{
     attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain},
-    depth::{Depth, NormalDepth, TypeToDepthError, TypeToDepthResult},
+    depth::{Depth, NormalDepth, TypeToDepthError},
     types::{CacheType, ObjectType},
 };
 #[cfg(doc)]
@@ -157,7 +157,7 @@ impl Topology {
     /// [`depth_or_above_for_type()`]: Self::depth_or_above_for_type()
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_depth")]
-    pub fn depth_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
+    pub fn depth_for_type(&self, object_type: ObjectType) -> Result<Depth, TypeToDepthError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - By construction, ObjectType only exposes values that map into
@@ -204,7 +204,10 @@ impl Topology {
     ///
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_or_below_depth")]
-    pub fn depth_or_below_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
+    pub fn depth_or_below_for_type(
+        &self,
+        object_type: ObjectType,
+    ) -> Result<Depth, TypeToDepthError> {
         assert!(
             object_type.is_normal(),
             "This is only meaningful for normal objects"
@@ -265,7 +268,10 @@ impl Topology {
     ///
     /// [`Group`]: ObjectType::Group
     #[doc(alias = "hwloc_get_type_or_above_depth")]
-    pub fn depth_or_above_for_type(&self, object_type: ObjectType) -> TypeToDepthResult {
+    pub fn depth_or_above_for_type(
+        &self,
+        object_type: ObjectType,
+    ) -> Result<Depth, TypeToDepthError> {
         assert!(
             object_type.is_normal(),
             "This is only meaningful for normal objects"
@@ -330,7 +336,7 @@ impl Topology {
         &self,
         cache_level: usize,
         cache_type: Option<CacheType>,
-    ) -> TypeToDepthResult {
+    ) -> Result<Depth, TypeToDepthError> {
         let mut result = Err(TypeToDepthError::Nonexistent);
         for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
             // Cache level and type are homogeneous across a depth level so we
