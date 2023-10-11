@@ -24,7 +24,7 @@ use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::transparent::ToNewtype,
     memory::nodeset::NodeSet,
-    object::{types::ObjectType, TopologyObject},
+    object::{depth::NormalDepth, types::ObjectType, TopologyObject},
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -37,9 +37,11 @@ use libc::EINVAL;
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
+    borrow::Borrow,
     convert::TryInto,
     num::NonZeroUsize,
     ptr::{self, NonNull},
+    sync::OnceLock,
 };
 use thiserror::Error;
 
@@ -145,9 +147,17 @@ impl Topology {
     ///       https://github.com/rust-lang/rust/issues/67295
     #[doc(hidden)]
     pub fn test_instance() -> &'static Self {
-        use std::sync::OnceLock;
         static INSTANCE: OnceLock<Topology> = OnceLock::new();
-        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize test Topology"))
+        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize main test Topology"))
+    }
+
+    /// Like test_instance, but separate instance
+    ///
+    /// Used to test that operations correctly detect foreign topology objects
+    #[doc(hidden)]
+    pub fn foreign_instance() -> &'static Self {
+        static INSTANCE: OnceLock<Topology> = OnceLock::new();
+        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize foreign test Topology"))
     }
 
     /// Prepare to create a Topology with custom configuration
@@ -377,8 +387,10 @@ impl Topology {
     /// The set of CPUs over which work items are distributed is designated by a
     /// set of root [`TopologyObject`]s with associated CPUs. The root objects
     /// must be part of this [`Topology`], or the [`ForeignRoot`] error will be
-    /// returned. You can distribute items across all CPUs in the topology by
-    /// setting `roots` to `&[topology.root_object()]`.
+    /// returned. Their CPU sets must also be disjoint, or the
+    /// [`OverlappingRoots`] error will be returned. You can distribute items
+    /// across all CPUs in the topology by setting `roots` to
+    /// `&[topology.root_object()]`.
     ///
     /// Since the purpose of `roots` is to designate which CPUs items should be
     /// allocated to, root objects should normally have a CPU set. If that is
@@ -391,12 +403,12 @@ impl Topology {
     /// [`EmptyRoots`] error is returned.
     ///
     /// If there is no depth limit, which can be achieved by setting `max_depth`
-    /// to `usize::MAX`, the distribution will be done down to the granularity
-    /// of individual CPUs, i.e. if there are more work items that CPUs, each
-    /// work item will be assigned one CPU. By setting the `max_depth`
-    /// parameter to a lower limit, you can distribute work at a coarser
-    /// granularity, e.g. across L3 caches, giving the OS some leeway to move
-    /// tasks across CPUs sharing that cache.
+    /// to [`NormalDepth::MAX`], the distribution will be done down to the
+    /// granularity of individual CPUs, i.e. if there are more work items that
+    /// CPUs, each work item will be assigned one CPU. By setting the
+    /// `max_depth` parameter to a lower limit, you can distribute work at a
+    /// coarser granularity, e.g. across L3 caches, giving the OS some leeway to
+    /// move tasks across CPUs sharing that cache.
     ///
     /// By default, output cpusets follow the logical topology children order.
     /// By setting `flags` to [`DistributeFlags::REVERSE`], you can ask for them
@@ -408,16 +420,18 @@ impl Topology {
     ///   union of all root cpusets is empty).
     /// - [`ForeignRoot`] if some of the specified roots do not belong to this
     ///   topology.
+    /// - [`OverlappingRoots`] if some of the roots have overlapping CPU sets.
     ///
     /// [`EmptyRoots`]: DistributeError::EmptyRoots
     /// [`ForeignRoot`]: DistributeError::ForeignRoot
+    /// [`OverlappingRoots`]: DistributeError::OverlappingRoots
     #[allow(clippy::missing_docs_in_private_items)]
     #[doc(alias = "hwloc_distrib")]
     pub fn distribute_items(
         &self,
         roots: &[&TopologyObject],
         num_items: NonZeroUsize,
-        max_depth: usize,
+        max_depth: NormalDepth,
         flags: DistributeFlags,
     ) -> Result<Vec<CpuSet>, DistributeError> {
         // Make sure all roots belong to this topology
@@ -427,30 +441,11 @@ impl Topology {
             }
         }
 
-        // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
-        // With this function, we process an object that is presumed normal,
-        // extract this information, and return it as an Option that is None if
-        // the object has access to no CPUs.
-        type ObjSetWeightDepth<'a> = (&'a TopologyObject, BitmapRef<'a, CpuSet>, usize, usize);
-        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
-            debug_assert!(
-                obj.object_type().is_normal(),
-                "This function only works on normal objects"
-            );
-            let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
-            let weight = cpuset
-                .weight()
-                .expect("Topology objects should not have infinite cpusets");
-            let depth =
-                usize::try_from(obj.depth()).expect("Normal objects should have a normal depth");
-            (weight > 0).then_some((obj, cpuset, weight, depth))
-        }
-
         /// Inner recursive distribution algorithm
         fn recurse<'a>(
             roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'a>> + Clone,
             num_items: usize,
-            max_depth: usize,
+            max_depth: NormalDepth,
             flags: DistributeFlags,
             result: &mut Vec<CpuSet>,
         ) {
@@ -463,7 +458,7 @@ impl Topology {
             debug_assert_ne!(num_items, 0, "Can't distribute 0 items");
             let initial_len = result.len();
 
-            // Total number of cpus covered by the active root
+            // Total number of cpus covered by the active roots
             let total_weight: usize = roots_and_cpusets
                 .clone()
                 .map(|(_, _, weight, _)| weight)
@@ -499,7 +494,14 @@ impl Topology {
                 } else {
                     // No item attributed to this root, merge cpuset with
                     // the previous root.
-                    *result.last_mut().expect("First chunk cannot be empty") |= cpuset;
+                    let mut iter = result.iter_mut().rev();
+                    let last = iter.next().expect("First chunk cannot be empty");
+                    for other in iter {
+                        if other == last {
+                            *other |= cpuset;
+                        }
+                    }
+                    *last |= cpuset;
                 }
 
                 // Prepare to process the next root
@@ -532,6 +534,9 @@ impl Topology {
         if decoded_roots.clone().count() == 0 {
             return Err(DistributeError::EmptyRoots);
         }
+        if sets_overlap(decoded_roots.clone().map(|(_, root_set, _, _)| root_set)) {
+            return Err(DistributeError::OverlappingRoots);
+        }
 
         // Run the recursion, collect results
         let num_items = usize::from(num_items);
@@ -546,6 +551,7 @@ impl Topology {
     }
 }
 //
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Flags to be given to [`Topology::distribute_items()`]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -589,9 +595,13 @@ pub enum DistributeError {
     /// Some of the specified roots do not belong to this topology
     #[error("distribution root {0}")]
     ForeignRoot(#[from] ForeignObjectError),
+
+    /// Specified roots overlap ith each other
+    #[error("distribution roots overlap with each other")]
+    OverlappingRoots,
 }
 
-/// Part of the implementation of `Topology::distribute_items()` that tells,
+/// Part of the implementation of [`Topology::distribute_items()`] that tells,
 /// given a number of items to distribute, a cpuset weight, and the sum of all
 /// cpuset weights, how many items should be distributed, rounding up.
 fn weight_to_items(given_weight: usize, total_weight: usize, num_items: usize) -> usize {
@@ -620,6 +630,44 @@ fn weight_to_items(given_weight: usize, total_weight: usize, num_items: usize) -
     my_items
         .try_into()
         .expect("Cannot happen if computation is correct")
+}
+
+/// Part of the implementation of [`Topology::distribute_items()`] that extracts
+/// information from a [`TopologyObject`] that is known to be normal, and
+/// returns this information if the object has a non-empty cpuset
+fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
+    debug_assert!(
+        obj.object_type().is_normal(),
+        "This function only works on normal objects"
+    );
+    let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
+    let weight = cpuset
+        .weight()
+        .expect("Topology objects should not have infinite cpusets");
+    let depth = obj.depth().assume_normal();
+    (weight > 0).then_some((obj, cpuset, weight, depth))
+}
+
+/// Information that is extracted by [`decode_normal_obj()`]
+type ObjSetWeightDepth<'a> = (
+    &'a TopologyObject,
+    BitmapRef<'a, CpuSet>,
+    usize,
+    NormalDepth,
+);
+
+/// Truth that an iterator of cpusets contains overlapping sets
+fn sets_overlap(mut sets: impl Iterator<Item = impl Borrow<CpuSet>>) -> bool {
+    sets.try_fold(CpuSet::new(), |mut acc, set| {
+        let set = set.borrow();
+        if acc.intersects(set) {
+            None
+        } else {
+            acc |= set;
+            Some(acc)
+        }
+    })
+    .is_none()
 }
 
 /// # CPU and node sets of entire topologies
@@ -892,3 +940,244 @@ unsafe impl Send for Topology {}
 
 // SAFETY: No shared mutability
 unsafe impl Sync for Topology {}
+
+#[allow(clippy::too_many_lines)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
+    use quickcheck_macros::quickcheck;
+    use rand::{rngs::ThreadRng, Rng};
+    use std::{collections::BTreeSet, num::NonZeroU8};
+
+    /// Randomly pick a set of valid roots for [`Topology::distribute_items()`]
+    fn pick_distribute_roots(topology: &Topology) -> Vec<&TopologyObject> {
+        fn pick_roots<'output>(
+            root: &'output TopologyObject,
+            rng: &mut ThreadRng,
+            output: &mut Vec<&'output TopologyObject>,
+        ) {
+            // Either we add the current root or we recurse through its children
+            if rng.gen::<bool>() || root.normal_arity() == 0 {
+                output.push(root);
+            } else {
+                for child in root.normal_children() {
+                    // We can drop children, resulting in partial topology
+                    // coverage, which is a scenario we need to test
+                    if rng.gen::<bool>() {
+                        pick_roots(child, rng, output);
+                    }
+                }
+            }
+        }
+        let mut output = Vec::new();
+        let mut rng = rand::thread_rng();
+        while output.is_empty() {
+            pick_roots(topology.root_object(), &mut rng, &mut output);
+        }
+        output
+    }
+
+    /// Provide a pessimistic set of leaves amongst which
+    /// [`Topology::distribute_items()`] could distribute work, given roots and
+    /// a max depth and a number of items to be distributed
+    ///
+    /// The actual set can be more restrained in the presence of heterogeneous
+    /// root objects.
+    fn find_possible_leaves<'output>(
+        roots: &[&'output TopologyObject],
+        max_depth: NormalDepth,
+    ) -> Vec<&'output TopologyObject> {
+        let mut input = roots.to_vec();
+        let mut output = Vec::new();
+        for _ in PositiveInt::iter_range(PositiveInt::MIN, max_depth) {
+            for obj in input.drain(..) {
+                if obj.normal_arity() > 0 && obj.depth().assume_normal() < max_depth {
+                    output.extend(obj.normal_children())
+                } else {
+                    output.push(obj);
+                }
+            }
+            std::mem::swap(&mut input, &mut output);
+        }
+        input
+    }
+
+    #[quickcheck]
+    fn distribute_items(num_items: NonZeroU8, max_depth: NormalDepth, flags: DistributeFlags) {
+        // Set up test state
+        let topology = Topology::test_instance();
+        let num_items = NonZeroUsize::from(num_items);
+
+        // Make sure empty root list is detected
+        assert_eq!(
+            topology.distribute_items(&[], num_items, max_depth, flags),
+            Err(DistributeError::EmptyRoots)
+        );
+
+        // Compute a normal, disjoint root list
+        let disjoint_roots = pick_distribute_roots(topology);
+
+        // Determine the maximal max_depth value that will make a difference and
+        // roll a random max_depth accordingly.
+        let max_depth = max_depth % (topology.depth() + 1);
+
+        // Check results on normal roots
+        #[allow(clippy::cast_precision_loss)]
+        {
+            // Run the computation
+            let item_sets = topology
+                .distribute_items(&disjoint_roots, num_items, max_depth, flags)
+                .unwrap();
+            let num_items = num_items.get();
+            assert_eq!(item_sets.len(), num_items);
+
+            // Predict among which leaves of the object tree work items could
+            // potentially have been distributed
+            let possible_leaf_objects = find_possible_leaves(&disjoint_roots, max_depth);
+            let mut possible_leaf_sets = possible_leaf_objects
+                .iter()
+                .map(|obj| obj.cpuset().unwrap().clone_target())
+                .collect::<BTreeSet<CpuSet>>();
+
+            // Count how many work items were distributed to each leaf
+            let mut items_per_set = Vec::<(CpuSet, usize)>::new();
+            for item_set in item_sets {
+                match items_per_set.last_mut() {
+                    Some((last_set, count)) if last_set == &item_set => *count += 1,
+                    _ => items_per_set.push((item_set, 1)),
+                }
+            }
+
+            // Make sure work items were indeed only distributed to these leaves
+            for item_set in items_per_set.iter().map(|(set, _count)| set) {
+                // ...but bear in mind that the algorithm may merge adjacent
+                // leaf cpusets if there are fewer items than leaf cpusets.
+                if !possible_leaf_sets.contains(item_set) {
+                    // Compute the expected effect of merging
+                    let subsets = possible_leaf_objects
+                        .iter()
+                        .map(|obj| obj.cpuset().unwrap())
+                        .skip_while(|&subset| !item_set.includes(subset))
+                        .take_while(|&subset| item_set.includes(subset))
+                        .map(|subset| subset.clone_target())
+                        .collect::<Vec<_>>();
+                    let merged_set = subsets.iter().fold(CpuSet::new(), |mut acc, subset| {
+                        acc |= subset;
+                        acc
+                    });
+
+                    // Check if this indeed what happened
+                    assert_eq!(
+                        item_set,
+                        &merged_set,
+                        "Distributed set {item_set} is not part of expected leaf sets {possible_leaf_sets:?}"
+                    );
+                    assert_eq!(
+                        items_per_set
+                            .iter()
+                            .filter(|(item_set, _count)| item_set.intersects(&merged_set))
+                            .count(),
+                        1,
+                        "Merging should only occurs when 1 item is shared by N leaves"
+                    );
+
+                    // Take the merging of leaves into account
+                    for subset in subsets {
+                        assert!(possible_leaf_sets.remove(&subset));
+                    }
+                    assert!(possible_leaf_sets.insert(merged_set));
+                }
+            }
+
+            // Make sure the leaves that were actually used are disjoint (i.e.
+            // no distributing to a parent AND its children)
+            assert!(!sets_overlap(items_per_set.iter().map(|(set, _count)| set)));
+
+            // Check that the distribution is as close to ideal as possible,
+            // given that work items cannot be split in halves
+            let total_weight = items_per_set
+                .iter()
+                .map(|(leaf_set, _count)| leaf_set.weight().unwrap())
+                .sum::<usize>();
+            for (leaf_set, items_per_leaf) in &items_per_set {
+                let cpu_share = leaf_set.weight().unwrap() as f64 / total_weight as f64;
+                let ideal_share = num_items as f64 * cpu_share;
+                assert!((*items_per_leaf as f64 - ideal_share).abs() <= 1.0);
+            }
+
+            // Check that the distribution is biased towards earlier or later
+            // leaves depending on distribution flags, due to roots being
+            // enumerated in reverse order
+            let (first_set, items_per_leaf) = items_per_set.first().unwrap();
+            let first_set_intersects = |root: Option<&TopologyObject>| {
+                assert!(first_set.intersects(root.unwrap().cpuset().unwrap()))
+            };
+            if flags.contains(DistributeFlags::REVERSE) {
+                first_set_intersects(disjoint_roots.last().copied());
+            } else {
+                first_set_intersects(disjoint_roots.first().copied());
+            }
+            let cpu_share = first_set.weight().unwrap() as f64 / total_weight as f64;
+            let ideal_share = num_items as f64 * cpu_share;
+            let bias = *items_per_leaf as f64 - ideal_share;
+            assert!(
+                bias >= 0.0,
+                "Earlier roots should get favored for item allocation"
+            );
+        }
+
+        // Test with overlapping roots
+        {
+            let mut overlapping_roots = disjoint_roots.clone();
+            let full_set = disjoint_roots.iter().fold(CpuSet::new(), |mut acc, root| {
+                acc |= root.cpuset().unwrap();
+                acc
+            });
+            let random_bit = rand::random::<usize>() % full_set.weight().unwrap();
+            let cpu = full_set.into_iter().nth(random_bit).unwrap();
+            overlapping_roots.push(
+                topology
+                    .smallest_object_covering_cpuset(CpuSet::from(cpu))
+                    .unwrap(),
+            );
+            assert_eq!(
+                topology.distribute_items(&overlapping_roots, num_items, max_depth, flags),
+                Err(DistributeError::OverlappingRoots)
+            );
+        }
+
+        // Inject a foreign root from foreign_instance at some position of the
+        // distribution roots list and try again.
+        {
+            let mut roots_with_foreigner = disjoint_roots;
+            let insert_pos = rand::random::<usize>() % roots_with_foreigner.len();
+            let foreign_obj = Topology::foreign_instance().root_object();
+            roots_with_foreigner.insert(insert_pos, foreign_obj);
+            assert_eq!(
+                topology.distribute_items(&roots_with_foreigner, num_items, max_depth, flags),
+                Err(DistributeError::ForeignRoot(foreign_obj.into()))
+            );
+        }
+    }
+
+    #[test]
+    fn default_distribute() {
+        assert_eq!(DistributeFlags::default(), DistributeFlags::empty());
+    }
+
+    #[test]
+    fn clone() {
+        let topology = Topology::test_instance();
+        let clone = topology.clone();
+        builder::tests::check_topology(
+            topology,
+            DataSource::ThisSystem,
+            BuildFlags::default(),
+            builder::tests::default_type_filter,
+        );
+        assert!(!topology.contains(clone.root_object()));
+    }
+}

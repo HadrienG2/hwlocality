@@ -297,6 +297,11 @@ impl Bitmap {
 
     /// Creates a new `Bitmap` with the given range of indices set
     ///
+    /// Accepts both ranges of [`BitmapIndex`] and [`usize`]. Use the former for
+    /// type safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
+    ///
     /// # Examples
     ///
     /// ```
@@ -324,6 +329,8 @@ impl Bitmap {
 
     /// Turn this `Bitmap` into a copy of another `Bitmap`
     ///
+    /// Accepts both `&'_ Bitmap` and `BitmapRef<'_, Bitmap>` operands.
+    ///
     /// # Examples
     ///
     /// ```
@@ -335,15 +342,19 @@ impl Bitmap {
     /// assert_eq!(format!("{bitmap2}"), "12-34");
     /// ```
     #[doc(alias = "hwloc_bitmap_copy")]
-    pub fn copy_from(&mut self, other: &Self) {
-        // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - hwloc ops are trusted to keep *mut parameters in a
-        //           valid state unless stated otherwise
-        errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
-            hwlocality_sys::hwloc_bitmap_copy(self.as_mut_ptr(), other.as_ptr())
-        })
-        .expect(MALLOC_FAIL_ONLY);
+    pub fn copy_from(&mut self, other: impl Deref<Target = Self>) {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(self_: &mut Bitmap, other: &Bitmap) {
+            // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            errors::call_hwloc_int_normal("hwloc_bitmap_copy", || unsafe {
+                hwlocality_sys::hwloc_bitmap_copy(self_.as_mut_ptr(), other.as_ptr())
+            })
+            .expect(MALLOC_FAIL_ONLY);
+        }
+        polymorphized(self, &other)
     }
 
     /// Clear all indices
@@ -386,6 +397,11 @@ impl Bitmap {
 
     /// Clear all indices except for `idx`, which is set
     ///
+    /// Accepts both [`BitmapIndex`] and [`usize`] operands. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
+    ///
     /// # Examples
     ///
     /// ```
@@ -422,6 +438,11 @@ impl Bitmap {
     }
 
     /// Set all indices except for `idx`, which is cleared
+    ///
+    /// Accepts both [`BitmapIndex`] and [`usize`] operands. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
     ///
     /// # Examples
     ///
@@ -460,6 +481,11 @@ impl Bitmap {
 
     /// Set index `idx`
     ///
+    /// Accepts both [`BitmapIndex`] and [`usize`] operands. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
+    ///
     /// # Examples
     ///
     /// ```
@@ -496,6 +522,11 @@ impl Bitmap {
     }
 
     /// Set indices covered by `range`
+    ///
+    /// Accepts both ranges of [`BitmapIndex`] and [`usize`]. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
     ///
     /// # Examples
     ///
@@ -543,6 +574,11 @@ impl Bitmap {
 
     /// Clear index `idx`
     ///
+    /// Accepts both [`BitmapIndex`] and [`usize`] operands. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
+    ///
     /// # Examples
     ///
     /// ```
@@ -579,6 +615,11 @@ impl Bitmap {
     }
 
     /// Clear indices covered by `range`
+    ///
+    /// Accepts both ranges of [`BitmapIndex`] and [`usize`]. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
     ///
     /// # Examples
     ///
@@ -661,6 +702,11 @@ impl Bitmap {
     }
 
     /// Check if index `idx` is set
+    ///
+    /// Accepts both [`BitmapIndex`] and [`usize`] operands. Use the former for
+    /// type-safety (it is guaranteed to be in range as a type invariant) or the
+    /// latter for convenience (it is more tightly integrated with Rust's
+    /// built-in integer support, for example it supports integer literals).
     ///
     /// # Examples
     ///
@@ -916,6 +962,8 @@ impl Bitmap {
 
     /// Truth that `self` and `rhs` have some set indices in common
     ///
+    /// Accepts both `&'_ Bitmap` and `BitmapRef<'_, Bitmap>` operands.
+    ///
     /// # Examples
     ///
     /// ```
@@ -930,16 +978,22 @@ impl Bitmap {
     /// assert!(bitmap2.intersects(&bitmap3));
     /// ```
     #[doc(alias = "hwloc_bitmap_intersects")]
-    pub fn intersects(&self, rhs: &Self) -> bool {
-        // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        errors::call_hwloc_bool("hwloc_bitmap_intersects", || unsafe {
-            hwlocality_sys::hwloc_bitmap_intersects(self.as_ptr(), rhs.as_ptr())
-        })
-        .expect(SHOULD_NOT_FAIL)
+    pub fn intersects(&self, rhs: impl Deref<Target = Self>) -> bool {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(self_: &Bitmap, rhs: &Bitmap) -> bool {
+            // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            errors::call_hwloc_bool("hwloc_bitmap_intersects", || unsafe {
+                hwlocality_sys::hwloc_bitmap_intersects(self_.as_ptr(), rhs.as_ptr())
+            })
+            .expect(SHOULD_NOT_FAIL)
+        }
+        polymorphized(self, &rhs)
     }
 
     /// Truth that the indices set in `inner` are a subset of those set in `self`
+    ///
+    /// Accepts both `&'_ Bitmap` and `BitmapRef<'_, Bitmap>` operands.
     ///
     /// The empty bitmap is considered included in any other bitmap.
     ///
@@ -954,13 +1008,17 @@ impl Bitmap {
     /// assert!(!bitmap2.includes(&bitmap1));
     /// ```
     #[doc(alias = "hwloc_bitmap_isincluded")]
-    pub fn includes(&self, inner: &Self) -> bool {
-        // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        errors::call_hwloc_bool("hwloc_bitmap_isincluded", || unsafe {
-            hwlocality_sys::hwloc_bitmap_isincluded(inner.as_ptr(), self.as_ptr())
-        })
-        .expect(SHOULD_NOT_FAIL)
+    pub fn includes(&self, inner: impl Deref<Target = Self>) -> bool {
+        /// Polymorphized version of this function (avoids generics code bloat)
+        fn polymorphized(self_: &Bitmap, inner: &Bitmap) -> bool {
+            // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            errors::call_hwloc_bool("hwloc_bitmap_isincluded", || unsafe {
+                hwlocality_sys::hwloc_bitmap_isincluded(inner.as_ptr(), self_.as_ptr())
+            })
+            .expect(SHOULD_NOT_FAIL)
+        }
+        polymorphized(self, &inner)
     }
 
     // NOTE: When adding new methods, remember to add them to impl_newtype_ops too
@@ -2142,7 +2200,7 @@ macro_rules! impl_bitmap_newtype {
             /// Turn this bitmap into a copy of another bitmap
             ///
             /// See [`Bitmap::copy_from`](crate::bitmap::Bitmap::copy_from).
-            pub fn copy_from(&mut self, other: &Self) {
+            pub fn copy_from(&mut self, other: impl std::ops::Deref<Target = Self>) {
                 self.0.copy_from(&other.0)
             }
 
@@ -2321,14 +2379,14 @@ macro_rules! impl_bitmap_newtype {
             /// Truth that `self` and `rhs` have some set indices in common
             ///
             /// See [`Bitmap::intersects`](crate::bitmap::Bitmap::intersects).
-            pub fn intersects(&self, rhs: &Self) -> bool {
+            pub fn intersects(&self, rhs: impl std::ops::Deref<Target = Self>) -> bool {
                 self.0.intersects(&rhs.0)
             }
 
             /// Truth that the indices set in `inner` are a subset of those set in `self`
             ///
             /// See [`Bitmap::includes`](crate::bitmap::Bitmap::includes).
-            pub fn includes(&self, inner: &Self) -> bool {
+            pub fn includes(&self, inner: impl std::ops::Deref<Target = Self>) -> bool {
                 self.0.includes(&inner.0)
             }
         }
