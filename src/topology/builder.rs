@@ -1121,6 +1121,7 @@ pub(crate) mod tests {
     }
 
     fn check_default_builder(builder: &TopologyBuilder) {
+        assert_eq!(format!("{builder:p}"), format!("{:p}", builder.0));
         assert_eq!(builder.flags(), BuildFlags::default());
         for object_type in enum_iterator::all::<ObjectType>() {
             assert_eq!(
@@ -1144,6 +1145,7 @@ pub(crate) mod tests {
         build_flags: BuildFlags,
         type_filter: impl Fn(ObjectType) -> TypeFilter,
     ) {
+        assert_eq!(format!("{topology:p}"), format!("{:p}", topology.0));
         assert!(topology.is_abi_compatible());
         assert_eq!(topology.build_flags(), build_flags);
         assert_eq!(

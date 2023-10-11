@@ -39,6 +39,7 @@ use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     borrow::Borrow,
     convert::TryInto,
+    fmt::{self, Pointer},
     num::NonZeroUsize,
     ptr::{self, NonNull},
     sync::OnceLock,
@@ -935,6 +936,12 @@ impl Drop for Topology {
     }
 }
 
+impl Pointer for Topology {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <NonNull<hwloc_topology> as Pointer>::fmt(&self.0, f)
+    }
+}
+
 // SAFETY: No shared mutability
 unsafe impl Send for Topology {}
 
@@ -946,11 +953,56 @@ unsafe impl Sync for Topology {}
 mod tests {
     use super::*;
     use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
+    use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
     use rand::{rngs::ThreadRng, Rng};
-    use std::{collections::BTreeSet, num::NonZeroU8};
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use std::{
+        collections::BTreeSet,
+        error::Error,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::Hash,
+        io::{self, Read},
+        num::NonZeroU8,
+        ops::{
+            BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref, Not, Sub,
+            SubAssign,
+        },
+        panic::UnwindSafe,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(DistributeFlags:
+        Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign,
+        Copy, Debug, Default, Extend<DistributeFlags>, Flags,
+        FromIterator<DistributeFlags>, Hash, IntoIterator<Item=DistributeFlags>,
+        LowerHex, Not, Octal, Sized, Sub, SubAssign, Sync, UpperHex, Unpin,
+        UnwindSafe
+    );
+    assert_not_impl_any!(DistributeFlags:
+        Display, Drop, PartialOrd, Pointer, LowerExp, Read, UpperExp,
+        fmt::Write, io::Write
+    );
+    assert_impl_all!(Topology:
+        Clone, Debug, Drop, Pointer, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(Topology:
+        Binary, Copy, Default, Deref, Display, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialEq, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(DistributeError:
+        Clone, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(DistributeError:
+        Binary, Copy, Default, Deref, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
+        UpperExp, UpperHex, fmt::Write, io::Write
+    );
 
     /// Randomly pick a set of valid roots for [`Topology::distribute_items()`]
     fn pick_distribute_roots(topology: &Topology) -> Vec<&TopologyObject> {
@@ -1172,6 +1224,7 @@ mod tests {
     fn clone() {
         let topology = Topology::test_instance();
         let clone = topology.clone();
+        assert_ne!(format!("{topology:p}"), format!("{clone:p}"));
         builder::tests::check_topology(
             topology,
             DataSource::ThisSystem,
