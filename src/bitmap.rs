@@ -2907,7 +2907,7 @@ macro_rules! impl_bitmap_newtype_tests {
                     format!("{new:?}"),
                     format!("{}({:?})", stringify!($newtype), new.0)
                 );
-                assert_eq!(format!("{new:p}"), format!("{:p}", new.0));
+                assert_eq!(format!("{:p}", new), format!("{:p}", new.0));
                 assert_eq!(
                     new.to_string(),
                     format!("{}({})", stringify!($newtype), new.0)
@@ -3330,7 +3330,7 @@ pub(crate) mod tests {
     }
 
     fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) {
-        assert_eq!(format!("{initial:p}"), format!("{:p}", initial.0));
+        assert_eq!(format!("{:p}", *initial), format!("{:p}", initial.0));
 
         let mut buf = initial.clone();
         buf.clear();

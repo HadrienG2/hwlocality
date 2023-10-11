@@ -1224,7 +1224,7 @@ mod tests {
     fn clone() {
         let topology = Topology::test_instance();
         let clone = topology.clone();
-        assert_ne!(format!("{topology:p}"), format!("{clone:p}"));
+        assert_ne!(format!("{:p}", *topology), format!("{clone:p}"));
         builder::tests::check_topology(
             topology,
             DataSource::ThisSystem,
