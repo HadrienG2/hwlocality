@@ -95,6 +95,41 @@ impl Depth {
         #[cfg(feature = "hwloc-2_1_0")]
         Self::MemCache,
     ];
+
+    /// Decode depth results from hwloc
+    pub(crate) fn from_raw(value: hwloc_get_type_depth_e) -> Result<Self, TypeToDepthError> {
+        match value {
+            normal if normal >= 0 => {
+                let normal = NormalDepth::try_from_c_int(normal)
+                    .expect("NormalDepth should support all positive depths");
+                Ok(normal.into())
+            }
+            HWLOC_TYPE_DEPTH_UNKNOWN => Err(TypeToDepthError::Nonexistent),
+            HWLOC_TYPE_DEPTH_MULTIPLE => Err(TypeToDepthError::Multiple),
+            HWLOC_TYPE_DEPTH_NUMANODE => Ok(Self::NUMANode),
+            HWLOC_TYPE_DEPTH_BRIDGE => Ok(Self::Bridge),
+            HWLOC_TYPE_DEPTH_PCI_DEVICE => Ok(Self::PCIDevice),
+            HWLOC_TYPE_DEPTH_OS_DEVICE => Ok(Self::OSDevice),
+            HWLOC_TYPE_DEPTH_MISC => Ok(Self::Misc),
+            #[cfg(feature = "hwloc-2_1_0")]
+            HWLOC_TYPE_DEPTH_MEMCACHE => Ok(Self::MemCache),
+            other => Err(TypeToDepthError::Unexpected(other)),
+        }
+    }
+
+    /// Convert back to the hwloc depth format
+    pub(crate) fn to_raw(self) -> hwloc_get_type_depth_e {
+        match self {
+            Self::Normal(value) => value.into_c_int(),
+            Self::NUMANode => -3,
+            Self::Bridge => -4,
+            Self::PCIDevice => -5,
+            Self::OSDevice => -6,
+            Self::Misc => -7,
+            #[cfg(feature = "hwloc-2_1_0")]
+            Self::MemCache => -8,
+        }
+    }
 }
 //
 #[cfg(any(test, feature = "quickcheck"))]
@@ -161,47 +196,6 @@ impl TryFrom<Depth> for usize {
 
     fn try_from(value: Depth) -> Result<Self, Depth> {
         NormalDepth::try_from(value).map(Self::from)
-    }
-}
-//
-#[doc(hidden)]
-impl TryFrom<hwloc_get_type_depth_e> for Depth {
-    type Error = TypeToDepthError;
-
-    fn try_from(value: hwloc_get_type_depth_e) -> Result<Self, TypeToDepthError> {
-        match value {
-            normal if normal >= 0 => {
-                let normal = NormalDepth::try_from_c_int(normal)
-                    .expect("NormalDepth should support all normal depths");
-                Ok(normal.into())
-            }
-            HWLOC_TYPE_DEPTH_UNKNOWN => Err(TypeToDepthError::Nonexistent),
-            HWLOC_TYPE_DEPTH_MULTIPLE => Err(TypeToDepthError::Multiple),
-            HWLOC_TYPE_DEPTH_NUMANODE => Ok(Self::NUMANode),
-            HWLOC_TYPE_DEPTH_BRIDGE => Ok(Self::Bridge),
-            HWLOC_TYPE_DEPTH_PCI_DEVICE => Ok(Self::PCIDevice),
-            HWLOC_TYPE_DEPTH_OS_DEVICE => Ok(Self::OSDevice),
-            HWLOC_TYPE_DEPTH_MISC => Ok(Self::Misc),
-            #[cfg(feature = "hwloc-2_1_0")]
-            HWLOC_TYPE_DEPTH_MEMCACHE => Ok(Self::MemCache),
-            other => Err(TypeToDepthError::Unexpected(other)),
-        }
-    }
-}
-//
-#[doc(hidden)]
-impl From<Depth> for hwloc_get_type_depth_e {
-    fn from(value: Depth) -> Self {
-        match value {
-            Depth::Normal(value) => value.into_c_int(),
-            Depth::NUMANode => -3,
-            Depth::Bridge => -4,
-            Depth::PCIDevice => -5,
-            Depth::OSDevice => -6,
-            Depth::Misc => -7,
-            #[cfg(feature = "hwloc-2_1_0")]
-            Depth::MemCache => -8,
-        }
     }
 }
 

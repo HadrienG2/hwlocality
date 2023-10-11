@@ -9,7 +9,7 @@ use crate::{cpu::cpuset::CpuSet, impl_bitmap_newtype, object::depth::Depth, topo
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::borrow::Borrow;
+use std::ops::Deref;
 
 /// # NodeSet-specific API
 //
@@ -19,6 +19,8 @@ use std::borrow::Borrow;
 // the bitmap API reexport in rustdoc.
 impl NodeSet {
     /// Convert a CPU set into a NUMA node set
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     ///
     /// For each PU included in the input `cpuset`, set the corresponding local
     /// NUMA node(s) in the output nodeset.
@@ -30,7 +32,7 @@ impl NodeSet {
     /// [`Topology::cpuset()`], would be converted by this function into the
     /// set of all nodes that have some local CPUs.
     #[doc(alias = "hwloc_cpuset_to_nodeset")]
-    pub fn from_cpuset(topology: &Topology, cpuset: impl Borrow<CpuSet>) -> Self {
+    pub fn from_cpuset(topology: &Topology, cpuset: impl Deref<Target = CpuSet>) -> Self {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
             let mut nodeset = NodeSet::new();
@@ -39,7 +41,7 @@ impl NodeSet {
             }
             nodeset
         }
-        polymorphized(topology, cpuset.borrow())
+        polymorphized(topology, &cpuset)
     }
 }
 

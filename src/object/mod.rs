@@ -37,16 +37,16 @@ use crate::{
     memory::nodeset::NodeSet,
     topology::Topology,
 };
-use hwlocality_sys::{hwloc_get_type_depth_e, hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
+use hwlocality_sys::{hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
-    borrow::Borrow,
     ffi::{c_char, c_uint, CStr},
     fmt::{self, Debug, Display},
     iter::FusedIterator,
+    ops::Deref,
     ptr,
 };
 use thiserror::Error;
@@ -122,7 +122,7 @@ impl Topology {
     pub fn memory_parents_depth(&self) -> Result<NormalDepth, TypeToDepthError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        Depth::try_from(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
+        Depth::from_raw(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
             .map(Depth::assume_normal)
     }
 
@@ -165,7 +165,7 @@ impl Topology {
         //           of hwloc, and build.rs checks that the active version of
         //           hwloc is not older than that, so into() may only generate
         //           valid hwloc_obj_type_t values for current hwloc
-        Depth::try_from(unsafe {
+        Depth::from_raw(unsafe {
             hwlocality_sys::hwloc_get_type_depth(self.as_ptr(), object_type.into())
         })
     }
@@ -378,6 +378,12 @@ impl Topology {
 
     /// Type of objects at the given `depth`, if any
     ///
+    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
+    /// former two for type-safety (they are guaranteed to be in range as a type
+    /// invariant) or the latter for convenience (it is more tightly integrated
+    /// with Rust's built-in integer support, for example it supports integer
+    /// literals).
+    ///
     /// # Examples
     ///
     /// ```
@@ -410,7 +416,7 @@ impl Topology {
             //           version of hwloc, and build.rs checks that the active
             //           version of hwloc is not older than that, so into() may only
             //           generate valid hwloc_get_depth_type_e values for current hwloc
-            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.into()) }
+            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.to_raw()) }
                 .try_into()
             {
                 Ok(depth) => Some(depth),
@@ -429,6 +435,12 @@ impl Topology {
     }
 
     /// Number of objects at the given `depth`
+    ///
+    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
+    /// former two for type-safety (they are guaranteed to be in range as a type
+    /// invariant) or the latter for convenience (it is more tightly integrated
+    /// with Rust's built-in integer support, for example it supports integer
+    /// literals).
     ///
     /// # Examples
     ///
@@ -461,11 +473,17 @@ impl Topology {
         //           version of hwloc is not older than that, so into() may only
         //           generate valid hwloc_get_depth_type_e values for current hwloc
         int::expect_usize(unsafe {
-            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into())
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.to_raw())
         })
     }
 
     /// [`TopologyObject`]s at the given `depth`
+    ///
+    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
+    /// former two for type-safety (they are guaranteed to be in range as a type
+    /// invariant) or the latter for convenience (it is more tightly integrated
+    /// with Rust's built-in integer support, for example it supports integer
+    /// literals).
     ///
     /// # Examples
     ///
@@ -507,7 +525,7 @@ impl Topology {
         ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
         {
             let size = self_.num_objects_at_depth(depth);
-            let depth = hwloc_get_type_depth_e::from(depth);
+            let depth = depth.to_raw();
             (0..size).map(move |idx| {
                 let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
                 let ptr =
@@ -704,15 +722,17 @@ impl Topology {
 
     /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// Requires [`DiscoverySupport::pu_count()`].
     ///
     /// This functionality is specific to the Rust bindings.
     pub fn pus_from_cpuset<'result>(
         &'result self,
-        cpuset: impl Borrow<CpuSet> + 'result,
+        cpuset: impl Deref<Target = CpuSet> + 'result,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::PU)
-            .filter_map(move |(pu, os_index)| cpuset.borrow().is_set(os_index).then_some(pu))
+            .filter_map(move |(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
     }
 
     /// Get the object of type [`NUMANode`] with the specified OS index
@@ -735,15 +755,17 @@ impl Topology {
     /// Get the objects of type [`ObjectType::NUMANode`] covered by the
     /// specified nodeset
     ///
+    /// Accepts both `&'_ NodeSet` and `BitmapRef<'_, NodeSet>` operands.
+    ///
     /// Requires [`DiscoverySupport::numa_count()`].
     ///
     /// This functionality is specific to the Rust bindings.
     pub fn nodes_from_nodeset<'result>(
         &'result self,
-        nodeset: impl Borrow<NodeSet> + 'result,
+        nodeset: impl Deref<Target = NodeSet> + 'result,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::NUMANode)
-            .filter_map(move |(node, os_index)| nodeset.borrow().is_set(os_index).then_some(node))
+            .filter_map(move |(node, os_index)| nodeset.is_set(os_index).then_some(node))
     }
 
     /// Get a list of `(&TopologyObject, OS index)` tuples for an `ObjectType`
@@ -1314,7 +1336,7 @@ impl TopologyObject {
     /// tree, this is a special value that is unique to their type.
     #[doc(alias = "hwloc_obj::depth")]
     pub fn depth(&self) -> Depth {
-        self.0.depth.try_into().expect("Got unexpected depth value")
+        Depth::from_raw(self.0.depth).expect("Got unexpected depth value")
     }
 
     /// Parent object
@@ -1334,6 +1356,12 @@ impl TopologyObject {
     }
 
     /// Search for an ancestor at a certain depth
+    ///
+    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
+    /// former two for type-safety (they are guaranteed to be in range as a type
+    /// invariant) or the latter for convenience (it is more tightly integrated
+    /// with Rust's built-in integer support, for example it supports integer
+    /// literals).
     ///
     /// Will return `None` if the requested depth is deeper than the depth of
     /// the current object.
@@ -1642,13 +1670,16 @@ impl TopologyObject {
 
     /// Get the child covering at least the given cpuset `set`
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// This function will always return `None` if the given set is empty or
     /// this topology object doesn't have a cpuset (I/O or Misc objects), as
     /// no object is considered to cover the empty cpuset.
     #[doc(alias = "hwloc_get_child_covering_cpuset")]
-    pub fn normal_child_covering_cpuset(&self, set: impl Borrow<CpuSet>) -> Option<&Self> {
+    pub fn normal_child_covering_cpuset(&self, set: impl Deref<Target = CpuSet>) -> Option<&Self> {
+        let set: &CpuSet = &set;
         self.normal_children()
-            .find(|child| child.covers_cpuset(set.borrow()))
+            .find(|child| child.covers_cpuset(set))
     }
 
     /// Number of memory children
@@ -1800,24 +1831,28 @@ impl TopologyObject {
 
     /// Truth that this object is inside of the given cpuset `set`
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// Objects are considered to be inside `set` if they have a non-empty
     /// cpuset which verifies `set.includes(object_cpuset)`.
-    pub fn is_inside_cpuset(&self, set: impl Borrow<CpuSet>) -> bool {
+    pub fn is_inside_cpuset(&self, set: impl Deref<Target = CpuSet>) -> bool {
         let Some(object_cpuset) = self.cpuset() else {
             return false;
         };
-        set.borrow().includes(object_cpuset) && !object_cpuset.is_empty()
+        set.includes(object_cpuset) && !object_cpuset.is_empty()
     }
 
     /// Truth that this object covers the given cpuset `set`
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// Objects are considered to cover `set` if it is non-empty and the object
     /// has a cpuset which verifies `object_cpuset.includes(set)`.
-    pub fn covers_cpuset(&self, set: impl Borrow<CpuSet>) -> bool {
+    pub fn covers_cpuset(&self, set: impl Deref<Target = CpuSet>) -> bool {
         let Some(object_cpuset) = self.cpuset() else {
             return false;
         };
-        let set = set.borrow();
+        let set: &CpuSet = &set;
         object_cpuset.includes(set) && !set.is_empty()
     }
 

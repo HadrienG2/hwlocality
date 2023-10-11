@@ -28,10 +28,10 @@ use libc::{EINVAL, ENOENT, EXDEV};
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
-    borrow::Borrow,
     ffi::{c_int, c_uint},
     iter::FusedIterator,
     num::NonZeroUsize,
+    ops::Deref,
     ptr,
 };
 use thiserror::Error;
@@ -194,6 +194,8 @@ impl Topology {
 
     /// Query information about the CPU kind that contains CPUs listed in `set`
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// # Errors
     ///
     /// - [`PartiallyIncluded`] if `set` is only partially included in some kind
@@ -208,7 +210,7 @@ impl Topology {
     #[doc(alias = "hwloc_cpukinds_get_by_cpuset")]
     pub fn cpu_kind_from_set(
         &self,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
     ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), FromSetError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
@@ -242,7 +244,7 @@ impl Topology {
             //         to produce correct CPU kind indices
             Ok(unsafe { self_.cpu_kind(kind_index) })
         }
-        polymorphized(self, set.borrow())
+        polymorphized(self, &set)
     }
 }
 
@@ -253,6 +255,8 @@ impl Topology {
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
 impl TopologyEditor<'_> {
     /// Register a kind of CPU in the topology.
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     ///
     /// Mark the PUs listed in `cpuset` as being of the same kind with respect
     /// to the given attributes.
@@ -288,7 +292,7 @@ impl TopologyEditor<'_> {
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
         &mut self,
-        cpuset: impl Borrow<CpuSet>,
+        cpuset: impl Deref<Target = CpuSet>,
         forced_efficiency: Option<CpuEfficiency>,
         infos: impl IntoIterator<Item = (&'infos str, &'infos str)>,
     ) -> Result<(), RegisterError> {
@@ -364,7 +368,7 @@ impl TopologyEditor<'_> {
         // SAFETY: raw_infos contains valid infos (infos is still in scope,
         //         target strings have been checked for C suitability and
         //         converted to NUL-terminated format by LibcString)
-        unsafe { polymorphized(self, cpuset.borrow(), forced_efficiency, raw_infos) }
+        unsafe { polymorphized(self, &cpuset, forced_efficiency, raw_infos) }
     }
 }
 

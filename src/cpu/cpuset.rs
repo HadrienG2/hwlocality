@@ -25,7 +25,7 @@ use crate::{
 use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(feature = "hwloc-2_2_0")]
 use std::ffi::c_uint;
-use std::{borrow::Borrow, fmt::Debug, iter::FusedIterator, ptr};
+use std::{fmt::Debug, iter::FusedIterator, ops::Deref, ptr};
 use thiserror::Error;
 
 /// # Finding objects inside a CPU set
@@ -62,6 +62,8 @@ impl Topology {
 
     /// Get the largest objects exactly covering the given cpuset `set`
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set).
     ///
@@ -72,7 +74,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_largest_objs_inside_cpuset")]
     pub fn coarsest_cpuset_partition(
         &self,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
     ) -> Result<Vec<&TopologyObject>, CoarsestPartitionError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
@@ -131,10 +133,19 @@ impl Topology {
             process_object(root, set, &mut result, &mut cpusets);
             Ok(result)
         }
-        polymorphized(self, set.borrow())
+        polymorphized(self, &set)
     }
 
     /// Enumerate objects included in the given cpuset `set` at a certain depth
+    ///
+    /// Accepted operand types are as follows:
+    ///
+    /// - `set` can be either of type `&'_ CpuSet` or `BitmapRef<'_, CpuSet>`
+    /// - `depth` can be of type [`Depth`], [`NormalDepth`] or [`usize`]. Use
+    ///   the former two for type-safety (they are guaranteed to be in range as
+    ///   a type invariant) or the latter for convenience (it is more tightly
+    ///   integrated with Rust's built-in integer support, for example it
+    ///   supports integer literals).
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
@@ -144,7 +155,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
     pub fn objects_inside_cpuset_at_depth<'result, DepthLike>(
         &'result self,
-        set: impl Borrow<CpuSet> + 'result,
+        set: impl Deref<Target = CpuSet> + 'result,
         depth: DepthLike,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
     where
@@ -156,11 +167,15 @@ impl Topology {
         // never be any object at that depth. We need it because impl Trait
         // needs homogeneous return types.
         let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
-        self.objects_at_depth(depth)
-            .filter(move |object| object.is_inside_cpuset(set.borrow()))
+        self.objects_at_depth(depth).filter(move |object| {
+            let set: &CpuSet = &set;
+            object.is_inside_cpuset(set)
+        })
     }
 
     /// Logical index among the objects included in CPU set `set`
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     ///
     /// Consult all objects in the same level as `obj` and inside CPU set `set`
     /// in the logical order, and return the index of `obj` within them. If
@@ -177,7 +192,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
     pub fn object_index_inside_cpuset<'result>(
         &'result self,
-        set: impl Borrow<CpuSet> + 'result,
+        set: impl Deref<Target = CpuSet> + 'result,
         obj: &TopologyObject,
     ) -> Option<usize> {
         // obj may not belong to this topology, but the current implementation
@@ -188,6 +203,8 @@ impl Topology {
 
     /// Get objects included in the given cpuset `set` with a certain type
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
     /// always be returned for I/O or Misc objects as they don't have cpusets.
@@ -196,14 +213,18 @@ impl Topology {
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_type")]
     pub fn objects_inside_cpuset_with_type<'result>(
         &'result self,
-        set: impl Borrow<CpuSet> + 'result,
+        set: impl Deref<Target = CpuSet> + 'result,
         object_type: ObjectType,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objects_with_type(object_type)
-            .filter(move |object| object.is_inside_cpuset(set.borrow()))
+        self.objects_with_type(object_type).filter(move |object| {
+            let set: &CpuSet = &set;
+            object.is_inside_cpuset(set)
+        })
     }
 
     /// First largest object included in the given cpuset `set`
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     ///
     /// Returns the first object that is included in `set` and whose parent is
     /// not, in descending depth and children iteration order.
@@ -223,7 +244,7 @@ impl Topology {
     /// considered included in any given set).
     fn first_largest_object_inside_cpuset(
         &self,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
     ) -> Option<&TopologyObject> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
@@ -263,7 +284,7 @@ impl Topology {
             }
             Some(parent)
         }
-        polymorphized(self, set.borrow())
+        polymorphized(self, &set)
     }
 }
 
@@ -320,13 +341,15 @@ pub struct CoarsestPartitionError {
 impl Topology {
     /// Get the lowest object covering at least the given cpuset `set`, if any
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// No object is considered to cover the empty cpuset, therefore such a
     /// request will always return None, as if a set going outside of the root
     /// cpuset were passed as input.
     #[doc(alias = "hwloc_get_obj_covering_cpuset")]
     pub fn smallest_object_covering_cpuset(
         &self,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
     ) -> Option<&TopologyObject> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
@@ -343,12 +366,17 @@ impl Topology {
             }
             Some(parent)
         }
-        polymorphized(self, set.borrow())
+        polymorphized(self, &set)
     }
 
     /// Get the first data (or unified) cache covering the given cpuset
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     #[doc(alias = "hwloc_get_cache_covering_cpuset")]
-    pub fn first_cache_covering_cpuset(&self, set: impl Borrow<CpuSet>) -> Option<&TopologyObject> {
+    pub fn first_cache_covering_cpuset(
+        &self,
+        set: impl Deref<Target = CpuSet>,
+    ) -> Option<&TopologyObject> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
@@ -359,10 +387,19 @@ impl Topology {
                 .chain(first_obj.ancestors())
                 .find(|obj| obj.object_type().is_cpu_data_cache())
         }
-        polymorphized(self, set.borrow())
+        polymorphized(self, &set)
     }
 
     /// Enumerate objects covering the given cpuset `set` at a certain depth
+    ///
+    /// Accepted operand types are as follows:
+    ///
+    /// - `set` can be either of type `&'_ CpuSet` or `BitmapRef<'_, CpuSet>`
+    /// - `depth` can be of type [`Depth`], [`NormalDepth`] or [`usize`]. Use
+    ///   the former two for type-safety (they are guaranteed to be in range as
+    ///   a type invariant) or the latter for convenience (it is more tightly
+    ///   integrated with Rust's built-in integer support, for example it
+    ///   supports integer literals).
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). An empty iterator will always be
@@ -370,7 +407,7 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
     pub fn objects_covering_cpuset_at_depth<'result, DepthLike>(
         &'result self,
-        set: impl Borrow<CpuSet> + 'result,
+        set: impl Deref<Target = CpuSet> + 'result,
         depth: DepthLike,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
     where
@@ -382,11 +419,15 @@ impl Topology {
         // never be any object at that depth. We need it because impl Trait
         // needs homogeneous return types.
         let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
-        self.objects_at_depth(depth)
-            .filter(move |object| object.covers_cpuset(set.borrow()))
+        self.objects_at_depth(depth).filter(move |object| {
+            let set: &CpuSet = &set;
+            object.covers_cpuset(set)
+        })
     }
 
     /// Get objects covering the given cpuset `set` with a certain type
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). An empty iterator will always be
@@ -394,11 +435,13 @@ impl Topology {
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_type")]
     pub fn objects_covering_cpuset_with_type<'result>(
         &'result self,
-        set: impl Borrow<CpuSet> + 'result,
+        set: impl Deref<Target = CpuSet> + 'result,
         object_type: ObjectType,
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objects_with_type(object_type)
-            .filter(move |object| object.covers_cpuset(set.borrow()))
+        self.objects_with_type(object_type).filter(move |object| {
+            let set: &CpuSet = &set;
+            object.covers_cpuset(set)
+        })
     }
 }
 
@@ -448,6 +491,8 @@ impl CpuSet {
 
     /// Convert a NUMA node set into a CPU set
     ///
+    /// Accepts both `&'_ NodeSet` and `BitmapRef<'_, NodeSet>` operands.
+    ///
     /// For each NUMA node included in the input `nodeset`, set the
     /// corresponding local PUs in the output cpuset.
     ///
@@ -458,7 +503,7 @@ impl CpuSet {
     /// [`Topology::nodeset()`], would be converted by this function into the
     /// set of all CPUs that have some local NUMA nodes.
     #[doc(alias = "hwloc_cpuset_from_nodeset")]
-    pub fn from_nodeset(topology: &Topology, nodeset: impl Borrow<NodeSet>) -> Self {
+    pub fn from_nodeset(topology: &Topology, nodeset: impl Deref<Target = NodeSet>) -> Self {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
             let mut cpuset = CpuSet::new();
@@ -469,7 +514,7 @@ impl CpuSet {
             }
             cpuset
         }
-        polymorphized(topology, nodeset.borrow())
+        polymorphized(topology, &nodeset)
     }
 }
 
