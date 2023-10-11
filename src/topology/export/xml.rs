@@ -245,15 +245,21 @@ impl AsRef<[u8]> for XML<'_> {
     }
 }
 
-impl AsRef<str> for XML<'_> {
-    fn as_ref(&self) -> &str {
-        self.as_str()
+impl AsRef<CStr> for XML<'_> {
+    fn as_ref(&self) -> &CStr {
+        self.as_raw()
     }
 }
 
 impl AsRef<OsStr> for XML<'_> {
     fn as_ref(&self) -> &OsStr {
         self.as_str().as_ref()
+    }
+}
+
+impl AsRef<str> for XML<'_> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 

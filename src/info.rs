@@ -114,7 +114,7 @@ unsafe impl TransparentNewtype for TextualInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi::{string::LibcString, transparent::ToNewtype};
+    use crate::ffi::{string::LibcString, transparent::AsNewtype};
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
@@ -147,7 +147,7 @@ mod tests {
         // Set up test entity
         // SAFETY: `name` and `value` won't be invalidated while this exists
         let raw_info = unsafe { TextualInfo::borrow_raw(&name, &value) };
-        let info: &TextualInfo = (&raw_info).to_newtype();
+        let info: &TextualInfo = (&raw_info).as_newtype();
 
         // Check raw data
         assert_eq!(info.0.name, name.borrow().cast_mut());
@@ -183,10 +183,10 @@ mod tests {
         // Set up test entity
         // SAFETY: `name` and `value` won't be invalidated while this exists
         let raw_info1 = unsafe { TextualInfo::borrow_raw(&name1, &value1) };
-        let info1: &TextualInfo = (&raw_info1).to_newtype();
+        let info1: &TextualInfo = (&raw_info1).as_newtype();
         // SAFETY: `name` and `value` won't be invalidated while this exists
         let raw_info2 = unsafe { TextualInfo::borrow_raw(&name2, &value2) };
-        let info2: &TextualInfo = (&raw_info2).to_newtype();
+        let info2: &TextualInfo = (&raw_info2).as_newtype();
 
         // Check equality
         assert_eq!(info1 == info2, name1 == name2 && value1 == value2);

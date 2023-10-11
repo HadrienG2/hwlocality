@@ -11,7 +11,7 @@
 use crate::{
     ffi::{
         int,
-        transparent::{ToNewtype, TransparentNewtype},
+        transparent::{AsNewtype, TransparentNewtype},
     },
     object::types::{BridgeType, CacheType, OSDeviceType, ObjectType},
 };
@@ -85,12 +85,12 @@ impl<'object> ObjectAttributes<'object> {
         unsafe {
             #[allow(clippy::wildcard_enum_match_arm)]
             match ty {
-                ObjectType::NUMANode => Some(Self::NUMANode((&attr.numa).to_newtype())),
-                ObjectType::Group => Some(Self::Group((&attr.group).to_newtype())),
-                ObjectType::PCIDevice => Some(Self::PCIDevice((&attr.pcidev).to_newtype())),
-                ObjectType::Bridge => Some(Self::Bridge((&attr.bridge).to_newtype())),
-                ObjectType::OSDevice => Some(Self::OSDevice((&attr.osdev).to_newtype())),
-                _ if ty.is_cpu_cache() => Some(Self::Cache((&attr.cache).to_newtype())),
+                ObjectType::NUMANode => Some(Self::NUMANode((&attr.numa).as_newtype())),
+                ObjectType::Group => Some(Self::Group((&attr.group).as_newtype())),
+                ObjectType::PCIDevice => Some(Self::PCIDevice((&attr.pcidev).as_newtype())),
+                ObjectType::Bridge => Some(Self::Bridge((&attr.bridge).as_newtype())),
+                ObjectType::OSDevice => Some(Self::OSDevice((&attr.osdev).as_newtype())),
+                _ if ty.is_cpu_cache() => Some(Self::Cache((&attr.cache).as_newtype())),
                 _ => None,
             }
         }
@@ -138,10 +138,10 @@ impl NUMANodeAttributes {
             return &[];
         }
         // SAFETY: - Pointer and length assumed valid per type invariant
-        //         - ToNewtype is trusted to be implemented correctly
+        //         - AsNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(
-                self.0.page_types.to_newtype(),
+                self.0.page_types.as_newtype(),
                 // If this fails, it means pages_types_len does not fit in a
                 // size_t, but by definition of size_t that cannot happen
                 self.0.page_types_len.try_into().expect("Should not happen"),
@@ -551,7 +551,7 @@ impl<'object> UpstreamAttributes<'object> {
         // SAFETY: attr.pci assumed valid if ty is PCI per input precondition
         unsafe {
             match ty {
-                BridgeType::PCI => Some(Self::PCI((&attr.pci).to_newtype())),
+                BridgeType::PCI => Some(Self::PCI((&attr.pci).as_newtype())),
                 BridgeType::Host => None,
             }
         }
@@ -606,7 +606,7 @@ impl<'object> DownstreamAttributes<'object> {
         // SAFETY: attr.pci assumed valid if ty is PCI per input precondition
         unsafe {
             match ty {
-                BridgeType::PCI => Some(Self::PCI((&attr.pci).to_newtype())),
+                BridgeType::PCI => Some(Self::PCI((&attr.pci).as_newtype())),
                 BridgeType::Host => unreachable!("Host bridge type should not appear downstream"),
             }
         }

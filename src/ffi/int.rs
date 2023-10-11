@@ -2182,12 +2182,12 @@ impl PositiveInt {
 
     /// Convert into a [`c_int`] (okay by construction)
     #[allow(clippy::cast_possible_wrap)]
-    pub(crate) const fn into_c_int(self) -> c_int {
+    pub(crate) const fn to_c_int(self) -> c_int {
         self.0 as c_int
     }
 
     /// Convert into a [`c_uint`] (okay by construction)
-    pub(crate) const fn into_c_uint(self) -> c_uint {
+    pub(crate) const fn to_c_uint(self) -> c_uint {
         self.0
     }
 }
@@ -2650,13 +2650,13 @@ where
 //       usize/isize instead of c_u?int for indexing falls flat.
 impl From<PositiveInt> for isize {
     fn from(x: PositiveInt) -> Self {
-        expect_isize(x.into_c_int())
+        expect_isize(x.to_c_int())
     }
 }
 //
 impl From<PositiveInt> for usize {
     fn from(x: PositiveInt) -> Self {
-        expect_usize(x.into_c_uint())
+        expect_usize(x.to_c_uint())
     }
 }
 

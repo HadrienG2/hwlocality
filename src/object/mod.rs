@@ -31,7 +31,7 @@ use crate::{
     ffi::{
         self, int,
         string::LibcString,
-        transparent::{ToNewtype, TransparentNewtype},
+        transparent::{AsNewtype, TransparentNewtype},
     },
     info::TextualInfo,
     memory::nodeset::NodeSet,
@@ -422,7 +422,7 @@ impl Topology {
             //           version of hwloc, and build.rs checks that the active
             //           version of hwloc is not older than that, so into() may only
             //           generate valid hwloc_get_depth_type_e values for current hwloc
-            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.into_raw()) }
+            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.to_raw()) }
                 .try_into()
             {
                 Ok(depth) => Some(depth),
@@ -479,7 +479,7 @@ impl Topology {
         //           version of hwloc is not older than that, so into() may only
         //           generate valid hwloc_get_depth_type_e values for current hwloc
         int::expect_usize(unsafe {
-            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into_raw())
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.to_raw())
         })
     }
 
@@ -531,7 +531,7 @@ impl Topology {
         ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
         {
             let size = self_.num_objects_at_depth(depth);
-            let depth = depth.into_raw();
+            let depth = depth.to_raw();
             (0..size).map(move |idx| {
                 let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
                 let ptr =
@@ -555,7 +555,7 @@ impl Topology {
                 // SAFETY: If hwloc_get_obj_by_depth returns a non-null pointer,
                 //         it's assumed to be successful and thus that the output
                 //         pointer is valid
-                unsafe { (&*ptr).to_newtype() }
+                unsafe { (&*ptr).as_newtype() }
             })
         }
 
@@ -1006,7 +1006,7 @@ impl Topology {
         };
         // SAFETY: - If hwloc succeeds, the output pointer is assumed valid
         //         - Output is bound to the lifetime of the topology it comes from
-        Ok((!ptr.is_null()).then(|| unsafe { (&*ptr).to_newtype() }))
+        Ok((!ptr.is_null()).then(|| unsafe { (&*ptr).as_newtype() }))
     }
 }
 
@@ -1353,7 +1353,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.parent).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.parent).map(AsNewtype::as_newtype) }
     }
 
     /// Chain of parent objects up to the topology root
@@ -1585,7 +1585,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.next_cousin).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.next_cousin).map(AsNewtype::as_newtype) }
     }
 
     /// Previous object of same type and depth
@@ -1594,7 +1594,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.prev_cousin).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.prev_cousin).map(AsNewtype::as_newtype) }
     }
 
     /// Index in the parent's relevant child list for this object type
@@ -1609,7 +1609,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.next_sibling).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.next_sibling).map(AsNewtype::as_newtype) }
     }
 
     /// Previous object below the same parent, in the same child list
@@ -1618,7 +1618,7 @@ impl TopologyObject {
         // SAFETY: - Pointer validity is assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.prev_sibling).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.prev_sibling).map(AsNewtype::as_newtype) }
     }
 }
 
@@ -1652,7 +1652,7 @@ impl TopologyObject {
             //         - Pointer validity is assumed as a type invariant
             //         - Rust aliasing rules are enforced by deriving the reference
             //           from &self, which itself is derived from &Topology
-            unsafe { (&*child).to_newtype() }
+            unsafe { (&*child).as_newtype() }
         })
     }
 
@@ -1794,7 +1794,7 @@ impl TopologyObject {
             //         - Pointer validity is assumed as a type invariant
             //         - Rust aliasing rules are enforced by deriving the reference
             //           from &self, which itself is derived from &Topology
-            let result: &Self = unsafe { (&*current).to_newtype() };
+            let result: &Self = unsafe { (&*current).as_newtype() };
             current = result.0.next_sibling;
             result
         })
@@ -1991,10 +1991,10 @@ impl TopologyObject {
             return &[];
         }
         // SAFETY: - infos and count are assumed in sync per type invariant
-        //         - ToNewtype is trusted to be implemented correctly
+        //         - AsNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(
-                self.0.infos.to_newtype(),
+                self.0.infos.as_newtype(),
                 int::expect_usize(self.0.infos_count),
             )
         }
