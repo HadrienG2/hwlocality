@@ -1115,7 +1115,7 @@ pub struct hwloc_info_s {
 /// - The ergonomic impact of everyday types not being [`UnwindSafe`] is
 ///   annoying (need [`AssertUnwindSafe`] in every [`catch_unwind()`]).
 ///
-/// [`AssertUnwindSafe`]: std::panic::AssertUnwindSafe,
+/// [`AssertUnwindSafe`]: std::panic::AssertUnwindSafe
 /// [`catch_unwind()`]: std::panic::catch_unwind()
 #[allow(missing_debug_implementations)]
 #[repr(C)]
@@ -1897,7 +1897,7 @@ pub const HWLOC_DISTRIB_FLAG_REVERSE: hwloc_distrib_flags_e = 1 << 0;
 /// - The ergonomic impact of everyday types not being [`UnwindSafe`] is
 ///   annoying (need [`AssertUnwindSafe`] in every [`catch_unwind()`]).
 ///
-/// [`AssertUnwindSafe`]: std::panic::AssertUnwindSafe,
+/// [`AssertUnwindSafe`]: std::panic::AssertUnwindSafe
 /// [`catch_unwind()`]: std::panic::catch_unwind()
 #[allow(missing_debug_implementations)]
 #[repr(C)]
@@ -3378,7 +3378,7 @@ mod tests {
         io::Write
     );
     #[cfg(feature = "hwloc-2_3_0")]
-    mod hwloc_location {
+    mod hwloc_location_impls {
         use super::*;
         assert_impl_all!(hwloc_location:
             Copy, Debug, Sized, Unpin, UnwindSafe

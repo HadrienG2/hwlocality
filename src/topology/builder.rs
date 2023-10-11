@@ -1054,6 +1054,14 @@ pub(crate) mod tests {
         Display, Drop, PartialOrd, Pointer, LowerExp, Read, UpperExp,
         fmt::Write, io::Write
     );
+    assert_impl_all!(FileInputError:
+        Clone, Error, From<PathError>, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(FileInputError:
+        Binary, Copy, Default, Deref, Drop, IntoIterator,
+        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
+        UpperExp, UpperHex, fmt::Write, io::Write
+    );
     assert_impl_all!(FromPIDError:
         Copy, Default, Error, From<ProcessId>, Hash, Sized, Sync, Unpin,
         UnwindSafe
@@ -1092,14 +1100,6 @@ pub(crate) mod tests {
     );
     assert_not_impl_any!(TypeFilterError:
         Binary, Default, Deref, Drop, IntoIterator,
-        LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
-        UpperExp, UpperHex, fmt::Write, io::Write
-    );
-    assert_impl_all!(FileInputError:
-        Clone, Error, From<PathError>, Hash, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_not_impl_any!(FileInputError:
-        Binary, Copy, Default, Deref, Drop, IntoIterator,
         LowerExp, LowerHex, Octal, PartialOrd, Pointer, Read,
         UpperExp, UpperHex, fmt::Write, io::Write
     );
