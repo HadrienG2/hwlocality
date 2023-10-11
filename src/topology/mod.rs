@@ -22,7 +22,7 @@ use crate::{
     bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObjectError, RawHwlocError},
-    ffi::transparent::ToNewtype,
+    ffi::transparent::AsNewtype,
     memory::nodeset::NodeSet,
     object::{depth::NormalDepth, types::ObjectType, TopologyObject},
 };
@@ -299,7 +299,7 @@ impl Topology {
         //           devoid of mutable aliases
         //         - Output reference will be bound the the lifetime of &self by
         //           the borrow checker
-        unsafe { ptr.as_ref().to_newtype() }
+        unsafe { ptr.as_ref().as_newtype() }
     }
 
     /// Quickly check a support flag
@@ -572,7 +572,7 @@ impl quickcheck::Arbitrary for DistributeFlags {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }
 //

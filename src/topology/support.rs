@@ -12,7 +12,7 @@
 use super::{builder::BuildFlags, Topology};
 use crate::ffi::{
     self,
-    transparent::{ToNewtype, TransparentNewtype},
+    transparent::{AsNewtype, TransparentNewtype},
 };
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::hwloc_topology_misc_support;
@@ -57,7 +57,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.discovery).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.discovery).map(AsNewtype::as_newtype) }
     }
 
     /// Support for getting and setting thread/process CPU bindings
@@ -66,7 +66,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.cpubind).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.cpubind).map(AsNewtype::as_newtype) }
     }
 
     /// Support for getting and setting thread/process NUMA node bindings
@@ -75,7 +75,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.membind).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.membind).map(AsNewtype::as_newtype) }
     }
 
     /// Miscellaneous support information
@@ -85,7 +85,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.misc).map(ToNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.misc).map(AsNewtype::to_newtype) }
     }
 }
 //

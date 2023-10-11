@@ -1226,7 +1226,7 @@ impl quickcheck::Arbitrary for MemoryBindingFlags {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }
 //

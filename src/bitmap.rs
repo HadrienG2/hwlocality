@@ -430,7 +430,7 @@ impl Bitmap {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             errors::call_hwloc_int_normal("hwloc_bitmap_only", || unsafe {
-                hwlocality_sys::hwloc_bitmap_only(self_.as_mut_ptr(), idx.into_c_uint())
+                hwlocality_sys::hwloc_bitmap_only(self_.as_mut_ptr(), idx.to_c_uint())
             })
             .expect(MALLOC_FAIL_ONLY);
         }
@@ -472,7 +472,7 @@ impl Bitmap {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             errors::call_hwloc_int_normal("hwloc_bitmap_allbut", || unsafe {
-                hwlocality_sys::hwloc_bitmap_allbut(self_.as_mut_ptr(), idx.into_c_uint())
+                hwlocality_sys::hwloc_bitmap_allbut(self_.as_mut_ptr(), idx.to_c_uint())
             })
             .expect(MALLOC_FAIL_ONLY);
         }
@@ -514,7 +514,7 @@ impl Bitmap {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             errors::call_hwloc_int_normal("hwloc_bitmap_set", || unsafe {
-                hwlocality_sys::hwloc_bitmap_set(self_.as_mut_ptr(), idx.into_c_uint())
+                hwlocality_sys::hwloc_bitmap_set(self_.as_mut_ptr(), idx.to_c_uint())
             })
             .expect(MALLOC_FAIL_ONLY);
         }
@@ -607,7 +607,7 @@ impl Bitmap {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             errors::call_hwloc_int_normal("hwloc_bitmap_clr", || unsafe {
-                hwlocality_sys::hwloc_bitmap_clr(self_.as_mut_ptr(), idx.into_c_uint())
+                hwlocality_sys::hwloc_bitmap_clr(self_.as_mut_ptr(), idx.to_c_uint())
             })
             .expect(MALLOC_FAIL_ONLY);
         }
@@ -737,7 +737,7 @@ impl Bitmap {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             errors::call_hwloc_bool("hwloc_bitmap_isset", || unsafe {
-                hwlocality_sys::hwloc_bitmap_isset(self_.as_ptr(), idx.into_c_uint())
+                hwlocality_sys::hwloc_bitmap_isset(self_.as_ptr(), idx.to_c_uint())
             })
             .expect(MALLOC_FAIL_ONLY)
         }
@@ -1083,10 +1083,10 @@ impl Bitmap {
             let end = end.expect("Range end is out of the accepted 0..=c_int::MAX range");
             let end = match end {
                 Bound::Unbounded => -1,
-                Bound::Included(i) => i.into_c_int(),
-                Bound::Excluded(i) => i.checked_add_signed(-1)?.into_c_int(),
+                Bound::Included(i) => i.to_c_int(),
+                Bound::Excluded(i) => i.checked_add_signed(-1)?.to_c_int(),
             };
-            Some((start.into_c_uint(), end))
+            Some((start.to_c_uint(), end))
         }
 
         // Translate bounds, using (1, 0) as the canonical empty hwloc range
@@ -1131,7 +1131,7 @@ impl Bitmap {
         self.query_index(api, || {
             // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
-            next_fn(self.as_ptr(), index.map_or(-1, BitmapIndex::into_c_int))
+            next_fn(self.as_ptr(), index.map_or(-1, BitmapIndex::to_c_int))
         })
     }
 
@@ -1666,14 +1666,14 @@ pub unsafe trait OwnedBitmap:
     ///
     /// The client must not use this pointer to mutate the target object
     #[doc(hidden)]
-    unsafe fn as_raw(&self) -> NonNull<hwloc_bitmap_s>;
+    unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s>;
 }
 //
 impl Sealed for Bitmap {}
 //
 // SAFETY: Bitmap is a repr(transparent) newtype of NonNull<RawBitmap>
 unsafe impl OwnedBitmap for Bitmap {
-    unsafe fn as_raw(&self) -> NonNull<hwloc_bitmap_s> {
+    unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s> {
         self.0
     }
 }
@@ -1877,7 +1877,7 @@ impl<Target: OwnedBitmap + Eq + PartialEq<Self>> Eq for BitmapRef<'_, Target> {}
 impl<'target, Target: OwnedBitmap> From<&'target Target> for BitmapRef<'target, Target> {
     fn from(input: &'target Target) -> Self {
         // SAFETY: A `BitmapRef` does not allow mutating the target object
-        Self(unsafe { input.as_raw() }, PhantomData)
+        Self(unsafe { input.inner() }, PhantomData)
     }
 }
 
@@ -2389,7 +2389,8 @@ macro_rules! impl_bitmap_newtype {
                 self.0.intersects(&rhs.0)
             }
 
-            /// Truth that the indices set in `inner` are a subset of those set in `self`
+            /// Truth that the indices set in `inner` are a subset of those set
+            /// in `self`
             ///
             /// See [`Bitmap::includes`](crate::bitmap::Bitmap::includes).
             pub fn includes(&self, inner: impl std::ops::Deref<Target = Self>) -> bool {
@@ -2579,9 +2580,9 @@ macro_rules! impl_bitmap_newtype {
         // SAFETY: $newtype is a repr(transparent) newtype of Bitmap, which is
         //         itself a repr(transparent) newtype of RawBitmap.
         unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
-            unsafe fn as_raw(&self) -> std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s> {
+            unsafe fn inner(&self) -> std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s> {
                 // SAFETY: Safety proof inherited from `Bitmap`
-                unsafe { self.0.as_raw() }
+                unsafe { self.0.inner() }
             }
         }
 
@@ -2833,7 +2834,7 @@ macro_rules! impl_bitmap_newtype_tests {
 
             #[quickcheck]
             fn from_iterator(v: Vec<PositiveInt>) {
-                let new = v.clone().into_iter().collect::<$newtype>();
+                let new = v.iter().copied().collect::<$newtype>();
                 let inner = v.into_iter().collect::<Bitmap>();
                 assert_eq!(new, $newtype(inner));
             }
@@ -2915,7 +2916,7 @@ macro_rules! impl_bitmap_newtype_tests {
                 );
                 assert_eq!(hash(&new), hash(&new.0));
                 // SAFETY: No mutation going on
-                unsafe { assert_eq!(new.as_raw(), new.0.as_raw()) };
+                unsafe { assert_eq!(new.inner(), new.0.inner()) };
                 //
                 assert!(new
                     .iter_set()
@@ -2986,7 +2987,7 @@ macro_rules! impl_bitmap_newtype_tests {
                 let new_mut = new_const.cast_mut();
                 let new_nonnull = NonNull::new(new_mut).unwrap();
                 // SAFETY: We won't use this pointer to mutate
-                assert_eq!(unsafe { new.as_raw() }, new_nonnull);
+                assert_eq!(unsafe { new.inner() }, new_nonnull);
                 {
                     // SAFETY: If it worked for the original newtype, it works here too,
                     //         as long as we leave the original aside and refrain from
@@ -3432,7 +3433,7 @@ pub(crate) mod tests {
         let bitmap = ManuallyDrop::new(bitmap);
         let inner = bitmap.0;
         // SAFETY: We won't use this pointer to mutate
-        assert_eq!(unsafe { bitmap.as_raw() }, inner);
+        assert_eq!(unsafe { bitmap.inner() }, inner);
         {
             // SAFETY: If it worked for the original bitmap, it works here too,
             //         as long as we leave the original aside and refrain from

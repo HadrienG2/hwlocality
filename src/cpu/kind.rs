@@ -188,7 +188,7 @@ impl Topology {
             //           these rules ourselves
             //         - Total size should not wrap for any valid allocation
             //         - ToNewtype is trusted to be implemented correctly
-            unsafe { std::slice::from_raw_parts(infos.to_newtype(), int::expect_usize(nr_infos)) };
+            unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
     }
 

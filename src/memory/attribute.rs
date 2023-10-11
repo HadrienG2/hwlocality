@@ -165,7 +165,7 @@ impl Topology {
         ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignObjectError>> {
             // Prepare to call hwloc
             // SAFETY: Will only be used before returning from this function
-            let (location, flags) = unsafe { target.into_checked_raw(self_)? };
+            let (location, flags) = unsafe { target.to_checked_raw(self_)? };
             let mut nr = 0;
             let call_ffi = |nr_mut, out_ptr| {
                 // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
@@ -390,7 +390,7 @@ impl MemoryAttributeBuilder<'_, '_> {
         ///
         /// # Safety
         ///
-        /// - `initiators` must have just gone through the `into_checked_raw()`
+        /// - `initiators` must have just gone through the `to_checked_raw()`
         ///   validation process against this attribute's topology.
         /// - `target_ptrs_and_values` must only contain pointers to objects
         ///   from this memory attribute's topology.
@@ -464,7 +464,7 @@ impl MemoryAttributeBuilder<'_, '_> {
                 vec.into_iter()
                     // SAFETY: Will only be used before returning from this function
                     .map(|initiator| unsafe {
-                        initiator.into_checked_raw(topology).map_err(|e| {
+                        initiator.to_checked_raw(topology).map_err(|e| {
                             ValueInputError::BadInitiators(InitiatorInputError::ForeignInitiator(e))
                         })
                     })
@@ -1220,7 +1220,7 @@ impl<'topology> MemoryAttribute<'topology> {
         // SAFETY: Per function precondition on output usage
         unsafe {
             initiator
-                .into_checked_raw(self.topology)
+                .to_checked_raw(self.topology)
                 .map_err(InitiatorInputError::ForeignInitiator)
         }
     }
@@ -1341,7 +1341,7 @@ impl<'target> MemoryAttributeLocation<'target> {
     /// # Safety
     ///
     /// Do not use the output after the source lifetime has expired
-    pub(crate) unsafe fn into_checked_raw(
+    pub(crate) unsafe fn to_checked_raw(
         self,
         topology: &Topology,
     ) -> Result<hwloc_location, ForeignObjectError> {
@@ -1480,7 +1480,7 @@ impl quickcheck::Arbitrary for LocalNUMANodeFlags {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }
 
@@ -1517,7 +1517,7 @@ impl TargetNumaNodes<'_> {
     /// # Safety
     ///
     /// Do not use the output raw location after the source lifetime has expired
-    pub(crate) unsafe fn into_checked_raw(
+    pub(crate) unsafe fn to_checked_raw(
         self,
         topology: &Topology,
     ) -> Result<(hwloc_location, LocalNUMANodeFlags), ForeignObjectError> {
@@ -1528,7 +1528,7 @@ impl TargetNumaNodes<'_> {
             } => {
                 flags.remove(LocalNUMANodeFlags::ALL);
                 // SAFETY: Per function precondition
-                Ok((unsafe { location.into_checked_raw(topology)? }, flags))
+                Ok((unsafe { location.to_checked_raw(topology)? }, flags))
             }
             // SAFETY: In presence of the ALL flag, the initiator is ignored,
             //         so a null location is fine.
@@ -1605,6 +1605,6 @@ impl quickcheck::Arbitrary for MemoryAttributeFlags {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }

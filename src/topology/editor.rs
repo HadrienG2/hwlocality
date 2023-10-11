@@ -458,7 +458,7 @@ impl<'topology> TopologyEditor<'topology> {
                 errors::call_hwloc_ptr_mut("hwloc_topology_insert_misc_object", || unsafe {
                     hwlocality_sys::hwloc_topology_insert_misc_object(
                         self_.topology_mut_ptr(),
-                        parent.to_inner().as_ptr(),
+                        parent.as_inner().as_ptr(),
                         name.borrow(),
                     )
                 })
@@ -466,7 +466,7 @@ impl<'topology> TopologyEditor<'topology> {
             // SAFETY: - If hwloc succeeded, the output pointer is assumed valid
             //         - Output lifetime is bound to the topology that it comes
             //           from
-            Ok(unsafe { ptr.as_mut().to_newtype() })
+            Ok(unsafe { ptr.as_mut().as_newtype() })
         }
 
         // Find parent object
@@ -556,7 +556,7 @@ impl quickcheck::Arbitrary for RestrictFlags {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }
 
@@ -708,7 +708,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         //           object pointer
         //         - ToNewtype is trusted to be implemented correctly
         .map(|group| Self {
-            group: group.to_newtype(),
+            group: group.as_newtype(),
             editor,
         })
     }
@@ -743,8 +743,8 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                     //         - ToInner is trusted to be implemented correctly
                     errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
                         hwlocality_sys::hwloc_obj_add_other_obj_sets(
-                            group.to_inner().as_ptr(),
-                            child.to_inner(),
+                            group.as_inner().as_ptr(),
+                            child.as_inner(),
                         )
                     });
                 match result {
@@ -785,7 +785,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             // SAFETY: - We know this is a group object as a type invariant, so
             //           accessing the group raw attribute is safe
             //         - We are not changing the raw attributes variant
-            unsafe { (&mut (*self.group.as_mut().to_inner().attr).group).to_newtype() };
+            unsafe { (&mut (*self.group.as_mut().as_inner().attr).group).as_newtype() };
         match merge {
             GroupMerge::Never => group_attributes.prevent_merging(),
             GroupMerge::Always => group_attributes.favor_merging(),
@@ -839,11 +839,11 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
             hwlocality_sys::hwloc_topology_insert_group_object(
                 self.editor.topology_mut_ptr(),
-                self.group.to_inner().as_ptr(),
+                self.group.as_inner().as_ptr(),
             )
         })
         .map(|mut result| {
-            if result == self.group.to_inner() {
+            if result == self.group.as_inner() {
                 // SAFETY: - We know this is a group object as a type invariant
                 //         - Output lifetime is bound to the topology it comes from
                 //         - Group has been successfully inserted, can expose &mut
@@ -852,7 +852,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                 // SAFETY: - Successful result is trusted to point to an
                 //           existing group
                 //         - Output lifetime is bound to the topology it comes from
-                InsertedGroup::Existing(unsafe { result.as_mut().to_newtype() })
+                InsertedGroup::Existing(unsafe { result.as_mut().as_newtype() })
             }
         })
     }

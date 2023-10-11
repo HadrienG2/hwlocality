@@ -68,19 +68,20 @@ pub(crate) unsafe trait TransparentNewtype: Sized {
 /// # Safety
 ///
 /// Unsafe code can rely on this trait being implemented correctly for safety
-pub(crate) unsafe trait ToNewtype<Newtype: TransparentNewtype> {
+#[allow(clippy::wrong_self_convention)]
+pub(crate) unsafe trait AsNewtype<Newtype: TransparentNewtype> {
     /// Like this type, but with the C struct replaced with its newtype
     type Wrapped;
 
     /// Perform the conversion
-    fn to_newtype(self) -> Self::Wrapped;
+    fn as_newtype(self) -> Self::Wrapped;
 }
 
 // SAFETY: Per TransparentNewtype contract, casting &'a T to &'a NewT is legal
-unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> ToNewtype<NewT> for &'a T {
+unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> AsNewtype<NewT> for &'a T {
     type Wrapped = &'a NewT;
 
-    fn to_newtype(self) -> Self::Wrapped {
+    fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         let ptr: *const T = self;
         // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
@@ -90,10 +91,10 @@ unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> ToNewtype<NewT> for
 }
 
 // SAFETY: Per TransparentNewtype contract, casting &'a mut T to &'a mut NewT is legal
-unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> ToNewtype<NewT> for &'a mut T {
+unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> AsNewtype<NewT> for &'a mut T {
     type Wrapped = &'a mut NewT;
 
-    fn to_newtype(self) -> Self::Wrapped {
+    fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         let ptr: *mut T = self;
         // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
@@ -103,30 +104,30 @@ unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> ToNewtype<NewT> for
 }
 
 // SAFETY: Per TransparentNewtype contract, casting NonNull<T> to NonNull<NewT> is legal
-unsafe impl<T, NewT: TransparentNewtype<Inner = T>> ToNewtype<NewT> for NonNull<T> {
+unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for NonNull<T> {
     type Wrapped = NonNull<NewT>;
 
-    fn to_newtype(self) -> Self::Wrapped {
+    fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         self.cast()
     }
 }
 
 // SAFETY: Per TransparentNewtype contract, casting *const T to *const NewT is legal
-unsafe impl<T, NewT: TransparentNewtype<Inner = T>> ToNewtype<NewT> for *const T {
+unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for *const T {
     type Wrapped = *const NewT;
 
-    fn to_newtype(self) -> Self::Wrapped {
+    fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         self.cast()
     }
 }
 
 // SAFETY: Per TransparentNewtype contract, casting *mut T to *mut NewT is legal
-unsafe impl<T, NewT: TransparentNewtype<Inner = T>> ToNewtype<NewT> for *mut T {
+unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for *mut T {
     type Wrapped = *mut NewT;
 
-    fn to_newtype(self) -> Self::Wrapped {
+    fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         self.cast()
     }
@@ -137,19 +138,20 @@ unsafe impl<T, NewT: TransparentNewtype<Inner = T>> ToNewtype<NewT> for *mut T {
 /// # Safety
 ///
 /// Unsafe code can rely on this trait being implemented correctly for safety
-pub(crate) unsafe trait ToInner {
+#[allow(clippy::wrong_self_convention)]
+pub(crate) unsafe trait AsInner {
     /// Like this type, but with the newtype replaced with its inner struct
     type Unwrapped;
 
     /// Perform the conversion
-    fn to_inner(self) -> Self::Unwrapped;
+    fn as_inner(self) -> Self::Unwrapped;
 }
 
 // SAFETY: Per TransparentNewtype contract, casting &'a NewT to &'a NewT::Inner is legal
-unsafe impl<'a, NewT: TransparentNewtype + 'a> ToInner for &'a NewT {
+unsafe impl<'a, NewT: TransparentNewtype + 'a> AsInner for &'a NewT {
     type Unwrapped = &'a NewT::Inner;
 
-    fn to_inner(self) -> Self::Unwrapped {
+    fn as_inner(self) -> Self::Unwrapped {
         NewT::check_basic_layout();
         let ptr: *const NewT = self;
         // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
@@ -160,10 +162,10 @@ unsafe impl<'a, NewT: TransparentNewtype + 'a> ToInner for &'a NewT {
 }
 
 // SAFETY: Per TransparentNewtype contract, casting &'a mut NewT to &'a mut NewT::Inner is legal
-unsafe impl<'a, NewT: TransparentNewtype + 'a> ToInner for &'a mut NewT {
+unsafe impl<'a, NewT: TransparentNewtype + 'a> AsInner for &'a mut NewT {
     type Unwrapped = &'a mut NewT::Inner;
 
-    fn to_inner(self) -> Self::Unwrapped {
+    fn as_inner(self) -> Self::Unwrapped {
         NewT::check_basic_layout();
         let ptr: *mut NewT = self;
         // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
@@ -174,30 +176,30 @@ unsafe impl<'a, NewT: TransparentNewtype + 'a> ToInner for &'a mut NewT {
 }
 
 // SAFETY: Per TransparentNewtype contract, casting NonNull<NewT> to NonNull<NewT::Inner> is legal
-unsafe impl<NewT: TransparentNewtype> ToInner for NonNull<NewT> {
+unsafe impl<NewT: TransparentNewtype> AsInner for NonNull<NewT> {
     type Unwrapped = NonNull<NewT::Inner>;
 
-    fn to_inner(self) -> Self::Unwrapped {
+    fn as_inner(self) -> Self::Unwrapped {
         NewT::check_basic_layout();
         self.cast()
     }
 }
 
 // SAFETY: Per TransparentNewtype contract, casting *const NewT to *const NewT::Inner is legal
-unsafe impl<NewT: TransparentNewtype> ToInner for *const NewT {
+unsafe impl<NewT: TransparentNewtype> AsInner for *const NewT {
     type Unwrapped = *const NewT::Inner;
 
-    fn to_inner(self) -> Self::Unwrapped {
+    fn as_inner(self) -> Self::Unwrapped {
         NewT::check_basic_layout();
         self.cast()
     }
 }
 
 // SAFETY: Per TransparentNewtype contract, casting *mut NewT to *mut NewT::Inner is legal
-unsafe impl<NewT: TransparentNewtype> ToInner for *mut NewT {
+unsafe impl<NewT: TransparentNewtype> AsInner for *mut NewT {
     type Unwrapped = *mut NewT::Inner;
 
-    fn to_inner(self) -> Self::Unwrapped {
+    fn as_inner(self) -> Self::Unwrapped {
         NewT::check_basic_layout();
         self.cast()
     }
@@ -223,31 +225,31 @@ mod tests {
         let const_info: *const hwloc_info_s = mut_info;
         TextualInfo::check_basic_layout();
         {
-            let r = (&info).to_newtype();
+            let r = (&info).as_newtype();
             let p: *const TextualInfo = r;
             assert_eq!(p.cast::<hwloc_info_s>(), const_info);
-            assert!(ptr::eq(r.to_inner(), const_info));
+            assert!(ptr::eq(r.as_inner(), const_info));
         }
         {
-            let r = (&mut info).to_newtype();
+            let r = (&mut info).as_newtype();
             let p: *mut TextualInfo = r;
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
-            assert!(ptr::eq(r.to_inner(), mut_info));
+            assert!(ptr::eq(r.as_inner(), mut_info));
         }
         {
-            let p: NonNull<TextualInfo> = nonnull_info.to_newtype();
+            let p: NonNull<TextualInfo> = nonnull_info.as_newtype();
             assert_eq!(p.cast::<hwloc_info_s>(), nonnull_info);
-            assert_eq!(p.to_inner(), nonnull_info);
+            assert_eq!(p.as_inner(), nonnull_info);
         }
         {
-            let p: *const TextualInfo = const_info.to_newtype();
+            let p: *const TextualInfo = const_info.as_newtype();
             assert_eq!(p.cast::<hwloc_info_s>(), const_info);
-            assert_eq!(p.to_inner(), const_info);
+            assert_eq!(p.as_inner(), const_info);
         }
         {
-            let p: *mut TextualInfo = mut_info.to_newtype();
+            let p: *mut TextualInfo = mut_info.as_newtype();
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
-            assert_eq!(p.to_inner(), mut_info);
+            assert_eq!(p.as_inner(), mut_info);
         }
     }
 

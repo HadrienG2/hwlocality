@@ -128,7 +128,7 @@ impl Topology {
                     |topology, nr, distances, kind, flags| {
                         hwlocality_sys::hwloc_distances_get_by_depth(
                             topology,
-                            depth.into_raw(),
+                            depth.to_raw(),
                             nr,
                             distances,
                             kind,
@@ -545,7 +545,7 @@ impl quickcheck::Arbitrary for AddDistancesFlags {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }
 
@@ -709,7 +709,7 @@ impl TopologyEditor<'_> {
             errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
                     self_.topology_mut_ptr(),
-                    depth.into_raw(),
+                    depth.to_raw(),
                 )
             })
             .map(std::mem::drop)
@@ -1433,7 +1433,7 @@ impl quickcheck::Arbitrary for DistancesKind {
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let self_copy = *self;
-        Box::new(self.into_iter().map(move |value| self_copy ^ value))
+        Box::new(self.iter().map(move |value| self_copy ^ value))
     }
 }
 
