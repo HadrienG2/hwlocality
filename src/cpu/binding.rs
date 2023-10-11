@@ -26,9 +26,9 @@ use libc::{ENOSYS, EXDEV};
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
-    borrow::Borrow,
     ffi::{c_int, c_uint},
     fmt::Display,
+    ops::Deref,
 };
 use thiserror::Error;
 
@@ -52,6 +52,8 @@ use thiserror::Error;
 // Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
 impl Topology {
     /// Binds the current process or thread on given CPUs
+    ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
     ///
     /// Some operating systems only support binding threads or processes to a
     /// single [`PU`]. Others allow binding to larger sets such as entire
@@ -103,7 +105,7 @@ impl Topology {
     #[doc(alias = "hwloc_set_cpubind")]
     pub fn bind_cpu(
         &self,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), CpuBindingError> {
         /// Polymorphized version of this function (avoids generics code bloat)
@@ -132,7 +134,7 @@ impl Topology {
                 Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error: {e}"),
             }
         }
-        polymorphized(self, set.borrow(), flags)
+        polymorphized(self, &set, flags)
     }
 
     /// Get the current process or thread CPU binding
@@ -211,7 +213,7 @@ impl Topology {
     pub fn bind_process_cpu(
         &self,
         pid: ProcessId,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
         // SAFETY: - ProcessOrThread is the correct target for this operation
@@ -222,7 +224,7 @@ impl Topology {
         //           able to handle an invalid PID
         unsafe {
             self.bind_cpu_impl(
-                set.borrow(),
+                &set,
                 flags,
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_set_proc_cpubind",
@@ -302,7 +304,7 @@ impl Topology {
     pub fn bind_thread_cpu(
         &self,
         tid: ThreadId,
-        set: impl Borrow<CpuSet>,
+        set: impl Deref<Target = CpuSet>,
         flags: CpuBindingFlags,
     ) -> Result<(), HybridError<CpuBindingError>> {
         // SAFETY: - Thread is the correct target for this operation
@@ -313,7 +315,7 @@ impl Topology {
         //           able to handle an invalid TID
         unsafe {
             self.bind_cpu_impl(
-                set.borrow(),
+                &set,
                 flags,
                 CpuBoundObject::Thread(tid),
                 "hwloc_set_thread_cpubind",

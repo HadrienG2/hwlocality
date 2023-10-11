@@ -11,7 +11,7 @@ use crate::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::{borrow::Borrow, path::Path};
+use std::{ops::Deref, path::Path};
 
 // This file is rustdoc-visible so we must provide a substitute for
 // linux-specific libc entities when people run rustdoc on Windows.
@@ -33,6 +33,8 @@ struct pid_t;
 impl Topology {
     /// Bind a thread `tid` on cpus given in `set`
     ///
+    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    ///
     /// The behavior is exactly the same as the Linux `sched_setaffinity` system
     /// call, but uses a hwloc [`CpuSet`].
     ///
@@ -43,7 +45,11 @@ impl Topology {
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_set_tid_cpubind")]
-    pub fn bind_tid_cpu(&self, tid: pid_t, set: impl Borrow<CpuSet>) -> Result<(), RawHwlocError> {
+    pub fn bind_tid_cpu(
+        &self,
+        tid: pid_t,
+        set: impl Deref<Target = CpuSet>,
+    ) -> Result<(), RawHwlocError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(self_: &Topology, tid: pid_t, set: &CpuSet) -> Result<(), RawHwlocError> {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
@@ -56,7 +62,7 @@ impl Topology {
             })
             .map(std::mem::drop)
         }
-        polymorphized(self, tid, set.borrow())
+        polymorphized(self, tid, &set)
     }
 
     /// Current binding of thread `tid`.

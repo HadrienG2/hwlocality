@@ -37,10 +37,10 @@ use libc::EINVAL;
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
 use std::{
-    borrow::Borrow,
     convert::TryInto,
     fmt::{self, Pointer},
     num::NonZeroUsize,
+    ops::Deref,
     ptr::{self, NonNull},
     sync::OnceLock,
 };
@@ -658,9 +658,11 @@ type ObjSetWeightDepth<'a> = (
 );
 
 /// Truth that an iterator of cpusets contains overlapping sets
-fn sets_overlap(mut sets: impl Iterator<Item = impl Borrow<CpuSet>>) -> bool {
+///
+/// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` items.
+fn sets_overlap(mut sets: impl Iterator<Item = impl Deref<Target = CpuSet>>) -> bool {
     sets.try_fold(CpuSet::new(), |mut acc, set| {
-        let set = set.borrow();
+        let set: &CpuSet = &set;
         if acc.intersects(set) {
             None
         } else {
@@ -1192,7 +1194,7 @@ mod tests {
             let cpu = full_set.into_iter().nth(random_bit).unwrap();
             overlapping_roots.push(
                 topology
-                    .smallest_object_covering_cpuset(CpuSet::from(cpu))
+                    .smallest_object_covering_cpuset(&CpuSet::from(cpu))
                     .unwrap(),
             );
             assert_eq!(

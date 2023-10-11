@@ -2485,7 +2485,7 @@ macro_rules! impl_bitmap_newtype {
         // NOTE: This seemingly useless impl is needed in order to have impls of
         //       IntoIterator<Item=BitmapIndex> for &BitmapRef<$newtype>
         #[doc(hidden)]
-        impl Borrow<$crate::bitmap::Bitmap> for &$newtype {
+        impl std::borrow::Borrow<$crate::bitmap::Bitmap> for &$newtype {
             fn borrow(&self) -> &$crate::bitmap::Bitmap {
                 self.as_ref()
             }

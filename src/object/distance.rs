@@ -16,6 +16,10 @@
 
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::errors::FlagsError;
+#[cfg(any(doc, feature = "hwloc-2_3_0"))]
+use crate::object::depth::NormalDepth;
+#[cfg(feature = "hwloc-2_3_0")]
+use crate::topology::editor::TopologyEditor;
 use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
@@ -27,8 +31,6 @@ use crate::{
     errors::{HybridError, NulError},
     ffi::string::LibcString,
 };
-#[cfg(feature = "hwloc-2_3_0")]
-use crate::{object::depth::NormalDepth, topology::editor::TopologyEditor};
 use bitflags::bitflags;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
@@ -90,6 +92,12 @@ impl Topology {
     ///
     /// Identical to [`distances()`] with the additional `depth` filter.
     ///
+    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
+    /// former two for type-safety (they are guaranteed to be in range as a type
+    /// invariant) or the latter for convenience (it is more tightly integrated
+    /// with Rust's built-in integer support, for example it supports integer
+    /// literals).
+    ///
     /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_depth")]
@@ -120,7 +128,7 @@ impl Topology {
                     |topology, nr, distances, kind, flags| {
                         hwlocality_sys::hwloc_distances_get_by_depth(
                             topology,
-                            depth.into(),
+                            depth.to_raw(),
                             nr,
                             distances,
                             kind,
@@ -671,6 +679,12 @@ impl TopologyEditor<'_> {
     /// Identical to [`remove_all_distances()`], but only applies to one level
     /// of the topology.
     ///
+    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
+    /// former two for type-safety (they are guaranteed to be in range as a type
+    /// invariant) or the latter for convenience (it is more tightly integrated
+    /// with Rust's built-in integer support, for example it supports integer
+    /// literals).
+    ///
     /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_depth")]
@@ -695,7 +709,7 @@ impl TopologyEditor<'_> {
             errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
                     self_.topology_mut_ptr(),
-                    depth.into(),
+                    depth.to_raw(),
                 )
             })
             .map(std::mem::drop)
