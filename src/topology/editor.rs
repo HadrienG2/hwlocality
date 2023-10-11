@@ -36,7 +36,7 @@ use crate::{
     errors::{self, ForeignObjectError, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
         string::LibcString,
-        transparent::{ToInner, ToNewtype},
+        transparent::{AsInner, AsNewtype},
     },
     memory::nodeset::NodeSet,
     object::{attributes::GroupAttributes, TopologyObject},
@@ -706,7 +706,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         })
         // SAFETY: - hwloc is trusted to produce a valid, non-inserted group
         //           object pointer
-        //         - ToNewtype is trusted to be implemented correctly
+        //         - AsNewtype is trusted to be implemented correctly
         .map(|group| Self {
             group: group.as_newtype(),
             editor,
@@ -740,7 +740,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                     //           parameters
                     //         - child was checked to belong to the same
                     //           topology as group
-                    //         - ToInner is trusted to be implemented correctly
+                    //         - AsInner is trusted to be implemented correctly
                     errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
                         hwlocality_sys::hwloc_obj_add_other_obj_sets(
                             group.as_inner().as_ptr(),
@@ -835,7 +835,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         //           valid state unless stated otherwise
         //         - We break the AllocatedGroup type invariant by inserting the
         //           group object, but a precondition warns the user about it
-        //         - ToInner is trusted to be implemented correctly
+        //         - AsInner is trusted to be implemented correctly
         errors::call_hwloc_ptr_mut("hwloc_topology_insert_group_object", || unsafe {
             hwlocality_sys::hwloc_topology_insert_group_object(
                 self.editor.topology_mut_ptr(),

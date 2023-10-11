@@ -22,7 +22,7 @@ use crate::{
     ffi::{
         int,
         string::LibcString,
-        transparent::{ToInner, ToNewtype},
+        transparent::{AsInner, AsNewtype},
     },
     object::TopologyObject,
     topology::{editor::TopologyEditor, Topology},
@@ -206,7 +206,7 @@ impl Topology {
                     assert!(!ptr.is_null(), "Invalid NUMA node pointer from hwloc");
                     // SAFETY: We trust that if hwloc emits a non-null pointer, it
                     //         is valid and bound to the topology's lifetime.
-                    unsafe { (&*ptr).to_newtype() }
+                    unsafe { (&*ptr).as_newtype() }
                 })
                 .collect())
         }
@@ -478,7 +478,7 @@ impl MemoryAttributeBuilder<'_, '_> {
                 if !topology.contains(target_ref) {
                     return Err(ValueInputError::ForeignTarget(target_ref.into()));
                 }
-                let target_ptr = NonNull::from(target_ref).to_inner();
+                let target_ptr = NonNull::from(target_ref).as_inner();
                 Ok((target_ptr, value))
             })
             .collect::<Result<Vec<_>, ValueInputError>>()?;
@@ -768,7 +768,7 @@ impl<'topology> MemoryAttribute<'topology> {
                 hwlocality_sys::hwloc_memattr_get_value(
                     self_.topology.as_ptr(),
                     self_.id,
-                    target_node.to_inner(),
+                    target_node.as_inner(),
                     &initiator,
                     0,
                     &mut value,
@@ -886,7 +886,7 @@ impl<'topology> MemoryAttribute<'topology> {
                     hwlocality_sys::hwloc_memattr_get_best_initiator(
                         topology,
                         attribute,
-                        target.to_inner(),
+                        target.as_inner(),
                         flags,
                         &mut best_initiator,
                         value,
@@ -1015,7 +1015,7 @@ impl<'topology> MemoryAttribute<'topology> {
                     hwlocality_sys::hwloc_memattr_get_initiators(
                         topology,
                         attribute,
-                        target_node.to_inner(),
+                        target_node.as_inner(),
                         flags,
                         nr,
                         initiators,
@@ -1159,7 +1159,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ) -> &'topology TopologyObject {
         assert!(!node_ptr.is_null(), "Got null target pointer from hwloc");
         // SAFETY: Lifetime per input precondition, query output assumed valid
-        unsafe { (&*node_ptr).to_newtype() }
+        unsafe { (&*node_ptr).as_newtype() }
     }
 
     /// Encapsulate an initiator location from hwloc
@@ -1357,7 +1357,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                     Ok(hwloc_location {
                         ty: HWLOC_LOCATION_TYPE_OBJECT,
                         location: hwloc_location_u {
-                            object: object.to_inner(),
+                            object: object.as_inner(),
                         },
                     })
                 } else {
@@ -1394,7 +1394,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                 HWLOC_LOCATION_TYPE_OBJECT => {
                     let ptr = NonNull::new(raw.location.object.cast_mut())
                         .expect("Unexpected null TopologyObject from hwloc");
-                    Ok(MemoryAttributeLocation::Object(ptr.as_ref().to_newtype()))
+                    Ok(MemoryAttributeLocation::Object(ptr.as_ref().as_newtype()))
                 }
                 unknown => Err(LocationTypeError(unknown)),
             }

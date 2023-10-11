@@ -138,7 +138,7 @@ impl NUMANodeAttributes {
             return &[];
         }
         // SAFETY: - Pointer and length assumed valid per type invariant
-        //         - ToNewtype is trusted to be implemented correctly
+        //         - AsNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(
                 self.0.page_types.as_newtype(),

@@ -1991,7 +1991,7 @@ impl TopologyObject {
             return &[];
         }
         // SAFETY: - infos and count are assumed in sync per type invariant
-        //         - ToNewtype is trusted to be implemented correctly
+        //         - AsNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(
                 self.0.infos.as_newtype(),

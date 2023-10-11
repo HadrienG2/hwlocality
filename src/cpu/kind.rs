@@ -17,7 +17,7 @@ use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
     errors::{self, RawHwlocError},
-    ffi::{int, string::LibcString, transparent::ToNewtype},
+    ffi::{int, string::LibcString, transparent::AsNewtype},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
@@ -187,7 +187,7 @@ impl Topology {
             //           that violates Rust aliasing rules, as long as we honor
             //           these rules ourselves
             //         - Total size should not wrap for any valid allocation
-            //         - ToNewtype is trusted to be implemented correctly
+            //         - AsNewtype is trusted to be implemented correctly
             unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) };
         (cpuset, efficiency, infos)
     }

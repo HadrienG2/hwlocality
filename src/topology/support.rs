@@ -85,7 +85,7 @@ impl FeatureSupport {
         // SAFETY: - Pointer validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.misc).map(AsNewtype::to_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.misc).map(AsNewtype::as_newtype) }
     }
 }
 //
