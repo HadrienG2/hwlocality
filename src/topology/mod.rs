@@ -441,29 +441,6 @@ impl Topology {
             }
         }
 
-        // This algorithm works on normal objects and uses cpuset, cpuset weight and depth
-        // With this function, we process an object that is presumed normal,
-        // extract this information, and return it as an Option that is None if
-        // the object has access to no CPUs.
-        type ObjSetWeightDepth<'a> = (
-            &'a TopologyObject,
-            BitmapRef<'a, CpuSet>,
-            usize,
-            NormalDepth,
-        );
-        fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
-            debug_assert!(
-                obj.object_type().is_normal(),
-                "This function only works on normal objects"
-            );
-            let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
-            let weight = cpuset
-                .weight()
-                .expect("Topology objects should not have infinite cpusets");
-            let depth = obj.depth().assume_normal();
-            (weight > 0).then_some((obj, cpuset, weight, depth))
-        }
-
         /// Inner recursive distribution algorithm
         fn recurse<'a>(
             roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'a>> + Clone,
@@ -624,7 +601,7 @@ pub enum DistributeError {
     OverlappingRoots,
 }
 
-/// Part of the implementation of `Topology::distribute_items()` that tells,
+/// Part of the implementation of [`Topology::distribute_items()`] that tells,
 /// given a number of items to distribute, a cpuset weight, and the sum of all
 /// cpuset weights, how many items should be distributed, rounding up.
 fn weight_to_items(given_weight: usize, total_weight: usize, num_items: usize) -> usize {
@@ -654,6 +631,30 @@ fn weight_to_items(given_weight: usize, total_weight: usize, num_items: usize) -
         .try_into()
         .expect("Cannot happen if computation is correct")
 }
+
+/// Part of the implementation of [`Topology::distribute_items()`] that extracts
+/// information from a [`TopologyObject`] that is known to be normal, and
+/// returns this information if the object has a non-empty cpuset
+fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
+    debug_assert!(
+        obj.object_type().is_normal(),
+        "This function only works on normal objects"
+    );
+    let cpuset = obj.cpuset().expect("Normal objects should have cpusets");
+    let weight = cpuset
+        .weight()
+        .expect("Topology objects should not have infinite cpusets");
+    let depth = obj.depth().assume_normal();
+    (weight > 0).then_some((obj, cpuset, weight, depth))
+}
+
+/// Information that is extracted by [`decode_normal_obj()`]
+type ObjSetWeightDepth<'a> = (
+    &'a TopologyObject,
+    BitmapRef<'a, CpuSet>,
+    usize,
+    NormalDepth,
+);
 
 /// Truth that an iterator of cpusets contains overlapping sets
 fn sets_overlap(mut sets: impl Iterator<Item = impl Borrow<CpuSet>>) -> bool {
