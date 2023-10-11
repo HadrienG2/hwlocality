@@ -447,7 +447,7 @@ impl ObjectType {
     /// Convert to the internal representation used by hwloc
     ///
     /// Used to avoid Into/From type inference ambiguities.
-    fn to_raw(self) -> hwloc_obj_type_t {
+    fn into_raw(self) -> hwloc_obj_type_t {
         hwloc_obj_type_t::from(self)
     }
 
@@ -468,9 +468,9 @@ impl ObjectType {
         // SAFETY: By construction, ObjectType only exposes values that map into
         //         hwloc_obj_type_t values understood by the configured version
         //         of hwloc, and build.rs checks that the active version of
-        //         hwloc is not older than that, so to_raw may only generate
+        //         hwloc is not older than that, so into_raw may only generate
         //         valid hwloc_obj_type_t values for current hwloc
-        errors::call_hwloc_bool(api, || unsafe { pred(self.to_raw()) })
+        errors::call_hwloc_bool(api, || unsafe { pred(self.into_raw()) })
             .expect("Object type queries should not fail")
     }
 }
@@ -486,12 +486,13 @@ impl quickcheck::Arbitrary for ObjectType {
 //
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // SAFETY: By construction, ObjectType only exposes values that map into
-        //         hwloc_obj_type_t values understood by the configured version
-        //         of hwloc, and build.rs checks that the active version of
-        //         hwloc is not older than that, so to_raw may only generate
-        //         valid hwloc_obj_type_t values for current hwloc
-        let result = unsafe { hwlocality_sys::hwloc_compare_types(self.to_raw(), other.to_raw()) };
+        let result =
+            // SAFETY: By construction, ObjectType only exposes values that map
+            //         into hwloc_obj_type_t values understood by the configured
+            //         version of hwloc, and build.rs checks that the active
+            //         version of hwloc is not older than that, so into_raw may
+            //         only generate valid hwloc_obj_type_t values
+            unsafe { hwlocality_sys::hwloc_compare_types(self.into_raw(), other.into_raw()) };
         match result {
             HWLOC_TYPE_UNORDERED => None,
             c if c > 0 => Some(Ordering::Greater),

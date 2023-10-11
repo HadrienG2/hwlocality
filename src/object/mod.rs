@@ -422,7 +422,7 @@ impl Topology {
             //           version of hwloc, and build.rs checks that the active
             //           version of hwloc is not older than that, so into() may only
             //           generate valid hwloc_get_depth_type_e values for current hwloc
-            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.to_raw()) }
+            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.into_raw()) }
                 .try_into()
             {
                 Ok(depth) => Some(depth),
@@ -479,7 +479,7 @@ impl Topology {
         //           version of hwloc is not older than that, so into() may only
         //           generate valid hwloc_get_depth_type_e values for current hwloc
         int::expect_usize(unsafe {
-            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.to_raw())
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.into_raw())
         })
     }
 
@@ -531,7 +531,7 @@ impl Topology {
         ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
         {
             let size = self_.num_objects_at_depth(depth);
-            let depth = depth.to_raw();
+            let depth = depth.into_raw();
             (0..size).map(move |idx| {
                 let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
                 let ptr =

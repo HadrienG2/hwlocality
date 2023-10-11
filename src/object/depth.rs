@@ -118,7 +118,7 @@ impl Depth {
     }
 
     /// Convert back to the hwloc depth format
-    pub(crate) fn to_raw(self) -> hwloc_get_type_depth_e {
+    pub(crate) fn into_raw(self) -> hwloc_get_type_depth_e {
         match self {
             Self::Normal(value) => value.into_c_int(),
             Self::NUMANode => HWLOC_TYPE_DEPTH_NUMANODE,
@@ -336,13 +336,13 @@ mod tests {
             assert_eq!(NormalDepth::try_from(depth), Ok(normal));
             assert_eq!(usize::try_from(depth).unwrap(), normal);
             assert_eq!(depth.assume_normal(), normal);
-            assert!(depth.to_raw() >= 0);
+            assert!(depth.into_raw() >= 0);
         } else {
             assert_eq!(depth.to_string(), format!("<{depth:?}>"));
             NormalDepth::try_from(depth).unwrap_err();
             usize::try_from(depth).unwrap_err();
             std::panic::catch_unwind(|| depth.assume_normal()).unwrap_err();
-            assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
+            assert!(depth.into_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
         }
     }
 
