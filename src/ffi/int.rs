@@ -3400,6 +3400,7 @@ mod tests {
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::DefaultHasher,
+        error::Error,
         ffi::c_uint,
         fmt::{self, Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::{Hash, Hasher},
@@ -3439,7 +3440,7 @@ mod tests {
         MulAssign<PositiveInt>, MulAssign<&'static PositiveInt>,
         Mul<usize>, Mul<&'static usize>,
         MulAssign<usize>, MulAssign<&'static usize>,
-        Not, Octal, Ord, Product, Sized,
+        Not, Octal, Ord, PartialEq<usize>, PartialOrd<usize>, Product, Sized,
         Rem<PositiveInt>, Rem<&'static PositiveInt>,
         RemAssign<PositiveInt>, RemAssign<&'static PositiveInt>,
         Rem<usize>, Rem<&'static usize>,
@@ -3510,7 +3511,7 @@ mod tests {
         Unpin, UnwindSafe, UpperExp, UpperHex
     );
     assert_not_impl_any!(PositiveInt:
-        Deref, Drop, IntoIterator, Pointer, Read, fmt::Write, io::Write
+        Deref, Drop, Error, IntoIterator, Pointer, Read, fmt::Write, io::Write
     );
     assert_impl_all!(&PositiveInt:
         Add<PositiveInt>, Add<&'static PositiveInt>,

@@ -338,7 +338,7 @@ mod tests {
         Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(ParameterError<()>:
-        Copy, Default, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+        Copy, Default, Error, Hash, Ord, Sized, Sync, Unpin, UnwindSafe
     );
     assert_not_impl_any!(ParameterError<()>:
         Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal, Pointer,
