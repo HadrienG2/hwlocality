@@ -246,7 +246,7 @@ pub enum HybridError<RustError: Error> {
 /// This generic error type is only used when the only error that can occur is
 /// that the input string is invalid. Otherwise, a more complex error type that
 /// accounts for the possibility of NUL errors among others will be emitted.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, Ord, PartialEq, PartialOrd)]
 #[error("can't pass a string with NUL chars to hwloc")]
 pub struct NulError;
 
@@ -256,7 +256,7 @@ pub struct NulError;
 /// function parameter can be invalid, and the fact that it is invalid does
 /// not depend on the value of another parameter. Otherwise, a more descriptive
 /// dedicated error type will be used.
-#[derive(Copy, Clone, Debug, Default, Eq, Error, From, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Error, From, Hash, Ord, PartialEq, PartialOrd)]
 #[error("parameter {0:?} isn't valid for this operation")]
 pub struct ParameterError<Parameter: Debug>(pub Parameter);
 
@@ -281,10 +281,11 @@ pub type FlagsError<Flags> = ParameterError<Flags>;
 //
 // --- Implementation notes ---
 //
-// Not implementing Copy at this point because I want to leave options open for
-// switching to another way to describe objects (Debug string, etc).
+// Not implementing Copy or exposing the inner data at this point because I want
+// to keep options open for switching to another way to describe objects (Debug
+// string, etc) in the future.
 #[allow(missing_copy_implementations)]
-#[derive(Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 #[error("object #{0} doesn't belong to this topology")]
 pub struct ForeignObjectError(TopologyObjectID);
 //
@@ -300,39 +301,55 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
-    use static_assertions::assert_impl_all;
+    use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
     use std::{
+        fmt::{self, Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
+        io::{self, Read},
         num::{NonZeroU32, NonZeroUsize},
-        panic::{self, RefUnwindSafe, UnwindSafe},
+        ops::Deref,
+        panic::{self, UnwindSafe},
         ptr,
     };
 
     // Check that public types in this module keep implementing all expected
     // traits, in the interest of detecting future semver-breaking changes
-    assert_impl_all!(FlagsError<()>:
-        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
-        Sized, Sync, Unpin, UnwindSafe
-    );
+    assert_type_eq_all!(FlagsError<()>, ParameterError<()>);
     assert_impl_all!(ForeignObjectError:
-        Clone, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
-        Sized, Sync, Unpin, UnwindSafe
+        Clone, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(ForeignObjectError:
+        Binary, Copy, Default, Deref, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
     );
     assert_impl_all!(HybridError<NulError>:
-        Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(HybridError<NulError>:
+        Binary, Default, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(NulError:
-        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
-        Sized, Sync, Unpin, UnwindSafe
+        Copy, Default, Error, Hash, Ord, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(NulError:
+        Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal, Pointer,
+        Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(ParameterError<()>:
-        Clone, Copy, Debug, Default, Error, Eq, Hash, RefUnwindSafe, Send,
-        Sized, Sync, Unpin, UnwindSafe
+        Copy, Default, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(ParameterError<()>:
+        Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal, Pointer,
+        Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(RawHwlocError:
-        Clone, Copy, Debug, Error, Eq, Hash, RefUnwindSafe, Send, Sized, Sync,
-        Unpin, UnwindSafe
+        Copy, Error, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(RawHwlocError:
+        Binary, Default, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
     #[quickcheck]
