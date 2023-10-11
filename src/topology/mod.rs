@@ -517,7 +517,14 @@ impl Topology {
                 } else {
                     // No item attributed to this root, merge cpuset with
                     // the previous root.
-                    *result.last_mut().expect("First chunk cannot be empty") |= cpuset;
+                    let mut iter = result.iter_mut().rev();
+                    let last = iter.next().expect("First chunk cannot be empty");
+                    for other in iter {
+                        if other == last {
+                            *other |= cpuset;
+                        }
+                    }
+                    *last |= cpuset;
                 }
 
                 // Prepare to process the next root
@@ -942,10 +949,7 @@ mod tests {
     use pretty_assertions::{assert_eq, assert_ne};
     use quickcheck_macros::quickcheck;
     use rand::{rngs::ThreadRng, Rng};
-    use std::{
-        collections::{BTreeMap, BTreeSet},
-        num::NonZeroU8,
-    };
+    use std::{collections::BTreeSet, num::NonZeroU8};
 
     /// Randomly pick a set of valid roots for [`Topology::distribute_items()`]
     fn pick_distribute_roots(topology: &Topology) -> Vec<&TopologyObject> {
@@ -1029,13 +1033,6 @@ mod tests {
             let num_items = num_items.get();
             assert_eq!(item_sets.len(), num_items);
 
-            // Keep track of which root sets have been used by distribute_items
-            // (we need this because roots may have been merged, as we'll see)
-            let mut root_sets = disjoint_roots
-                .iter()
-                .map(|obj| obj.cpuset().unwrap().clone_target())
-                .collect::<Vec<CpuSet>>();
-
             // Predict among which leaves of the object tree work items could
             // potentially have been distributed
             let possible_leaf_objects = find_possible_leaves(&disjoint_roots, max_depth);
@@ -1045,13 +1042,16 @@ mod tests {
                 .collect::<BTreeSet<CpuSet>>();
 
             // Count how many work items were distributed to each leaf
-            let mut items_per_set = BTreeMap::<CpuSet, usize>::new();
-            for item_set in &item_sets {
-                *items_per_set.entry(item_set.clone()).or_default() += 1;
+            let mut items_per_set = Vec::<(CpuSet, usize)>::new();
+            for item_set in item_sets {
+                match items_per_set.last_mut() {
+                    Some((last_set, count)) if last_set == &item_set => *count += 1,
+                    _ => items_per_set.push((item_set, 1)),
+                }
             }
 
             // Make sure work items were indeed only distributed to these leaves
-            for item_set in items_per_set.keys() {
+            for item_set in items_per_set.iter().map(|(set, _count)| set) {
                 // ...but bear in mind that the algorithm may merge adjacent
                 // leaf cpusets if there are fewer items than leaf cpusets.
                 if !possible_leaf_sets.contains(item_set) {
@@ -1076,27 +1076,12 @@ mod tests {
                     );
                     assert_eq!(
                         items_per_set
-                            .keys()
-                            .filter(|item_set| item_set.intersects(&merged_set))
+                            .iter()
+                            .filter(|(item_set, _count)| item_set.intersects(&merged_set))
                             .count(),
                         1,
                         "Merging should only occurs when 1 item is shared by N leaves"
                     );
-
-                    // If the leaves that were merged were actually roots,
-                    // update our vision of roots as well
-                    let merged_root =
-                        |root_set: &CpuSet| merged_set.includes(root_set) && merged_set != root_set;
-                    let first_root_idx = root_sets.iter().position(merged_root);
-                    let last_root_idx = root_sets.iter().rposition(merged_root);
-                    if let (Some(first_root_idx), Some(last_root_idx)) =
-                        (first_root_idx, last_root_idx)
-                    {
-                        let expected_range = first_root_idx..last_root_idx;
-                        assert!(root_sets[expected_range.clone()].iter().all(merged_root));
-                        root_sets.drain(expected_range);
-                        root_sets.insert(first_root_idx, merged_set.clone());
-                    }
 
                     // Take the merging of leaves into account
                     for subset in subsets {
@@ -1108,44 +1093,39 @@ mod tests {
 
             // Make sure the leaves that were actually used are disjoint (i.e.
             // no distributing to a parent AND its children)
-            assert!(!sets_overlap(items_per_set.keys()));
+            assert!(!sets_overlap(items_per_set.iter().map(|(set, _count)| set)));
 
             // Check that the distribution is as close to ideal as possible,
             // given that work items cannot be split in halves
-            let total_weight = root_sets
+            let total_weight = items_per_set
                 .iter()
-                .map(|root_set| root_set.weight().unwrap())
+                .map(|(leaf_set, _count)| leaf_set.weight().unwrap())
                 .sum::<usize>();
-            for (leaf_set, &items_per_leaf) in &items_per_set {
+            for (leaf_set, items_per_leaf) in &items_per_set {
                 let cpu_share = leaf_set.weight().unwrap() as f64 / total_weight as f64;
                 let ideal_share = num_items as f64 * cpu_share;
-                assert!((items_per_leaf as f64 - ideal_share).abs() <= 1.0);
+                assert!((*items_per_leaf as f64 - ideal_share).abs() <= 1.0);
             }
 
             // Check that the distribution is biased towards earlier or later
-            // roots depending on distribution flags
-            let mut items_per_root = vec![0usize; root_sets.len()];
-            for (leaf_set, count) in items_per_set {
-                let root_idx = root_sets
-                    .iter()
-                    .position(|root_set| root_set.includes(&leaf_set))
-                    .unwrap();
-                items_per_root[root_idx] += count;
-            }
-            let process_first_root = |root_idx: usize| {
-                let cpu_share = root_sets[root_idx].weight().unwrap() as f64 / total_weight as f64;
-                let ideal_share = num_items as f64 * cpu_share;
-                let bias = items_per_root[root_idx] as f64 - ideal_share;
-                assert!(
-                    bias >= 0.0,
-                    "Earlier roots should get favored for item allocation"
-                );
+            // leaves depending on distribution flags, due to roots being
+            // enumerated in reverse order
+            let (first_set, items_per_leaf) = items_per_set.first().unwrap();
+            let first_set_intersects = |root: Option<&TopologyObject>| {
+                assert!(first_set.intersects(root.unwrap().cpuset().unwrap()))
             };
             if flags.contains(DistributeFlags::REVERSE) {
-                process_first_root(root_sets.len() - 1);
+                first_set_intersects(disjoint_roots.last().copied());
             } else {
-                process_first_root(0);
-            };
+                first_set_intersects(disjoint_roots.first().copied());
+            }
+            let cpu_share = first_set.weight().unwrap() as f64 / total_weight as f64;
+            let ideal_share = num_items as f64 * cpu_share;
+            let bias = *items_per_leaf as f64 - ideal_share;
+            assert!(
+                bias >= 0.0,
+                "Earlier roots should get favored for item allocation"
+            );
         }
 
         // Test with overlapping roots
