@@ -128,7 +128,7 @@ impl Topology {
                     |topology, nr, distances, kind, flags| {
                         hwlocality_sys::hwloc_distances_get_by_depth(
                             topology,
-                            depth.to_raw(),
+                            depth.into_raw(),
                             nr,
                             distances,
                             kind,
@@ -709,7 +709,7 @@ impl TopologyEditor<'_> {
             errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
                     self_.topology_mut_ptr(),
-                    depth.to_raw(),
+                    depth.into_raw(),
                 )
             })
             .map(std::mem::drop)
