@@ -149,11 +149,17 @@ impl NUMANodeAttributes {
                 self.0.page_types.as_newtype(),
                 // If this fails, it means pages_types_len does not fit in a
                 // size_t, but by definition of size_t that cannot happen
-                self.0.page_types_len.try_into().expect("Should not happen"),
+                self.0
+                    .page_types_len
+                    .try_into()
+                    .expect("should fit in usize"),
             )
         }
     }
 }
+//
+// SAFETY: Don't implement Clone or similar, it would allow the user to
+//         invalidate the inner pointer...
 //
 impl Eq for NUMANodeAttributes {}
 //
@@ -214,7 +220,7 @@ impl quickcheck::Arbitrary for MemoryPageType {
         Self(hwloc_memory_page_type_s {
             size: *g
                 .choose(&[0, 1, 2, u64::MAX - 1, u64::MAX])
-                .expect("Slice isn't empty"),
+                .expect("slice isn't empty"),
             count: u64::arbitrary(g),
         })
     }
@@ -271,12 +277,12 @@ impl CacheAttributes {
             -1 => CacheAssociativity::Full,
             0 => CacheAssociativity::Unknown,
             ways if ways > 0 => {
-                let ways = c_uint::try_from(ways).expect("int > 0 -> uint should not fail");
+                let ways = c_uint::try_from(ways).expect("int > 0 -> uint can't fail");
                 let ways = int::expect_usize(ways);
-                let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize cannot fail");
+                let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize can't fail");
                 CacheAssociativity::Ways(ways)
             }
-            unexpected => unreachable!("Got unexpected cache associativity {unexpected}"),
+            unexpected => unreachable!("got unexpected cache associativity {unexpected}"),
         }
     }
 
@@ -284,7 +290,7 @@ impl CacheAttributes {
     #[doc(alias = "hwloc_cache_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::type")]
     pub fn cache_type(&self) -> CacheType {
-        self.0.ty.try_into().expect("Got unexpected cache type")
+        self.0.ty.try_into().expect("got unexpected cache type")
     }
 }
 //
@@ -297,16 +303,16 @@ impl quickcheck::Arbitrary for CacheAttributes {
         // Bias RNG to ensure reasonable odds of zero sizes
         let size = *g
             .choose(&[0, 1, 2, u64::MAX - 1, u64::MAX])
-            .expect("Slice not empty");
+            .expect("slice isn't empty");
         let linesize = *g
             .choose(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX])
-            .expect("Slice not empty");
+            .expect("slice isn't empty");
 
         // Bias RNG to ensure reasonable odds of valid cache types
         let max_valid_cache_type = enum_iterator::all::<CacheType>()
             .map(hwloc_obj_cache_type_t::from)
             .max()
-            .expect("This enum has >= 1 value");
+            .expect("enum has >= 1 variants");
         let cache_type_range = 2 * max_valid_cache_type;
         let ty = hwloc_obj_cache_type_t::arbitrary(g) % cache_type_range;
 
@@ -314,18 +320,22 @@ impl quickcheck::Arbitrary for CacheAttributes {
         // alternatives
         let associativity = *g
             .choose(&[
+                // Invalid range
                 c_int::MIN,
                 c_int::MIN + 1,
                 -3,
                 -2,
+                // Full
                 -1,
+                // Unknown
                 0,
+                // N-ways range
                 1,
                 2,
                 c_int::MAX - 1,
                 c_int::MAX,
             ])
-            .expect("Slice not empty");
+            .expect("slice isn't empty");
 
         // Let depth use a uniform distribution
         Self(hwloc_cache_attr_s {
@@ -389,11 +399,11 @@ impl quickcheck::Arbitrary for CacheAssociativity {
             Self::Unknown,
             Self::Full,
             Self::Ways(NonZeroUsize::MIN),
-            Self::Ways(NonZeroUsize::new(1).expect("Not zero")),
-            Self::Ways(NonZeroUsize::new(usize::MAX - 1).expect("Not zero")),
+            Self::Ways(NonZeroUsize::new(1).expect("not zero")),
+            Self::Ways(NonZeroUsize::new(usize::MAX - 1).expect("not zero")),
             Self::Ways(NonZeroUsize::MAX),
         ])
-        .expect("Slice is not empty")
+        .expect("slice isn't empty")
     }
 
     #[cfg(not(tarpaulin_include))]
@@ -457,7 +467,7 @@ impl GroupAttributes {
     pub fn merging_prevented(&self) -> bool {
         assert!(
             self.0.dont_merge == 0 || self.0.dont_merge == 1,
-            "Unexpected hwloc_group_attr_s::dont_merge value"
+            "unexpected hwloc_group_attr_s::dont_merge value"
         );
         self.0.dont_merge != 0
     }
@@ -701,7 +711,7 @@ impl BridgeAttributes {
         self.0
             .upstream_type
             .try_into()
-            .expect("Got unexpected upstream type")
+            .expect("got unexpected upstream type")
     }
 
     /// Upstream attributes
@@ -719,7 +729,7 @@ impl BridgeAttributes {
         self.0
             .downstream_type
             .try_into()
-            .expect("Got unexpected downstream type")
+            .expect("got unexpected downstream type")
     }
 
     /// Downstream attributes
@@ -747,7 +757,7 @@ impl quickcheck::Arbitrary for BridgeAttributes {
         let max_valid_bridge_type = enum_iterator::all::<BridgeType>()
             .map(hwloc_obj_bridge_type_t::from)
             .max()
-            .expect("This enum has >= 1 value");
+            .expect("enum has >= 1 variants");
         let bridge_type_range = 2 * max_valid_bridge_type;
 
         // Rest is reasonably straightforward since currently only PCI upstreams
@@ -954,7 +964,7 @@ impl OSDeviceAttributes {
     #[doc(alias = "hwloc_osdev_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s::type")]
     pub fn device_type(&self) -> OSDeviceType {
-        self.0.ty.try_into().expect("Got unexpected OS device type")
+        self.0.ty.try_into().expect("got unexpected OS device type")
     }
 }
 //
@@ -966,7 +976,7 @@ impl quickcheck::Arbitrary for OSDeviceAttributes {
         let max_valid_raw_device_type = enum_iterator::all::<OSDeviceType>()
             .map(hwloc_obj_osdev_type_t::from)
             .max()
-            .expect("This enum has >= 1 value");
+            .expect("enum has >= 1 variants");
         Self(hwloc_osdev_attr_s {
             ty: hwloc_obj_osdev_type_t::arbitrary(g) % (2 * max_valid_raw_device_type),
         })
