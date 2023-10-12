@@ -137,11 +137,13 @@ impl Topology {
     /// Test topology instance
     ///
     /// Used to avoid redundant calls to Topology::new() in unit tests and
-    /// doctests that need read-only access to a default-initialized topology
+    /// doctests that need read-only access to a default-initialized topology.
+    /// Configured to expose as many concepts from hwloc as possible (disallowed
+    /// CPUs, I/O objects, etc).
     ///
-    /// Do not use this in doctests where the fact that the topology is default
-    /// initialized is important for the code sample to make sense. And do not,
-    /// under any circumstances, use this in non-test code.
+    /// Do not use this in doctests where the fact that the topology
+    /// configuration matters. And do not, under any circumstances, use this in
+    /// non-test code.
     ///
     /// NOTE: In an ideal world, this would be cfg(any(test, doctest)), but that
     ///       doesn't work for doctests yet:
@@ -149,7 +151,15 @@ impl Topology {
     #[doc(hidden)]
     pub fn test_instance() -> &'static Self {
         static INSTANCE: OnceLock<Topology> = OnceLock::new();
-        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize main test Topology"))
+        INSTANCE.get_or_init(|| {
+            Self::builder()
+                .with_flags(BuildFlags::INCLUDE_DISALLOWED)
+                .expect("INCLUDE_DISALLOWED should always work")
+                .with_common_type_filter(TypeFilter::KeepAll)
+                .expect("KeepAll should be a supported common type filter")
+                .build()
+                .expect("Failed to initialize main test Topology")
+        })
     }
 
     /// Like test_instance, but separate instance
@@ -158,7 +168,7 @@ impl Topology {
     #[doc(hidden)]
     pub fn foreign_instance() -> &'static Self {
         static INSTANCE: OnceLock<Topology> = OnceLock::new();
-        INSTANCE.get_or_init(|| Self::new().expect("Failed to initialize foreign test Topology"))
+        INSTANCE.get_or_init(|| Self::test_instance().clone())
     }
 
     /// Prepare to create a Topology with custom configuration
@@ -1278,8 +1288,8 @@ mod tests {
         builder::tests::check_topology(
             topology,
             DataSource::ThisSystem,
-            BuildFlags::default(),
-            builder::tests::default_type_filter,
+            topology.build_flags(),
+            |ty| topology.type_filter(ty).unwrap(),
         );
         assert!(!topology.contains(clone.root_object()));
     }
