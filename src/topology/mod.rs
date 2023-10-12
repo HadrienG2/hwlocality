@@ -973,7 +973,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        collections::{BTreeSet, HashMap},
+        collections::BTreeSet,
         error::Error,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
@@ -1051,21 +1051,26 @@ mod tests {
         }
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            // Like the quickcheck tuple shrinkers, we try to shrink roots one
+            // by one and chain the resulting iterators
             let old_roots = self.0.clone();
-            let mut root_map = HashMap::new();
-            // Try to go from each root to its parent, all else being the same
-            Box::new((0..self.0.len()).filter_map(move |shrunk_root_idx| {
-                let shrunk_root = old_roots[shrunk_root_idx].parent()?;
-                for root in std::iter::once(shrunk_root).chain(
-                    old_roots
-                        .iter()
-                        .copied()
-                        .enumerate()
-                        .filter_map(|(idx, root)| (idx != shrunk_root_idx).then_some(root)),
-                ) {
-                    root_map.insert(root.global_persistent_index(), root);
-                }
-                Some(Self(root_map.drain().map(|(_, root)| root).collect()))
+            Box::new((0..self.0.len()).flat_map(move |shrunk_root_idx| {
+                // Shrinking a root means going up its ancestor chain...
+                let old_roots = old_roots.clone();
+                (old_roots[shrunk_root_idx].ancestors()).map(move |shrunk_root| {
+                    // ...keeping all other roots mostly the same, but pruning
+                    // those that are children of the newly shrunk root
+                    let new_roots = (old_roots.iter().enumerate())
+                        .filter_map(|(old_idx, old_root)| {
+                            if old_idx == shrunk_root_idx {
+                                Some(shrunk_root)
+                            } else {
+                                (!old_root.is_in_subtree(shrunk_root)).then_some(old_root)
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    Self(new_roots)
+                })
             }))
         }
     }
