@@ -279,6 +279,28 @@ pub enum CacheAssociativity {
     /// N-ways associative
     Ways(NonZeroUsize),
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CacheAssociativity {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Option::<usize>::arbitrary(g).map_or(Self::Unknown, |us| {
+            NonZeroUsize::new(us).map_or(Self::Full, Self::Ways)
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        match *self {
+            Self::Ways(ways) => Box::new(
+                ways.shrink()
+                    .map(Self::Ways)
+                    .chain([Self::Full, Self::Unknown]),
+            ),
+            Self::Full => quickcheck::single_shrinker(Self::Unknown),
+            Self::Unknown => quickcheck::empty_shrinker(),
+        }
+    }
+}
 
 /// [`Group`]-specific attributes
 ///
@@ -337,6 +359,50 @@ impl GroupAttributes {
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn prevent_merging(&mut self) {
         self.0.dont_merge = 1
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for GroupAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self(hwloc_group_attr_s {
+            depth: c_uint::arbitrary(g),
+            kind: c_uint::arbitrary(g),
+            subkind: c_uint::arbitrary(g),
+            #[cfg(feature = "hwloc-2_0_4")]
+            dont_merge: c_uchar::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        #[cfg(feature = "hwloc-2_0_4")]
+        {
+            Box::new(
+                (self.0.depth, self.0.kind, self.0.subkind, self.0.dont_merge)
+                    .shrink()
+                    .map(|(depth, kind, subkind, dont_merge)| {
+                        Self(hwloc_group_attr_s {
+                            depth,
+                            kind,
+                            subkind,
+                            dont_merge,
+                        })
+                    }),
+            )
+        }
+        #[cfg(not(feature = "hwloc-2_0_4"))]
+        {
+            Box::new((self.0.depth, self.0.kind, self.0.subkind).shrink().map(
+                |(depth, kind, subkind)| {
+                    Self(hwloc_group_attr_s {
+                        depth,
+                        kind,
+                        subkind,
+                    })
+                },
+            ))
+        }
     }
 }
 //
@@ -443,6 +509,60 @@ impl PCIDeviceAttributes {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for PCIDeviceAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self(hwloc_pcidev_attr_s {
+            domain: PCIDomain::arbitrary(g),
+            bus: u8::arbitrary(g),
+            dev: u8::arbitrary(g),
+            func: u8::arbitrary(g),
+            class_id: u16::arbitrary(g),
+            vendor_id: u16::arbitrary(g),
+            device_id: u16::arbitrary(g),
+            subvendor_id: u16::arbitrary(g),
+            subdevice_id: u16::arbitrary(g),
+            revision: u8::arbitrary(g),
+            linkspeed: f32::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            (
+                (self.0.domain, self.0.bus, self.0.dev, self.0.func),
+                (self.0.class_id, self.0.vendor_id, self.0.device_id),
+                (self.0.subvendor_id, self.0.subdevice_id, self.0.revision),
+                self.0.linkspeed,
+            )
+                .shrink()
+                .map(
+                    |(
+                        (domain, bus, dev, func),
+                        (class_id, vendor_id, device_id),
+                        (subvendor_id, subdevice_id, revision),
+                        linkspeed,
+                    )| {
+                        Self(hwloc_pcidev_attr_s {
+                            domain,
+                            bus,
+                            dev,
+                            func,
+                            class_id,
+                            vendor_id,
+                            device_id,
+                            subvendor_id,
+                            subdevice_id,
+                            revision,
+                            linkspeed,
+                        })
+                    },
+                ),
+        )
+    }
+}
+//
 // SAFETY: PCIDeviceAttributes is a repr(transparent) newtype of hwloc_pcidev_attr_s
 unsafe impl TransparentNewtype for PCIDeviceAttributes {
     type Inner = hwloc_pcidev_attr_s;
@@ -506,6 +626,79 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::depth")]
     pub fn depth(&self) -> usize {
         int::expect_usize(self.0.depth)
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for BridgeAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use hwlocality_sys::hwloc_obj_bridge_type_t;
+
+        // Test for unsupported bridge types, but don't let them dominate the
+        // random distribution, only take half of it.
+        let max_valid_bridge_type = enum_iterator::all::<BridgeType>()
+            .map(hwloc_obj_bridge_type_t::from)
+            .max()
+            .expect("This enum has >= 1 value");
+        let bridge_type_range = 2 * max_valid_bridge_type;
+
+        // Rest is reasonably straightforward since currently only PCI upstreams
+        // and downstreams are supported.
+        Self(hwloc_bridge_attr_s {
+            upstream_type: hwloc_obj_bridge_type_t::arbitrary(g) % bridge_type_range,
+            upstream: RawUpstreamAttributes {
+                pci: PCIDeviceAttributes::arbitrary(g).0,
+            },
+            downstream_type: hwloc_obj_bridge_type_t::arbitrary(g) % bridge_type_range,
+            downstream: RawDownstreamAttributes {
+                pci: DownstreamPCIAttributes::arbitrary(g).0,
+            },
+            depth: c_uint::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_ = *self;
+
+        // We don't swich upstream/downstream type during shrinking, we just
+        // simplify the type-specific attributes if any.
+        let shrunk_upstream: Box<dyn Iterator<Item = RawUpstreamAttributes>> =
+            match self.upstream_attributes() {
+                Some(UpstreamAttributes::PCI(pci)) => {
+                    Box::new(pci.shrink().map(|pci| RawUpstreamAttributes { pci: pci.0 }))
+                }
+                None => quickcheck::empty_shrinker(),
+            };
+        let shrunk_downstream: Box<dyn Iterator<Item = RawDownstreamAttributes>> =
+            match self.downstream_attributes() {
+                Some(DownstreamAttributes::PCI(pci)) => Box::new(
+                    pci.shrink()
+                        .map(|pci| RawDownstreamAttributes { pci: pci.0 }),
+                ),
+                None => quickcheck::empty_shrinker(),
+            };
+
+        // In the end, we sequence shrinkers together like the quickcheck tuple
+        // shrinker does.
+        Box::new(
+            (shrunk_upstream.map(move |upstream| {
+                Self(hwloc_bridge_attr_s {
+                    upstream,
+                    ..self_.0
+                })
+            }))
+            .chain(shrunk_downstream.map(move |downstream| {
+                Self(hwloc_bridge_attr_s {
+                    downstream,
+                    ..self_.0
+                })
+            }))
+            .chain(
+                (self.0.depth.shrink())
+                    .map(move |depth| Self(hwloc_bridge_attr_s { depth, ..self_.0 })),
+            ),
+        )
     }
 }
 //
@@ -580,6 +773,32 @@ impl DownstreamPCIAttributes {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for DownstreamPCIAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self(RawDownstreamPCIAttributes {
+            domain: PCIDomain::arbitrary(g),
+            secondary_bus: u8::arbitrary(g),
+            subordinate_bus: u8::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            (self.0.domain, self.0.secondary_bus, self.0.subordinate_bus)
+                .shrink()
+                .map(|(domain, secondary_bus, subordinate_bus)| {
+                    Self(RawDownstreamPCIAttributes {
+                        domain,
+                        secondary_bus,
+                        subordinate_bus,
+                    })
+                }),
+        )
+    }
+}
+//
 // SAFETY: DownstreamPCIAttributes is a repr(transparent) newtype of RawDownstreamPCIAttributes
 unsafe impl TransparentNewtype for DownstreamPCIAttributes {
     type Inner = RawDownstreamPCIAttributes;
@@ -628,6 +847,25 @@ impl OSDeviceAttributes {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s::type")]
     pub fn device_type(&self) -> OSDeviceType {
         self.0.ty.try_into().expect("Got unexpected OS device type")
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for OSDeviceAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use hwlocality_sys::hwloc_obj_osdev_type_t;
+        let max_valid_raw_device_type = enum_iterator::all::<OSDeviceType>()
+            .map(hwloc_obj_osdev_type_t::from)
+            .max()
+            .expect("This enum has >= 1 value");
+        Self(hwloc_osdev_attr_s {
+            ty: hwloc_obj_osdev_type_t::arbitrary(g) % (2 * max_valid_raw_device_type),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(self.0.ty.shrink().map(|ty| Self(hwloc_osdev_attr_s { ty })))
     }
 }
 //
