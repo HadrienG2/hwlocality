@@ -958,11 +958,11 @@ mod tests {
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
+    use quickcheck::Arbitrary;
     use quickcheck_macros::quickcheck;
-    use rand::{rngs::ThreadRng, Rng};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        collections::BTreeSet,
+        collections::{BTreeSet, HashMap},
         error::Error,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
@@ -1006,32 +1006,68 @@ mod tests {
         UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    /// Randomly pick a set of valid roots for [`Topology::distribute_items()`]
-    fn pick_distribute_roots(topology: &Topology) -> Vec<&TopologyObject> {
-        fn pick_roots<'output>(
-            root: &'output TopologyObject,
-            rng: &mut ThreadRng,
-            output: &mut Vec<&'output TopologyObject>,
-        ) {
-            // Either we add the current root or we recurse through its children
-            if rng.gen::<bool>() || root.normal_arity() == 0 {
-                output.push(root);
-            } else {
-                for child in root.normal_children() {
-                    // We can drop children, resulting in partial topology
-                    // coverage, which is a scenario we need to test
-                    if rng.gen::<bool>() {
-                        pick_roots(child, rng, output);
+    /// Set of valid (disjoint) roots for [`Topology::distribute_items()`],
+    /// taken from [`Topology::test_instance()`]
+    #[derive(Clone, Debug, Default)]
+    struct DisjointRoots(Vec<&'static TopologyObject>);
+    //
+    impl Arbitrary for DisjointRoots {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            // Pick a set of (sub-roots), given a known root
+            fn pick_roots<'output>(
+                g: &mut quickcheck::Gen,
+                root: &'output TopologyObject,
+                output: &mut Vec<&'output TopologyObject>,
+            ) {
+                // Either we add the current root or recurse through children
+                if bool::arbitrary(g) || root.normal_arity() == 0 {
+                    output.push(root);
+                } else {
+                    for child in root.normal_children() {
+                        // We can drop children, this is how we test scenarios
+                        // where roots have partial topology coverage
+                        if bool::arbitrary(g) {
+                            pick_roots(g, child, output);
+                        }
                     }
                 }
             }
+            let mut output = Vec::new();
+            while output.is_empty() {
+                pick_roots(g, Topology::test_instance().root_object(), &mut output);
+            }
+            Self(output)
         }
-        let mut output = Vec::new();
-        let mut rng = rand::thread_rng();
-        while output.is_empty() {
-            pick_roots(topology.root_object(), &mut rng, &mut output);
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let old_roots = self.0.clone();
+            let mut root_map = HashMap::new();
+            // Try to go from each root to its parent, all else being the same
+            Box::new((0..self.0.len()).filter_map(move |shrunk_root_idx| {
+                let shrunk_root = old_roots[shrunk_root_idx].parent()?;
+                for root in std::iter::once(shrunk_root).chain(
+                    old_roots
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .filter_map(|(idx, root)| (idx != shrunk_root_idx).then_some(root)),
+                ) {
+                    root_map.insert(root.global_persistent_index(), root);
+                }
+                Some(Self(root_map.drain().map(|(_, root)| root).collect()))
+            }))
         }
-        output
+    }
+    //
+    impl Eq for DisjointRoots {}
+    //
+    impl PartialEq for DisjointRoots {
+        fn eq(&self, other: &Self) -> bool {
+            self.0.len() == other.0.len()
+                && self.0.iter().zip(&other.0).all(
+                    |(obj1, obj2): (&&TopologyObject, &&TopologyObject)| std::ptr::eq(*obj1, *obj2),
+                )
+        }
     }
 
     /// Provide a pessimistic set of leaves amongst which
@@ -1060,19 +1096,29 @@ mod tests {
     }
 
     #[quickcheck]
-    fn distribute_items(num_items: NonZeroU8, max_depth: NormalDepth, flags: DistributeFlags) {
-        // Set up test state
-        let topology = Topology::test_instance();
+    fn distribute_to_no_roots(
+        num_items: NonZeroU8,
+        max_depth: NormalDepth,
+        flags: DistributeFlags,
+    ) {
         let num_items = NonZeroUsize::from(num_items);
-
-        // Make sure empty root list is detected
         assert_eq!(
-            topology.distribute_items(&[], num_items, max_depth, flags),
+            Topology::test_instance().distribute_items(&[], num_items, max_depth, flags),
             Err(DistributeError::EmptyRoots)
         );
+    }
 
-        // Compute a normal, disjoint root list
-        let disjoint_roots = pick_distribute_roots(topology);
+    #[quickcheck]
+    fn distribute_items(
+        disjoint_roots: DisjointRoots,
+        num_items: NonZeroU8,
+        max_depth: NormalDepth,
+        flags: DistributeFlags,
+    ) {
+        // Set up test state
+        let topology = Topology::test_instance();
+        let disjoint_roots = disjoint_roots.0;
+        let num_items = NonZeroUsize::from(num_items);
 
         // Determine the maximal max_depth value that will make a difference and
         // roll a random max_depth accordingly.
@@ -1218,7 +1264,7 @@ mod tests {
     }
 
     #[test]
-    fn default_distribute() {
+    fn default_distribute_flags() {
         assert_eq!(DistributeFlags::default(), DistributeFlags::empty());
     }
 
