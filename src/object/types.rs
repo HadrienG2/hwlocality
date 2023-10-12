@@ -371,9 +371,9 @@ impl ObjectType {
         }
     }
 
-    /// Truth that this object type is a leaf of the normal hierarchy and
+    /// Truth that this object type is a leaf of the normal+memory hierarchy and
     /// cannot have non-Misc children
-    pub fn is_normal_leaf(self) -> bool {
+    pub fn is_leaf(self) -> bool {
         self == Self::PU || self == Self::NUMANode
     }
 
@@ -506,8 +506,224 @@ impl PartialOrd for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hwlocality_sys::{
+        hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
+    };
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
+    use quickcheck_macros::quickcheck;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use std::{
+        error::Error,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::Hash,
+        io::{self, Read},
+        ops::Deref,
+        panic::UnwindSafe,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(BridgeType:
+        Copy, Debug, Display, Hash, Into<hwloc_obj_bridge_type_t>, Sized, Sync,
+        TryFrom<hwloc_obj_bridge_type_t>, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(BridgeType:
+        Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(CacheType:
+        Copy, Debug, Display, Hash, Into<hwloc_obj_cache_type_t>, Sized, Sync,
+        TryFrom<hwloc_obj_cache_type_t>, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(CacheType:
+        Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(ObjectType:
+        Copy, Debug, Display, Hash, Into<hwloc_obj_type_t>, PartialOrd, Sized,
+        Sync, TryFrom<hwloc_obj_type_t>, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(ObjectType:
+        Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
+        Octal, Ord, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(OSDeviceType:
+        Copy, Debug, Display, Hash, Into<hwloc_obj_osdev_type_t>, Sized, Sync,
+        TryFrom<hwloc_obj_osdev_type_t>, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(OSDeviceType:
+        Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+
+    // For object subtypes, the only logic we implement is arbitrary, so just
+    // exercise that it doesn't crash and we're good to go
+
+    #[quickcheck]
+    fn arbitrary_bridge_type(_ty: BridgeType) {}
+    #[quickcheck]
+    fn arbitrary_cache_type(_ty: CacheType) {}
+    #[quickcheck]
+    fn arbitrary_os_device_type(_ty: OSDeviceType) {}
+
+    // For top-level object types, however, we do have some logic
+
+    #[quickcheck]
+    fn unary_type(ty: ObjectType) {
+        fn check_normal(ty: ObjectType) {
+            assert!(ty.is_normal());
+            assert_eq!(ty.is_leaf(), ty == ObjectType::PU);
+            assert!(!ty.is_memory());
+            assert!(!ty.is_io());
+        }
+        fn check_normal_noncache(ty: ObjectType) {
+            check_normal(ty);
+            assert!(!ty.is_cpu_cache());
+            assert!(!ty.is_cpu_data_cache());
+            assert!(!ty.is_cpu_instruction_cache());
+        }
+        fn check_cpu_dcache(ty: ObjectType) {
+            check_normal(ty);
+            assert!(ty.is_cpu_cache());
+            assert!(ty.is_cpu_data_cache());
+            assert!(!ty.is_cpu_instruction_cache());
+        }
+        fn check_cpu_icache(ty: ObjectType) {
+            check_normal(ty);
+            assert!(ty.is_cpu_cache());
+            assert!(ty.is_cpu_instruction_cache());
+            assert!(!ty.is_cpu_data_cache());
+        }
+        fn check_not_normal(ty: ObjectType) {
+            assert!(!ty.is_normal());
+            assert!(!ty.is_cpu_cache());
+            assert!(!ty.is_cpu_data_cache());
+            assert!(!ty.is_cpu_instruction_cache());
+        }
+        fn check_memory(ty: ObjectType) {
+            assert!(ty.is_memory());
+            assert_eq!(ty.is_leaf(), ty == ObjectType::NUMANode);
+            check_not_normal(ty);
+            assert!(!ty.is_io());
+        }
+        fn check_io(ty: ObjectType) {
+            assert!(ty.is_io());
+            assert!(!ty.is_leaf());
+            check_not_normal(ty);
+            assert!(!ty.is_memory());
+        }
+        fn check_misc(ty: ObjectType) {
+            assert!(ty == ObjectType::Misc);
+            assert!(!ty.is_leaf());
+            check_not_normal(ty);
+            assert!(!ty.is_memory());
+            assert!(!ty.is_io());
+        }
+        match ty {
+            ObjectType::Machine
+            | ObjectType::Package
+            | ObjectType::Core
+            | ObjectType::Group
+            | ObjectType::PU => check_normal_noncache(ty),
+            ObjectType::L1Cache
+            | ObjectType::L2Cache
+            | ObjectType::L3Cache
+            | ObjectType::L4Cache
+            | ObjectType::L5Cache => check_cpu_dcache(ty),
+            ObjectType::L1ICache | ObjectType::L2ICache | ObjectType::L3ICache => {
+                check_cpu_icache(ty)
+            }
+            ObjectType::NUMANode => check_memory(ty),
+            ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty),
+            ObjectType::Misc => check_misc(ty),
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::MemCache => check_memory(ty),
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::Die => check_normal_noncache(ty),
+        }
+    }
+
+    #[quickcheck]
+    fn binary_type(ty1: ObjectType, ty2: ObjectType) {
+        assert_eq!(ty1 == ty2, ty1.to_raw() == ty2.to_raw());
+        let expected_ordering = match (ty1, ty2) {
+            // Equal ordering only appears for equal types
+            (x, x2) if x == x2 => Some(Ordering::Equal),
+            // === Only pairs of two different types can appear below
+
+            // Machine is above everything else
+            (ObjectType::Machine, _) => Some(Ordering::Less),
+            (_, ObjectType::Machine) => Some(Ordering::Greater),
+
+            // Non-normal objects are unordered wrt other normal objects
+            (normal, not_normal) | (not_normal, normal)
+                if normal.is_normal() && !not_normal.is_normal() =>
+            {
+                None
+            }
+
+            // Specify relative ordering of non-normal objects
+            (not_normal1, not_normal2) if !not_normal1.is_normal() => {
+                match (not_normal1, not_normal2) {
+                    #[cfg(feature = "hwloc-2_1_0")]
+                    (ObjectType::MemCache, _) => Some(Ordering::Less),
+                    #[cfg(feature = "hwloc-2_1_0")]
+                    (_, ObjectType::MemCache) => Some(Ordering::Greater),
+                    (ObjectType::NUMANode, _) => Some(Ordering::Less),
+                    (_, ObjectType::NUMANode) => Some(Ordering::Greater),
+                    (ObjectType::Bridge, _) => Some(Ordering::Less),
+                    (_, ObjectType::Bridge) => Some(Ordering::Greater),
+                    (ObjectType::PCIDevice, _) => Some(Ordering::Less),
+                    (_, ObjectType::PCIDevice) => Some(Ordering::Greater),
+                    (ObjectType::OSDevice, _misc) => Some(Ordering::Less),
+                    (_misc, ObjectType::OSDevice) => Some(Ordering::Greater),
+                    _ => unreachable!(),
+                }
+            }
+
+            // === Only (normal, normal) pairs remain
+            (ty1, ty2) if !(ty1.is_normal() && ty2.is_normal()) => unreachable!(),
+
+            // Specify relative ordering of normal objects
+            (ObjectType::Group, _) => Some(Ordering::Less),
+            (_, ObjectType::Group) => Some(Ordering::Greater),
+            (ObjectType::Package, _) => Some(Ordering::Less),
+            (_, ObjectType::Package) => Some(Ordering::Greater),
+            #[cfg(feature = "hwloc-2_1_0")]
+            (ObjectType::Die, _) => Some(Ordering::Less),
+            #[cfg(feature = "hwloc-2_1_0")]
+            (_, ObjectType::Die) => Some(Ordering::Greater),
+            (ObjectType::L5Cache, _) => Some(Ordering::Less),
+            (_, ObjectType::L5Cache) => Some(Ordering::Greater),
+            (ObjectType::L4Cache, _) => Some(Ordering::Less),
+            (_, ObjectType::L4Cache) => Some(Ordering::Greater),
+            (ObjectType::L3Cache, _) => Some(Ordering::Less),
+            (_, ObjectType::L3Cache) => Some(Ordering::Greater),
+            (ObjectType::L3ICache, _) => Some(Ordering::Less),
+            (_, ObjectType::L3ICache) => Some(Ordering::Greater),
+            (ObjectType::L2Cache, _) => Some(Ordering::Less),
+            (_, ObjectType::L2Cache) => Some(Ordering::Greater),
+            (ObjectType::L2ICache, _) => Some(Ordering::Less),
+            (_, ObjectType::L2ICache) => Some(Ordering::Greater),
+            (ObjectType::L1Cache, _) => Some(Ordering::Less),
+            (_, ObjectType::L1Cache) => Some(Ordering::Greater),
+            (ObjectType::L1ICache, _) => Some(Ordering::Less),
+            (_, ObjectType::L1ICache) => Some(Ordering::Greater),
+            (ObjectType::Core, _pu) => Some(Ordering::Less),
+            (_pu, ObjectType::Core) => Some(Ordering::Greater),
+
+            // I shouldn't have forgotten anything
+            _ => unreachable!(),
+        };
+        assert_eq!(ty1.partial_cmp(&ty2), expected_ordering);
+    }
 
     #[test]
     fn should_compare_object_types() {
