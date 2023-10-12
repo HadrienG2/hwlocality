@@ -225,7 +225,6 @@ impl quickcheck::Arbitrary for MemoryPageType {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
         Box::new(
             ((self.0.size, self.0.count).shrink())
                 .map(|(size, count)| Self(hwloc_memory_page_type_s { size, count })),
@@ -347,7 +346,6 @@ impl quickcheck::Arbitrary for CacheAttributes {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
         Box::new(
             (
                 self.0.size,
@@ -487,7 +485,7 @@ impl quickcheck::Arbitrary for GroupAttributes {
             kind: c_uint::arbitrary(g),
             subkind: c_uint::arbitrary(g),
             #[cfg(feature = "hwloc-2_0_4")]
-            dont_merge: c_uchar::arbitrary(g) % 4,
+            dont_merge: std::ffi::c_uchar::arbitrary(g) % 4,
         })
     }
 
