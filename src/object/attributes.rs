@@ -29,6 +29,7 @@ use std::{
     ffi::c_uint,
     fmt,
     hash::Hash,
+    marker::PhantomData,
     num::{NonZeroU64, NonZeroUsize},
 };
 
@@ -40,7 +41,7 @@ pub enum ObjectAttributes<'object> {
     ///
     /// [`NUMANode`]: ObjectType::NUMANode
     #[doc(alias = "hwloc_obj_attr_u::numanode")]
-    NUMANode(&'object NUMANodeAttributes),
+    NUMANode(&'object NUMANodeAttributes<'object>),
 
     /// CPU cache-specific attributes
     #[doc(alias = "hwloc_obj_attr_u::cache")]
@@ -115,13 +116,13 @@ impl<'object> ObjectAttributes<'object> {
 // If non-null, `page_types` is trusted to point to a C-style array of
 // `page_types_len` memory page types, sorted by increasing page size.
 #[allow(missing_copy_implementations)]
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 #[doc(alias = "hwloc_numanode_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s")]
 #[repr(transparent)]
-pub struct NUMANodeAttributes(hwloc_numanode_attr_s);
+pub struct NUMANodeAttributes<'object>(hwloc_numanode_attr_s, PhantomData<&'object MemoryPageType>);
 //
-impl NUMANodeAttributes {
+impl<'object> NUMANodeAttributes<'object> {
     /// Node-local memory in bytes
     ///
     /// Requires [`DiscoverySupport::numa_memory()`].
@@ -134,7 +135,7 @@ impl NUMANodeAttributes {
     /// Memory page types, sorted by increasing page size
     #[doc(alias = "hwloc_numanode_attr_s::page_types")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::page_types")]
-    pub fn page_types(&self) -> &[MemoryPageType] {
+    pub fn page_types(&self) -> &'object [MemoryPageType] {
         if self.0.page_types.is_null() {
             assert_eq!(
                 self.0.page_types_len, 0,
@@ -158,32 +159,29 @@ impl NUMANodeAttributes {
     }
 }
 //
-// SAFETY: Don't implement Clone or similar, it would allow the user to
-//         invalidate the inner pointer...
+impl Eq for NUMANodeAttributes<'_> {}
 //
-impl Eq for NUMANodeAttributes {}
-//
-impl Hash for NUMANodeAttributes {
+impl Hash for NUMANodeAttributes<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.local_memory().hash(state);
         self.page_types().hash(state);
     }
 }
 //
-impl PartialEq for NUMANodeAttributes {
+impl PartialEq for NUMANodeAttributes<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.local_memory() == other.local_memory() && self.page_types() == other.page_types()
     }
 }
 //
 // SAFETY: No internal mutability
-unsafe impl Send for NUMANodeAttributes {}
+unsafe impl Send for NUMANodeAttributes<'_> {}
 //
 // SAFETY: No internal mutability
-unsafe impl Sync for NUMANodeAttributes {}
+unsafe impl Sync for NUMANodeAttributes<'_> {}
 //
 // SAFETY: NUMANodeAttributes is a repr(transparent) newtype of hwloc_numanode_attr_s
-unsafe impl TransparentNewtype for NUMANodeAttributes {
+unsafe impl TransparentNewtype for NUMANodeAttributes<'_> {
     type Inner = hwloc_numanode_attr_s;
 }
 
