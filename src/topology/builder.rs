@@ -1218,7 +1218,7 @@ pub(crate) mod tests {
             check_default_builder(&default_builder);
             default_topologies.push(default_builder.build().unwrap());
         }
-        for topology in default_topologies.iter() {
+        for topology in &default_topologies {
             check_topology(
                 topology,
                 DataSource::ThisSystem,
