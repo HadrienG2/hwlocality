@@ -28,6 +28,8 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::From;
+#[cfg(any(test, feature = "quickcheck"))]
+use enum_iterator::Sequence;
 use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
@@ -869,8 +871,8 @@ impl quickcheck::Arbitrary for BuildFlags {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_copy = *self;
-        Box::new(self.iter().map(move |value| self_copy ^ value))
+        let self_ = *self;
+        Box::new(self.iter().map(move |value| self_ ^ value))
     }
 }
 
@@ -884,7 +886,7 @@ impl quickcheck::Arbitrary for BuildFlags {
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
-#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
 #[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]
@@ -938,10 +940,14 @@ pub enum TypeFilter {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for TypeFilter {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        use enum_iterator::Sequence;
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
     }
 }
 

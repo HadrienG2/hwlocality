@@ -147,7 +147,15 @@ impl quickcheck::Arbitrary for Depth {
         if let Self::Normal(normal) = self {
             Box::new(normal.shrink().map(Self::Normal))
         } else {
-            Box::new(std::iter::empty())
+            let self_ = *self;
+            Box::new(
+                Self::VIRTUAL_DEPTHS
+                    .iter()
+                    .copied()
+                    .rev()
+                    .skip_while(move |&depth| depth != self_)
+                    .skip(1),
+            )
         }
     }
 }

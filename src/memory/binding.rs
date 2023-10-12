@@ -18,6 +18,8 @@ use crate::{
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
+#[cfg(any(test, feature = "quickcheck"))]
+use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
@@ -1225,8 +1227,8 @@ impl quickcheck::Arbitrary for MemoryBindingFlags {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_copy = *self;
-        Box::new(self.iter().map(move |value| self_copy ^ value))
+        let self_ = *self;
+        Box::new(self.iter().map(move |value| self_ ^ value))
     }
 }
 //
@@ -1286,7 +1288,7 @@ pub(crate) enum MemoryBindingOperation {
 /// Not all systems support all kinds of binding.
 /// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
-#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]
@@ -1350,10 +1352,14 @@ pub enum MemoryBindingPolicy {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for MemoryBindingPolicy {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        use enum_iterator::Sequence;
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
     }
 }
 

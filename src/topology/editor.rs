@@ -49,6 +49,8 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
+#[cfg(any(test, feature = "quickcheck"))]
+use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
     HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS, HWLOC_RESTRICT_FLAG_ADAPT_IO,
@@ -555,8 +557,8 @@ impl quickcheck::Arbitrary for RestrictFlags {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_copy = *self;
-        Box::new(self.iter().map(move |value| self_copy ^ value))
+        let self_ = *self;
+        Box::new(self.iter().map(move |value| self_ ^ value))
     }
 }
 
@@ -636,7 +638,7 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
 pub struct AllowSetError;
 
 /// Control merging of newly inserted groups with existing objects
-#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another
@@ -658,10 +660,14 @@ pub enum GroupMerge {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for GroupMerge {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        use enum_iterator::Sequence;
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
     }
 }
 //
