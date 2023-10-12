@@ -76,7 +76,8 @@ pub enum Depth {
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_TYPE_DEPTH_MEMCACHE")]
     MemCache,
-    // NOTE: Also add new virtual depths to the VIRTUAL_DEPTHS array below
+    // NOTE: Also add new virtual depths to the VIRTUAL_DEPTHS array and its
+    //       type-specific declination below
 }
 //
 impl Depth {
@@ -87,14 +88,25 @@ impl Depth {
 
     /// List of virtual depths
     pub const VIRTUAL_DEPTHS: &'static [Self] = &[
+        #[cfg(feature = "hwloc-2_1_0")]
+        Self::MemCache,
         Self::NUMANode,
         Self::Bridge,
         Self::PCIDevice,
         Self::OSDevice,
         Self::Misc,
+    ];
+
+    /// List of memory object virtual depths
+    pub const MEMORY_DEPTHS: &'static [Self] = &[
         #[cfg(feature = "hwloc-2_1_0")]
         Self::MemCache,
+        Self::NUMANode,
     ];
+
+    /// List of I/O object virtual depths
+    pub const IO_DEPTHS: &'static [Self] =
+        &[Self::Bridge, Self::PCIDevice, Self::OSDevice, Self::Misc];
 
     /// Decode depth results from hwloc
     pub(crate) fn from_raw(value: hwloc_get_type_depth_e) -> Result<Self, TypeToDepthError> {
@@ -317,15 +329,15 @@ mod tests {
             Err(TypeToDepthError::Multiple)
         );
         const RAW_DEPTHS: &[hwloc_get_type_depth_e] = &[
+            #[cfg(feature = "hwloc-2_1_0")]
+            {
+                HWLOC_TYPE_DEPTH_MEMCACHE
+            },
             HWLOC_TYPE_DEPTH_NUMANODE,
             HWLOC_TYPE_DEPTH_BRIDGE,
             HWLOC_TYPE_DEPTH_PCI_DEVICE,
             HWLOC_TYPE_DEPTH_OS_DEVICE,
             HWLOC_TYPE_DEPTH_MISC,
-            #[cfg(feature = "hwloc-2_1_0")]
-            {
-                HWLOC_TYPE_DEPTH_MEMCACHE
-            },
         ];
         assert_eq!(RAW_DEPTHS.len(), Depth::VIRTUAL_DEPTHS.len());
         for (&raw, &depth) in RAW_DEPTHS.iter().zip(Depth::VIRTUAL_DEPTHS) {
