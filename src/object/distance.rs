@@ -544,8 +544,8 @@ impl quickcheck::Arbitrary for AddDistancesFlags {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_copy = *self;
-        Box::new(self.iter().map(move |value| self_copy ^ value))
+        let self_ = *self;
+        Box::new(self.iter().map(move |value| self_ ^ value))
     }
 }
 
@@ -1432,8 +1432,8 @@ impl quickcheck::Arbitrary for DistancesKind {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_copy = *self;
-        Box::new(self.iter().map(move |value| self_copy ^ value))
+        let self_ = *self;
+        Box::new(self.iter().map(move |value| self_ ^ value))
     }
 }
 
@@ -1513,6 +1513,14 @@ impl quickcheck::Arbitrary for DistancesTransform {
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(
+            Some(*self),
+            enum_iterator::Sequence::previous,
+        ))
     }
 }
 

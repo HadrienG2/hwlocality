@@ -64,6 +64,11 @@ impl quickcheck::Arbitrary for BridgeType {
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
     }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    }
 }
 
 /// Cache type
@@ -92,6 +97,11 @@ impl quickcheck::Arbitrary for CacheType {
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
     }
 }
 
@@ -155,6 +165,11 @@ impl quickcheck::Arbitrary for OSDeviceType {
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
     }
 }
 
@@ -481,6 +496,11 @@ impl quickcheck::Arbitrary for ObjectType {
         enum_iterator::all::<Self>()
             .nth(usize::arbitrary(g) % Self::CARDINALITY)
             .expect("Per above modulo, this cannot happen")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(std::iter::successors(Some(*self), Sequence::previous))
     }
 }
 //

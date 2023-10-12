@@ -1192,15 +1192,24 @@ impl Arbitrary for Bitmap {
 
     #[cfg(not(tarpaulin_include))]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        // If this is infinite, start by removing the infinite part
-        let mut local = self.clone();
-        if local.weight().is_none() {
-            local.unset_range(self.last_unset().unwrap_or(BitmapIndex::MIN)..);
-        }
+        use std::collections::HashSet;
 
-        // Now this is finite, can convert to Vec<BitmapIndex> and use Vec's shrinker
-        let vec = local.into_iter().collect::<Vec<_>>();
-        Box::new(vec.shrink().map(|vec| vec.into_iter().collect::<Self>()))
+        // If this is infinite, start by removing the infinite part, and make
+        // the the first output of our shrinker
+        let mut local = self.clone();
+        let first_finite = local.weight().is_none().then(|| {
+            local.unset_range(self.last_unset().unwrap_or(BitmapIndex::MIN)..);
+            local.clone()
+        });
+
+        // Now this is finite, convert to HashSet<BitmapIndex> and offload the
+        // shrinking work to HashSet's Arbitrary implementation
+        let set = local.into_iter().collect::<HashSet<_>>();
+        Box::new(
+            first_finite
+                .into_iter()
+                .chain(set.shrink().map(|set| set.into_iter().collect::<Self>())),
+        )
     }
 }
 
