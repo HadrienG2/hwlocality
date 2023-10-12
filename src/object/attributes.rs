@@ -395,7 +395,7 @@ impl quickcheck::Arbitrary for CacheAssociativity {
             Self::Unknown,
             Self::Full,
             Self::Ways(NonZeroUsize::MIN),
-            Self::Ways(NonZeroUsize::new(1).expect("not zero")),
+            Self::Ways(NonZeroUsize::new(2).expect("not zero")),
             Self::Ways(NonZeroUsize::new(usize::MAX - 1).expect("not zero")),
             Self::Ways(NonZeroUsize::MAX),
         ])
