@@ -18,7 +18,7 @@ use pretty_assertions::{assert_eq, assert_ne};
 
 /// # CPU cache statistics
 impl Topology {
-    /// Compute CPU cache statistics
+    /// Compute CPU cache statistics, if cache sizes are known
     ///
     /// These statistics can be used to perform simple cache locality
     /// optimizations when your performance requirements do not call for full
@@ -29,8 +29,12 @@ impl Topology {
     /// # Examples
     ///
     /// ```
+    /// # use anyhow::Context
+    /// #
     /// # let topology = hwlocality::Topology::test_instance();
-    /// let stats = topology.cpu_cache_stats();
+    /// #
+    /// let stats = topology.cpu_cache_stats()
+    ///                     .context("CPU cache sizes are not known")?;
     ///
     /// println!(
     ///     "Minimal data cache sizes: {:?}",
@@ -59,7 +63,7 @@ impl Topology {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn cpu_cache_stats(&self) -> CpuCacheStats {
+    pub fn cpu_cache_stats(&self) -> Option<CpuCacheStats> {
         CpuCacheStats::new(self)
     }
 }
@@ -96,8 +100,8 @@ pub struct CpuCacheStats {
 }
 
 impl CpuCacheStats {
-    /// Compute CPU cache statistics
-    pub fn new(topology: &Topology) -> Self {
+    /// Compute CPU cache statistics, if cache sizes are known
+    pub fn new(topology: &Topology) -> Option<Self> {
         let mut smallest_data_cache_sizes = ArrayVec::new();
         let mut smallest_data_cache_sizes_per_thread = ArrayVec::new();
         let mut total_data_cache_sizes = ArrayVec::new();
@@ -116,10 +120,11 @@ impl CpuCacheStats {
                     .cpuset()
                     .and_then(|set| set.weight())
                     .expect("Caches should have cpusets") as u64;
-                let per_thread_size = cache.size() / num_threads;
-                smallest = smallest.min(cache.size());
+                let cache_size = cache.size()?.get();
+                let per_thread_size = cache_size / num_threads;
+                smallest = smallest.min(cache_size);
                 smallest_per_thread = smallest_per_thread.min(per_thread_size);
-                total += cache.size();
+                total += cache_size;
             }
 
             // If at least one cache was found, record stats, otherwise abort:
@@ -132,11 +137,11 @@ impl CpuCacheStats {
                 break;
             }
         }
-        Self {
+        Some(Self {
             smallest_data_cache_sizes,
             smallest_data_cache_sizes_per_thread,
             total_data_cache_sizes,
-        }
+        })
     }
 
     /// Smallest CPU data cache capacity at each cache level
