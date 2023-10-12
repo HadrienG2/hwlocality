@@ -307,7 +307,7 @@ impl Topology {
         })
         .expect("Unexpected hwloc error");
         // SAFETY: - If hwloc succeeded, the output is assumed to be valid and
-        //           devoid of mutable aliases
+        //           point to a valid target devoid of mutable aliases
         //         - Output reference will be bound the the lifetime of &self by
         //           the borrow checker
         unsafe { ptr.as_ref().as_newtype() }

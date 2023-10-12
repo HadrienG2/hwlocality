@@ -74,14 +74,19 @@ pub(crate) unsafe trait AsNewtype<Newtype: TransparentNewtype> {
     type Wrapped;
 
     /// Perform the conversion
-    fn as_newtype(self) -> Self::Wrapped;
+    ///
+    /// # Safety
+    ///
+    /// The C-style struct must match the expectations of the higher-level
+    /// newtype wrapper, which typically comes with extra safety invariants.
+    unsafe fn as_newtype(self) -> Self::Wrapped;
 }
 
 // SAFETY: Per TransparentNewtype contract, casting &'a T to &'a NewT is legal
 unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> AsNewtype<NewT> for &'a T {
     type Wrapped = &'a NewT;
 
-    fn as_newtype(self) -> Self::Wrapped {
+    unsafe fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         let ptr: *const T = self;
         // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
@@ -94,7 +99,7 @@ unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> AsNewtype<NewT> for
 unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> AsNewtype<NewT> for &'a mut T {
     type Wrapped = &'a mut NewT;
 
-    fn as_newtype(self) -> Self::Wrapped {
+    unsafe fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         let ptr: *mut T = self;
         // SAFETY: - &mut *ptr is safe per se since ptr is just a reinterpreted &mut
@@ -107,7 +112,7 @@ unsafe impl<'a, T, NewT: TransparentNewtype<Inner = T> + 'a> AsNewtype<NewT> for
 unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for NonNull<T> {
     type Wrapped = NonNull<NewT>;
 
-    fn as_newtype(self) -> Self::Wrapped {
+    unsafe fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         self.cast()
     }
@@ -117,7 +122,7 @@ unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for NonNull<
 unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for *const T {
     type Wrapped = *const NewT;
 
-    fn as_newtype(self) -> Self::Wrapped {
+    unsafe fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         self.cast()
     }
@@ -127,7 +132,7 @@ unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for *const T
 unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for *mut T {
     type Wrapped = *mut NewT;
 
-    fn as_newtype(self) -> Self::Wrapped {
+    unsafe fn as_newtype(self) -> Self::Wrapped {
         NewT::check_basic_layout();
         self.cast()
     }
@@ -225,29 +230,34 @@ mod tests {
         let const_info: *const hwloc_info_s = mut_info;
         TextualInfo::check_basic_layout();
         {
-            let r = (&info).as_newtype();
+            // SAFETY: info is in a known-good state
+            let r = unsafe { (&info).as_newtype() };
             let p: *const TextualInfo = r;
             assert_eq!(p.cast::<hwloc_info_s>(), const_info);
             assert!(ptr::eq(r.as_inner(), const_info));
         }
         {
-            let r = (&mut info).as_newtype();
+            // SAFETY: info is in a known-good state
+            let r = unsafe { (&mut info).as_newtype() };
             let p: *mut TextualInfo = r;
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
             assert!(ptr::eq(r.as_inner(), mut_info));
         }
         {
-            let p: NonNull<TextualInfo> = nonnull_info.as_newtype();
+            // SAFETY: info is in a known-good state
+            let p: NonNull<TextualInfo> = unsafe { nonnull_info.as_newtype() };
             assert_eq!(p.cast::<hwloc_info_s>(), nonnull_info);
             assert_eq!(p.as_inner(), nonnull_info);
         }
         {
-            let p: *const TextualInfo = const_info.as_newtype();
+            // SAFETY: info is in a known-good state
+            let p: *const TextualInfo = unsafe { const_info.as_newtype() };
             assert_eq!(p.cast::<hwloc_info_s>(), const_info);
             assert_eq!(p.as_inner(), const_info);
         }
         {
-            let p: *mut TextualInfo = mut_info.as_newtype();
+            // SAFETY: info is in a known-good state
+            let p: *mut TextualInfo = unsafe { mut_info.as_newtype() };
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
             assert_eq!(p.as_inner(), mut_info);
         }

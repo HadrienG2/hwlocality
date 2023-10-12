@@ -595,8 +595,8 @@ impl Topology {
                     "Got null pointer from hwloc_get_obj_by_depth"
                 );
                 // SAFETY: If hwloc_get_obj_by_depth returns a non-null pointer,
-                //         it's assumed to be successful and thus that the output
-                //         pointer is valid
+                //         it's assumed to be successful and thus that the
+                //         output pointer and its target are valid
                 unsafe { (&*ptr).as_newtype() }
             })
         }
@@ -1046,7 +1046,8 @@ impl Topology {
                 0,
             )
         };
-        // SAFETY: - If hwloc succeeds, the output pointer is assumed valid
+        // SAFETY: - If hwloc succeeds, the output pointer and its target are
+        //           both assumed to be valid
         //         - Output is bound to the lifetime of the topology it comes from
         Ok((!ptr.is_null()).then(|| unsafe { (&*ptr).as_newtype() }))
     }
@@ -1392,10 +1393,10 @@ impl TopologyObject {
     /// Only `None` for the root `Machine` object.
     #[doc(alias = "hwloc_obj::parent")]
     pub fn parent(&self) -> Option<&Self> {
-        // SAFETY: - Pointer validity is assumed as a type invariant
+        // SAFETY: - Pointer & target validity are assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.parent).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.parent).map(|raw| raw.as_newtype()) }
     }
 
     /// Chain of parent objects up to the topology root
@@ -1624,19 +1625,19 @@ impl TopologyObject {
     /// Next object of same type and depth
     #[doc(alias = "hwloc_obj::next_cousin")]
     pub fn next_cousin(&self) -> Option<&Self> {
-        // SAFETY: - Pointer validity is assumed as a type invariant
+        // SAFETY: - Pointer and target validity are assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.next_cousin).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.next_cousin).map(|raw| raw.as_newtype()) }
     }
 
     /// Previous object of same type and depth
     #[doc(alias = "hwloc_obj::prev_cousin")]
     pub fn prev_cousin(&self) -> Option<&Self> {
-        // SAFETY: - Pointer validity is assumed as a type invariant
+        // SAFETY: - Pointer and target validity are assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.prev_cousin).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.prev_cousin).map(|raw| raw.as_newtype()) }
     }
 
     /// Index in the parent's relevant child list for this object type
@@ -1648,19 +1649,19 @@ impl TopologyObject {
     /// Next object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::next_sibling")]
     pub fn next_sibling(&self) -> Option<&Self> {
-        // SAFETY: - Pointer validity is assumed as a type invariant
+        // SAFETY: - Pointer and target validity are assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.next_sibling).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.next_sibling).map(|raw| raw.as_newtype()) }
     }
 
     /// Previous object below the same parent, in the same child list
     #[doc(alias = "hwloc_obj::prev_sibling")]
     pub fn prev_sibling(&self) -> Option<&Self> {
-        // SAFETY: - Pointer validity is assumed as a type invariant
+        // SAFETY: - Pointer and target validity are assumed as a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr_mut(&self.0.prev_sibling).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr_mut(&self.0.prev_sibling).map(|raw| raw.as_newtype()) }
     }
 }
 
@@ -1691,7 +1692,7 @@ impl TopologyObject {
             let child = unsafe { *self.0.children.add(offset) };
             assert!(!child.is_null(), "Got null child pointer");
             // SAFETY: - We checked that the pointer isn't null
-            //         - Pointer validity is assumed as a type invariant
+            //         - Pointer & target validity assumed as a type invariant
             //         - Rust aliasing rules are enforced by deriving the reference
             //           from &self, which itself is derived from &Topology
             unsafe { (&*child).as_newtype() }
@@ -1833,7 +1834,7 @@ impl TopologyObject {
         (0..arity).map(move |_| {
             assert!(!current.is_null(), "Got null child before expected arity");
             // SAFETY: - We checked that the pointer isn't null
-            //         - Pointer validity is assumed as a type invariant
+            //         - Pointer & target validity assumed as a type invariant
             //         - Rust aliasing rules are enforced by deriving the reference
             //           from &self, which itself is derived from &Topology
             let result: &Self = unsafe { (&*current).as_newtype() };
@@ -2033,6 +2034,7 @@ impl TopologyObject {
             return &[];
         }
         // SAFETY: - infos and count are assumed in sync per type invariant
+        //         - infos are assumed to be valid per type invariant
         //         - AsNewtype is trusted to be implemented correctly
         unsafe {
             std::slice::from_raw_parts(

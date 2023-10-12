@@ -182,7 +182,8 @@ impl Topology {
         );
         let infos =
             // SAFETY: - Per hwloc API contract, infos and nr_infos should be
-            //           valid if the function returned successfully
+            //           valid and point to valid state if the function returned
+            //           successfully
             //         - We trust hwloc not to modify infos' target in a manner
             //           that violates Rust aliasing rules, as long as we honor
             //           these rules ourselves

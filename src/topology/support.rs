@@ -54,38 +54,38 @@ impl FeatureSupport {
     /// Support for discovering information about the topology
     #[doc(alias = "hwloc_topology_support::discovery")]
     pub fn discovery(&self) -> Option<&DiscoverySupport> {
-        // SAFETY: - Pointer validity is a type invariant
+        // SAFETY: - Pointer & target validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.discovery).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.discovery).map(|raw| raw.as_newtype()) }
     }
 
     /// Support for getting and setting thread/process CPU bindings
     #[doc(alias = "hwloc_topology_support::cpubind")]
     pub fn cpu_binding(&self) -> Option<&CpuBindingSupport> {
-        // SAFETY: - Pointer validity is a type invariant
+        // SAFETY: - Pointer & target validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.cpubind).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.cpubind).map(|raw| raw.as_newtype()) }
     }
 
     /// Support for getting and setting thread/process NUMA node bindings
     #[doc(alias = "hwloc_topology_support::membind")]
     pub fn memory_binding(&self) -> Option<&MemoryBindingSupport> {
-        // SAFETY: - Pointer validity is a type invariant
+        // SAFETY: - Pointer & target validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.membind).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.membind).map(|raw| raw.as_newtype()) }
     }
 
     /// Miscellaneous support information
     #[cfg(feature = "hwloc-2_3_0")]
     #[doc(alias = "hwloc_topology_support::misc")]
     pub fn misc(&self) -> Option<&MiscSupport> {
-        // SAFETY: - Pointer validity is a type invariant
+        // SAFETY: - Pointer & target validity is a type invariant
         //         - Rust aliasing rules are enforced by deriving the reference
         //           from &self, which itself is derived from &Topology
-        unsafe { ffi::deref_ptr(&self.0.misc).map(AsNewtype::as_newtype) }
+        unsafe { ffi::deref_ptr(&self.0.misc).map(|raw| raw.as_newtype()) }
     }
 }
 //
