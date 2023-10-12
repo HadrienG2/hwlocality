@@ -1114,6 +1114,8 @@ mod tests {
         num_items: NonZeroU8,
         max_depth: NormalDepth,
         flags: DistributeFlags,
+        overlapping_cpu_selector: usize,
+        foreign_idx_selector: usize,
     ) {
         // Set up test state
         let topology = Topology::test_instance();
@@ -1236,7 +1238,7 @@ mod tests {
                 acc |= root.cpuset().unwrap();
                 acc
             });
-            let random_bit = rand::random::<usize>() % full_set.weight().unwrap();
+            let random_bit = overlapping_cpu_selector % full_set.weight().unwrap();
             let cpu = full_set.into_iter().nth(random_bit).unwrap();
             overlapping_roots.push(
                 topology
@@ -1253,7 +1255,7 @@ mod tests {
         // distribution roots list and try again.
         {
             let mut roots_with_foreigner = disjoint_roots;
-            let insert_pos = rand::random::<usize>() % roots_with_foreigner.len();
+            let insert_pos = foreign_idx_selector % roots_with_foreigner.len();
             let foreign_obj = Topology::foreign_instance().root_object();
             roots_with_foreigner.insert(insert_pos, foreign_obj);
             assert_eq!(
