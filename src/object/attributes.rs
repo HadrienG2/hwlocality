@@ -25,7 +25,12 @@ use hwlocality_sys::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::{ffi::c_uint, fmt, hash::Hash, num::NonZeroUsize};
+use std::{
+    ffi::c_uint,
+    fmt,
+    hash::Hash,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 /// ObjectType-specific attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -185,12 +190,12 @@ unsafe impl TransparentNewtype for NUMANodeAttributes {
 pub struct MemoryPageType(hwloc_memory_page_type_s);
 //
 impl MemoryPageType {
-    /// Size of pages
+    /// Size of pages, if known
     #[doc(alias = "hwloc_memory_page_type_s::size")]
     #[doc(alias = "hwloc_numanode_attr_s::hwloc_memory_page_type_s::size")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::hwloc_memory_page_type_s::size")]
-    pub fn size(&self) -> u64 {
-        self.0.size
+    pub fn size(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.0.size)
     }
 
     /// Number of pages of this size
@@ -199,6 +204,28 @@ impl MemoryPageType {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::hwloc_memory_page_type_s::count")]
     pub fn count(&self) -> u64 {
         self.0.count
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for MemoryPageType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of zero sizes
+        Self(hwloc_memory_page_type_s {
+            size: *g
+                .choose(&[0, 1, 2, u64::MAX - 1, u64::MAX])
+                .expect("Slice isn't empty"),
+            count: u64::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_ = *self;
+        Box::new(
+            ((self.0.size, self.0.count).shrink())
+                .map(|(size, count)| Self(hwloc_memory_page_type_s { size, count })),
+        )
     }
 }
 //
@@ -215,11 +242,11 @@ unsafe impl TransparentNewtype for MemoryPageType {
 pub struct CacheAttributes(hwloc_cache_attr_s);
 //
 impl CacheAttributes {
-    /// Size of the cache in bytes
+    /// Size of the cache in bytes, if known
     #[doc(alias = "hwloc_cache_attr_s::size")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::size")]
-    pub fn size(&self) -> u64 {
-        self.0.size
+    pub fn size(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.0.size)
     }
 
     /// Depth of the cache (e.g. L1, L2, ...)
@@ -229,7 +256,7 @@ impl CacheAttributes {
         int::expect_usize(self.0.depth)
     }
 
-    /// Cache line size in bytes
+    /// Cache line size in bytes, if known
     #[doc(alias = "hwloc_cache_attr_s::linesize")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::linesize")]
     pub fn line_size(&self) -> Option<NonZeroUsize> {
@@ -261,6 +288,80 @@ impl CacheAttributes {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CacheAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use hwlocality_sys::hwloc_obj_cache_type_t;
+        use std::ffi::c_int;
+
+        // Bias RNG to ensure reasonable odds of zero sizes
+        let size = *g
+            .choose(&[0, 1, 2, u64::MAX - 1, u64::MAX])
+            .expect("Slice not empty");
+        let linesize = *g
+            .choose(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX])
+            .expect("Slice not empty");
+
+        // Bias RNG to ensure reasonable odds of valid cache types
+        let max_valid_cache_type = enum_iterator::all::<CacheType>()
+            .map(hwloc_obj_cache_type_t::from)
+            .max()
+            .expect("This enum has >= 1 value");
+        let cache_type_range = 2 * max_valid_cache_type;
+        let ty = hwloc_obj_cache_type_t::arbitrary(g) % cache_type_range;
+
+        // Bias RNG to ensure reasonably uniform coverage of associativity
+        // alternatives
+        let associativity = *g
+            .choose(&[
+                c_int::MIN,
+                c_int::MIN + 1,
+                -3,
+                -2,
+                -1,
+                0,
+                1,
+                2,
+                c_int::MAX - 1,
+                c_int::MAX,
+            ])
+            .expect("Slice not empty");
+
+        // Let depth use a uniform distribution
+        Self(hwloc_cache_attr_s {
+            size,
+            depth: c_uint::arbitrary(g),
+            linesize,
+            associativity,
+            ty,
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_ = *self;
+        Box::new(
+            (
+                self.0.size,
+                self.0.depth,
+                self.0.linesize,
+                self.0.associativity,
+                self.0.ty,
+            )
+                .shrink()
+                .map(|(size, depth, linesize, associativity, ty)| {
+                    Self(hwloc_cache_attr_s {
+                        size,
+                        depth,
+                        linesize,
+                        associativity,
+                        ty,
+                    })
+                }),
+        )
+    }
+}
+//
 // SAFETY: CacheAttributes is a repr(transparent) newtype of hwloc_cache_attr_s
 unsafe impl TransparentNewtype for CacheAttributes {
     type Inner = hwloc_cache_attr_s;
@@ -283,9 +384,16 @@ pub enum CacheAssociativity {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for CacheAssociativity {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Option::<usize>::arbitrary(g).map_or(Self::Unknown, |us| {
-            NonZeroUsize::new(us).map_or(Self::Full, Self::Ways)
-        })
+        // Bias RNG to ensure reasonably uniform variant coverage
+        *g.choose(&[
+            Self::Unknown,
+            Self::Full,
+            Self::Ways(NonZeroUsize::MIN),
+            Self::Ways(NonZeroUsize::new(1).expect("Not zero")),
+            Self::Ways(NonZeroUsize::new(usize::MAX - 1).expect("Not zero")),
+            Self::Ways(NonZeroUsize::MAX),
+        ])
+        .expect("Slice is not empty")
     }
 
     #[cfg(not(tarpaulin_include))]
@@ -365,12 +473,13 @@ impl GroupAttributes {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for GroupAttributes {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of valid dont_merge flags
         Self(hwloc_group_attr_s {
             depth: c_uint::arbitrary(g),
             kind: c_uint::arbitrary(g),
             subkind: c_uint::arbitrary(g),
             #[cfg(feature = "hwloc-2_0_4")]
-            dont_merge: c_uchar::arbitrary(g),
+            dont_merge: c_uchar::arbitrary(g) % 4,
         })
     }
 
@@ -634,8 +743,7 @@ impl quickcheck::Arbitrary for BridgeAttributes {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
         use hwlocality_sys::hwloc_obj_bridge_type_t;
 
-        // Test for unsupported bridge types, but don't let them dominate the
-        // random distribution, only take half of it.
+        // Bias RNG to ensure reasonable odds of valid bridge types
         let max_valid_bridge_type = enum_iterator::all::<BridgeType>()
             .map(hwloc_obj_bridge_type_t::from)
             .max()
@@ -853,6 +961,7 @@ impl OSDeviceAttributes {
 #[cfg(any(test, feature = "quickcheck"))]
 impl quickcheck::Arbitrary for OSDeviceAttributes {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of valid device types
         use hwlocality_sys::hwloc_obj_osdev_type_t;
         let max_valid_raw_device_type = enum_iterator::all::<OSDeviceType>()
             .map(hwloc_obj_osdev_type_t::from)
