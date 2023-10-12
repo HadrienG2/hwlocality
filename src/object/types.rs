@@ -724,13 +724,4 @@ mod tests {
         };
         assert_eq!(ty1.partial_cmp(&ty2), expected_ordering);
     }
-
-    #[test]
-    fn should_compare_object_types() {
-        assert_eq!(ObjectType::Machine, ObjectType::Machine);
-        assert_eq!(ObjectType::PU, ObjectType::PU);
-
-        assert!(ObjectType::Machine < ObjectType::PU);
-        assert!(ObjectType::PU > ObjectType::L1Cache);
-    }
 }
