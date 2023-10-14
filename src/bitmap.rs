@@ -2670,12 +2670,12 @@ macro_rules! impl_bitmap_newtype_tests {
             use quickcheck_macros::quickcheck;
             use std::{
                 borrow::{Borrow, BorrowMut},
-                collections::hash_map::DefaultHasher,
+                collections::hash_map::RandomState,
                 error::Error,
                 fmt::{
                     self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
                 },
-                hash::{Hash, Hasher},
+                hash::{Hash, BuildHasher},
                 io::{self, Read},
                 mem::ManuallyDrop,
                 ops::{
@@ -2798,13 +2798,6 @@ macro_rules! impl_bitmap_newtype_tests {
                 Sub<&'static BitmapRef<'static, $newtype>>,
             );
 
-            /// Compute the hash of something
-            fn hash<T: Hash>(t: &T) -> u64 {
-                let mut s = DefaultHasher::new();
-                t.hash(&mut s);
-                s.finish()
-            }
-
             #[test]
             fn static_checks() {
                 assert_eq!($newtype::BITMAP_KIND, BitmapKind::$newtype);
@@ -2890,7 +2883,8 @@ macro_rules! impl_bitmap_newtype_tests {
 
                 assert_eq!(format!("{new:?}"), format!("{new_ref:?}"));
                 assert_eq!(new.to_string(), new_ref.to_string());
-                assert_eq!(hash(&new), hash(&new_ref));
+                let state = RandomState::new();
+                assert_eq!(state.hash_one(new), state.hash_one(new_ref));
                 assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
 
                 assert!(new
@@ -2923,7 +2917,8 @@ macro_rules! impl_bitmap_newtype_tests {
                     new.to_string(),
                     format!("{}({})", stringify!($newtype), new.0)
                 );
-                assert_eq!(hash(&new), hash(&new.0));
+                let state = RandomState::new();
+                assert_eq!(state.hash_one(&new), state.hash_one(&new.0));
                 // SAFETY: No mutation going on
                 unsafe { assert_eq!(new.inner(), new.0.inner()) };
                 //
@@ -3151,14 +3146,14 @@ pub(crate) mod tests {
         assert_eq_align, assert_eq_size, assert_impl_all, assert_not_impl_any, assert_type_eq_all,
     };
     use std::{
-        collections::{hash_map::DefaultHasher, HashSet},
+        collections::{hash_map::RandomState, HashSet},
         error::Error,
         ffi::c_ulonglong,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
             Write,
         },
-        hash::{Hash, Hasher},
+        hash::{BuildHasher, Hash},
         io::{self, Read},
         mem::ManuallyDrop,
         ops::{Deref, Drop, Range, RangeFrom, RangeInclusive},
@@ -3307,13 +3302,6 @@ pub(crate) mod tests {
     // literally take forever, so we only check a small subrange of the final
     // all-set/unset region, large enough to catch off-by-one-longword issues.
     pub(crate) const INFINITE_EXPLORE_ITERS: usize = std::mem::size_of::<c_ulonglong>() * 8;
-
-    /// Compute the hash of something
-    fn hash<T: Hash>(t: &T) -> u64 {
-        let mut s = DefaultHasher::new();
-        t.hash(&mut s);
-        s.finish()
-    }
 
     // Unfortunately, ranges of BitmapIndex cannot do everything that ranges of
     // built-in integer types can do due to some unstable integer traits, so
@@ -3504,7 +3492,8 @@ pub(crate) mod tests {
 
         assert_eq!(format!("{bitmap:?}"), format!("{bitmap_ref:?}"));
         assert_eq!(bitmap.to_string(), bitmap_ref.to_string());
-        assert_eq!(hash(&bitmap), hash(&bitmap_ref));
+        let state = RandomState::new();
+        assert_eq!(state.hash_one(bitmap), state.hash_one(bitmap_ref));
         assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
 
         assert!(bitmap
@@ -3620,7 +3609,8 @@ pub(crate) mod tests {
 
         assert_eq!(empty == other, other.is_empty());
         if other.is_empty() {
-            assert_eq!(hash(&other), hash(&empty));
+            let state = RandomState::new();
+            assert_eq!(state.hash_one(&other), state.hash_one(&empty));
         } else {
             assert!(empty < other);
         }
@@ -3721,7 +3711,8 @@ pub(crate) mod tests {
 
         assert_eq!(full == other, other.is_full());
         if other.is_full() {
-            assert_eq!(hash(&other), hash(&full));
+            let state = RandomState::new();
+            assert_eq!(state.hash_one(&other), state.hash_one(&full));
         }
         assert_eq!(
             full.cmp(&other),
@@ -3935,7 +3926,8 @@ pub(crate) mod tests {
             other.weight() == Some(usized.count()) && other.includes(&ranged_bitmap)
         );
         if ranged_bitmap == other {
-            assert_eq!(hash(&other), hash(&ranged_bitmap));
+            let state = RandomState::new();
+            assert_eq!(state.hash_one(&other), state.hash_one(&ranged_bitmap));
         }
 
         if ranged_bitmap.is_empty() {
@@ -4301,7 +4293,8 @@ pub(crate) mod tests {
             bitmap.includes(&other) && other.includes(&bitmap)
         );
         if bitmap == other {
-            assert_eq!(hash(&other), hash(&bitmap));
+            let state = RandomState::new();
+            assert_eq!(state.hash_one(&other), state.hash_one(&bitmap));
         }
 
         fn expected_cmp(bitmap: &Bitmap, reference: &Bitmap) -> Ordering {

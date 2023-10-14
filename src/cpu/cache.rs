@@ -29,7 +29,7 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use anyhow::Context
+    /// # use anyhow::Context;
     /// #
     /// # let topology = hwlocality::Topology::test_instance();
     /// #

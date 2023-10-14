@@ -1315,10 +1315,27 @@ impl<'topology> Distances<'topology> {
 //
 impl Debug for Distances<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use fmt::Write;
+
         let mut debug = f.debug_struct("Distances");
         #[cfg(feature = "hwloc-2_1_0")]
         debug.field("name", &self.name());
-        debug.field("kind", &self.kind()).finish_non_exhaustive()
+        debug
+            .field("kind", &self.kind())
+            .field("objects", &self.objects().collect::<Vec<_>>());
+
+        let mut distances_display = String::new();
+        let mut last_row = usize::MAX;
+        for ((row, _col), distance) in self.enumerate_distances() {
+            if row == last_row {
+                distances_display.push('\t');
+            } else {
+                distances_display.push_str("\n\t");
+                last_row = row;
+            }
+            write!(distances_display, "{distance}").unwrap();
+        }
+        debug.field("distances", &distances_display).finish()
     }
 }
 //

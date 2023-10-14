@@ -526,6 +526,7 @@ impl PartialOrd for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::topology::Topology;
     use hwlocality_sys::{
         hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
     };
@@ -597,76 +598,75 @@ mod tests {
 
     #[quickcheck]
     fn unary_type(ty: ObjectType) {
+        fn check_any_type(ty: ObjectType) {
+            assert_eq!(
+                [
+                    ty.is_normal(),
+                    ty.is_memory(),
+                    ty.is_io(),
+                    ty == ObjectType::Misc
+                ]
+                .into_iter()
+                .filter(|&b| b)
+                .count(),
+                1
+            );
+            assert!(ty.is_normal() || !ty.is_cpu_cache());
+            assert_eq!(
+                ty.is_cpu_cache(),
+                ty.is_cpu_data_cache() || ty.is_cpu_instruction_cache()
+            );
+            assert!(!(ty.is_cpu_data_cache() && ty.is_cpu_instruction_cache()));
+        }
         fn check_normal(ty: ObjectType) {
+            check_any_type(ty);
             assert!(ty.is_normal());
             assert_eq!(ty.is_leaf(), ty == ObjectType::PU);
-            assert!(!ty.is_memory());
-            assert!(!ty.is_io());
-        }
-        fn check_normal_noncache(ty: ObjectType) {
-            check_normal(ty);
-            assert!(!ty.is_cpu_cache());
-            assert!(!ty.is_cpu_data_cache());
-            assert!(!ty.is_cpu_instruction_cache());
-        }
-        fn check_cpu_dcache(ty: ObjectType) {
-            check_normal(ty);
-            assert!(ty.is_cpu_cache());
-            assert!(ty.is_cpu_data_cache());
-            assert!(!ty.is_cpu_instruction_cache());
-        }
-        fn check_cpu_icache(ty: ObjectType) {
-            check_normal(ty);
-            assert!(ty.is_cpu_cache());
-            assert!(ty.is_cpu_instruction_cache());
-            assert!(!ty.is_cpu_data_cache());
-        }
-        fn check_not_normal(ty: ObjectType) {
-            assert!(!ty.is_normal());
-            assert!(!ty.is_cpu_cache());
-            assert!(!ty.is_cpu_data_cache());
-            assert!(!ty.is_cpu_instruction_cache());
         }
         fn check_memory(ty: ObjectType) {
+            check_any_type(ty);
             assert!(ty.is_memory());
             assert_eq!(ty.is_leaf(), ty == ObjectType::NUMANode);
-            check_not_normal(ty);
-            assert!(!ty.is_io());
         }
         fn check_io(ty: ObjectType) {
+            check_any_type(ty);
             assert!(ty.is_io());
             assert!(!ty.is_leaf());
-            check_not_normal(ty);
-            assert!(!ty.is_memory());
-        }
-        fn check_misc(ty: ObjectType) {
-            assert!(ty == ObjectType::Misc);
-            assert!(!ty.is_leaf());
-            check_not_normal(ty);
-            assert!(!ty.is_memory());
-            assert!(!ty.is_io());
         }
         match ty {
             ObjectType::Machine
             | ObjectType::Package
             | ObjectType::Core
             | ObjectType::Group
-            | ObjectType::PU => check_normal_noncache(ty),
+            | ObjectType::PU => {
+                check_normal(ty);
+                assert!(!ty.is_cpu_cache());
+            }
             ObjectType::L1Cache
             | ObjectType::L2Cache
             | ObjectType::L3Cache
             | ObjectType::L4Cache
-            | ObjectType::L5Cache => check_cpu_dcache(ty),
+            | ObjectType::L5Cache => {
+                check_normal(ty);
+                assert!(ty.is_cpu_data_cache());
+            }
             ObjectType::L1ICache | ObjectType::L2ICache | ObjectType::L3ICache => {
-                check_cpu_icache(ty)
+                check_normal(ty);
+                assert!(ty.is_cpu_instruction_cache());
             }
             ObjectType::NUMANode => check_memory(ty),
             ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty),
-            ObjectType::Misc => check_misc(ty),
+            ObjectType::Misc => {
+                check_any_type(ty);
+                assert!(!ty.is_leaf());
+            }
             #[cfg(feature = "hwloc-2_1_0")]
             ObjectType::MemCache => check_memory(ty),
             #[cfg(feature = "hwloc-2_1_0")]
-            ObjectType::Die => check_normal_noncache(ty),
+            ObjectType::Die => {
+                check_normal(ty);
+                assert!(!ty.is_cpu_cache());
+            }
         }
     }
 
@@ -743,5 +743,29 @@ mod tests {
             _ => unreachable!(),
         };
         assert_eq!(ty1.partial_cmp(&ty2), expected_ordering);
+    }
+
+    #[quickcheck]
+    fn type_order_matches_depth_order(idx1: usize, idx2: usize) {
+        let topology = Topology::test_instance();
+        let num_objects = topology.objects().count();
+        let obj1 = topology.objects().nth(idx1 % num_objects).unwrap();
+        let obj2 = topology.objects().nth(idx2 % num_objects).unwrap();
+        let ty1 = obj1.object_type();
+        let ty2 = obj2.object_type();
+        if let Some(type_order) = obj1.object_type().partial_cmp(&obj2.object_type()) {
+            if ty1.is_normal()
+                && ty1 != ObjectType::Group
+                && ty2.is_normal()
+                && ty2 != ObjectType::Group
+            {
+                assert_eq!(
+                    type_order,
+                    obj1.depth()
+                        .assume_normal()
+                        .cmp(&obj2.depth().assume_normal())
+                )
+            }
+        }
     }
 }

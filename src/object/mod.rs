@@ -46,6 +46,7 @@ use std::{
     ffi::{c_char, c_uint, CStr},
     fmt::{self, Debug, Display},
     iter::FusedIterator,
+    num::NonZeroUsize,
     ops::Deref,
     ptr,
 };
@@ -58,38 +59,38 @@ use thiserror::Error;
 ///
 /// This functionality is unique to the Rust hwloc bindings
 impl Topology {
+    /// Full list of objects in the topology, first normal objects ordered by
+    /// increasing depth then virtual objects ordered by type
+    pub fn objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
+        self.normal_objects().chain(self.virtual_objects())
+    }
+
+    /// Full list of virtual bjects in the topology, ordered by type
+    pub fn virtual_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
+        Depth::VIRTUAL_DEPTHS
+            .iter()
+            .flat_map(|&depth| self.objects_at_depth(depth))
+    }
+
     /// Full list of objects contains in the normal hierarchy of the topology,
     /// ordered by increasing depth
-    pub fn all_normal_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
+    pub fn normal_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
         NormalDepth::iter_range(NormalDepth::MIN, self.depth())
             .flat_map(|depth| self.objects_at_depth(depth))
     }
 
     /// Full list of memory objects in the topology, ordered by type
-    pub fn all_memory_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
+    pub fn memory_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
         Depth::MEMORY_DEPTHS
             .iter()
             .flat_map(|&depth| self.objects_at_depth(depth))
     }
 
     /// Full list of I/O objects in the topology, ordered by type
-    pub fn all_io_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
+    pub fn io_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
         Depth::IO_DEPTHS
             .iter()
             .flat_map(|&depth| self.objects_at_depth(depth))
-    }
-
-    /// Full list of virtual bjects in the topology, ordered by type
-    pub fn all_virtual_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        Depth::VIRTUAL_DEPTHS
-            .iter()
-            .flat_map(|&depth| self.objects_at_depth(depth))
-    }
-
-    /// Full list of objects in the topology, first normal objects ordered by
-    /// increasing depth then virtual objects ordered by type
-    pub fn all_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        self.all_normal_objects().chain(self.all_virtual_objects())
     }
 }
 
@@ -379,6 +380,12 @@ impl Topology {
         cache_level: usize,
         cache_type: Option<CacheType>,
     ) -> Result<Depth, TypeToDepthError> {
+        // There is no cache level 0, it starts at L1
+        let Some(cache_level) = NonZeroUsize::new(cache_level) else {
+            return Err(TypeToDepthError::Nonexistent);
+        };
+
+        // Otherwise, need to actually look it up
         let mut result = Err(TypeToDepthError::Nonexistent);
         for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
             // Cache level and type are homogeneous across a depth level so we
@@ -2109,9 +2116,9 @@ impl TopologyObject {
             });
 
             let separator = if f.alternate() {
-                b"\n  \0".as_ptr()
+                b",\n  \0".as_ptr()
             } else {
-                b"  \0".as_ptr()
+                b", \0".as_ptr()
             }
             .cast::<c_char>();
             let attr_chars = ffi::call_snprintf(|buf, len| {

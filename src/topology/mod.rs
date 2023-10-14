@@ -39,7 +39,6 @@ use pretty_assertions::{assert_eq, assert_ne};
 use std::{
     convert::TryInto,
     fmt::{self, Pointer},
-    num::NonZeroUsize,
     ops::Deref,
     ptr::{self, NonNull},
     sync::OnceLock,
@@ -442,7 +441,7 @@ impl Topology {
     pub fn distribute_items(
         &self,
         roots: &[&TopologyObject],
-        num_items: NonZeroUsize,
+        num_items: usize,
         max_depth: NormalDepth,
         flags: DistributeFlags,
     ) -> Result<Vec<CpuSet>, DistributeError> {
@@ -451,6 +450,11 @@ impl Topology {
             if !self.contains(root) {
                 return Err(DistributeError::ForeignRoot(root.into()));
             }
+        }
+
+        // Handle the trivial case where 0 items are distributed
+        if num_items == 0 {
+            return Ok(Vec::new());
         }
 
         /// Inner recursive distribution algorithm
@@ -467,7 +471,10 @@ impl Topology {
                 0,
                 "Can't distribute to 0 roots"
             );
-            debug_assert_ne!(num_items, 0, "Can't distribute 0 items");
+            debug_assert_ne!(
+                num_items, 0,
+                "Shouldn't try to distribute 0 items (just don't call this function)"
+            );
             let initial_len = result.len();
 
             // Total number of cpus covered by the active roots
@@ -551,7 +558,6 @@ impl Topology {
         }
 
         // Run the recursion, collect results
-        let num_items = usize::from(num_items);
         let mut result = Vec::with_capacity(num_items);
         recurse(decoded_roots, num_items, max_depth, flags, &mut result);
         debug_assert_eq!(
@@ -1112,12 +1118,20 @@ mod tests {
     }
 
     #[quickcheck]
-    fn distribute_to_no_roots(
-        num_items: NonZeroU8,
+    fn distribute_nothing(
+        disjoint_roots: DisjointRoots,
         max_depth: NormalDepth,
         flags: DistributeFlags,
     ) {
-        let num_items = NonZeroUsize::from(num_items);
+        assert_eq!(
+            Topology::test_instance().distribute_items(&disjoint_roots.0, 0, max_depth, flags),
+            Ok(Vec::new())
+        );
+    }
+
+    #[quickcheck]
+    fn distribute_nowhere(num_items: NonZeroU8, max_depth: NormalDepth, flags: DistributeFlags) {
+        let num_items = usize::from(num_items.get());
         assert_eq!(
             Topology::test_instance().distribute_items(&[], num_items, max_depth, flags),
             Err(DistributeError::EmptyRoots)
@@ -1136,7 +1150,7 @@ mod tests {
         // Set up test state
         let topology = Topology::test_instance();
         let disjoint_roots = disjoint_roots.0;
-        let num_items = NonZeroUsize::from(num_items);
+        let num_items = usize::from(num_items.get());
 
         // Determine the maximal max_depth value that will make a difference and
         // roll a random max_depth accordingly.
@@ -1149,7 +1163,6 @@ mod tests {
             let item_sets = topology
                 .distribute_items(&disjoint_roots, num_items, max_depth, flags)
                 .unwrap();
-            let num_items = num_items.get();
             assert_eq!(item_sets.len(), num_items);
 
             // Predict among which leaves of the object tree work items could

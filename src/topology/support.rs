@@ -23,7 +23,11 @@ use hwlocality_sys::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::{ffi::c_uchar, fmt, hash::Hash};
+use std::{
+    ffi::c_uchar,
+    fmt::{self, Debug},
+    hash::Hash,
+};
 
 /// Set of flags describing actual hwloc feature support for this topology
 ///
@@ -89,7 +93,7 @@ impl FeatureSupport {
     }
 }
 //
-impl fmt::Debug for FeatureSupport {
+impl Debug for FeatureSupport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("FeatureSupport");
         debug
@@ -140,7 +144,7 @@ unsafe impl TransparentNewtype for FeatureSupport {
 }
 
 /// Support for discovering information about the topology
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_discovery_support")]
 #[repr(transparent)]
 pub struct DiscoverySupport(hwloc_topology_discovery_support);
@@ -190,6 +194,23 @@ impl DiscoverySupport {
     }
 }
 //
+impl Debug for DiscoverySupport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("DiscoverySupport");
+        debug
+            .field("pu_count", &self.pu_count())
+            .field("numa_count", &self.numa_count())
+            .field("numa_memory", &self.numa_memory());
+        #[cfg(feature = "hwloc-2_1_0")]
+        debug
+            .field("disallowed_pu", &self.disallowed_pu())
+            .field("disallowed_numa", &self.disallowed_numa());
+        #[cfg(feature = "hwloc-2_4_0")]
+        debug.field("cpukind_efficiency", &self.cpukind_efficiency());
+        debug.finish()
+    }
+}
+//
 // SAFETY: DiscoverySupport is a repr(transparent) newtype of hwloc_topology_discovery_support
 unsafe impl TransparentNewtype for DiscoverySupport {
     type Inner = hwloc_topology_discovery_support;
@@ -199,7 +220,7 @@ unsafe impl TransparentNewtype for DiscoverySupport {
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_cpubind_support")]
 #[repr(transparent)]
 pub struct CpuBindingSupport(hwloc_topology_cpubind_support);
@@ -272,6 +293,33 @@ impl CpuBindingSupport {
     }
 }
 //
+impl Debug for CpuBindingSupport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CpuBindingSupport")
+            .field("set_current_process", &self.set_current_process())
+            .field("get_current_process", &self.get_current_process())
+            .field("set_process", &self.set_process())
+            .field("get_process", &self.get_process())
+            .field("set_current_thread", &self.set_current_thread())
+            .field("get_current_thread", &self.get_current_thread())
+            .field("set_thread", &self.set_thread())
+            .field("get_thread", &self.get_thread())
+            .field(
+                "get_current_process_last_cpu_location",
+                &self.get_current_process_last_cpu_location(),
+            )
+            .field(
+                "get_process_last_cpu_location",
+                &self.get_process_last_cpu_location(),
+            )
+            .field(
+                "get_current_thread_last_cpu_location",
+                &self.get_current_thread_last_cpu_location(),
+            )
+            .finish()
+    }
+}
+//
 // SAFETY: CpuBindingSupport is a repr(transparent) newtype of hwloc_topology_cpubind_support
 unsafe impl TransparentNewtype for CpuBindingSupport {
     type Inner = hwloc_topology_cpubind_support;
@@ -281,7 +329,7 @@ unsafe impl TransparentNewtype for CpuBindingSupport {
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_membind_support")]
 #[repr(transparent)]
 pub struct MemoryBindingSupport(hwloc_topology_membind_support);
@@ -378,6 +426,28 @@ impl MemoryBindingSupport {
     }
 }
 //
+impl Debug for MemoryBindingSupport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryBindingSupport")
+            .field("set_current_process", &self.set_current_process())
+            .field("get_current_process", &self.get_current_process())
+            .field("set_process", &self.set_process())
+            .field("get_process", &self.get_process())
+            .field("set_current_thread", &self.set_current_thread())
+            .field("get_current_thread", &self.get_current_thread())
+            .field("set_area", &self.set_area())
+            .field("get_area", &self.get_area())
+            .field("get_area_memory_location", &self.get_area_memory_location())
+            .field("allocate_bound", &self.allocate_bound())
+            .field("first_touch_policy", &self.first_touch_policy())
+            .field("bind_policy", &self.bind_policy())
+            .field("interleave_policy", &self.interleave_policy())
+            .field("next_touch_policy", &self.next_touch_policy())
+            .field("migrate_flag", &self.migrate_flag())
+            .finish()
+    }
+}
+//
 // SAFETY: MemoryBindingSupport is a repr(transparent) newtype of hwloc_topology_membind_support
 unsafe impl TransparentNewtype for MemoryBindingSupport {
     type Inner = hwloc_topology_membind_support;
@@ -385,7 +455,7 @@ unsafe impl TransparentNewtype for MemoryBindingSupport {
 
 /// Miscellaneous support information
 #[cfg(feature = "hwloc-2_3_0")]
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_misc_support")]
 #[repr(transparent)]
 pub struct MiscSupport(hwloc_topology_misc_support);
@@ -398,6 +468,15 @@ impl MiscSupport {
     #[doc(alias = "hwloc_topology_misc_support::imported_support")]
     pub fn imported(&self) -> bool {
         support_flag(self.0.imported_support)
+    }
+}
+//
+#[cfg(feature = "hwloc-2_3_0")]
+impl Debug for MiscSupport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MiscSupport")
+            .field("imported", &self.imported())
+            .finish()
     }
 }
 //
@@ -425,11 +504,11 @@ mod tests {
     use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        collections::hash_map::DefaultHasher,
+        collections::hash_map::RandomState,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
         },
-        hash::{Hash, Hasher},
+        hash::{BuildHasher, Hash},
         io::{self, Read},
         ops::Deref,
         panic::UnwindSafe,
@@ -438,14 +517,6 @@ mod tests {
 
     // Check that public types in this module keep implementing all expected
     // traits, in the interest of detecting future semver-breaking changes
-    assert_impl_all!(FeatureSupport:
-        Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_not_impl_any!(FeatureSupport:
-        Binary, Clone, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
-        Octal, PartialOrd, Pointer, Read, ToOwned, UpperExp, UpperHex,
-        fmt::Write, io::Write
-    );
     assert_impl_all!(CpuBindingSupport:
         Copy, Default, Hash, Sized, Sync, Unpin, UnwindSafe
     );
@@ -459,6 +530,14 @@ mod tests {
     assert_not_impl_any!(DiscoverySupport:
         Binary, Deref, Drop, IntoIterator, LowerExp, LowerHex, Octal,
         PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(FeatureSupport:
+        Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(FeatureSupport:
+        Binary, Clone, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, ToOwned, UpperExp, UpperHex,
+        fmt::Write, io::Write
     );
     assert_impl_all!(MemoryBindingSupport:
         Copy, Default, Hash, Sized, Sync, Unpin, UnwindSafe
@@ -802,18 +881,13 @@ mod tests {
         #[cfg(feature = "hwloc-2_3_0")]
         check_debug(null_misc);
 
-        fn hash<T: Hash>(t: &T) -> u64 {
-            let mut s = DefaultHasher::new();
-            t.hash(&mut s);
-            s.finish()
-        }
         fn compare(support1: &FeatureSupport, support2: &FeatureSupport, equal: bool) {
             if equal {
+                let state = RandomState::new();
                 assert_eq!(support1, support2);
-                assert_eq!(hash(support1), hash(support2));
+                assert_eq!(state.hash_one(support1), state.hash_one(support2));
             } else {
                 assert_ne!(support1, support2);
-                assert_ne!(hash(support1), hash(support2));
             }
         }
         compare(default_support, default_support, true);
