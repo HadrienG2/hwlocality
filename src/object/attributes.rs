@@ -1665,9 +1665,9 @@ mod tests {
                 format!("{page_type:?}"),
                 format!(
                     "MemoryPageType {{ \
-                                size: \"0\", \
-                                count: {:?} \
-                            }}",
+                        size: \"0\", \
+                        count: {:?} \
+                    }}",
                     page_type.count(),
                 )
             );
@@ -1757,26 +1757,6 @@ mod tests {
 
     fn check_valid_group(attr: &GroupAttributes) {
         check_any_group(attr);
-
-        #[cfg(feature = "hwloc-2_0_4")]
-        let merging_prevented = format!("merging_prevented: {:?}, ", attr.merging_prevented());
-        #[cfg(not(feature = "hwloc-2_0_4"))]
-        let merging_prevented = String::new();
-        assert_eq!(
-            format!("{attr:?}"),
-            format!(
-                "GroupAttributes {{ \
-                    depth: {:?}, \
-                    {}\
-                    kind: {:?}, \
-                    subkind: {:?} \
-                }}",
-                attr.depth(),
-                merging_prevented,
-                attr.kind(),
-                attr.subkind(),
-            )
-        );
     }
 
     fn check_any_group(attr: &GroupAttributes) {
@@ -1799,28 +1779,34 @@ mod tests {
         assert_eq!(attr.subkind(), usize::try_from(subkind).unwrap());
 
         #[cfg(feature = "hwloc-2_0_4")]
-        match dont_merge {
-            0 => assert!(!attr.merging_prevented()),
-            1 => assert!(attr.merging_prevented()),
+        let merging_prevented_dbg = match dont_merge {
+            0 | 1 => {
+                assert_eq!(attr.merging_prevented(), dont_merge != 0);
+                format!("merging_prevented: {:?}, ", attr.merging_prevented())
+            }
             _ => {
                 assert_panics(|| attr.merging_prevented());
-                assert_eq!(
-                    format!("{attr:?}"),
-                    format!(
-                        "GroupAttributes {{ \
-                            depth: {:?}, \
-                            merging_prevented: \"{:?}\", \
-                            kind: {:?}, \
-                            subkind: {:?} \
-                        }}",
-                        attr.depth(),
-                        dont_merge,
-                        attr.kind(),
-                        attr.subkind(),
-                    )
-                )
+                format!("merging_prevented: \"{dont_merge:?}\", ")
             }
-        }
+        };
+        #[cfg(not(feature = "hwloc-2_0_4"))]
+        let merging_prevented_dbg = String::new();
+
+        assert_eq!(
+            format!("{attr:?}"),
+            format!(
+                "GroupAttributes {{ \
+                    depth: {:?}, \
+                    {}\
+                    kind: {:?}, \
+                    subkind: {:?} \
+                }}",
+                attr.depth(),
+                merging_prevented_dbg,
+                attr.kind(),
+                attr.subkind(),
+            )
+        );
 
         #[cfg(feature = "hwloc-2_3_0")]
         {
@@ -1995,7 +1981,6 @@ mod tests {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn check_valid_downstream_pci(attr: &DownstreamPCIAttributes) {
-        // There is no invalid state for this type at present time
         check_any_downstream_pci(attr);
     }
 
@@ -2014,24 +1999,22 @@ mod tests {
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn check_valid_osdev(attr: &OSDeviceAttributes) {
         check_any_osdev(attr);
-
-        assert_eq!(
-            format!("{attr:?}"),
-            format!(
-                "OSDeviceAttributes {{ device_type: {:?} }}",
-                attr.device_type()
-            )
-        )
     }
 
     #[allow(clippy::option_if_let_else, clippy::trivially_copy_pass_by_ref)]
     fn check_any_osdev(attr: &OSDeviceAttributes) {
         let hwloc_osdev_attr_s { ty } = attr.0;
-        if let Ok(device_type) = OSDeviceType::try_from(ty) {
+        let device_type_dbg = if let Ok(device_type) = OSDeviceType::try_from(ty) {
             assert_eq!(attr.device_type(), device_type);
+            format!("{device_type:?}")
         } else {
             assert_panics(|| attr.device_type());
-        }
+            format!("\"{ty:?}\"")
+        };
+        assert_eq!(
+            format!("{attr:?}"),
+            format!("OSDeviceAttributes {{ device_type: {device_type_dbg} }}")
+        )
     }
 
     fn check_valid_numa_pair([numa1, numa2]: [&'static TopologyObject; 2]) {
