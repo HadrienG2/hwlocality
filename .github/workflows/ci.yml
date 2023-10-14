@@ -22,7 +22,7 @@ env:
   RUSTFLAGS: '-D warnings'
   HWLOC_VERSION: '2.9.3'
   HWLOC_VERSION_SHORT: '2.9'  # Used in URL to official tarball/binaries
-  MINIMAL_RUST: '1.70.0'  # Minimal supported Rust version
+  MINIMAL_RUST: '1.71.0'  # Minimal supported Rust version
   CARGO_NET_GIT_FETCH_WITH_CLI: false  # Workaround that can go once we bump
                                        # MINIMAL_RUST to 1.72+ in the future.
                                        # https://github.com/dtolnay/rust-toolchain/pull/94

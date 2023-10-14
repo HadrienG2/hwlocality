@@ -19,13 +19,21 @@ use crate::{
 use crate::{object::TopologyObject, topology::support::DiscoverySupport};
 use hwlocality_sys::{
     hwloc_bridge_attr_s, hwloc_cache_attr_s, hwloc_group_attr_s, hwloc_memory_page_type_s,
-    hwloc_numanode_attr_s, hwloc_obj_attr_u, hwloc_osdev_attr_s, hwloc_pcidev_attr_s,
-    RawDownstreamAttributes, RawDownstreamPCIAttributes, RawUpstreamAttributes,
+    hwloc_numanode_attr_s, hwloc_obj_attr_u, hwloc_obj_bridge_type_t, hwloc_osdev_attr_s,
+    hwloc_pcidev_attr_s, RawDownstreamAttributes, RawDownstreamPCIAttributes,
+    RawUpstreamAttributes,
 };
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-use std::{ffi::c_uint, fmt, hash::Hash, num::NonZeroUsize};
+use std::{
+    cmp::Ordering,
+    ffi::c_uint,
+    fmt::{self, Debug, DebugStruct},
+    hash::Hash,
+    marker::PhantomData,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 /// ObjectType-specific attributes
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -35,7 +43,7 @@ pub enum ObjectAttributes<'object> {
     ///
     /// [`NUMANode`]: ObjectType::NUMANode
     #[doc(alias = "hwloc_obj_attr_u::numanode")]
-    NUMANode(&'object NUMANodeAttributes),
+    NUMANode(&'object NUMANodeAttributes<'object>),
 
     /// CPU cache-specific attributes
     #[doc(alias = "hwloc_obj_attr_u::cache")]
@@ -73,6 +81,7 @@ impl<'object> ObjectAttributes<'object> {
     ///
     /// If non-null, the `attr` pointer must target `hwloc_obj_attr_u` that
     /// are valid for lifetime `'object` and consistent with object type `ty`.
+    #[allow(clippy::wildcard_enum_match_arm)]
     pub(crate) unsafe fn new(ty: ObjectType, attr: &'object *mut hwloc_obj_attr_u) -> Option<Self> {
         if attr.is_null() {
             return None;
@@ -83,7 +92,6 @@ impl<'object> ObjectAttributes<'object> {
         // SAFETY: - We checked for union field access validity via the type
         //         - Type is truted to match union state per input precondition
         unsafe {
-            #[allow(clippy::wildcard_enum_match_arm)]
             match ty {
                 ObjectType::NUMANode => Some(Self::NUMANode((&attr.numa).as_newtype())),
                 ObjectType::Group => Some(Self::Group((&attr.group).as_newtype())),
@@ -110,26 +118,27 @@ impl<'object> ObjectAttributes<'object> {
 // If non-null, `page_types` is trusted to point to a C-style array of
 // `page_types_len` memory page types, sorted by increasing page size.
 #[allow(missing_copy_implementations)]
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Default)]
 #[doc(alias = "hwloc_numanode_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s")]
 #[repr(transparent)]
-pub struct NUMANodeAttributes(hwloc_numanode_attr_s);
+pub struct NUMANodeAttributes<'object>(hwloc_numanode_attr_s, PhantomData<&'object MemoryPageType>);
 //
-impl NUMANodeAttributes {
+impl<'object> NUMANodeAttributes<'object> {
     /// Node-local memory in bytes
     ///
-    /// Requires [`DiscoverySupport::numa_memory()`].
+    /// Requires [`DiscoverySupport::numa_memory()`], but may not be present
+    /// even when this support flag is set.
     #[doc(alias = "hwloc_numanode_attr_s::local_memory")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::local_memory")]
-    pub fn local_memory(&self) -> u64 {
-        self.0.local_memory
+    pub fn local_memory(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.0.local_memory)
     }
 
     /// Memory page types, sorted by increasing page size
     #[doc(alias = "hwloc_numanode_attr_s::page_types")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::page_types")]
-    pub fn page_types(&self) -> &[MemoryPageType] {
+    pub fn page_types(&self) -> &'object [MemoryPageType] {
         if self.0.page_types.is_null() {
             assert_eq!(
                 self.0.page_types_len, 0,
@@ -144,40 +153,62 @@ impl NUMANodeAttributes {
                 self.0.page_types.as_newtype(),
                 // If this fails, it means pages_types_len does not fit in a
                 // size_t, but by definition of size_t that cannot happen
-                self.0.page_types_len.try_into().expect("Should not happen"),
+                self.0
+                    .page_types_len
+                    .try_into()
+                    .expect("should fit in usize"),
             )
         }
     }
 }
 //
-impl Eq for NUMANodeAttributes {}
+impl Debug for NUMANodeAttributes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("NUMANodeAttributes");
+
+        debug.field("local_memory", &self.local_memory());
+
+        if self.0.page_types_len == 0 || !self.0.page_types.is_null() {
+            debug.field("page_types", &self.page_types());
+        } else {
+            debug.field(
+                "page_types",
+                &format!("NULL with len={:?}", self.0.page_types_len),
+            );
+        }
+
+        debug.finish()
+    }
+}
 //
-impl Hash for NUMANodeAttributes {
+impl Eq for NUMANodeAttributes<'_> {}
+//
+impl Hash for NUMANodeAttributes<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.local_memory().hash(state);
         self.page_types().hash(state);
     }
 }
 //
-impl PartialEq for NUMANodeAttributes {
+impl PartialEq for NUMANodeAttributes<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.local_memory() == other.local_memory() && self.page_types() == other.page_types()
     }
 }
 //
 // SAFETY: No internal mutability
-unsafe impl Send for NUMANodeAttributes {}
+unsafe impl Send for NUMANodeAttributes<'_> {}
 //
 // SAFETY: No internal mutability
-unsafe impl Sync for NUMANodeAttributes {}
+unsafe impl Sync for NUMANodeAttributes<'_> {}
 //
 // SAFETY: NUMANodeAttributes is a repr(transparent) newtype of hwloc_numanode_attr_s
-unsafe impl TransparentNewtype for NUMANodeAttributes {
+unsafe impl TransparentNewtype for NUMANodeAttributes<'_> {
     type Inner = hwloc_numanode_attr_s;
 }
 
 /// Local memory page type
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[doc(alias = "hwloc_memory_page_type_s")]
 #[doc(alias = "hwloc_numanode_attr_s::hwloc_memory_page_type_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::hwloc_memory_page_type_s")]
@@ -185,12 +216,12 @@ unsafe impl TransparentNewtype for NUMANodeAttributes {
 pub struct MemoryPageType(hwloc_memory_page_type_s);
 //
 impl MemoryPageType {
-    /// Size of pages
+    /// Size of pages, if known
     #[doc(alias = "hwloc_memory_page_type_s::size")]
     #[doc(alias = "hwloc_numanode_attr_s::hwloc_memory_page_type_s::size")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::hwloc_memory_page_type_s::size")]
-    pub fn size(&self) -> u64 {
-        self.0.size
+    pub fn size(&self) -> NonZeroU64 {
+        NonZeroU64::new(self.0.size).expect("memory page types of unknown size are useless")
     }
 
     /// Number of pages of this size
@@ -202,34 +233,69 @@ impl MemoryPageType {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for MemoryPageType {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of zero sizes
+        Self(hwloc_memory_page_type_s {
+            size: *g
+                .choose(&[0, 1, 2, u64::MAX - 1, u64::MAX])
+                .expect("slice isn't empty"),
+            count: u64::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            ((self.0.size, self.0.count).shrink())
+                .map(|(size, count)| Self(hwloc_memory_page_type_s { size, count })),
+        )
+    }
+}
+//
+impl Debug for MemoryPageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("MemoryPageType");
+
+        if self.0.size == 0 {
+            debug.field("size", &"0");
+        } else {
+            debug.field("size", &self.size());
+        }
+
+        debug.field("count", &self.count()).finish()
+    }
+}
+//
 // SAFETY: MemoryPageType is a repr(transparent) newtype of hwloc_memory_page_type_s
 unsafe impl TransparentNewtype for MemoryPageType {
     type Inner = hwloc_memory_page_type_s;
 }
 
 /// Cache-specific attributes
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_cache_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s")]
 #[repr(transparent)]
 pub struct CacheAttributes(hwloc_cache_attr_s);
 //
 impl CacheAttributes {
-    /// Size of the cache in bytes
+    /// Size of the cache in bytes, if known
     #[doc(alias = "hwloc_cache_attr_s::size")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::size")]
-    pub fn size(&self) -> u64 {
-        self.0.size
+    pub fn size(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.0.size)
     }
 
     /// Depth of the cache (e.g. L1, L2, ...)
     #[doc(alias = "hwloc_cache_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::depth")]
-    pub fn depth(&self) -> usize {
-        int::expect_usize(self.0.depth)
+    pub fn depth(&self) -> NonZeroUsize {
+        NonZeroUsize::new(int::expect_usize(self.0.depth)).expect("Cache depths should start at 1")
     }
 
-    /// Cache line size in bytes
+    /// Cache line size in bytes, if known
     #[doc(alias = "hwloc_cache_attr_s::linesize")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::linesize")]
     pub fn line_size(&self) -> Option<NonZeroUsize> {
@@ -244,12 +310,12 @@ impl CacheAttributes {
             -1 => CacheAssociativity::Full,
             0 => CacheAssociativity::Unknown,
             ways if ways > 0 => {
-                let ways = c_uint::try_from(ways).expect("int > 0 -> uint should not fail");
+                let ways = c_uint::try_from(ways).expect("int > 0 -> uint can't fail");
                 let ways = int::expect_usize(ways);
-                let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize cannot fail");
+                let ways = NonZeroUsize::new(ways).expect("usize > 0 -> NonZeroUsize can't fail");
                 CacheAssociativity::Ways(ways)
             }
-            unexpected => unreachable!("Got unexpected cache associativity {unexpected}"),
+            unexpected => unreachable!("got unexpected cache associativity {unexpected}"),
         }
     }
 
@@ -257,7 +323,114 @@ impl CacheAttributes {
     #[doc(alias = "hwloc_cache_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::type")]
     pub fn cache_type(&self) -> CacheType {
-        self.0.ty.try_into().expect("Got unexpected cache type")
+        self.0.ty.try_into().expect("got unexpected cache type")
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CacheAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        use hwlocality_sys::hwloc_obj_cache_type_t;
+        use std::ffi::c_int;
+
+        // Bias RNG to ensure reasonable odds of zero sizes
+        let size = *g
+            .choose(&[0, 1, 2, u64::MAX - 1, u64::MAX])
+            .expect("slice isn't empty");
+        let linesize = *g
+            .choose(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX])
+            .expect("slice isn't empty");
+
+        // Bias RNG to ensure reasonable odds of valid cache types
+        let num_valid_cache_types = enum_iterator::all::<CacheType>()
+            .map(hwloc_obj_cache_type_t::from)
+            .max()
+            .expect("enum has >= 1 variants")
+            + 1;
+        let ty = hwloc_obj_cache_type_t::arbitrary(g) % (2 * num_valid_cache_types);
+
+        // Bias RNG to ensure reasonably uniform coverage of associativity
+        // alternatives
+        let associativity = *g
+            .choose(&[
+                // Invalid range
+                c_int::MIN,
+                c_int::MIN + 1,
+                -3,
+                -2,
+                // Full
+                -1,
+                // Unknown
+                0,
+                // N-ways range
+                1,
+                2,
+                c_int::MAX - 1,
+                c_int::MAX,
+            ])
+            .expect("slice isn't empty");
+
+        // Let depth use a uniform distribution
+        Self(hwloc_cache_attr_s {
+            size,
+            depth: c_uint::arbitrary(g),
+            linesize,
+            associativity,
+            ty,
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            (
+                self.0.size,
+                self.0.depth,
+                self.0.linesize,
+                self.0.associativity,
+                self.0.ty,
+            )
+                .shrink()
+                .map(|(size, depth, linesize, associativity, ty)| {
+                    Self(hwloc_cache_attr_s {
+                        size,
+                        depth,
+                        linesize,
+                        associativity,
+                        ty,
+                    })
+                }),
+        )
+    }
+}
+//
+impl Debug for CacheAttributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("CacheAttributes");
+
+        debug.field("size", &self.size());
+
+        if self.0.depth == 0 {
+            debug.field("depth", &"0");
+        } else {
+            debug.field("depth", &self.depth());
+        }
+
+        debug.field("line_size", &self.line_size());
+
+        if self.0.associativity >= -1 {
+            debug.field("associativity", &self.associativity());
+        } else {
+            debug.field("associativity", &format!("{:?}", self.0.associativity));
+        }
+
+        if CacheType::try_from(self.0.ty).is_ok() {
+            debug.field("cache_type", &self.cache_type());
+        } else {
+            debug.field("cache_type", &format!("{:?}", self.0.ty));
+        }
+
+        debug.finish()
     }
 }
 //
@@ -279,11 +452,52 @@ pub enum CacheAssociativity {
     /// N-ways associative
     Ways(NonZeroUsize),
 }
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for CacheAssociativity {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonably uniform variant coverage
+        *g.choose(&[
+            Self::Unknown,
+            Self::Full,
+            Self::Ways(NonZeroUsize::MIN),
+            Self::Ways(NonZeroUsize::new(2).expect("not zero")),
+            Self::Ways(NonZeroUsize::new(usize::MAX - 1).expect("not zero")),
+            Self::Ways(NonZeroUsize::MAX),
+        ])
+        .expect("slice isn't empty")
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        match *self {
+            Self::Ways(ways) => Box::new(
+                ways.shrink()
+                    .map(Self::Ways)
+                    .chain([Self::Full, Self::Unknown]),
+            ),
+            Self::Full => quickcheck::single_shrinker(Self::Unknown),
+            Self::Unknown => quickcheck::empty_shrinker(),
+        }
+    }
+}
+//
+impl PartialOrd for CacheAssociativity {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Self::Unknown, _) | (_, Self::Unknown) => None,
+            (Self::Full, Self::Full) => Some(Ordering::Equal),
+            (Self::Full, Self::Ways(_)) => Some(Ordering::Greater),
+            (Self::Ways(_), Self::Full) => Some(Ordering::Less),
+            (Self::Ways(x), Self::Ways(y)) => x.partial_cmp(y),
+        }
+    }
+}
 
 /// [`Group`]-specific attributes
 ///
 /// [`Group`]: ObjectType::Group
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_group_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s")]
 #[repr(transparent)]
@@ -309,7 +523,8 @@ impl GroupAttributes {
     /// any existing `Group` with the same locality.
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn favor_merging(&mut self) {
-        self.0.kind = c_uint::MAX
+        self.0.kind = c_uint::MAX;
+        self.0.dont_merge = 0;
     }
 
     /// Internally-used subkind to distinguish different levels of groups with
@@ -327,7 +542,7 @@ impl GroupAttributes {
     pub fn merging_prevented(&self) -> bool {
         assert!(
             self.0.dont_merge == 0 || self.0.dont_merge == 1,
-            "Unexpected hwloc_group_attr_s::dont_merge value"
+            "unexpected hwloc_group_attr_s::dont_merge value"
         );
         self.0.dont_merge != 0
     }
@@ -336,7 +551,72 @@ impl GroupAttributes {
     /// hierarchically-identical objects.
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn prevent_merging(&mut self) {
-        self.0.dont_merge = 1
+        self.0.dont_merge = 1;
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for GroupAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of valid dont_merge flags
+        Self(hwloc_group_attr_s {
+            depth: c_uint::arbitrary(g),
+            kind: c_uint::arbitrary(g),
+            subkind: c_uint::arbitrary(g),
+            #[cfg(feature = "hwloc-2_0_4")]
+            dont_merge: std::ffi::c_uchar::arbitrary(g) % 4,
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        #[cfg(feature = "hwloc-2_0_4")]
+        {
+            Box::new(
+                (self.0.depth, self.0.kind, self.0.subkind, self.0.dont_merge)
+                    .shrink()
+                    .map(|(depth, kind, subkind, dont_merge)| {
+                        Self(hwloc_group_attr_s {
+                            depth,
+                            kind,
+                            subkind,
+                            dont_merge,
+                        })
+                    }),
+            )
+        }
+        #[cfg(not(feature = "hwloc-2_0_4"))]
+        {
+            Box::new((self.0.depth, self.0.kind, self.0.subkind).shrink().map(
+                |(depth, kind, subkind)| {
+                    Self(hwloc_group_attr_s {
+                        depth,
+                        kind,
+                        subkind,
+                    })
+                },
+            ))
+        }
+    }
+}
+//
+impl Debug for GroupAttributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("GroupAttributes");
+
+        debug.field("depth", &self.depth());
+
+        #[cfg(feature = "hwloc-2_0_4")]
+        if self.0.dont_merge <= 1 {
+            debug.field("merging_prevented", &self.merging_prevented());
+        } else {
+            debug.field("merging_prevented", &format!("{:?}", self.0.dont_merge));
+        }
+
+        debug
+            .field("kind", &self.kind())
+            .field("subkind", &self.subkind())
+            .finish()
     }
 }
 //
@@ -443,6 +723,60 @@ impl PCIDeviceAttributes {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for PCIDeviceAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self(hwloc_pcidev_attr_s {
+            domain: PCIDomain::arbitrary(g),
+            bus: u8::arbitrary(g),
+            dev: u8::arbitrary(g),
+            func: u8::arbitrary(g),
+            class_id: u16::arbitrary(g),
+            vendor_id: u16::arbitrary(g),
+            device_id: u16::arbitrary(g),
+            subvendor_id: u16::arbitrary(g),
+            subdevice_id: u16::arbitrary(g),
+            revision: u8::arbitrary(g),
+            linkspeed: f32::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            (
+                (self.0.domain, self.0.bus, self.0.dev, self.0.func),
+                (self.0.class_id, self.0.vendor_id, self.0.device_id),
+                (self.0.subvendor_id, self.0.subdevice_id, self.0.revision),
+                self.0.linkspeed,
+            )
+                .shrink()
+                .map(
+                    |(
+                        (domain, bus, dev, func),
+                        (class_id, vendor_id, device_id),
+                        (subvendor_id, subdevice_id, revision),
+                        linkspeed,
+                    )| {
+                        Self(hwloc_pcidev_attr_s {
+                            domain,
+                            bus,
+                            dev,
+                            func,
+                            class_id,
+                            vendor_id,
+                            device_id,
+                            subvendor_id,
+                            subdevice_id,
+                            revision,
+                            linkspeed,
+                        })
+                    },
+                ),
+        )
+    }
+}
+//
 // SAFETY: PCIDeviceAttributes is a repr(transparent) newtype of hwloc_pcidev_attr_s
 unsafe impl TransparentNewtype for PCIDeviceAttributes {
     type Inner = hwloc_pcidev_attr_s;
@@ -472,7 +806,7 @@ impl BridgeAttributes {
         self.0
             .upstream_type
             .try_into()
-            .expect("Got unexpected upstream type")
+            .expect("got unexpected upstream type")
     }
 
     /// Upstream attributes
@@ -490,7 +824,7 @@ impl BridgeAttributes {
         self.0
             .downstream_type
             .try_into()
-            .expect("Got unexpected downstream type")
+            .expect("got unexpected downstream type")
     }
 
     /// Downstream attributes
@@ -509,14 +843,108 @@ impl BridgeAttributes {
     }
 }
 //
-#[allow(clippy::missing_fields_in_debug)]
-impl fmt::Debug for BridgeAttributes {
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for BridgeAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of valid bridge types
+        let num_valid_bridge_types = enum_iterator::all::<BridgeType>()
+            .map(hwloc_obj_bridge_type_t::from)
+            .max()
+            .expect("enum has >= 1 variants")
+            + 1;
+        let num_probed_bridge_types = 2 * num_valid_bridge_types;
+
+        // Rest is reasonably straightforward since currently only PCI upstreams
+        // and downstreams are supported.
+        Self(hwloc_bridge_attr_s {
+            upstream_type: hwloc_obj_bridge_type_t::arbitrary(g) % num_probed_bridge_types,
+            upstream: RawUpstreamAttributes {
+                pci: PCIDeviceAttributes::arbitrary(g).0,
+            },
+            downstream_type: hwloc_obj_bridge_type_t::arbitrary(g) % num_probed_bridge_types,
+            downstream: RawDownstreamAttributes {
+                pci: DownstreamPCIAttributes::arbitrary(g).0,
+            },
+            depth: c_uint::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        let self_ = *self;
+
+        // We don't swich upstream/downstream type during shrinking, we just
+        // simplify the type-specific attributes if any.
+        let shrunk_upstream: Box<dyn Iterator<Item = RawUpstreamAttributes>> =
+            match self.upstream_attributes() {
+                Some(UpstreamAttributes::PCI(pci)) => {
+                    Box::new(pci.shrink().map(|pci| RawUpstreamAttributes { pci: pci.0 }))
+                }
+                None => quickcheck::empty_shrinker(),
+            };
+        let shrunk_downstream: Box<dyn Iterator<Item = RawDownstreamAttributes>> =
+            match self.downstream_attributes() {
+                Some(DownstreamAttributes::PCI(pci)) => Box::new(
+                    pci.shrink()
+                        .map(|pci| RawDownstreamAttributes { pci: pci.0 }),
+                ),
+                None => quickcheck::empty_shrinker(),
+            };
+
+        // In the end, we sequence shrinkers together like the quickcheck tuple
+        // shrinker does.
+        Box::new(
+            (shrunk_upstream.map(move |upstream| {
+                Self(hwloc_bridge_attr_s {
+                    upstream,
+                    ..self_.0
+                })
+            }))
+            .chain(shrunk_downstream.map(move |downstream| {
+                Self(hwloc_bridge_attr_s {
+                    downstream,
+                    ..self_.0
+                })
+            }))
+            .chain(
+                (self.0.depth.shrink())
+                    .map(move |depth| Self(hwloc_bridge_attr_s { depth, ..self_.0 })),
+            ),
+        )
+    }
+}
+//
+impl Debug for BridgeAttributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BridgeAttributes")
-            .field("upstream_attributes", &self.upstream_attributes())
-            .field("downstream_attributes", &self.downstream_attributes())
-            .field("depth", &self.0.depth)
-            .finish()
+        let mut debug = f.debug_struct("BridgeAttributes");
+
+        let show_type =
+            |debug: &mut DebugStruct<'_, '_>, name: &str, ty: hwloc_obj_bridge_type_t| {
+                if let Ok(ty) = BridgeType::try_from(ty) {
+                    debug.field(name, &ty);
+                } else {
+                    debug.field(name, &format!("{ty:?}"));
+                }
+            };
+
+        show_type(&mut debug, "upstream_type", self.0.upstream_type);
+        if BridgeType::try_from(self.0.upstream_type).is_ok() {
+            debug.field("upstream_attributes", &self.upstream_attributes());
+        } else {
+            debug.field("upstream_attributes", &format!("{:?}", self.0.upstream));
+        }
+
+        show_type(&mut debug, "downstream_type", self.0.downstream_type);
+        match BridgeType::try_from(self.0.downstream_type) {
+            Ok(BridgeType::PCI) => {
+                debug.field("downstream_attributes", &self.downstream_attributes())
+            }
+            Ok(BridgeType::Host) | Err(_) => {
+                debug.field("downstream_attributes", &format!("{:?}", self.0.downstream))
+            }
+        };
+
+        debug.field("depth", &self.depth()).finish()
     }
 }
 //
@@ -526,6 +954,7 @@ impl PartialEq for BridgeAttributes {
             && self.upstream_attributes() == other.upstream_attributes()
             && self.downstream_type() == other.downstream_type()
             && self.downstream_attributes() == other.downstream_attributes()
+            && self.depth() == other.depth()
     }
 }
 //
@@ -580,6 +1009,32 @@ impl DownstreamPCIAttributes {
     }
 }
 //
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for DownstreamPCIAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        Self(RawDownstreamPCIAttributes {
+            domain: PCIDomain::arbitrary(g),
+            secondary_bus: u8::arbitrary(g),
+            subordinate_bus: u8::arbitrary(g),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            (self.0.domain, self.0.secondary_bus, self.0.subordinate_bus)
+                .shrink()
+                .map(|(domain, secondary_bus, subordinate_bus)| {
+                    Self(RawDownstreamPCIAttributes {
+                        domain,
+                        secondary_bus,
+                        subordinate_bus,
+                    })
+                }),
+        )
+    }
+}
+//
 // SAFETY: DownstreamPCIAttributes is a repr(transparent) newtype of RawDownstreamPCIAttributes
 unsafe impl TransparentNewtype for DownstreamPCIAttributes {
     type Inner = RawDownstreamPCIAttributes;
@@ -616,7 +1071,7 @@ impl<'object> DownstreamAttributes<'object> {
 /// [`OSDevice`]-specific attributes
 ///
 /// [`OSDevice`]: ObjectType::OSDevice
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_osdev_attr_s")]
 #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s")]
 #[repr(transparent)]
@@ -627,11 +1082,1093 @@ impl OSDeviceAttributes {
     #[doc(alias = "hwloc_osdev_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s::type")]
     pub fn device_type(&self) -> OSDeviceType {
-        self.0.ty.try_into().expect("Got unexpected OS device type")
+        self.0.ty.try_into().expect("got unexpected OS device type")
+    }
+}
+//
+#[cfg(any(test, feature = "quickcheck"))]
+impl quickcheck::Arbitrary for OSDeviceAttributes {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // Bias RNG to ensure reasonable odds of valid device types
+        use hwlocality_sys::hwloc_obj_osdev_type_t;
+        let num_valid_device_types = enum_iterator::all::<OSDeviceType>()
+            .map(hwloc_obj_osdev_type_t::from)
+            .max()
+            .expect("enum has >= 1 variants")
+            + 1;
+        Self(hwloc_osdev_attr_s {
+            ty: hwloc_obj_osdev_type_t::arbitrary(g) % (2 * num_valid_device_types),
+        })
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(self.0.ty.shrink().map(|ty| Self(hwloc_osdev_attr_s { ty })))
+    }
+}
+//
+impl Debug for OSDeviceAttributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("OSDeviceAttributes");
+        if OSDeviceType::try_from(self.0.ty).is_ok() {
+            debug.field("device_type", &self.device_type());
+        } else {
+            debug.field("device_type", &format!("{:?}", self.0.ty));
+        }
+        debug.finish()
     }
 }
 //
 // SAFETY: OSDeviceAttributes is a repr(transparent) newtype of hwloc_osdev_attr_s
 unsafe impl TransparentNewtype for OSDeviceAttributes {
     type Inner = hwloc_osdev_attr_s;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ffi::transparent::AsInner,
+        object::{depth::NormalDepth, TopologyObject},
+        topology::Topology,
+    };
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
+    use quickcheck::TestResult;
+    use quickcheck_macros::quickcheck;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use std::{
+        collections::hash_map::RandomState,
+        error::Error,
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::{BuildHasher, Hash},
+        io::{self, Read},
+        iter::{Product, Sum},
+        ops::{
+            Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref,
+            Div, DivAssign, Mul, MulAssign, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign,
+            Sub, SubAssign,
+        },
+        panic::UnwindSafe,
+        str::FromStr,
+        sync::OnceLock,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(CacheAssociativity:
+        Copy, Debug, Default, Hash, PartialOrd, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(CacheAssociativity:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(CacheAttributes:
+        Copy, Debug, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(CacheAttributes:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(DownstreamAttributes<'static>:
+        Copy, Debug, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(DownstreamAttributes<'static>:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(DownstreamPCIAttributes:
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(DownstreamPCIAttributes:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(GroupAttributes:
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(GroupAttributes:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(MemoryPageType:
+        Copy, Debug, Hash, Ord, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(MemoryPageType:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(NUMANodeAttributes<'static>:
+        Copy, Debug, Default, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(NUMANodeAttributes<'static>:
+        Binary, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex, Octal,
+        PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
+    );
+    assert_impl_all!(ObjectAttributes<'static>:
+        Copy, Debug, PartialEq, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(ObjectAttributes<'static>:
+        Binary, Default, Deref, Display, Drop, Eq, IntoIterator, LowerExp,
+        LowerHex, Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex,
+        fmt::Write, io::Write
+    );
+    assert_impl_all!(OSDeviceAttributes:
+        Copy, Debug, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(OSDeviceAttributes:
+        Binary, Deref, Default, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(PCIDeviceAttributes:
+        Copy, Debug, Default, PartialEq, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(PCIDeviceAttributes:
+        Binary, Deref, Display, Drop, Eq, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
+    assert_impl_all!(PCIDomain:
+        Add, AddAssign, Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign,
+        BitXor, BitXorAssign, Copy, Debug, Default, Display, Div, DivAssign,
+        FromStr, Hash, LowerExp, LowerHex, Mul, MulAssign, Not, Octal, Ord,
+        Product, Sized, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
+        SubAssign, Sum, Sync,
+        TryFrom<i8>, TryFrom<u8>,
+        TryFrom<i16>, TryFrom<u16>,
+        TryFrom<i32>, TryFrom<u32>,
+        TryFrom<i64>, TryFrom<u64>,
+        TryFrom<i128>, TryFrom<u128>,
+        TryFrom<isize>, TryFrom<usize>,
+        TryInto<i8>, TryInto<u8>,
+        TryInto<i16>, TryInto<u16>,
+        TryInto<i32>, TryInto<u32>,
+        TryInto<i64>, TryInto<u64>,
+        TryInto<i128>, TryInto<u128>,
+        TryInto<isize>, TryInto<usize>,
+        Unpin, UnwindSafe, UpperExp, UpperHex
+    );
+    assert_not_impl_any!(PCIDomain:
+        Deref, Drop, Error, IntoIterator, Pointer, Read, fmt::Write, io::Write
+    );
+    assert_impl_all!(UpstreamAttributes<'static>:
+        Copy, Debug, PartialEq, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(UpstreamAttributes<'static>:
+        Binary, Default, Deref, Display, Drop, Eq, IntoIterator, LowerExp,
+        LowerHex, Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex,
+        fmt::Write, io::Write
+    );
+
+    #[test]
+    fn default() {
+        check_any_numa(&NUMANodeAttributes::default());
+        check_any_group(&GroupAttributes::default());
+        check_any_pci(&PCIDeviceAttributes::default());
+    }
+
+    #[quickcheck]
+    fn unary_numa(local_memory: u64, page_types: Vec<MemoryPageType>, null: bool) {
+        let numa_attr = if null {
+            NUMANodeAttributes(
+                hwloc_numanode_attr_s {
+                    local_memory,
+                    page_types_len: u32::try_from(page_types.len()).unwrap_or(u32::MAX),
+                    page_types: std::ptr::null_mut(),
+                },
+                PhantomData,
+            )
+        } else {
+            let numa_attr = make_numa_attributes(local_memory, &page_types);
+            assert_eq!(numa_attr.page_types(), &page_types);
+            numa_attr
+        };
+        assert_eq!(numa_attr.local_memory(), NonZeroU64::new(local_memory));
+        check_any_numa(&numa_attr);
+
+        let mut raw = hwloc_obj_attr_u { numa: numa_attr.0 };
+        let ptr: *mut hwloc_obj_attr_u = &mut raw;
+        // SAFETY: Type is consistent with union variant, data is valid
+        unsafe {
+            assert!(matches!(
+                ObjectAttributes::new(ObjectType::NUMANode, &ptr),
+                Some(ObjectAttributes::NUMANode(attr)) if std::ptr::eq(attr.as_inner(), &raw.numa)
+            ));
+        }
+    }
+
+    #[quickcheck]
+    fn unary_cache(ty: ObjectType, cache_attr: CacheAttributes) -> TestResult {
+        if ty.is_cpu_cache() {
+            check_any_cache(&cache_attr);
+            let mut raw = hwloc_obj_attr_u {
+                cache: cache_attr.0,
+            };
+            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            // SAFETY: Type is consistent with union variant, data is valid
+            unsafe {
+                assert!(matches!(
+                    ObjectAttributes::new(ty, &ptr),
+                    Some(ObjectAttributes::Cache(attr)) if std::ptr::eq(attr.as_inner(), &raw.cache)
+                ));
+            }
+            TestResult::passed()
+        } else {
+            TestResult::discard()
+        }
+    }
+
+    #[quickcheck]
+    fn unary_group(group_attr: GroupAttributes) {
+        check_any_group(&group_attr);
+        let mut raw = hwloc_obj_attr_u {
+            group: group_attr.0,
+        };
+        let ptr: *mut hwloc_obj_attr_u = &mut raw;
+        // SAFETY: Type is consistent with union variant, data is valid
+        unsafe {
+            assert!(matches!(
+                ObjectAttributes::new(ObjectType::Group, &ptr),
+                Some(ObjectAttributes::Group(attr)) if std::ptr::eq(attr.as_inner(), &raw.group)
+            ));
+        }
+    }
+
+    #[quickcheck]
+    fn unary_pci(pcidev_attr: PCIDeviceAttributes) {
+        check_any_pci(&pcidev_attr);
+        let mut raw = hwloc_obj_attr_u {
+            pcidev: pcidev_attr.0,
+        };
+        let ptr: *mut hwloc_obj_attr_u = &mut raw;
+        // SAFETY: Type is consistent with union variant, data is valid
+        unsafe {
+            assert!(matches!(
+                ObjectAttributes::new(ObjectType::PCIDevice, &ptr),
+                Some(ObjectAttributes::PCIDevice(attr)) if std::ptr::eq(attr.as_inner(), &raw.pcidev)
+            ));
+        }
+    }
+
+    #[quickcheck]
+    fn unary_bridge(bridge_attr: BridgeAttributes) {
+        check_any_bridge(&bridge_attr);
+        let mut raw = hwloc_obj_attr_u {
+            bridge: bridge_attr.0,
+        };
+        let ptr: *mut hwloc_obj_attr_u = &mut raw;
+        // SAFETY: Type is consistent with union variant, data is valid
+        unsafe {
+            assert!(matches!(
+                ObjectAttributes::new(ObjectType::Bridge, &ptr),
+                Some(ObjectAttributes::Bridge(attr)) if std::ptr::eq(attr.as_inner(), &raw.bridge)
+            ));
+        }
+    }
+
+    #[quickcheck]
+    fn unary_osdev(osdev_attr: OSDeviceAttributes) {
+        check_any_osdev(&osdev_attr);
+        let mut raw = hwloc_obj_attr_u {
+            osdev: osdev_attr.0,
+        };
+        let ptr: *mut hwloc_obj_attr_u = &mut raw;
+        // SAFETY: Type is consistent with union variant, data is valid
+        unsafe {
+            assert!(matches!(
+                ObjectAttributes::new(ObjectType::OSDevice, &ptr),
+                Some(ObjectAttributes::OSDevice(attr)) if std::ptr::eq(attr.as_inner(), &raw.osdev)
+            ));
+        }
+    }
+
+    #[quickcheck]
+    fn unary_nonexistent(ty: ObjectType, osdev_attr: OSDeviceAttributes) {
+        // SAFETY: Sending in a null pointer is safe
+        assert!(unsafe { ObjectAttributes::new(ty, &std::ptr::null_mut()).is_none() });
+
+        // ...and types that have no attributes are safe as well
+        let check_nonexistent = || {
+            let mut raw = hwloc_obj_attr_u {
+                osdev: osdev_attr.0,
+            };
+            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            assert!(
+                // SAFETY: Types with associated attributes have all been
+                //         covered above, so None is the only outcome and
+                //         union variant doesn't matter.
+                unsafe { ObjectAttributes::new(ty, &ptr).is_none() }
+            );
+        };
+        match ty {
+            ObjectType::NUMANode
+            | ObjectType::Group
+            | ObjectType::PCIDevice
+            | ObjectType::Bridge
+            | ObjectType::OSDevice
+            | ObjectType::L1Cache
+            | ObjectType::L2Cache
+            | ObjectType::L3Cache
+            | ObjectType::L4Cache
+            | ObjectType::L5Cache
+            | ObjectType::L1ICache
+            | ObjectType::L2ICache
+            | ObjectType::L3ICache => {}
+            ObjectType::Machine
+            | ObjectType::Package
+            | ObjectType::Core
+            | ObjectType::PU
+            | ObjectType::Misc => check_nonexistent(),
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::MemCache | ObjectType::Die => check_nonexistent(),
+        }
+    }
+
+    /// Check properties that should be true of all topology objects
+    #[test]
+    fn unary_valid() {
+        let topology = Topology::test_instance();
+        for obj in topology.objects() {
+            check_valid_object(obj.object_type(), obj.attributes());
+            match obj.attributes() {
+                Some(ObjectAttributes::NUMANode(attr)) => {
+                    assert_eq!(
+                        attr.local_memory().map_or(0u64, u64::from),
+                        obj.total_memory()
+                    );
+                }
+                Some(ObjectAttributes::Cache(attr)) => match attr.cache_type() {
+                    CacheType::Unified | CacheType::Data => {
+                        assert!(obj.object_type().is_cpu_data_cache());
+                    }
+                    CacheType::Instruction => {
+                        assert!(obj.object_type().is_cpu_instruction_cache());
+                    }
+                },
+                #[allow(unused)]
+                Some(ObjectAttributes::Group(attr)) => {
+                    #[cfg(feature = "hwloc-2_0_4")]
+                    assert!(!attr.merging_prevented());
+                }
+                Some(ObjectAttributes::PCIDevice(pci)) => {
+                    let Some(ObjectAttributes::Bridge(bridge)) = obj.parent().unwrap().attributes()
+                    else {
+                        panic!("PCI devices should have a Bridge parent")
+                    };
+                    assert_eq!(bridge.downstream_type(), BridgeType::PCI);
+                    let Some(DownstreamAttributes::PCI(downstream)) =
+                        bridge.downstream_attributes()
+                    else {
+                        panic!("Parent of PCI device should have a PCI downstream")
+                    };
+                    assert_eq!(downstream.domain(), pci.domain());
+                }
+                Some(ObjectAttributes::Bridge(attr)) => {
+                    let parent_type = obj.parent().unwrap().object_type();
+                    let has_pci_parent = (parent_type == ObjectType::PCIDevice)
+                        || (parent_type == ObjectType::Bridge);
+                    match attr.upstream_type() {
+                        BridgeType::PCI => assert!(has_pci_parent),
+                        BridgeType::Host => assert!(!has_pci_parent),
+                    }
+                }
+                Some(ObjectAttributes::OSDevice(_attr)) => {
+                    // Nothing else we can check knowing the topology around
+                }
+                None => {}
+            }
+        }
+    }
+
+    #[quickcheck]
+    fn binary_cache_associativity(assoc1: CacheAssociativity, assoc2: CacheAssociativity) {
+        let ord = match (assoc1, assoc2) {
+            (CacheAssociativity::Unknown, _) | (_, CacheAssociativity::Unknown) => None,
+            (CacheAssociativity::Full, CacheAssociativity::Full) => Some(Ordering::Equal),
+            (CacheAssociativity::Full, CacheAssociativity::Ways(_)) => Some(Ordering::Greater),
+            (CacheAssociativity::Ways(_), CacheAssociativity::Full) => Some(Ordering::Less),
+            (CacheAssociativity::Ways(x), CacheAssociativity::Ways(y)) => x.partial_cmp(&y),
+        };
+        assert_eq!(assoc1.partial_cmp(&assoc2), ord);
+    }
+
+    /// Check properties that should be true of all pairs of topology objects
+    #[quickcheck]
+    fn binary_valid(idx1: usize, idx2: usize) {
+        // Precompute a list of all objects that have interesting attributes
+        struct ObjectsByType {
+            numa_nodes: Box<[&'static TopologyObject]>,
+            caches: Box<[&'static TopologyObject]>,
+            groups: Box<[&'static TopologyObject]>,
+            pci_devices: Box<[&'static TopologyObject]>,
+            bridges: Box<[&'static TopologyObject]>,
+        }
+        static OBJECTS_BY_TYPE: OnceLock<ObjectsByType> = OnceLock::new();
+        let ObjectsByType {
+            numa_nodes,
+            caches,
+            groups,
+            pci_devices,
+            bridges,
+        } = OBJECTS_BY_TYPE.get_or_init(|| {
+            let topology = Topology::test_instance();
+            ObjectsByType {
+                numa_nodes: topology.objects_with_type(ObjectType::NUMANode).collect(),
+                caches: topology
+                    .normal_objects()
+                    .filter(|obj| obj.object_type().is_cpu_cache())
+                    .collect(),
+                groups: topology.objects_with_type(ObjectType::Group).collect(),
+                pci_devices: topology.objects_with_type(ObjectType::PCIDevice).collect(),
+                bridges: topology.objects_with_type(ObjectType::Bridge).collect(),
+            }
+        });
+
+        // Check interesting pairs
+        let pick_pair = |list1: &[&'static TopologyObject], list2: &[&'static TopologyObject]| {
+            [list1[idx1 % list1.len()], list2[idx2 % list2.len()]]
+        };
+        if !numa_nodes.is_empty() {
+            check_valid_numa_pair(pick_pair(numa_nodes, numa_nodes));
+        }
+        if !caches.is_empty() {
+            check_valid_cache_pair(pick_pair(caches, caches));
+        }
+        if !groups.is_empty() {
+            check_valid_group_pair(pick_pair(groups, groups));
+        }
+        if !pci_devices.is_empty() {
+            check_valid_pci_pair(pick_pair(pci_devices, pci_devices));
+        }
+        if !bridges.is_empty() {
+            check_valid_bridge_pair(pick_pair(bridges, bridges));
+        }
+        if !(bridges.is_empty() || pci_devices.is_empty()) {
+            check_valid_bridge_pci(pick_pair(bridges, pci_devices));
+        }
+    }
+
+    /// Check object attributes under the assumption that the inner data is in a
+    /// valid state (no boolean representation equal to 42, etc)
+    fn check_valid_object(ty: ObjectType, attr: Option<ObjectAttributes<'_>>) {
+        match (ty, attr) {
+            (ObjectType::NUMANode, Some(ObjectAttributes::NUMANode(attr))) => {
+                check_valid_numa(attr)
+            }
+            (cache, Some(ObjectAttributes::Cache(attr))) if cache.is_cpu_cache() => {
+                check_valid_cache(attr)
+            }
+            (ObjectType::Group, Some(ObjectAttributes::Group(attr))) => check_valid_group(attr),
+            (ObjectType::PCIDevice, Some(ObjectAttributes::PCIDevice(attr))) => {
+                check_valid_pci(attr)
+            }
+            (ObjectType::Bridge, Some(ObjectAttributes::Bridge(attr))) => check_valid_bridge(attr),
+            (ObjectType::OSDevice, Some(ObjectAttributes::OSDevice(attr))) => {
+                check_valid_osdev(attr)
+            }
+            (_, None) => {}
+            _ => unreachable!(),
+        }
+    }
+
+    fn check_valid_numa(attr: &NUMANodeAttributes<'_>) {
+        check_any_numa(attr);
+
+        let mut prev_page_size = None;
+        for page_type in attr.page_types() {
+            let page_size = page_type.size();
+            assert!(page_size.is_power_of_two());
+            if let Some(prev_page_size) = prev_page_size {
+                assert!(page_size > prev_page_size);
+            }
+            prev_page_size = Some(page_size);
+
+            assert_eq!(
+                format!("{page_type:?}"),
+                format!(
+                    "MemoryPageType {{ \
+                        size: {:?}, \
+                        count: {:?} \
+                    }}",
+                    page_type.size(),
+                    page_type.count(),
+                )
+            )
+        }
+
+        assert_eq!(
+            format!("{attr:?}"),
+            format!(
+                "NUMANodeAttributes {{ \
+                    local_memory: {:?}, \
+                    page_types: {:?} \
+                }}",
+                attr.local_memory(),
+                attr.page_types(),
+            )
+        )
+    }
+
+    fn check_any_numa(attr: &NUMANodeAttributes<'_>) {
+        let hwloc_numanode_attr_s {
+            local_memory,
+            page_types_len,
+            page_types,
+        } = attr.0;
+
+        assert_eq!(attr.local_memory(), NonZeroU64::new(local_memory));
+
+        if !page_types.is_null() {
+            assert_eq!(
+                attr.page_types().as_ptr().as_inner(),
+                page_types.cast_const()
+            );
+            assert_eq!(
+                attr.page_types().len(),
+                usize::try_from(page_types_len).unwrap()
+            );
+            for page_type in attr.page_types() {
+                check_any_page_type(page_type);
+            }
+        } else if page_types_len == 0 {
+            assert_eq!(attr.page_types(), &[]);
+        } else {
+            assert_panics(|| attr.page_types());
+            assert_eq!(
+                format!("{attr:?}"),
+                format!(
+                    "NUMANodeAttributes {{ \
+                        local_memory: {:?}, \
+                        page_types: \"NULL with len={page_types_len}\" \
+                    }}",
+                    attr.local_memory(),
+                )
+            );
+        }
+    }
+
+    fn check_any_page_type(page_type: &MemoryPageType) {
+        let hwloc_memory_page_type_s { size, count } = page_type.0;
+        #[allow(clippy::option_if_let_else)]
+        if let Some(size) = NonZeroU64::new(size) {
+            assert_eq!(page_type.size(), size);
+        } else {
+            assert_panics(|| page_type.size());
+            assert_eq!(
+                format!("{page_type:?}"),
+                format!(
+                    "MemoryPageType {{ \
+                        size: \"0\", \
+                        count: {:?} \
+                    }}",
+                    page_type.count(),
+                )
+            );
+        }
+        assert_eq!(page_type.count(), count);
+    }
+
+    fn check_valid_cache(attr: &CacheAttributes) {
+        check_any_cache(attr);
+
+        // True on every non-niche hardware architecture, which makes it a
+        // reasonable data consistency check
+        if let Some(linesize) = attr.line_size() {
+            assert!(linesize.is_power_of_two());
+        }
+    }
+
+    fn check_any_cache(attr: &CacheAttributes) {
+        let hwloc_cache_attr_s {
+            size,
+            depth,
+            linesize,
+            associativity,
+            ty,
+        } = attr.0;
+
+        assert_eq!(attr.size(), NonZeroU64::new(size));
+
+        #[allow(clippy::option_if_let_else)]
+        let depth_dbg = if let Some(depth) = NonZeroUsize::new(usize::try_from(depth).unwrap()) {
+            assert_eq!(attr.depth(), depth);
+            format!("{:?}", attr.depth())
+        } else {
+            assert_panics(|| attr.depth());
+            format!("\"{depth:?}\"")
+        };
+
+        assert_eq!(
+            attr.line_size(),
+            NonZeroUsize::new(usize::try_from(linesize).unwrap())
+        );
+
+        let assoc_dbg = if associativity < -1 {
+            assert_panics(|| attr.associativity());
+            format!("\"{associativity:?}\"")
+        } else {
+            match associativity {
+                -1 => assert_eq!(attr.associativity(), CacheAssociativity::Full),
+                0 => assert_eq!(attr.associativity(), CacheAssociativity::Unknown),
+                positive => assert_eq!(
+                    attr.associativity(),
+                    CacheAssociativity::Ways(
+                        NonZeroUsize::new(usize::try_from(positive).unwrap()).unwrap()
+                    )
+                ),
+            }
+            format!("{:?}", attr.associativity())
+        };
+
+        #[allow(clippy::option_if_let_else)]
+        let ty_dbg = if let Ok(cache_type) = CacheType::try_from(ty) {
+            assert_eq!(attr.cache_type(), cache_type);
+            format!("{:?}", attr.cache_type())
+        } else {
+            assert_panics(|| attr.cache_type());
+            format!("\"{ty:?}\"")
+        };
+
+        assert_eq!(
+            format!("{attr:?}"),
+            format!(
+                "CacheAttributes {{ \
+                    size: {:?}, \
+                    depth: {}, \
+                    line_size: {:?}, \
+                    associativity: {}, \
+                    cache_type: {} \
+                }}",
+                attr.size(),
+                depth_dbg,
+                attr.line_size(),
+                assoc_dbg,
+                ty_dbg
+            )
+        );
+    }
+
+    fn check_valid_group(attr: &GroupAttributes) {
+        check_any_group(attr);
+    }
+
+    fn check_any_group(attr: &GroupAttributes) {
+        #[cfg(feature = "hwloc-2_0_4")]
+        let hwloc_group_attr_s {
+            depth,
+            kind,
+            subkind,
+            dont_merge,
+        } = attr.0;
+        #[cfg(not(feature = "hwloc-2_0_4"))]
+        let hwloc_group_attr_s {
+            depth,
+            kind,
+            subkind,
+        } = attr.0;
+
+        assert_eq!(attr.depth(), usize::try_from(depth).unwrap());
+        assert_eq!(attr.kind(), usize::try_from(kind).unwrap());
+        assert_eq!(attr.subkind(), usize::try_from(subkind).unwrap());
+
+        #[cfg(feature = "hwloc-2_0_4")]
+        let merging_prevented_dbg = match dont_merge {
+            0 | 1 => {
+                assert_eq!(attr.merging_prevented(), dont_merge != 0);
+                format!("merging_prevented: {:?}, ", attr.merging_prevented())
+            }
+            _ => {
+                assert_panics(|| attr.merging_prevented());
+                format!("merging_prevented: \"{dont_merge:?}\", ")
+            }
+        };
+        #[cfg(not(feature = "hwloc-2_0_4"))]
+        let merging_prevented_dbg = String::new();
+
+        assert_eq!(
+            format!("{attr:?}"),
+            format!(
+                "GroupAttributes {{ \
+                    depth: {:?}, \
+                    {}\
+                    kind: {:?}, \
+                    subkind: {:?} \
+                }}",
+                attr.depth(),
+                merging_prevented_dbg,
+                attr.kind(),
+                attr.subkind(),
+            )
+        );
+
+        #[cfg(feature = "hwloc-2_3_0")]
+        {
+            let mut buf = *attr;
+            let mut expected = *attr;
+
+            buf.prevent_merging();
+            expected.0.dont_merge = 1;
+            assert_eq!(buf, expected);
+            assert!(buf.merging_prevented());
+
+            buf.favor_merging();
+            expected.0.dont_merge = 0;
+            assert!(buf.0.kind > 0);
+            expected.0.kind = buf.0.kind;
+            assert_eq!(buf, expected);
+            assert!(!buf.merging_prevented());
+        }
+    }
+
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
+    fn check_valid_pci(attr: &PCIDeviceAttributes) {
+        check_any_pci(attr);
+
+        let link_speed = attr.link_speed();
+        assert!(link_speed.is_finite() && link_speed >= 0.0 && link_speed < f32::from(u16::MAX));
+    }
+
+    fn check_any_pci(attr: &PCIDeviceAttributes) {
+        let hwloc_pcidev_attr_s {
+            domain,
+            bus,
+            dev,
+            func,
+            class_id,
+            vendor_id,
+            device_id,
+            subvendor_id,
+            subdevice_id,
+            revision,
+            linkspeed,
+        } = attr.0;
+        assert_eq!(attr.domain(), domain);
+        assert_eq!(attr.bus_id(), bus);
+        assert_eq!(attr.bus_device(), dev);
+        assert_eq!(attr.function(), func);
+        assert_eq!(attr.class_id(), class_id);
+        assert_eq!(attr.device_id(), device_id);
+        assert_eq!(attr.vendor_id(), vendor_id);
+        assert_eq!(attr.subvendor_id(), subvendor_id);
+        assert_eq!(attr.subdevice_id(), subdevice_id);
+        assert_eq!(attr.revision(), revision);
+        assert_eq!(attr.link_speed().to_bits(), linkspeed.to_bits());
+    }
+
+    fn check_valid_bridge(attr: &BridgeAttributes) {
+        check_any_bridge(attr);
+
+        assert_eq!(attr.upstream_type() == BridgeType::Host, attr.depth() == 0);
+        match attr.upstream_attributes() {
+            Some(UpstreamAttributes::PCI(upstream)) => {
+                check_valid_pci(upstream);
+            }
+            None => {
+                assert_eq!(attr.upstream_type(), BridgeType::Host);
+            }
+        }
+        assert_ne!(attr.downstream_type(), BridgeType::Host);
+        match attr.downstream_attributes() {
+            Some(DownstreamAttributes::PCI(downstream)) => {
+                check_valid_downstream_pci(downstream);
+            }
+            None => unreachable!(),
+        }
+    }
+
+    fn check_any_bridge(attr: &BridgeAttributes) {
+        let hwloc_bridge_attr_s {
+            upstream_type,
+            upstream,
+            downstream_type,
+            downstream,
+            depth,
+        } = attr.0;
+
+        #[allow(clippy::option_if_let_else)]
+        let upstream_dbg = if let Ok(upstream_type) = BridgeType::try_from(upstream_type) {
+            assert_eq!(attr.upstream_type(), upstream_type);
+            match attr.upstream_attributes() {
+                Some(UpstreamAttributes::PCI(pci)) => {
+                    assert_eq!(upstream_type, BridgeType::PCI);
+                    let actual_ptr: *const hwloc_pcidev_attr_s = pci.as_inner();
+                    // SAFETY: We must assume correct union tagging here
+                    let expected_ptr: *const hwloc_pcidev_attr_s = unsafe { &attr.0.upstream.pci };
+                    assert_eq!(actual_ptr, expected_ptr);
+                    check_any_pci(pci);
+                }
+                None => assert_ne!(upstream_type, BridgeType::PCI),
+            }
+            format!(
+                "upstream_type: {:?}, upstream_attributes: {:?}",
+                attr.upstream_type(),
+                attr.upstream_attributes()
+            )
+        } else {
+            assert_panics(|| attr.upstream_type());
+            assert_panics(|| attr.upstream_attributes());
+            format!(
+                "upstream_type: \"{upstream_type:?}\", \
+                upstream_attributes: \"{upstream:?}\""
+            )
+        };
+
+        #[allow(clippy::option_if_let_else)]
+        let downstream_dbg = if let Ok(downstream_type) = BridgeType::try_from(downstream_type) {
+            assert_eq!(attr.downstream_type(), downstream_type);
+            let downstream_type_dbg = format!("downstream_type: {downstream_type:?}");
+            match downstream_type {
+                BridgeType::PCI => {
+                    match attr.downstream_attributes() {
+                        Some(DownstreamAttributes::PCI(downstream)) => {
+                            let actual_ptr: *const RawDownstreamPCIAttributes =
+                                downstream.as_inner();
+                            let expected_ptr: *const RawDownstreamPCIAttributes =
+                            // SAFETY: We must assume correct union tagging here
+                            unsafe { &attr.0.downstream.pci };
+                            assert_eq!(actual_ptr, expected_ptr);
+                            check_any_downstream_pci(downstream);
+                            format!(
+                                "{downstream_type_dbg}, downstream_attributes: {:?}",
+                                attr.downstream_attributes()
+                            )
+                        }
+                        None => panic!("should have returned PCI attributes"),
+                    }
+                }
+                BridgeType::Host => {
+                    assert_panics(|| attr.downstream_attributes());
+                    format!(
+                        "{downstream_type_dbg}, \
+                        downstream_attributes: \"{downstream:?}\""
+                    )
+                }
+            }
+        } else {
+            assert_panics(|| attr.downstream_type());
+            assert_panics(|| attr.downstream_attributes());
+            format!(
+                "downstream_type: \"{downstream_type:?}\", \
+                downstream_attributes: \"{downstream:?}\""
+            )
+        };
+
+        assert_eq!(attr.depth(), usize::try_from(depth).unwrap());
+
+        assert_eq!(
+            format!("{attr:?}"),
+            format!(
+                "BridgeAttributes {{ \
+                    {upstream_dbg}, \
+                    {downstream_dbg}, \
+                    depth: {:?} \
+                }}",
+                attr.depth()
+            )
+        )
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn check_valid_downstream_pci(attr: &DownstreamPCIAttributes) {
+        check_any_downstream_pci(attr);
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn check_any_downstream_pci(attr: &DownstreamPCIAttributes) {
+        let RawDownstreamPCIAttributes {
+            domain,
+            secondary_bus,
+            subordinate_bus,
+        } = attr.0;
+        assert_eq!(attr.domain(), domain);
+        assert_eq!(attr.secondary_bus(), secondary_bus);
+        assert_eq!(attr.subordinate_bus(), subordinate_bus);
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn check_valid_osdev(attr: &OSDeviceAttributes) {
+        check_any_osdev(attr);
+    }
+
+    #[allow(clippy::option_if_let_else, clippy::trivially_copy_pass_by_ref)]
+    fn check_any_osdev(attr: &OSDeviceAttributes) {
+        let hwloc_osdev_attr_s { ty } = attr.0;
+        let device_type_dbg = if let Ok(device_type) = OSDeviceType::try_from(ty) {
+            assert_eq!(attr.device_type(), device_type);
+            format!("{device_type:?}")
+        } else {
+            assert_panics(|| attr.device_type());
+            format!("\"{ty:?}\"")
+        };
+        assert_eq!(
+            format!("{attr:?}"),
+            format!("OSDeviceAttributes {{ device_type: {device_type_dbg} }}")
+        )
+    }
+
+    fn check_valid_numa_pair([numa1, numa2]: [&'static TopologyObject; 2]) {
+        fn numa_attr(numa: &'static TopologyObject) -> NUMANodeAttributes<'static> {
+            if let Some(ObjectAttributes::NUMANode(attr)) = numa.attributes() {
+                *attr
+            } else {
+                panic!("Not a NUMA node");
+            }
+        }
+        let [attr1, attr2] = [numa_attr(numa1), numa_attr(numa2)];
+
+        if attr1.local_memory() == attr2.local_memory() && attr1.page_types() == attr2.page_types()
+        {
+            assert_eq!(attr1, attr2);
+            let state = RandomState::new();
+            assert_eq!(state.hash_one(attr1), state.hash_one(attr2));
+        } else {
+            assert_ne!(attr1, attr2);
+        }
+    }
+
+    fn check_valid_cache_pair([cache1, cache2]: [&TopologyObject; 2]) {
+        fn cache_depth(cache: &TopologyObject) -> (NormalDepth, CacheAttributes) {
+            if let Some(ObjectAttributes::Cache(attr)) = cache.attributes() {
+                (cache.depth().assume_normal(), *attr)
+            } else {
+                panic!("Not a CPU cache");
+            }
+        }
+        let (depth1, attr1) = cache_depth(cache1);
+        let (depth2, attr2) = cache_depth(cache2);
+
+        let obj_depth_cmp = depth1.cmp(&depth2);
+        let cache_depth_cmp = attr2.depth().cmp(&attr1.depth());
+        if attr1.cache_type() == attr2.cache_type() {
+            assert_eq!(obj_depth_cmp, cache_depth_cmp);
+        } else {
+            assert!(cache_depth_cmp == obj_depth_cmp || cache_depth_cmp == Ordering::Equal);
+        }
+
+        assert_eq!(
+            attr1.associativity() == CacheAssociativity::Unknown,
+            attr2.associativity() == CacheAssociativity::Unknown,
+        );
+    }
+
+    fn check_valid_group_pair([group1, group2]: [&TopologyObject; 2]) {
+        fn group_depth(group: &TopologyObject) -> (NormalDepth, GroupAttributes) {
+            if let Some(ObjectAttributes::Group(attr)) = group.attributes() {
+                (group.depth().assume_normal(), *attr)
+            } else {
+                panic!("Not a group");
+            }
+        }
+        let (depth1, attr1) = group_depth(group1);
+        let (depth2, attr2) = group_depth(group2);
+
+        assert_eq!(depth1.cmp(&depth2), attr1.depth().cmp(&attr2.depth()));
+    }
+
+    fn check_valid_pci_pair([pci1, pci2]: [&TopologyObject; 2]) {
+        let attr1 = pci_attributes(pci1);
+        let attr2 = pci_attributes(pci2);
+
+        let parent_child_attr = parent_child([(pci1, attr1), (pci2, attr2)]);
+        if let Some([parent, child]) = parent_child_attr {
+            assert!(child.revision() <= parent.revision());
+            assert!(child.link_speed() <= parent.link_speed());
+        }
+    }
+
+    fn check_valid_bridge_pair([bridge1, bridge2]: [&TopologyObject; 2]) {
+        let attr1 = bridge_attributes(bridge1);
+        let attr2 = bridge_attributes(bridge2);
+
+        let parent_child_attr = parent_child([(bridge1, attr1), (bridge2, attr2)]);
+        if let Some([parent, child]) = parent_child_attr {
+            if !std::ptr::eq(bridge1, bridge2) {
+                assert!(parent.depth() < child.depth());
+            }
+        }
+
+        if attr1.upstream_type() == attr2.upstream_type()
+            && attr1.upstream_attributes() == attr2.upstream_attributes()
+            && attr1.downstream_type() == attr2.downstream_type()
+            && attr1.downstream_attributes() == attr2.downstream_attributes()
+            && attr1.depth() == attr2.depth()
+        {
+            assert_eq!(attr1, attr2);
+        } else {
+            assert_ne!(attr1, attr2);
+        }
+    }
+
+    fn check_valid_bridge_pci([bridge, pci]: [&TopologyObject; 2]) {
+        let bridge_attr = bridge_attributes(bridge);
+        let pci_attr = pci_attributes(pci);
+        assert!(!bridge.is_in_subtree(pci));
+        if pci.is_in_subtree(bridge) {
+            if let Some(DownstreamAttributes::PCI(downstream_attr)) =
+                bridge_attr.downstream_attributes()
+            {
+                assert_eq!(downstream_attr.domain(), pci_attr.domain());
+            }
+        }
+    }
+
+    /// If obj1 and obj2 have a parent-child relationship, provide their
+    /// attributes in (parent, child) order.
+    fn parent_child<Attributes>(
+        [(obj1, attr1), (obj2, attr2)]: [(&TopologyObject, Attributes); 2],
+    ) -> Option<[Attributes; 2]> {
+        if obj1.is_in_subtree(obj2) {
+            Some([attr2, attr1])
+        } else if obj2.is_in_subtree(obj1) {
+            Some([attr1, attr2])
+        } else {
+            None
+        }
+    }
+
+    fn pci_attributes(pci: &TopologyObject) -> PCIDeviceAttributes {
+        if let Some(ObjectAttributes::PCIDevice(attr)) = pci.attributes() {
+            *attr
+        } else {
+            panic!("Not a PCI device");
+        }
+    }
+
+    fn bridge_attributes(bridge: &TopologyObject) -> BridgeAttributes {
+        if let Some(ObjectAttributes::Bridge(attr)) = bridge.attributes() {
+            *attr
+        } else {
+            panic!("Not an I/O bridge");
+        }
+    }
+
+    fn make_numa_attributes(
+        local_memory: u64,
+        page_types: &[MemoryPageType],
+    ) -> NUMANodeAttributes<'_> {
+        NUMANodeAttributes(
+            hwloc_numanode_attr_s {
+                local_memory,
+                page_types_len: page_types.len().try_into().unwrap(),
+                page_types: page_types.as_ptr().as_inner().cast_mut(),
+            },
+            PhantomData,
+        )
+    }
+
+    #[track_caller]
+    fn assert_panics<R>(op: impl UnwindSafe + FnOnce() -> R) {
+        assert!(std::panic::catch_unwind(op).is_err());
+    }
 }

@@ -465,7 +465,8 @@ impl<'topology> TopologyEditor<'topology> {
                     )
                 })
                 .map_err(HybridError::Hwloc)?;
-            // SAFETY: - If hwloc succeeded, the output pointer is assumed valid
+            // SAFETY: - If hwloc succeeded, the output pointer is assumed to be
+            //           valid and to point to a valid object
             //         - Output lifetime is bound to the topology that it comes
             //           from
             Ok(unsafe { ptr.as_mut().as_newtype() })
@@ -710,11 +711,11 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         errors::call_hwloc_ptr_mut("hwloc_topology_alloc_group_object", || unsafe {
             hwlocality_sys::hwloc_topology_alloc_group_object(editor.topology_mut_ptr())
         })
-        // SAFETY: - hwloc is trusted to produce a valid, non-inserted group
-        //           object pointer
-        //         - AsNewtype is trusted to be implemented correctly
         .map(|group| Self {
-            group: group.as_newtype(),
+            // SAFETY: - hwloc is trusted to produce a valid, non-inserted group
+            //           object pointer
+            //         - AsNewtype is trusted to be implemented correctly
+            group: unsafe { group.as_newtype() },
             editor,
         })
     }
@@ -790,6 +791,8 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         let group_attributes: &mut GroupAttributes =
             // SAFETY: - We know this is a group object as a type invariant, so
             //           accessing the group raw attribute is safe
+            //         - We trust hwloc to have initialized the group attributes
+            //           to a valid state
             //         - We are not changing the raw attributes variant
             unsafe { (&mut (*self.group.as_mut().as_inner().attr).group).as_newtype() };
         match merge {
@@ -856,7 +859,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                 InsertedGroup::New(unsafe { self.group.as_mut() })
             } else {
                 // SAFETY: - Successful result is trusted to point to an
-                //           existing group
+                //           existing group, in a valid state
                 //         - Output lifetime is bound to the topology it comes from
                 InsertedGroup::Existing(unsafe { result.as_mut().as_newtype() })
             }

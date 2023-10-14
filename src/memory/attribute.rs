@@ -204,8 +204,9 @@ impl Topology {
                 .into_iter()
                 .map(|ptr| {
                     assert!(!ptr.is_null(), "Invalid NUMA node pointer from hwloc");
-                    // SAFETY: We trust that if hwloc emits a non-null pointer, it
-                    //         is valid and bound to the topology's lifetime.
+                    // SAFETY: We trust that if hwloc emits a non-null pointer,
+                    //         it is valid, bound to the topology's lifetime,
+                    //         and points to a valid target.
                     unsafe { (&*ptr).as_newtype() }
                 })
                 .collect())
@@ -1152,7 +1153,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Safety
     ///
-    /// `node_ptr` must originate a query against this attribute
+    /// `node_ptr` must originate from a query against this attribute
     unsafe fn encapsulate_target_node(
         &self,
         node_ptr: *const hwloc_obj,

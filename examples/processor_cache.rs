@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
         .ancestors()
         .filter_map(|ancestor| {
             if let Some(ObjectAttributes::Cache(cache)) = ancestor.attributes() {
-                Some(cache.size())
+                Some(cache.size().expect("Failed to probe cache size").get())
             } else {
                 None
             }
@@ -32,7 +32,9 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Compute aggregate statistics on all available CPU caches
-    let stats = topology.cpu_cache_stats();
+    let stats = topology
+        .cpu_cache_stats()
+        .context("CPU cache state unavailable")?;
     println!(
         "*** System-wide minimal data cache sizes per level: {:?}",
         stats.smallest_data_cache_sizes()
