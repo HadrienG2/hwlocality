@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
         .ancestors()
         .filter_map(|ancestor| {
             if let Some(ObjectAttributes::Cache(cache)) = ancestor.attributes() {
-                Some(cache.size().expect("Failed to probe cache size"))
+                Some(cache.size().expect("Failed to probe cache size").get())
             } else {
                 None
             }
