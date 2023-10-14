@@ -127,7 +127,8 @@ pub struct NUMANodeAttributes<'object>(hwloc_numanode_attr_s, PhantomData<&'obje
 impl<'object> NUMANodeAttributes<'object> {
     /// Node-local memory in bytes
     ///
-    /// Requires [`DiscoverySupport::numa_memory()`].
+    /// Requires [`DiscoverySupport::numa_memory()`], but may not be present
+    /// even when this support flag is set.
     #[doc(alias = "hwloc_numanode_attr_s::local_memory")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::local_memory")]
     pub fn local_memory(&self) -> Option<NonZeroU64> {
@@ -1441,10 +1442,6 @@ mod tests {
             check_valid_object(obj.object_type(), obj.attributes());
             match obj.attributes() {
                 Some(ObjectAttributes::NUMANode(attr)) => {
-                    assert_eq!(
-                        attr.local_memory().is_some(),
-                        topology.supports(FeatureSupport::discovery, DiscoverySupport::numa_memory)
-                    );
                     assert_eq!(
                         attr.local_memory().map_or(0u64, u64::from),
                         obj.total_memory()
