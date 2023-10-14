@@ -1130,10 +1130,7 @@ mod tests {
     use crate::{
         ffi::transparent::AsInner,
         object::{depth::NormalDepth, TopologyObject},
-        topology::{
-            support::{DiscoverySupport, FeatureSupport},
-            Topology,
-        },
+        topology::Topology,
     };
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
