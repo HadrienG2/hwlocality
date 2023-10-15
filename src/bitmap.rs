@@ -65,11 +65,11 @@ use hwlocality_sys::hwloc_bitmap_s;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
 #[cfg(doc)]
 use std::collections::BTreeSet;
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use std::collections::HashSet;
 use std::{
     borrow::{Borrow, BorrowMut},
