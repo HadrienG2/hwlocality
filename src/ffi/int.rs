@@ -23,10 +23,8 @@ use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "quickcheck"))]
-use quickcheck::{Arbitrary, Gen};
-#[cfg(any(test, feature = "quickcheck"))]
-use rand::Rng;
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 #[cfg(doc)]
 use std::ops::{Range, RangeFrom, RangeInclusive};
 use std::{
@@ -2291,21 +2289,19 @@ where
     }
 }
 
-#[cfg(any(test, feature = "quickcheck"))]
+// PositiveInt is commonly used as an index in hwloc, and many index-based hwloc
+// APIs exhibit O(n) behavior depending on which index is passed as input.
+//
+// Therefore, we enforce that ints used in tests are "not too big" by having
+// proptest treat them like the size of a collection.
+#[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for PositiveInt {
-    fn arbitrary(g: &mut Gen) -> Self {
-        // Many index-based hwloc APIs exhibit O(n) behavior depending on which
-        // index is passed as input, so we enforce that ints used in tests
-        // are "not too big", as per the quickcheck size parameter
-        let mut rng = rand::thread_rng();
-        let max = Self::try_from(g.size()).unwrap_or(Self::MAX);
-        let value = rng.gen_range(0..max.0);
-        Self(value)
-    }
+    type Parameters = prop::collection::SizeRange;
+    type Strategy = prop::strategy::Map<std::ops::RangeInclusive<c_uint>, Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(self.0.shrink().filter_map(Self::const_try_from_c_uint))
+    fn arbitrary_with(params: Self::Parameters) {
+        let to_c_uint = |x: usize| c_uint::try_from(x).unwrap_or(c_uint::MAX);
+        (to_c_uint(params.start())..=to_c_uint(params.end())).prop_map(Self)
     }
 }
 
@@ -3396,7 +3392,7 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::DefaultHasher,
@@ -3570,23 +3566,28 @@ mod tests {
 
     /// Assert that calling some code panics
     #[track_caller]
-    fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) {
-        std::panic::catch_unwind(f).expect_err("Operation should have panicked, but didn't");
+    fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) -> Result<(), TestCaseError> {
+        prop_assert!(
+            matches!(std::panic::catch_unwind(f), Err(_)),
+            "Operation should have panicked, but didn't"
+        )
     }
 
     /// Assert that calling some code panics in debug builds and does not do so
     /// in release builds
     #[track_caller]
-    fn assert_debug_panics<R: Debug + Eq>(f: impl FnOnce() -> R + UnwindSafe, release_result: R) {
-        let res = std::panic::catch_unwind(f);
+    fn assert_debug_panics<R: Debug + Eq>(
+        f: impl FnOnce() -> R + UnwindSafe,
+        release_result: R,
+    ) -> Result<(), TestCaseError> {
         if cfg!(debug_assertions) {
-            res.expect_err("Operation should have panicked, but didn't panic");
+            assert_panics(f)
         } else {
-            let result = res.expect("Operation should not have panicked, but did panic");
-            assert_eq!(
-                result, release_result,
+            prop_assert_eq!(
+                f(), // <- Should not panic in release builds
+                release_result,
                 "Operation does not produce the expected result in release builds"
-            );
+            )
         }
     }
 
@@ -3598,14 +3599,15 @@ mod tests {
         mut next_actual: impl FnMut(&mut Actual) -> Option<PositiveInt>,
         mut expected: Expected,
         mut next_expected: impl FnMut(&mut Expected) -> Option<c_uint>,
-    ) {
+    ) -> Result<(), TestCaseError> {
         for _ in 0..INFINITE_ITERS {
             match (next_actual(&mut actual), next_expected(&mut expected)) {
-                (Some(actual), Some(expected)) => assert_eq!(actual, PositiveInt(expected)),
-                (None, None) => panic!("Infinite iterators shouldn't end"),
-                (Some(_), None) | (None, Some(_)) => panic!("Length shouldn't differ"),
+                (Some(actual), Some(expected)) => prop_assert_eq!(actual, PositiveInt(expected)),
+                (None, None) => prop_assert!(false, "Infinite iterators shouldn't end"),
+                (Some(_), None) | (None, Some(_)) => prop_assert!(false, "Length shouldn't differ"),
             }
         }
+        Ok(())
     }
 
     /// Compare a [`PositiveInt`] and a [`c_uint`] iterator in a certain iteration scheme
@@ -3615,14 +3617,15 @@ mod tests {
         mut next_actual: impl FnMut(&mut Actual) -> Option<PositiveInt>,
         mut expected: Expected,
         mut next_expected: impl FnMut(&mut Expected) -> Option<c_uint>,
-    ) {
+    ) -> Result<(), TestCaseError> {
         loop {
             match (next_actual(&mut actual), next_expected(&mut expected)) {
-                (Some(actual), Some(expected)) => assert_eq!(actual, PositiveInt(expected)),
+                (Some(actual), Some(expected)) => prop_assert_eq!(actual, PositiveInt(expected)),
                 (None, None) => break,
-                (Some(_), None) | (None, Some(_)) => panic!("Length shouldn't differ"),
+                (Some(_), None) | (None, Some(_)) => prop_assert!(false, "Length shouldn't differ"),
             }
         }
+        Ok(())
     }
 
     /// Hash something
@@ -3632,1405 +3635,1407 @@ mod tests {
         hasher.finish()
     }
 
-    /// Test basic properties of our constants
-    #[test]
-    fn constants() {
-        // Constants and conversions to/from bool
-        assert_eq!(PositiveInt::MIN, PositiveInt::ZERO);
-        assert_eq!(PositiveInt::ZERO, 0);
-        assert_eq!(PositiveInt::ONE, 1);
-        assert_eq!(
-            PositiveInt::MAX,
-            (1usize << PositiveInt::EFFECTIVE_BITS) - 1
-        );
-        assert_eq!(PositiveInt::default(), 0);
+    proptest! {
+        /// Test basic properties of our constants
+        #[test]
+        fn constants() {
+            // Constants and conversions to/from bool
+            prop_assert_eq!(PositiveInt::MIN, PositiveInt::ZERO);
+            prop_assert_eq!(PositiveInt::ZERO, 0);
+            prop_assert_eq!(PositiveInt::ONE, 1);
+            prop_assert_eq!(
+                PositiveInt::MAX,
+                (1usize << PositiveInt::EFFECTIVE_BITS) - 1
+            );
+            prop_assert_eq!(PositiveInt::default(), 0);
 
-        // Now let's test some properties that are specific to zero
-        let zero = PositiveInt::ZERO;
-
-        // zero hits a narrow special code path for various operations
-        assert_eq!(zero.trailing_zeros(), PositiveInt::EFFECTIVE_BITS);
-        assert_eq!(zero.checked_neg(), Some(zero));
-
-        // Logarithm fails for zero
-        assert_panics(|| zero.ilog2());
-        assert_panics(|| zero.ilog10());
-        assert_eq!(zero.checked_ilog2(), None);
-        assert_eq!(zero.checked_ilog10(), None);
-
-        // Negation succeeds for zero
-        assert_eq!(zero.wrapping_neg(), zero);
-        assert_eq!(zero.checked_neg(), Some(zero));
-        assert_eq!(zero.overflowing_neg(), (zero, false));
-    }
-
-    /// Test properties of unary operations on positive ints
-    #[quickcheck]
-    fn unary_int(int: PositiveInt) {
-        // Version of int's payload with the unused bits set
-        let set_unused = int.0 | UNUSED_BITS;
-
-        // Make sure clone is trivial and equality works early on
-        assert_eq!(int.clone(), int);
-
-        // Bit fiddling
-        assert_eq!(int.count_ones(), int.0.count_ones());
-        assert_eq!(int.count_zeros(), set_unused.count_zeros());
-        assert_eq!(int.leading_zeros(), int.0.leading_zeros() - NUM_UNUSED_BITS);
-        assert_eq!(int.trailing_zeros(), set_unused.trailing_zeros());
-        assert_eq!(
-            int.leading_ones(),
-            set_unused.leading_ones() - NUM_UNUSED_BITS
-        );
-        assert_eq!(int.trailing_ones(), int.0.trailing_ones());
-        assert_eq!(
-            int.reverse_bits().0,
-            int.0.reverse_bits() >> NUM_UNUSED_BITS
-        );
-        assert_eq!(int.is_power_of_two(), int.0.is_power_of_two());
-        assert_eq!((!int).0, !(int.0 | set_unused));
-        assert_eq!((!&int).0, !(int.0 | set_unused));
-
-        // Infaillible conversion to isize and usize
-        assert_eq!(isize::from(int), isize::try_from(int.0).unwrap());
-        assert_eq!(usize::from(int), usize::try_from(int.0).unwrap());
-
-        // Faillible conversions to all primitive integer types
-        #[allow(clippy::useless_conversion)]
-        {
-            assert_eq!(i8::try_from(int).ok(), i8::try_from(int.0).ok());
-            assert_eq!(u8::try_from(int).ok(), u8::try_from(int.0).ok());
-            assert_eq!(i16::try_from(int).ok(), i16::try_from(int.0).ok());
-            assert_eq!(u16::try_from(int).ok(), u16::try_from(int.0).ok());
-            assert_eq!(i32::try_from(int).ok(), i32::try_from(int.0).ok());
-            assert_eq!(u32::try_from(int).ok(), u32::try_from(int.0).ok());
-            assert_eq!(i64::try_from(int).ok(), i64::try_from(int.0).ok());
-            assert_eq!(u64::try_from(int).ok(), u64::try_from(int.0).ok());
-            assert_eq!(i128::try_from(int).ok(), i128::try_from(int.0).ok());
-            assert_eq!(u128::try_from(int).ok(), u128::try_from(int.0).ok());
-        }
-
-        // Formatting
-        assert_eq!(format!("{int:?}"), format!("PositiveInt({:})", int.0));
-        assert_eq!(format!("{int}"), format!("{:}", int.0));
-        assert_eq!(format!("{int:b}"), format!("{:b}", int.0));
-        assert_eq!(format!("{int:e}"), format!("{:e}", int.0));
-        assert_eq!(format!("{int:o}"), format!("{:o}", int.0));
-        assert_eq!(format!("{int:x}"), format!("{:x}", int.0));
-        assert_eq!(format!("{int:E}"), format!("{:E}", int.0));
-        assert_eq!(format!("{int:X}"), format!("{:X}", int.0));
-
-        // Hashing
-        assert_eq!(hash(int), hash(int.0));
-
-        // Division and remainder by zero
-        {
-            // With PositiveInt denominator
+            // Now let's test some properties that are specific to zero
             let zero = PositiveInt::ZERO;
-            assert_eq!(int.checked_div(zero), None);
-            assert_panics(|| int.overflowing_div(zero));
-            assert_panics(|| int.saturating_div(zero));
-            assert_panics(|| int.wrapping_div(zero));
-            assert_panics(|| int / zero);
-            assert_panics(|| &int / zero);
-            assert_panics(|| int / &zero);
-            assert_panics(|| &int / &zero);
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp /= zero
-            });
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp /= &zero
-            });
-            assert_eq!(int.checked_div_euclid(zero), None);
-            assert_panics(|| int.overflowing_div_euclid(zero));
-            assert_panics(|| int.wrapping_div_euclid(zero));
-            assert_eq!(int.checked_rem(zero), None);
-            assert_panics(|| int.overflowing_rem(zero));
-            assert_panics(|| int.wrapping_rem(zero));
-            assert_panics(|| int % zero);
-            assert_panics(|| &int % zero);
-            assert_panics(|| int % &zero);
-            assert_panics(|| &int % &zero);
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp %= zero
-            });
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp %= &zero
-            });
-            assert_eq!(int.checked_rem_euclid(zero), None);
-            assert_panics(|| int.overflowing_rem_euclid(zero));
-            assert_panics(|| int.wrapping_rem_euclid(zero));
 
-            // With usize denominator
-            assert_panics(|| int / 0);
-            assert_panics(|| &int / 0);
-            assert_panics(|| int / &0);
-            assert_panics(|| &int / &0);
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp /= 0
-            });
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp /= &0
-            });
-            assert_panics(|| int % 0);
-            assert_panics(|| &int % 0);
-            assert_panics(|| int % &0);
-            assert_panics(|| &int % &0);
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp %= 0
-            });
-            assert_panics(|| {
-                let mut tmp = int;
-                tmp %= &0
-            });
+            // zero hits a narrow special code path for various operations
+            prop_assert_eq!(zero.trailing_zeros(), PositiveInt::EFFECTIVE_BITS);
+            prop_assert_eq!(zero.checked_neg(), Some(zero));
+
+            // Logarithm fails for zero
+            assert_panics(|| zero.ilog2())?;
+            assert_panics(|| zero.ilog10())?;
+            prop_assert_eq!(zero.checked_ilog2(), None);
+            prop_assert_eq!(zero.checked_ilog10(), None);
+
+            // Negation succeeds for zero
+            prop_assert_eq!(zero.wrapping_neg(), zero);
+            prop_assert_eq!(zero.checked_neg(), Some(zero));
+            prop_assert_eq!(zero.overflowing_neg(), (zero, false));
         }
 
-        // Logarithm of zero should fail/panic
-        {
-            // ...with base >= 2
-            let base_above2 = int.saturating_add(PositiveInt(2));
-            assert_panics(|| PositiveInt::ZERO.ilog(base_above2));
-            assert_eq!(PositiveInt::ZERO.checked_ilog(base_above2), None);
+        /// Test properties of unary operations on positive ints
+        #[test]
+        fn unary_int(int: PositiveInt) {
+            // Version of int's payload with the unused bits set
+            let set_unused = int.0 | UNUSED_BITS;
 
-            // ...with base < 2
-            let base_below2 = int % 2;
-            assert_panics(|| PositiveInt::ZERO.ilog(base_below2));
-            assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
-        }
+            // Make sure clone is trivial and equality works early on
+            prop_assert_eq!(int.clone(), int);
 
-        // Considerations specific to positive numbers
-        if int != 0 {
-            // Based logarithms succeed for positive numbers
-            let expected_log2 = int.0.ilog2();
-            let expected_log10 = int.0.ilog10();
-            assert_eq!(int.ilog2(), expected_log2);
-            assert_eq!(int.ilog10(), expected_log10);
-            assert_eq!(int.checked_ilog2(), Some(expected_log2));
-            assert_eq!(int.checked_ilog10(), Some(expected_log10));
+            // Bit fiddling
+            prop_assert_eq!(int.count_ones(), int.0.count_ones());
+            prop_assert_eq!(int.count_zeros(), set_unused.count_zeros());
+            prop_assert_eq!(int.leading_zeros(), int.0.leading_zeros() - NUM_UNUSED_BITS);
+            prop_assert_eq!(int.trailing_zeros(), set_unused.trailing_zeros());
+            prop_assert_eq!(
+                int.leading_ones(),
+                set_unused.leading_ones() - NUM_UNUSED_BITS
+            );
+            prop_assert_eq!(int.trailing_ones(), int.0.trailing_ones());
+            prop_assert_eq!(
+                int.reverse_bits().0,
+                int.0.reverse_bits() >> NUM_UNUSED_BITS
+            );
+            prop_assert_eq!(int.is_power_of_two(), int.0.is_power_of_two());
+            prop_assert_eq!((!int).0, !(int.0 | set_unused));
+            prop_assert_eq!((!&int).0, !(int.0 | set_unused));
 
-            // Negation fails or wraps around for positive numbers
-            let wrapping_neg = (!int).wrapping_add(PositiveInt(1));
-            assert_eq!(int.checked_neg(), None);
-            assert_eq!(int.wrapping_neg(), wrapping_neg);
-            assert_eq!(int.overflowing_neg(), (wrapping_neg, true));
-        }
+            // Infaillible conversion to isize and usize
+            prop_assert_eq!(isize::from(int), isize::try_from(int.0).unwrap());
+            prop_assert_eq!(usize::from(int), usize::try_from(int.0).unwrap());
 
-        // Considerations specific to numbers that have a next power of 2
-        let last_pow2 = PositiveInt::ONE << (PositiveInt::EFFECTIVE_BITS - 1);
-        let has_next_pow2 = int & (!last_pow2);
-        let next_pow2 = PositiveInt(has_next_pow2.0.next_power_of_two());
-        assert_eq!(has_next_pow2.next_power_of_two(), next_pow2);
-        assert_eq!(has_next_pow2.checked_next_power_of_two(), Some(next_pow2));
-
-        // Considerations specific to numbers that don't have a next power of 2
-        let mut no_next_pow2 = int | last_pow2;
-        if no_next_pow2 == last_pow2 {
-            no_next_pow2 += 1;
-        }
-        assert_debug_panics(|| no_next_pow2.next_power_of_two(), PositiveInt::ZERO);
-        assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
-
-        // Check RangeFrom-like PositiveInt iterator
-        let actual = PositiveInt::iter_range_from(int);
-        let expected = (int.0)..;
-        assert_eq!(actual.size_hint(), expected.size_hint());
-        assert_panics(|| actual.clone().count());
-        assert_panics(|| actual.clone().last());
-        compare_iters_infinite(actual, Iterator::next, expected, Iterator::next);
-    }
-
-    /// Test usize -> PositiveInt conversion and special positive-usize ops
-    #[quickcheck]
-    fn unary_usize(x: usize) {
-        // usize -> PositiveInt conversion
-        assert_eq!(
-            PositiveInt::try_from(x),
-            c_int::try_from(x).map(|i| PositiveInt(i.try_into().unwrap()))
-        );
-
-        // Multiplying ZERO by any usize works
-        let zero = PositiveInt::ZERO;
-        assert_eq!(zero * x, zero);
-        assert_eq!(x * zero, zero);
-        assert_eq!(&zero * x, zero);
-        assert_eq!(x * (&zero), zero);
-        assert_eq!(zero * (&x), zero);
-        assert_eq!(&x * zero, zero);
-        assert_eq!(&zero * (&x), zero);
-        assert_eq!(&x * (&zero), zero);
-        let mut tmp = zero;
-        tmp *= x;
-        assert_eq!(tmp, zero);
-        tmp = zero;
-        tmp *= &x;
-        assert_eq!(tmp, zero);
-    }
-
-    /// Test [`str`] -> [`PositiveInt`] conversion (common harness)
-    fn test_from_str_radix(
-        src: &str,
-        radix: u32,
-        parse: impl FnOnce() -> Result<PositiveInt, ParseIntError> + UnwindSafe,
-    ) {
-        // Handle excessive radix
-        if !(2..=36).contains(&radix) {
-            assert_panics(parse);
-            return;
-        }
-        let result = parse();
-
-        // Use known-good parser to usize
-        let Ok(as_usize) = usize::from_str_radix(src, radix) else {
-            // If it fails for usize, it should fail for PositiveInt
-            assert!(result.is_err());
-            return;
-        };
-
-        // Handle the fact that valid PositiveInt is a subset of usize
-        const MAX: usize = PositiveInt::MAX.0 as usize;
-        match as_usize {
-            0..=MAX => {
-                assert_eq!(result.unwrap(), as_usize);
+            // Faillible conversions to all primitive integer types
+            #[allow(clippy::useless_conversion)]
+            {
+                prop_assert_eq!(i8::try_from(int).ok(), i8::try_from(int.0).ok());
+                prop_assert_eq!(u8::try_from(int).ok(), u8::try_from(int.0).ok());
+                prop_assert_eq!(i16::try_from(int).ok(), i16::try_from(int.0).ok());
+                prop_assert_eq!(u16::try_from(int).ok(), u16::try_from(int.0).ok());
+                prop_assert_eq!(i32::try_from(int).ok(), i32::try_from(int.0).ok());
+                prop_assert_eq!(u32::try_from(int).ok(), u32::try_from(int.0).ok());
+                prop_assert_eq!(i64::try_from(int).ok(), i64::try_from(int.0).ok());
+                prop_assert_eq!(u64::try_from(int).ok(), u64::try_from(int.0).ok());
+                prop_assert_eq!(i128::try_from(int).ok(), i128::try_from(int.0).ok());
+                prop_assert_eq!(u128::try_from(int).ok(), u128::try_from(int.0).ok());
             }
-            _overflow => {
-                assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
+
+            // Formatting
+            prop_assert_eq!(format!("{int:?}"), format!("PositiveInt({:})", int.0));
+            prop_assert_eq!(format!("{int}"), format!("{:}", int.0));
+            prop_assert_eq!(format!("{int:b}"), format!("{:b}", int.0));
+            prop_assert_eq!(format!("{int:e}"), format!("{:e}", int.0));
+            prop_assert_eq!(format!("{int:o}"), format!("{:o}", int.0));
+            prop_assert_eq!(format!("{int:x}"), format!("{:x}", int.0));
+            prop_assert_eq!(format!("{int:E}"), format!("{:E}", int.0));
+            prop_assert_eq!(format!("{int:X}"), format!("{:X}", int.0));
+
+            // Hashing
+            prop_assert_eq!(hash(int), hash(int.0));
+
+            // Division and remainder by zero
+            {
+                // With PositiveInt denominator
+                let zero = PositiveInt::ZERO;
+                prop_assert_eq!(int.checked_div(zero), None);
+                assert_panics(|| int.overflowing_div(zero))?;
+                assert_panics(|| int.saturating_div(zero))?;
+                assert_panics(|| int.wrapping_div(zero))?;
+                assert_panics(|| int / zero)?;
+                assert_panics(|| &int / zero)?;
+                assert_panics(|| int / &zero)?;
+                assert_panics(|| &int / &zero)?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp /= zero
+                })?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp /= &zero
+                })?;
+                prop_assert_eq!(int.checked_div_euclid(zero), None);
+                assert_panics(|| int.overflowing_div_euclid(zero))?;
+                assert_panics(|| int.wrapping_div_euclid(zero))?;
+                prop_assert_eq!(int.checked_rem(zero), None);
+                assert_panics(|| int.overflowing_rem(zero))?;
+                assert_panics(|| int.wrapping_rem(zero))?;
+                assert_panics(|| int % zero)?;
+                assert_panics(|| &int % zero)?;
+                assert_panics(|| int % &zero)?;
+                assert_panics(|| &int % &zero)?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp %= zero
+                })?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp %= &zero
+                })?;
+                prop_assert_eq!(int.checked_rem_euclid(zero), None);
+                assert_panics(|| int.overflowing_rem_euclid(zero))?;
+                assert_panics(|| int.wrapping_rem_euclid(zero))?;
+
+                // With usize denominator
+                assert_panics(|| int / 0)?;
+                assert_panics(|| &int / 0)?;
+                assert_panics(|| int / &0)?;
+                assert_panics(|| &int / &0)?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp /= 0
+                })?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp /= &0
+                })?;
+                assert_panics(|| int % 0)?;
+                assert_panics(|| &int % 0)?;
+                assert_panics(|| int % &0)?;
+                assert_panics(|| &int % &0)?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp %= 0
+                })?;
+                assert_panics(|| {
+                    let mut tmp = int;
+                    tmp %= &0
+                })?;
             }
+
+            // Logarithm of zero should fail/panic
+            {
+                // ...with base >= 2
+                let base_above2 = int.saturating_add(PositiveInt(2));
+                assert_panics(|| PositiveInt::ZERO.ilog(base_above2))?;
+                prop_assert_eq!(PositiveInt::ZERO.checked_ilog(base_above2), None);
+
+                // ...with base < 2
+                let base_below2 = int % 2;
+                assert_panics(|| PositiveInt::ZERO.ilog(base_below2))?;
+                prop_assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
+            }
+
+            // Considerations specific to positive numbers
+            if int != 0 {
+                // Based logarithms succeed for positive numbers
+                let expected_log2 = int.0.ilog2();
+                let expected_log10 = int.0.ilog10();
+                prop_assert_eq!(int.ilog2(), expected_log2);
+                prop_assert_eq!(int.ilog10(), expected_log10);
+                prop_assert_eq!(int.checked_ilog2(), Some(expected_log2));
+                prop_assert_eq!(int.checked_ilog10(), Some(expected_log10));
+
+                // Negation fails or wraps around for positive numbers
+                let wrapping_neg = (!int).wrapping_add(PositiveInt(1));
+                prop_assert_eq!(int.checked_neg(), None);
+                prop_assert_eq!(int.wrapping_neg(), wrapping_neg);
+                prop_assert_eq!(int.overflowing_neg(), (wrapping_neg, true));
+            }
+
+            // Considerations specific to numbers that have a next power of 2
+            let last_pow2 = PositiveInt::ONE << (PositiveInt::EFFECTIVE_BITS - 1);
+            let has_next_pow2 = int & (!last_pow2);
+            let next_pow2 = PositiveInt(has_next_pow2.0.next_power_of_two());
+            prop_assert_eq!(has_next_pow2.next_power_of_two(), next_pow2);
+            prop_assert_eq!(has_next_pow2.checked_next_power_of_two(), Some(next_pow2));
+
+            // Considerations specific to numbers that don't have a next power of 2
+            let mut no_next_pow2 = int | last_pow2;
+            if no_next_pow2 == last_pow2 {
+                no_next_pow2 += 1;
+            }
+            assert_debug_panics(|| no_next_pow2.next_power_of_two(), PositiveInt::ZERO)?;
+            prop_assert_eq!(no_next_pow2.checked_next_power_of_two(), None);
+
+            // Check RangeFrom-like PositiveInt iterator
+            let actual = PositiveInt::iter_range_from(int);
+            let expected = (int.0)..;
+            prop_assert_eq!(actual.size_hint(), expected.size_hint());
+            assert_panics(|| actual.clone().count())?;
+            assert_panics(|| actual.clone().last())?;
+            compare_iters_infinite(actual, Iterator::next, expected, Iterator::next)?;
         }
-    }
 
-    /// Test str -> PositiveInt conversion via the FromStr trait
-    #[quickcheck]
-    fn from_str(src: String) {
-        test_from_str_radix(&src, 10, || PositiveInt::from_str(&src))
-    }
+        /// Test usize -> PositiveInt conversion and special positive-usize ops
+        #[test]
+        fn unary_usize(x: usize) {
+            // usize -> PositiveInt conversion
+            prop_assert_eq!(
+                PositiveInt::try_from(x),
+                c_int::try_from(x).map(|i| PositiveInt(i.try_into().unwrap()))
+            );
 
-    /// Test str -> PositiveInt conversion via the from_str_radix() method
-    #[quickcheck]
-    fn from_str_radix(src: String, radix: u32) {
-        let radix = radix % 37;
-        test_from_str_radix(&src, radix, || PositiveInt::from_str_radix(&src, radix))
-    }
+            // Multiplying ZERO by any usize works
+            let zero = PositiveInt::ZERO;
+            prop_assert_eq!(zero * x, zero);
+            prop_assert_eq!(x * zero, zero);
+            prop_assert_eq!(&zero * x, zero);
+            prop_assert_eq!(x * (&zero), zero);
+            prop_assert_eq!(zero * (&x), zero);
+            prop_assert_eq!(&x * zero, zero);
+            prop_assert_eq!(&zero * (&x), zero);
+            prop_assert_eq!(&x * (&zero), zero);
+            let mut tmp = zero;
+            tmp *= x;
+            prop_assert_eq!(tmp, zero);
+            tmp = zero;
+            tmp *= &x;
+            prop_assert_eq!(tmp, zero);
+        }
 
-    /// Test a faillible operation, produce the checked result for verification
-    ///
-    /// If `release_result` is `Some(result)`, it indicates that in release
-    /// builds, the faillible operation will return `result` instead of
-    /// panicking. This is the behavior of most built-in arithmetic operations.
-    ///
-    /// If `release_result` is `None`, it indicates that the faillible operation
-    /// should panick even in release mode, as e.g. ilog() does.
-    fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
-        int: PositiveInt,
-        rhs: Rhs,
-        checked_op: impl FnOnce(PositiveInt, Rhs) -> Option<PositiveInt>,
-        faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
-        release_result: Option<PositiveInt>,
-    ) -> Option<PositiveInt> {
-        let checked_result = checked_op(int, rhs);
-        match (checked_result, release_result) {
-            (Some(result), _) => {
-                for faillible_op in faillible_ops {
-                    assert_eq!(faillible_op(int, rhs), result);
+        /// Test [`str`] -> [`PositiveInt`] conversion (common harness)
+        fn test_from_str_radix(
+            src: &str,
+            radix: u32,
+            parse: impl FnOnce() -> Result<PositiveInt, ParseIntError> + UnwindSafe,
+        ) -> Result<(), TestCaseError> {
+            // Handle excessive radix
+            if !(2..=36).contains(&radix) {
+                return assert_panics(parse);
+            }
+            let result = parse();
+
+            // Use known-good parser to usize
+            let Ok(as_usize) = usize::from_str_radix(src, radix) else {
+                // If it fails for usize, it should fail for PositiveInt
+                prop_assert!(result.is_err());
+                return;
+            };
+
+            // Handle the fact that valid PositiveInt is a subset of usize
+            const MAX: usize = PositiveInt::MAX.0 as usize;
+            match as_usize {
+                0..=MAX => {
+                    prop_assert_eq!(result.unwrap(), as_usize);
+                }
+                _overflow => {
+                    prop_assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
                 }
             }
-            (None, Some(release_result)) => {
-                for faillible_op in faillible_ops {
-                    assert_debug_panics(|| faillible_op(int, rhs), release_result);
+        }
+
+        /// Test str -> PositiveInt conversion via the FromStr trait
+        #[test]
+        fn from_str(src: String) {
+            test_from_str_radix(&src, 10, || PositiveInt::from_str(&src))?;
+        }
+
+        /// Test str -> PositiveInt conversion via the from_str_radix() method
+        #[test]
+        fn from_str_radix(src: String, radix: u32) {
+            let radix = radix % 37;
+            test_from_str_radix(&src, radix, || PositiveInt::from_str_radix(&src, radix))?;
+        }
+
+        /// Test a faillible operation, produce the checked result for verification
+        ///
+        /// If `release_result` is `Some(result)`, it indicates that in release
+        /// builds, the faillible operation will return `result` instead of
+        /// panicking. This is the behavior of most built-in arithmetic operations.
+        ///
+        /// If `release_result` is `None`, it indicates that the faillible operation
+        /// should panick even in release mode, as e.g. ilog() does.
+        fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
+            int: PositiveInt,
+            rhs: Rhs,
+            checked_op: impl FnOnce(PositiveInt, Rhs) -> Option<PositiveInt>,
+            faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
+            release_result: Option<PositiveInt>,
+        ) -> Result<Option<PositiveInt>, TestCaseError> {
+            let checked_result = checked_op(int, rhs);
+            match (checked_result, release_result) {
+                (Some(result), _) => {
+                    for faillible_op in faillible_ops {
+                        prop_assert_eq!(faillible_op(int, rhs), result);
+                    }
+                }
+                (None, Some(release_result)) => {
+                    for faillible_op in faillible_ops {
+                        assert_debug_panics(|| faillible_op(int, rhs), release_result)?;
+                    }
+                }
+                (None, None) => {
+                    for faillible_op in faillible_ops {
+                        assert_panics(|| faillible_op(int, rhs))?;
+                    }
                 }
             }
-            (None, None) => {
-                for faillible_op in faillible_ops {
-                    assert_panics(|| faillible_op(int, rhs));
-                }
-            }
-        }
-        checked_result
-    }
-
-    /// Test an overflowing operation, produce the overflowing result for verification
-    fn test_overflowing<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
-        int: PositiveInt,
-        rhs: Rhs,
-        checked_op: impl Fn(PositiveInt, Rhs) -> Option<PositiveInt>,
-        overflowing_op: impl Fn(PositiveInt, Rhs) -> (PositiveInt, bool),
-        wrapping_op: impl Fn(PositiveInt, Rhs) -> PositiveInt,
-        faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
-    ) -> (PositiveInt, bool) {
-        let overflowing_result = overflowing_op(int, rhs);
-        let (wrapped_result, overflow) = overflowing_result;
-        assert_eq!(wrapping_op(int, rhs), wrapped_result);
-        let checked_result =
-            test_faillible(int, rhs, checked_op, faillible_ops, Some(wrapped_result));
-        if overflow {
-            assert_eq!(checked_result, None);
-        } else {
-            assert_eq!(checked_result, Some(wrapped_result));
-        }
-        overflowing_result
-    }
-
-    /// Predict the result of an overflowing [`PositiveInt`] operation from the
-    /// result of the equivalent overflowing usize operation.
-    fn predict_overflowing_result<IntRhs, UsizeRhs: From<IntRhs>>(
-        i1: PositiveInt,
-        i2: IntRhs,
-        usize_op: fn(usize, UsizeRhs) -> (usize, bool),
-    ) -> (PositiveInt, bool) {
-        let used_bits_usize = (1usize << PositiveInt::EFFECTIVE_BITS) - 1;
-        let max_usize = usize::from(PositiveInt::MAX);
-        let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), UsizeRhs::from(i2));
-        let expected_wrapped = PositiveInt::try_from(wrapped_usize & used_bits_usize).unwrap();
-        let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
-        (expected_wrapped, expected_overflow)
-    }
-
-    /// Test int-int binary operations
-    #[quickcheck]
-    fn int_int(i1: PositiveInt, i2: PositiveInt) {
-        // Ordering passes through
-        assert_eq!(i1 == i2, i1.0 == i2.0);
-        assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
-
-        // Bitwise AND passes through (no risk of setting high-order bit)
-        let expected = PositiveInt(i1.0 & i2.0);
-        assert_eq!(i1 & i2, expected);
-        assert_eq!(&i1 & i2, expected);
-        assert_eq!(i1 & (&i2), expected);
-        assert_eq!(&i1 & (&i2), expected);
-        let mut tmp = i1;
-        tmp &= i2;
-        assert_eq!(tmp, expected);
-        tmp = i1;
-        tmp &= &i2;
-        assert_eq!(tmp, expected);
-
-        // Bitwise OR passes through (no risk of setting high-order bit)
-        let expected = PositiveInt(i1.0 | i2.0);
-        assert_eq!(i1 | i2, expected);
-        assert_eq!(&i1 | i2, expected);
-        assert_eq!(i1 | (&i2), expected);
-        assert_eq!(&i1 | (&i2), expected);
-        tmp = i1;
-        tmp |= i2;
-        assert_eq!(tmp, expected);
-        tmp = i1;
-        tmp |= &i2;
-        assert_eq!(tmp, expected);
-
-        // Bitwise XOR passes through (no risk of setting high-order bit)
-        let expected = PositiveInt(i1.0 ^ i2.0);
-        assert_eq!(i1 ^ i2, expected);
-        assert_eq!(&i1 ^ i2, expected);
-        assert_eq!(i1 ^ (&i2), expected);
-        assert_eq!(&i1 ^ (&i2), expected);
-        let mut tmp = i1;
-        tmp ^= i2;
-        assert_eq!(tmp, expected);
-        tmp = i1;
-        tmp ^= &i2;
-        assert_eq!(tmp, expected);
-
-        // Addition
-        let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(i1, i2, usize::overflowing_add);
-        let (wrapped, overflow) = test_overflowing(
-            i1,
-            i2,
-            PositiveInt::checked_add,
-            PositiveInt::overflowing_add,
-            PositiveInt::wrapping_add,
-            [
-                Box::new(|i1, i2| i1 + i2),
-                Box::new(|i1, i2| &i1 + i2),
-                Box::new(|i1, i2| i1 + &i2),
-                Box::new(|i1, i2| &i1 + &i2),
-                Box::new(|mut i1, i2| {
-                    i1 += i2;
-                    i1
-                }),
-                Box::new(|mut i1, i2| {
-                    i1 += &i2;
-                    i1
-                }),
-            ],
-        );
-        assert_eq!(wrapped, expected_wrapped);
-        assert_eq!(overflow, expected_overflow);
-        if overflow {
-            assert_eq!(i1.saturating_add(i2), PositiveInt::MAX);
-        } else {
-            assert_eq!(i1.saturating_add(i2), wrapped);
+            Ok(checked_result)
         }
 
-        // Subtraction
-        let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(i1, i2, usize::overflowing_sub);
-        let (wrapped, overflow) = test_overflowing(
-            i1,
-            i2,
-            PositiveInt::checked_sub,
-            PositiveInt::overflowing_sub,
-            PositiveInt::wrapping_sub,
-            [
-                Box::new(|i1, i2| i1 - i2),
-                Box::new(|i1, i2| &i1 - i2),
-                Box::new(|i1, i2| i1 - &i2),
-                Box::new(|i1, i2| &i1 - &i2),
-                Box::new(|mut i1, i2| {
-                    i1 -= i2;
-                    i1
-                }),
-                Box::new(|mut i1, i2| {
-                    i1 -= &i2;
-                    i1
-                }),
-            ],
-        );
-        assert_eq!(wrapped, expected_wrapped);
-        assert_eq!(overflow, expected_overflow);
-        if overflow {
-            assert_eq!(i1.saturating_sub(i2), PositiveInt::MIN);
-        } else {
-            assert_eq!(i1.saturating_sub(i2), wrapped);
-        }
-
-        // Absolute difference
-        assert_eq!(i1.abs_diff(i2), PositiveInt(i1.0.abs_diff(i2.0)));
-
-        // Multiplication
-        let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(i1, i2, usize::overflowing_mul);
-        let (wrapped, overflow) = test_overflowing(
-            i1,
-            i2,
-            PositiveInt::checked_mul,
-            PositiveInt::overflowing_mul,
-            PositiveInt::wrapping_mul,
-            [
-                Box::new(|i1, i2| i1 * i2),
-                Box::new(|i1, i2| &i1 * i2),
-                Box::new(|i1, i2| i1 * &i2),
-                Box::new(|i1, i2| &i1 * &i2),
-                Box::new(|mut i1, i2| {
-                    i1 *= i2;
-                    i1
-                }),
-                Box::new(|mut i1, i2| {
-                    i1 *= &i2;
-                    i1
-                }),
-            ],
-        );
-        assert_eq!(wrapped, expected_wrapped);
-        assert_eq!(overflow, expected_overflow);
-        if overflow {
-            assert_eq!(i1.saturating_mul(i2), PositiveInt::MAX);
-        } else {
-            assert_eq!(i1.saturating_mul(i2), wrapped);
-        }
-
-        // Division and remainder by nonzero (zero case tested in unary tests)
-        {
-            // Division
-            let nonzero = i2.saturating_add(PositiveInt::ONE);
-            let (expected_wrapped, expected_overflow) =
-                predict_overflowing_result(i1, nonzero, usize::overflowing_div);
-            let res1 = test_overflowing(
-                i1,
-                nonzero,
-                PositiveInt::checked_div,
-                PositiveInt::overflowing_div,
-                PositiveInt::wrapping_div,
-                [
-                    Box::new(|i1, nonzero| i1 / nonzero),
-                    Box::new(|i1, nonzero| &i1 / nonzero),
-                    Box::new(|i1, nonzero| i1 / &nonzero),
-                    Box::new(|i1, nonzero| &i1 / &nonzero),
-                    Box::new(|mut i1, nonzero| {
-                        i1 /= nonzero;
-                        i1
-                    }),
-                    Box::new(|mut i1, nonzero| {
-                        i1 /= &nonzero;
-                        i1
-                    }),
-                ],
-            );
-            let res2 = test_overflowing(
-                i1,
-                nonzero,
-                PositiveInt::checked_div_euclid,
-                PositiveInt::overflowing_div_euclid,
-                PositiveInt::wrapping_div_euclid,
-                [Box::new(PositiveInt::div_euclid)],
-            );
-            assert_eq!(i1.saturating_div(nonzero), expected_wrapped);
-            for (wrapped, overflow) in [res1, res2] {
-                assert_eq!(wrapped, expected_wrapped);
-                assert_eq!(overflow, expected_overflow);
-            }
-
-            // Remainder
-            let (expected_wrapped, expected_overflow) =
-                predict_overflowing_result(i1, nonzero, usize::overflowing_rem);
-            let res1 = test_overflowing(
-                i1,
-                nonzero,
-                PositiveInt::checked_rem,
-                PositiveInt::overflowing_rem,
-                PositiveInt::wrapping_rem,
-                [
-                    Box::new(|i1, nonzero| i1 % nonzero),
-                    Box::new(|i1, nonzero| &i1 % nonzero),
-                    Box::new(|i1, nonzero| i1 % &nonzero),
-                    Box::new(|i1, nonzero| &i1 % &nonzero),
-                    Box::new(|mut i1, nonzero| {
-                        i1 %= nonzero;
-                        i1
-                    }),
-                    Box::new(|mut i1, nonzero| {
-                        i1 %= &nonzero;
-                        i1
-                    }),
-                ],
-            );
-            let res2 = test_overflowing(
-                i1,
-                nonzero,
-                PositiveInt::checked_rem_euclid,
-                PositiveInt::overflowing_rem_euclid,
-                PositiveInt::wrapping_rem_euclid,
-                [Box::new(PositiveInt::rem_euclid)],
-            );
-            for (wrapped, overflow) in [res1, res2] {
-                assert_eq!(wrapped, expected_wrapped);
-                assert_eq!(overflow, expected_overflow);
-            }
-        }
-
-        // Checked logarithm
-        {
-            // Should succeed for a number >= 0 with a basis >= 2
-            let number_above0 = i1.saturating_add(PositiveInt::ONE);
-            let base_above2 = i2.saturating_add(PositiveInt(2));
-            let expected = number_above0.0.ilog(base_above2.0);
-            assert_eq!(number_above0.ilog(base_above2), expected);
-            assert_eq!(number_above0.checked_ilog(base_above2), Some(expected));
-
-            // Should fail if the basis is below 2
-            let base_below2 = i2 % 2;
-            assert_panics(|| PositiveInt::ZERO.ilog(base_below2));
-            assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
-        }
-
-        // Non-overflowing left shift must keep high-order bit cleared
-        #[allow(trivial_numeric_casts)]
-        let effective_bits = PositiveInt(PositiveInt::EFFECTIVE_BITS as c_uint);
-        let wrapped_shift = i2 % effective_bits;
-        let wrapped_result = PositiveInt((i1.0 << wrapped_shift.0) & PositiveInt::MAX.0);
-        assert_eq!(i1 << wrapped_shift, wrapped_result);
-        assert_eq!(&i1 << wrapped_shift, wrapped_result);
-        assert_eq!(i1 << (&wrapped_shift), wrapped_result);
-        assert_eq!(&i1 << (&wrapped_shift), wrapped_result);
-        tmp = i1;
-        tmp <<= wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-        tmp = i1;
-        tmp <<= &wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-
-        // Overflowing left shift should panic or wraparound
-        let overflown_shift = i2.saturating_add(effective_bits);
-        assert_debug_panics(|| i1 << overflown_shift, wrapped_result);
-        assert_debug_panics(|| &i1 << overflown_shift, wrapped_result);
-        assert_debug_panics(|| i1 << (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &i1 << (&overflown_shift), wrapped_result);
-        assert_debug_panics(
-            || {
-                let mut tmp = i1;
-                tmp <<= overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = i1;
-                tmp <<= &overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-
-        // Non-overflowing right shift can pass through
-        let wrapped_result = PositiveInt(i1.0 >> wrapped_shift.0);
-        assert_eq!(i1 >> wrapped_shift, wrapped_result);
-        assert_eq!(&i1 >> wrapped_shift, wrapped_result);
-        assert_eq!(i1 >> (&wrapped_shift), wrapped_result);
-        assert_eq!(&i1 >> (&wrapped_shift), wrapped_result);
-        tmp = i1;
-        tmp >>= wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-        tmp = i1;
-        tmp >>= &wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-
-        // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| i1 >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| &i1 >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| i1 >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &i1 >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(
-            || {
-                let mut tmp = i1;
-                tmp >>= overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = i1;
-                tmp >>= &overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-
-        // Check Range-like PositiveInt iterator
-        let actual = PositiveInt::iter_range(i1, i2);
-        let expected = (i1.0)..(i2.0);
-        assert_eq!(actual.len(), expected.len());
-        assert_eq!(actual.size_hint(), expected.size_hint());
-        assert_eq!(actual.clone().count(), expected.len());
-        assert_eq!(
-            actual.clone().last(),
-            expected.clone().last().map(PositiveInt)
-        );
-        compare_iters_finite(
-            actual.clone(),
-            Iterator::next,
-            expected.clone(),
-            Iterator::next,
-        );
-        compare_iters_finite(
-            actual,
-            DoubleEndedIterator::next_back,
-            expected,
-            DoubleEndedIterator::next_back,
-        );
-
-        // Check RangeInclusive-like PositiveInt iterator
-        let actual = PositiveInt::iter_range_inclusive(i1, i2);
-        let expected = (i1.0)..=(i2.0);
-        assert_eq!(actual.len(), expected.clone().count());
-        assert_eq!(actual.size_hint(), expected.size_hint());
-        assert_eq!(actual.clone().count(), expected.clone().count());
-        assert_eq!(
-            actual.clone().last(),
-            expected.clone().last().map(PositiveInt)
-        );
-        compare_iters_finite(
-            actual.clone(),
-            Iterator::next,
-            expected.clone(),
-            Iterator::next,
-        );
-        compare_iters_finite(
-            actual,
-            DoubleEndedIterator::next_back,
-            expected,
-            DoubleEndedIterator::next_back,
-        );
-    }
-
-    /// Test int-u32 binary operations
-    #[quickcheck]
-    fn int_u32(int: PositiveInt, rhs: u32) {
-        // Elevation to an integer power
-        let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(int, rhs, usize::overflowing_pow);
-        let (wrapped, overflow) = test_overflowing(
-            int,
-            rhs,
-            PositiveInt::checked_pow,
-            PositiveInt::overflowing_pow,
-            PositiveInt::wrapping_pow,
-            [Box::new(PositiveInt::pow)],
-        );
-        assert_eq!(wrapped, expected_wrapped);
-        assert_eq!(overflow, expected_overflow);
-        if overflow {
-            assert_eq!(int.saturating_pow(rhs), PositiveInt::MAX);
-        } else {
-            assert_eq!(int.saturating_pow(rhs), wrapped);
-        }
-
-        // Non-overflowing left shift
-        let test_left_shift = |rhs| {
-            test_overflowing(
-                int,
-                rhs,
-                PositiveInt::checked_shl,
-                PositiveInt::overflowing_shl,
-                PositiveInt::wrapping_shl,
-                [
-                    Box::new(|int, rhs| int << rhs),
-                    Box::new(|int, rhs| &int << rhs),
-                    Box::new(|int, rhs| int << &rhs),
-                    Box::new(|int, rhs| &int << &rhs),
-                    Box::new(|mut int, rhs| {
-                        int <<= rhs;
-                        int
-                    }),
-                    Box::new(|mut int, rhs| {
-                        int <<= &rhs;
-                        int
-                    }),
-                ],
-            )
-        };
-        let wrapped_shift = rhs % PositiveInt::EFFECTIVE_BITS;
-        let expected_wrapped = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
-        let (wrapped, overflow) = test_left_shift(wrapped_shift);
-        assert_eq!(wrapped, expected_wrapped);
-        assert!(!overflow);
-
-        // Overflowing left shift
-        let overflown_shift = rhs.saturating_add(PositiveInt::EFFECTIVE_BITS);
-        let (wrapped, overflow) = test_left_shift(overflown_shift);
-        assert_eq!(wrapped, expected_wrapped);
-        assert!(overflow);
-
-        // Non-overflowing right shift
-        let test_right_shift = |rhs| {
-            test_overflowing(
-                int,
-                rhs,
-                PositiveInt::checked_shr,
-                PositiveInt::overflowing_shr,
-                PositiveInt::wrapping_shr,
-                [
-                    Box::new(|int, rhs| int >> rhs),
-                    Box::new(|int, rhs| &int >> rhs),
-                    Box::new(|int, rhs| int >> &rhs),
-                    Box::new(|int, rhs| &int >> &rhs),
-                    Box::new(|mut int, rhs| {
-                        int >>= rhs;
-                        int
-                    }),
-                    Box::new(|mut int, rhs| {
-                        int >>= &rhs;
-                        int
-                    }),
-                ],
-            )
-        };
-        let expected_wrapped = PositiveInt(int.0 >> wrapped_shift);
-        let (wrapped, overflow) = test_right_shift(wrapped_shift);
-        assert_eq!(wrapped, expected_wrapped);
-        assert!(!overflow);
-
-        // Overflowing right shift
-        let (wrapped, overflow) = test_right_shift(overflown_shift);
-        assert_eq!(wrapped, expected_wrapped);
-        assert!(overflow);
-
-        // Rotate can be expressed in terms of shifts and binary ops
-        assert_eq!(
-            int.rotate_left(rhs),
-            (int << wrapped_shift) | int.wrapping_shr(PositiveInt::EFFECTIVE_BITS - wrapped_shift)
-        );
-        assert_eq!(
-            int.rotate_right(rhs),
-            (int >> wrapped_shift) | int.wrapping_shl(PositiveInt::EFFECTIVE_BITS - wrapped_shift)
-        );
-    }
-
-    /// Test int-usize binary operations
-    #[quickcheck]
-    fn int_usize(int: PositiveInt, other: usize) {
-        // Ordering passes through
-        assert_eq!(int == other, usize::from(int) == other);
-        assert_eq!(
-            int.partial_cmp(&other),
-            usize::from(int).partial_cmp(&other)
-        );
-        assert_eq!(other == int, other == usize::from(int));
-        assert_eq!(
-            other.partial_cmp(&int),
-            other.partial_cmp(&usize::from(int))
-        );
-
-        // Bitwise AND passes through (no risk of setting high-order bit)
-        #[allow(clippy::cast_possible_truncation)]
-        let expected = PositiveInt(int.0 & (other as c_uint));
-        assert_eq!(int & other, expected);
-        assert_eq!(other & int, expected);
-        assert_eq!(&int & other, expected);
-        assert_eq!(&other & int, expected);
-        assert_eq!(int & (&other), expected);
-        assert_eq!(other & (&int), expected);
-        assert_eq!(&int & (&other), expected);
-        assert_eq!(&other & (&int), expected);
-        let mut tmp = int;
-        tmp &= other;
-        assert_eq!(tmp, expected);
-        tmp = int;
-        tmp &= &other;
-        assert_eq!(tmp, expected);
-
-        // Non-overflowing bitwise OR
-        let small_other = other & usize::from(PositiveInt::MAX);
-        let small_other_unsigned = c_uint::try_from(small_other).unwrap();
-        let expected = PositiveInt(int.0 | small_other_unsigned);
-        assert_eq!(int | small_other, expected);
-        assert_eq!(small_other | int, expected);
-        assert_eq!(&int | small_other, expected);
-        assert_eq!(small_other | &int, expected);
-        assert_eq!(int | &small_other, expected);
-        assert_eq!(&small_other | int, expected);
-        assert_eq!(&int | &small_other, expected);
-        assert_eq!(&small_other | &int, expected);
-        tmp = int;
-        tmp |= small_other;
-        assert_eq!(tmp, expected);
-        tmp = int;
-        tmp |= &small_other;
-        assert_eq!(tmp, expected);
-
-        // Overflowing bitwise OR
-        let first_large_bit = 1usize << PositiveInt::EFFECTIVE_BITS;
-        let mut large_other = other;
-        if other < first_large_bit {
-            large_other |= first_large_bit
-        };
-        assert_debug_panics(|| int | large_other, expected);
-        assert_debug_panics(|| large_other | int, expected);
-        assert_debug_panics(|| &int | large_other, expected);
-        assert_debug_panics(|| large_other | &int, expected);
-        assert_debug_panics(|| int | &large_other, expected);
-        assert_debug_panics(|| &large_other | int, expected);
-        assert_debug_panics(|| &int | &large_other, expected);
-        assert_debug_panics(|| &large_other | &int, expected);
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp |= large_other;
-                tmp
-            },
-            expected,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp |= &large_other;
-                tmp
-            },
-            expected,
-        );
-
-        // Non-overflowing bitwise XOR
-        let expected = PositiveInt(int.0 ^ small_other_unsigned);
-        assert_eq!(int ^ small_other, expected);
-        assert_eq!(small_other ^ int, expected);
-        assert_eq!(&int ^ small_other, expected);
-        assert_eq!(small_other ^ &int, expected);
-        assert_eq!(int ^ &small_other, expected);
-        assert_eq!(&small_other ^ int, expected);
-        assert_eq!(&int ^ &small_other, expected);
-        assert_eq!(&small_other ^ &int, expected);
-        tmp = int;
-        tmp ^= small_other;
-        assert_eq!(tmp, expected);
-        tmp = int;
-        tmp ^= &small_other;
-        assert_eq!(tmp, expected);
-
-        // Overflowing bitwise XOR
-        assert_debug_panics(|| int ^ large_other, expected);
-        assert_debug_panics(|| large_other ^ int, expected);
-        assert_debug_panics(|| &int ^ large_other, expected);
-        assert_debug_panics(|| large_other ^ &int, expected);
-        assert_debug_panics(|| int ^ &large_other, expected);
-        assert_debug_panics(|| &large_other ^ int, expected);
-        assert_debug_panics(|| &int ^ &large_other, expected);
-        assert_debug_panics(|| &large_other ^ &int, expected);
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp ^= large_other;
-                tmp
-            },
-            expected,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp ^= &large_other;
-                tmp
-            },
-            expected,
-        );
-
-        // Multiplication by an usize in PositiveInt range works as usual
-        let small_other_int = PositiveInt::try_from(small_other).unwrap();
-        let (wrapped, overflow) = int.overflowing_mul(small_other_int);
-        if overflow {
-            assert_debug_panics(|| int * small_other, wrapped);
-            assert_debug_panics(|| small_other * int, wrapped);
-            assert_debug_panics(|| &int * small_other, wrapped);
-            assert_debug_panics(|| small_other * (&int), wrapped);
-            assert_debug_panics(|| int * (&small_other), wrapped);
-            assert_debug_panics(|| &small_other * int, wrapped);
-            assert_debug_panics(|| &int * (&small_other), wrapped);
-            assert_debug_panics(|| &small_other * (&int), wrapped);
-            assert_debug_panics(
-                || {
-                    let mut tmp = int;
-                    tmp *= small_other;
-                    tmp
-                },
-                wrapped,
-            );
-            assert_debug_panics(
-                || {
-                    let mut tmp = int;
-                    tmp *= &small_other;
-                    tmp
-                },
-                wrapped,
-            );
-        } else {
-            assert_eq!(int * small_other, wrapped);
-            assert_eq!(small_other * int, wrapped);
-            assert_eq!(&int * small_other, wrapped);
-            assert_eq!(small_other * (&int), wrapped);
-            assert_eq!(int * (&small_other), wrapped);
-            assert_eq!(&small_other * int, wrapped);
-            assert_eq!(&int * (&small_other), wrapped);
-            assert_eq!(&small_other * (&int), wrapped);
-            tmp = int;
-            tmp *= small_other;
-            assert_eq!(tmp, wrapped);
-            tmp = int;
-            tmp *= &small_other;
-            assert_eq!(tmp, wrapped);
-        }
-
-        // Multiplication by an out-of-range usize fails for all ints but
-        // zero (which is tested elsewhere)
-        let zero = PositiveInt::ZERO;
-        if int != zero {
-            assert_debug_panics(|| int * large_other, wrapped);
-            assert_debug_panics(|| large_other * int, wrapped);
-            assert_debug_panics(|| &int * large_other, wrapped);
-            assert_debug_panics(|| large_other * (&int), wrapped);
-            assert_debug_panics(|| int * (&large_other), wrapped);
-            assert_debug_panics(|| &large_other * int, wrapped);
-            assert_debug_panics(|| &int * (&large_other), wrapped);
-            assert_debug_panics(|| &large_other * (&int), wrapped);
-            assert_debug_panics(
-                || {
-                    let mut tmp = int;
-                    tmp *= large_other;
-                    tmp
-                },
-                wrapped,
-            );
-            assert_debug_panics(
-                || {
-                    let mut tmp = int;
-                    tmp *= &large_other;
-                    tmp
-                },
-                wrapped,
-            );
-        }
-
-        // Division by an in-range nonzero usize passes through
-        if other != 0 {
-            let expected = int / small_other_int;
-            assert_eq!(int / small_other, expected);
-            assert_eq!(&int / small_other, expected);
-            assert_eq!(int / &small_other, expected);
-            assert_eq!(&int / &small_other, expected);
-            tmp = int;
-            tmp /= small_other;
-            assert_eq!(tmp, expected);
-            tmp = int;
-            tmp /= &small_other;
-            assert_eq!(tmp, expected);
-        }
-
-        // Division by an out-of-range usize always returns zero
-        assert_eq!(int / large_other, zero);
-        assert_eq!(&int / large_other, zero);
-        assert_eq!(int / &large_other, zero);
-        assert_eq!(&int / &large_other, zero);
-        tmp = int;
-        tmp /= large_other;
-        assert_eq!(tmp, zero);
-        tmp = int;
-        tmp /= &large_other;
-        assert_eq!(tmp, zero);
-
-        // Remainder from an in-range nonzero usize passes through
-        if other != 0 {
-            let expected = int % small_other_int;
-            assert_eq!(int % small_other, expected);
-            assert_eq!(&int % small_other, expected);
-            assert_eq!(int % &small_other, expected);
-            assert_eq!(&int % &small_other, expected);
-            tmp = int;
-            tmp %= small_other;
-            assert_eq!(tmp, expected);
-            tmp = int;
-            tmp %= &small_other;
-            assert_eq!(tmp, expected);
-        }
-
-        // Remainder from an out-of-range usize is identity
-        assert_eq!(int % large_other, int);
-        assert_eq!(&int % large_other, int);
-        assert_eq!(int % &large_other, int);
-        assert_eq!(&int % &large_other, int);
-        tmp = int;
-        tmp %= large_other;
-        assert_eq!(tmp, int);
-        tmp = int;
-        tmp %= &large_other;
-        assert_eq!(tmp, int);
-
-        // Non-overflowing left shift must keep high-order bit cleared
-        let effective_bits = PositiveInt::EFFECTIVE_BITS as usize;
-        let wrapped_shift = other % effective_bits;
-        let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
-        assert_eq!(int << wrapped_shift, wrapped_result);
-        assert_eq!(&int << wrapped_shift, wrapped_result);
-        assert_eq!(int << (&wrapped_shift), wrapped_result);
-        assert_eq!(&int << (&wrapped_shift), wrapped_result);
-        tmp = int;
-        tmp <<= wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-        tmp = int;
-        tmp <<= &wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-
-        // Overflowing left shift should panic or wraparound
-        let overflown_shift = other.saturating_add(effective_bits);
-        assert_debug_panics(|| int << overflown_shift, wrapped_result);
-        assert_debug_panics(|| &int << overflown_shift, wrapped_result);
-        assert_debug_panics(|| int << (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &int << (&overflown_shift), wrapped_result);
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp <<= overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp <<= &overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-
-        // Non-overflowing right shift can pass through
-        let wrapped_result = PositiveInt(int.0 >> wrapped_shift);
-        assert_eq!(int >> wrapped_shift, wrapped_result);
-        assert_eq!(&int >> wrapped_shift, wrapped_result);
-        assert_eq!(int >> (&wrapped_shift), wrapped_result);
-        assert_eq!(&int >> (&wrapped_shift), wrapped_result);
-        tmp = int;
-        tmp >>= wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-        tmp = int;
-        tmp >>= &wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-
-        // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| int >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| &int >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| int >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &int >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp >>= overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp >>= &overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-
-        // Check RangeFrom-like PositiveInt iterator in strided pattern
-        let actual = PositiveInt::iter_range_from(int);
-        let expected = (int.0)..;
-        let remaining_iters = usize::from(PositiveInt::MAX - int);
-        let max_stride = remaining_iters / INFINITE_ITERS;
-        let stride = other % max_stride;
-        compare_iters_infinite(actual, |i| i.nth(stride), expected, |i| i.nth(stride));
-    }
-
-    /// Test int-isize binary operations
-    #[quickcheck]
-    fn int_isize(int: PositiveInt, other: isize) {
-        // Addition
-        let (expected_wrapped, expected_overflow) =
-            predict_overflowing_result(int, other, usize::overflowing_add_signed);
-        let (wrapped, overflow) = test_overflowing(
-            int,
-            other,
-            PositiveInt::checked_add_signed,
-            PositiveInt::overflowing_add_signed,
-            PositiveInt::wrapping_add_signed,
-            [
-                Box::new(|int, other| int + other),
-                Box::new(|int, other| other + int),
-                Box::new(|int, other| &int + other),
-                Box::new(|int, other| other + &int),
-                Box::new(|int, other| int + &other),
-                Box::new(|int, other| &other + int),
-                Box::new(|int, other| &int + &other),
-                Box::new(|int, other| &other + &int),
-                Box::new(|mut int, other| {
-                    int += other;
-                    int
-                }),
-                Box::new(|mut int, other| {
-                    int += &other;
-                    int
-                }),
-            ],
-        );
-        assert_eq!(wrapped, expected_wrapped);
-        assert_eq!(overflow, expected_overflow);
-        if overflow {
-            if other > 0 {
-                assert_eq!(int.saturating_add_signed(other), PositiveInt::MAX);
+        /// Test an overflowing operation, produce the overflowing result for verification
+        fn test_overflowing<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
+            int: PositiveInt,
+            rhs: Rhs,
+            checked_op: impl Fn(PositiveInt, Rhs) -> Option<PositiveInt>,
+            overflowing_op: impl Fn(PositiveInt, Rhs) -> (PositiveInt, bool),
+            wrapping_op: impl Fn(PositiveInt, Rhs) -> PositiveInt,
+            faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
+        ) -> Result<(PositiveInt, bool), TestCaseError> {
+            let overflowing_result = overflowing_op(int, rhs);
+            let (wrapped_result, overflow) = overflowing_result;
+            prop_assert_eq!(wrapping_op(int, rhs), wrapped_result);
+            let checked_result =
+                test_faillible(int, rhs, checked_op, faillible_ops, Some(wrapped_result))?;
+            if overflow {
+                prop_assert_eq!(checked_result, None);
             } else {
-                assert_eq!(int.saturating_add_signed(other), PositiveInt::MIN);
+                prop_assert_eq!(checked_result, Some(wrapped_result));
             }
-        } else {
-            assert_eq!(int.saturating_add_signed(other), wrapped);
+            Ok(overflowing_result)
         }
 
-        // Subtraction
-        let (wrapped, overflow) = if other == isize::MIN {
-            predict_overflowing_result(
-                int,
-                // iN::MIN is -(1 << (iN::BITS - 1)
-                // e.g. i8::MIN is -(1 << (8 - 1)) = -(1 << 7).
-                1usize << (isize::BITS - 1),
-                usize::overflowing_sub,
-            )
-        } else {
-            predict_overflowing_result(int, -other, usize::overflowing_add_signed)
-        };
-        if overflow {
-            assert_debug_panics(|| int - other, wrapped);
-            assert_debug_panics(|| &int - other, wrapped);
-            assert_debug_panics(|| int - &other, wrapped);
-            assert_debug_panics(|| &int - &other, wrapped);
-            assert_debug_panics(
-                || {
-                    let mut tmp = int;
-                    tmp -= other;
-                    tmp
-                },
-                wrapped,
-            );
-            assert_debug_panics(
-                || {
-                    let mut tmp = int;
-                    tmp -= &other;
-                    tmp
-                },
-                wrapped,
-            );
-        } else {
-            assert_eq!(int - other, wrapped);
-            assert_eq!(&int - other, wrapped);
-            assert_eq!(int - &other, wrapped);
-            assert_eq!(&int - &other, wrapped);
-            let mut tmp = int;
-            tmp -= other;
-            assert_eq!(tmp, wrapped);
-            tmp = int;
-            tmp -= &other;
-            assert_eq!(tmp, wrapped);
+        /// Predict the result of an overflowing [`PositiveInt`] operation from the
+        /// result of the equivalent overflowing usize operation.
+        fn predict_overflowing_result<IntRhs, UsizeRhs: From<IntRhs>>(
+            i1: PositiveInt,
+            i2: IntRhs,
+            usize_op: fn(usize, UsizeRhs) -> (usize, bool),
+        ) -> (PositiveInt, bool) {
+            let used_bits_usize = (1usize << PositiveInt::EFFECTIVE_BITS) - 1;
+            let max_usize = usize::from(PositiveInt::MAX);
+            let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), UsizeRhs::from(i2));
+            let expected_wrapped = PositiveInt::try_from(wrapped_usize & used_bits_usize).unwrap();
+            let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
+            (expected_wrapped, expected_overflow)
         }
 
-        // Non-overflowing left shift must keep high-order bit cleared
-        let effective_bits = isize::try_from(PositiveInt::EFFECTIVE_BITS).unwrap();
-        let wrapped_shift = other.rem_euclid(effective_bits);
-        let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
-        assert_eq!(int << wrapped_shift, wrapped_result);
-        assert_eq!(&int << wrapped_shift, wrapped_result);
-        assert_eq!(int << (&wrapped_shift), wrapped_result);
-        assert_eq!(&int << (&wrapped_shift), wrapped_result);
-        let mut tmp = int;
-        tmp <<= wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-        tmp = int;
-        tmp <<= &wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
+        /// Test int-int binary operations
+        #[test]
+        fn int_int(i1: PositiveInt, i2: PositiveInt) {
+            // Ordering passes through
+            prop_assert_eq!(i1 == i2, i1.0 == i2.0);
+            prop_assert_eq!(i1.cmp(&i2), i1.0.cmp(&i2.0));
 
-        // Overflowing left shift should panic or wraparound
-        let overflown_shift = other.saturating_add(effective_bits);
-        assert_debug_panics(|| int << overflown_shift, wrapped_result);
-        assert_debug_panics(|| &int << overflown_shift, wrapped_result);
-        assert_debug_panics(|| int << (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &int << (&overflown_shift), wrapped_result);
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp <<= overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp <<= &overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
+            // Bitwise AND passes through (no risk of setting high-order bit)
+            let expected = PositiveInt(i1.0 & i2.0);
+            prop_assert_eq!(i1 & i2, expected);
+            prop_assert_eq!(&i1 & i2, expected);
+            prop_assert_eq!(i1 & (&i2), expected);
+            prop_assert_eq!(&i1 & (&i2), expected);
+            let mut tmp = i1;
+            tmp &= i2;
+            prop_assert_eq!(tmp, expected);
+            tmp = i1;
+            tmp &= &i2;
+            prop_assert_eq!(tmp, expected);
 
-        // Non-overflowing right shift must keep high-order bit cleared as well
-        // (with signed operands, a shift of -EFFECTIVE_BITS is possible!)
-        let wrapped_result = PositiveInt((int.0 >> wrapped_shift) & PositiveInt::MAX.0);
-        assert_eq!(int >> wrapped_shift, wrapped_result);
-        assert_eq!(&int >> wrapped_shift, wrapped_result);
-        assert_eq!(int >> (&wrapped_shift), wrapped_result);
-        assert_eq!(&int >> (&wrapped_shift), wrapped_result);
-        tmp = int;
-        tmp >>= wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
-        tmp = int;
-        tmp >>= &wrapped_shift;
-        assert_eq!(tmp, wrapped_result);
+            // Bitwise OR passes through (no risk of setting high-order bit)
+            let expected = PositiveInt(i1.0 | i2.0);
+            prop_assert_eq!(i1 | i2, expected);
+            prop_assert_eq!(&i1 | i2, expected);
+            prop_assert_eq!(i1 | (&i2), expected);
+            prop_assert_eq!(&i1 | (&i2), expected);
+            tmp = i1;
+            tmp |= i2;
+            prop_assert_eq!(tmp, expected);
+            tmp = i1;
+            tmp |= &i2;
+            prop_assert_eq!(tmp, expected);
 
-        // Overflowing right shift should panic or wraparound
-        assert_debug_panics(|| int >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| &int >> overflown_shift, wrapped_result);
-        assert_debug_panics(|| int >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(|| &int >> (&overflown_shift), wrapped_result);
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp >>= overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-        assert_debug_panics(
-            || {
-                let mut tmp = int;
-                tmp >>= &overflown_shift;
-                tmp
-            },
-            wrapped_result,
-        );
-    }
+            // Bitwise XOR passes through (no risk of setting high-order bit)
+            let expected = PositiveInt(i1.0 ^ i2.0);
+            prop_assert_eq!(i1 ^ i2, expected);
+            prop_assert_eq!(&i1 ^ i2, expected);
+            prop_assert_eq!(i1 ^ (&i2), expected);
+            prop_assert_eq!(&i1 ^ (&i2), expected);
+            let mut tmp = i1;
+            tmp ^= i2;
+            prop_assert_eq!(tmp, expected);
+            tmp = i1;
+            tmp ^= &i2;
+            prop_assert_eq!(tmp, expected);
 
-    /// Test int-int-usize ternary operations
-    #[quickcheck]
-    fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: usize) {
-        // Check Range-like PositiveInt iterator in strided pattern
-        let actual = PositiveInt::iter_range(i1, i2);
-        let expected = (i1.0)..(i2.0);
-        compare_iters_finite(
-            actual.clone(),
-            |i| i.nth(step),
-            expected.clone(),
-            |i| i.nth(step),
-        );
-        compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step));
+            // Addition
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(i1, i2, usize::overflowing_add);
+            let (wrapped, overflow) = test_overflowing(
+                i1,
+                i2,
+                PositiveInt::checked_add,
+                PositiveInt::overflowing_add,
+                PositiveInt::wrapping_add,
+                [
+                    Box::new(|i1, i2| i1 + i2),
+                    Box::new(|i1, i2| &i1 + i2),
+                    Box::new(|i1, i2| i1 + &i2),
+                    Box::new(|i1, i2| &i1 + &i2),
+                    Box::new(|mut i1, i2| {
+                        i1 += i2;
+                        i1
+                    }),
+                    Box::new(|mut i1, i2| {
+                        i1 += &i2;
+                        i1
+                    }),
+                ],
+            )?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert_eq!(overflow, expected_overflow);
+            if overflow {
+                prop_assert_eq!(i1.saturating_add(i2), PositiveInt::MAX);
+            } else {
+                prop_assert_eq!(i1.saturating_add(i2), wrapped);
+            }
 
-        // Check RangeInclusive-like PositiveInt iterator in strided pattern
-        let actual = PositiveInt::iter_range_inclusive(i1, i2);
-        let expected = (i1.0)..=(i2.0);
-        compare_iters_finite(
-            actual.clone(),
-            |i| i.nth(step),
-            expected.clone(),
-            |i| i.nth(step),
-        );
-        compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step));
-    }
+            // Subtraction
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(i1, i2, usize::overflowing_sub);
+            let (wrapped, overflow) = test_overflowing(
+                i1,
+                i2,
+                PositiveInt::checked_sub,
+                PositiveInt::overflowing_sub,
+                PositiveInt::wrapping_sub,
+                [
+                    Box::new(|i1, i2| i1 - i2),
+                    Box::new(|i1, i2| &i1 - i2),
+                    Box::new(|i1, i2| i1 - &i2),
+                    Box::new(|i1, i2| &i1 - &i2),
+                    Box::new(|mut i1, i2| {
+                        i1 -= i2;
+                        i1
+                    }),
+                    Box::new(|mut i1, i2| {
+                        i1 -= &i2;
+                        i1
+                    }),
+                ],
+            )?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert_eq!(overflow, expected_overflow);
+            if overflow {
+                prop_assert_eq!(i1.saturating_sub(i2), PositiveInt::MIN);
+            } else {
+                prop_assert_eq!(i1.saturating_sub(i2), wrapped);
+            }
 
-    /// Test iterator reductions
-    #[allow(clippy::redundant_closure_for_method_calls)]
-    #[quickcheck]
-    fn reductions(ints: Vec<PositiveInt>) {
-        use std::iter::Copied;
-        type IntRefIter<'a> = std::slice::Iter<'a, PositiveInt>;
+            // Absolute difference
+            prop_assert_eq!(i1.abs_diff(i2), PositiveInt(i1.0.abs_diff(i2.0)));
 
-        fn test_reduction(
-            ints: &[PositiveInt],
-            neutral: PositiveInt,
-            overflowing_op: impl Fn(PositiveInt, PositiveInt) -> (PositiveInt, bool),
-            reduce_by_ref: impl Fn(IntRefIter<'_>) -> PositiveInt + RefUnwindSafe,
-            reduce_by_value: impl Fn(Copied<IntRefIter<'_>>) -> PositiveInt + RefUnwindSafe,
-        ) {
-            // Perform reduction using the overflowing operator
-            let (wrapping_result, overflow) = ints.iter().copied().fold(
-                (neutral, false),
-                |(wrapping_acc, prev_overflow), elem| {
-                    let (wrapping_acc, new_overflow) = overflowing_op(wrapping_acc, elem);
-                    (wrapping_acc, prev_overflow || new_overflow)
-                },
-            );
+            // Multiplication
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(i1, i2, usize::overflowing_mul);
+            let (wrapped, overflow) = test_overflowing(
+                i1,
+                i2,
+                PositiveInt::checked_mul,
+                PositiveInt::overflowing_mul,
+                PositiveInt::wrapping_mul,
+                [
+                    Box::new(|i1, i2| i1 * i2),
+                    Box::new(|i1, i2| &i1 * i2),
+                    Box::new(|i1, i2| i1 * &i2),
+                    Box::new(|i1, i2| &i1 * &i2),
+                    Box::new(|mut i1, i2| {
+                        i1 *= i2;
+                        i1
+                    }),
+                    Box::new(|mut i1, i2| {
+                        i1 *= &i2;
+                        i1
+                    }),
+                ],
+            )?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert_eq!(overflow, expected_overflow);
+            if overflow {
+                prop_assert_eq!(i1.saturating_mul(i2), PositiveInt::MAX);
+            } else {
+                prop_assert_eq!(i1.saturating_mul(i2), wrapped);
+            }
 
-            // Test the standard reductions accordingly
-            let reductions: [&(dyn Fn() -> PositiveInt + RefUnwindSafe); 2] =
-                [&|| reduce_by_ref(ints.iter()), &|| {
-                    reduce_by_value(ints.iter().copied())
-                }];
-            for reduction in reductions {
-                if overflow {
-                    assert_debug_panics(reduction, wrapping_result);
-                } else {
-                    assert_eq!(reduction(), wrapping_result);
+            // Division and remainder by nonzero (zero case tested in unary tests)
+            {
+                // Division
+                let nonzero = i2.saturating_add(PositiveInt::ONE);
+                let (expected_wrapped, expected_overflow) =
+                    predict_overflowing_result(i1, nonzero, usize::overflowing_div);
+                let res1 = test_overflowing(
+                    i1,
+                    nonzero,
+                    PositiveInt::checked_div,
+                    PositiveInt::overflowing_div,
+                    PositiveInt::wrapping_div,
+                    [
+                        Box::new(|i1, nonzero| i1 / nonzero),
+                        Box::new(|i1, nonzero| &i1 / nonzero),
+                        Box::new(|i1, nonzero| i1 / &nonzero),
+                        Box::new(|i1, nonzero| &i1 / &nonzero),
+                        Box::new(|mut i1, nonzero| {
+                            i1 /= nonzero;
+                            i1
+                        }),
+                        Box::new(|mut i1, nonzero| {
+                            i1 /= &nonzero;
+                            i1
+                        }),
+                    ],
+                )?;
+                let res2 = test_overflowing(
+                    i1,
+                    nonzero,
+                    PositiveInt::checked_div_euclid,
+                    PositiveInt::overflowing_div_euclid,
+                    PositiveInt::wrapping_div_euclid,
+                    [Box::new(PositiveInt::div_euclid)],
+                )?;
+                prop_assert_eq!(i1.saturating_div(nonzero), expected_wrapped);
+                for (wrapped, overflow) in [res1, res2] {
+                    prop_assert_eq!(wrapped, expected_wrapped);
+                    prop_assert_eq!(overflow, expected_overflow);
+                }
+
+                // Remainder
+                let (expected_wrapped, expected_overflow) =
+                    predict_overflowing_result(i1, nonzero, usize::overflowing_rem);
+                let res1 = test_overflowing(
+                    i1,
+                    nonzero,
+                    PositiveInt::checked_rem,
+                    PositiveInt::overflowing_rem,
+                    PositiveInt::wrapping_rem,
+                    [
+                        Box::new(|i1, nonzero| i1 % nonzero),
+                        Box::new(|i1, nonzero| &i1 % nonzero),
+                        Box::new(|i1, nonzero| i1 % &nonzero),
+                        Box::new(|i1, nonzero| &i1 % &nonzero),
+                        Box::new(|mut i1, nonzero| {
+                            i1 %= nonzero;
+                            i1
+                        }),
+                        Box::new(|mut i1, nonzero| {
+                            i1 %= &nonzero;
+                            i1
+                        }),
+                    ],
+                )?;
+                let res2 = test_overflowing(
+                    i1,
+                    nonzero,
+                    PositiveInt::checked_rem_euclid,
+                    PositiveInt::overflowing_rem_euclid,
+                    PositiveInt::wrapping_rem_euclid,
+                    [Box::new(PositiveInt::rem_euclid)],
+                )?;
+                for (wrapped, overflow) in [res1, res2] {
+                    prop_assert_eq!(wrapped, expected_wrapped);
+                    prop_assert_eq!(overflow, expected_overflow);
                 }
             }
+
+            // Checked logarithm
+            {
+                // Should succeed for a number >= 0 with a basis >= 2
+                let number_above0 = i1.saturating_add(PositiveInt::ONE);
+                let base_above2 = i2.saturating_add(PositiveInt(2));
+                let expected = number_above0.0.ilog(base_above2.0);
+                prop_assert_eq!(number_above0.ilog(base_above2), expected);
+                prop_assert_eq!(number_above0.checked_ilog(base_above2), Some(expected));
+
+                // Should fail if the basis is below 2
+                let base_below2 = i2 % 2;
+                assert_panics(|| PositiveInt::ZERO.ilog(base_below2))?;
+                prop_assert_eq!(PositiveInt::ZERO.checked_ilog(base_below2), None);
+            }
+
+            // Non-overflowing left shift must keep high-order bit cleared
+            #[allow(trivial_numeric_casts)]
+            let effective_bits = PositiveInt(PositiveInt::EFFECTIVE_BITS as c_uint);
+            let wrapped_shift = i2 % effective_bits;
+            let wrapped_result = PositiveInt((i1.0 << wrapped_shift.0) & PositiveInt::MAX.0);
+            prop_assert_eq!(i1 << wrapped_shift, wrapped_result);
+            prop_assert_eq!(&i1 << wrapped_shift, wrapped_result);
+            prop_assert_eq!(i1 << (&wrapped_shift), wrapped_result);
+            prop_assert_eq!(&i1 << (&wrapped_shift), wrapped_result);
+            tmp = i1;
+            tmp <<= wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+            tmp = i1;
+            tmp <<= &wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+
+            // Overflowing left shift should panic or wraparound
+            let overflown_shift = i2.saturating_add(effective_bits);
+            assert_debug_panics(|| i1 << overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| &i1 << overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| i1 << (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(|| &i1 << (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = i1;
+                    tmp <<= overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = i1;
+                    tmp <<= &overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+
+            // Non-overflowing right shift can pass through
+            let wrapped_result = PositiveInt(i1.0 >> wrapped_shift.0);
+            prop_assert_eq!(i1 >> wrapped_shift, wrapped_result);
+            prop_assert_eq!(&i1 >> wrapped_shift, wrapped_result);
+            prop_assert_eq!(i1 >> (&wrapped_shift), wrapped_result);
+            prop_assert_eq!(&i1 >> (&wrapped_shift), wrapped_result);
+            tmp = i1;
+            tmp >>= wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+            tmp = i1;
+            tmp >>= &wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+
+            // Overflowing right shift should panic or wraparound
+            assert_debug_panics(|| i1 >> overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| &i1 >> overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| i1 >> (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(|| &i1 >> (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = i1;
+                    tmp >>= overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = i1;
+                    tmp >>= &overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+
+            // Check Range-like PositiveInt iterator
+            let actual = PositiveInt::iter_range(i1, i2);
+            let expected = (i1.0)..(i2.0);
+            prop_assert_eq!(actual.len(), expected.len());
+            prop_assert_eq!(actual.size_hint(), expected.size_hint());
+            prop_assert_eq!(actual.clone().count(), expected.len());
+            prop_assert_eq!(
+                actual.clone().last(),
+                expected.clone().last().map(PositiveInt)
+            );
+            compare_iters_finite(
+                actual.clone(),
+                Iterator::next,
+                expected.clone(),
+                Iterator::next,
+            )?;
+            compare_iters_finite(
+                actual,
+                DoubleEndedIterator::next_back,
+                expected,
+                DoubleEndedIterator::next_back,
+            )?;
+
+            // Check RangeInclusive-like PositiveInt iterator
+            let actual = PositiveInt::iter_range_inclusive(i1, i2);
+            let expected = (i1.0)..=(i2.0);
+            prop_assert_eq!(actual.len(), expected.clone().count());
+            prop_assert_eq!(actual.size_hint(), expected.size_hint());
+            prop_assert_eq!(actual.clone().count(), expected.clone().count());
+            prop_assert_eq!(
+                actual.clone().last(),
+                expected.clone().last().map(PositiveInt)
+            );
+            compare_iters_finite(
+                actual.clone(),
+                Iterator::next,
+                expected.clone(),
+                Iterator::next,
+            )?;
+            compare_iters_finite(
+                actual,
+                DoubleEndedIterator::next_back,
+                expected,
+                DoubleEndedIterator::next_back,
+            )?;
         }
 
-        test_reduction(
-            &ints,
-            PositiveInt::ZERO,
-            PositiveInt::overflowing_add,
-            |ref_iter| ref_iter.sum::<PositiveInt>(),
-            |value_iter| value_iter.sum::<PositiveInt>(),
-        );
-        test_reduction(
-            &ints,
-            PositiveInt::ONE,
-            PositiveInt::overflowing_mul,
-            |ref_iter| ref_iter.product::<PositiveInt>(),
-            |value_iter| value_iter.product::<PositiveInt>(),
-        );
+        /// Test int-u32 binary operations
+        #[test]
+        fn int_u32(int: PositiveInt, rhs: u32) {
+            // Elevation to an integer power
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(int, rhs, usize::overflowing_pow);
+            let (wrapped, overflow) = test_overflowing(
+                int,
+                rhs,
+                PositiveInt::checked_pow,
+                PositiveInt::overflowing_pow,
+                PositiveInt::wrapping_pow,
+                [Box::new(PositiveInt::pow)],
+            )?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert_eq!(overflow, expected_overflow);
+            if overflow {
+                prop_assert_eq!(int.saturating_pow(rhs), PositiveInt::MAX);
+            } else {
+                prop_assert_eq!(int.saturating_pow(rhs), wrapped);
+            }
+
+            // Non-overflowing left shift
+            let test_left_shift = |rhs| {
+                test_overflowing(
+                    int,
+                    rhs,
+                    PositiveInt::checked_shl,
+                    PositiveInt::overflowing_shl,
+                    PositiveInt::wrapping_shl,
+                    [
+                        Box::new(|int, rhs| int << rhs),
+                        Box::new(|int, rhs| &int << rhs),
+                        Box::new(|int, rhs| int << &rhs),
+                        Box::new(|int, rhs| &int << &rhs),
+                        Box::new(|mut int, rhs| {
+                            int <<= rhs;
+                            int
+                        }),
+                        Box::new(|mut int, rhs| {
+                            int <<= &rhs;
+                            int
+                        }),
+                    ],
+                )
+            };
+            let wrapped_shift = rhs % PositiveInt::EFFECTIVE_BITS;
+            let expected_wrapped = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
+            let (wrapped, overflow) = test_left_shift(wrapped_shift)?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert!(!overflow);
+
+            // Overflowing left shift
+            let overflown_shift = rhs.saturating_add(PositiveInt::EFFECTIVE_BITS);
+            let (wrapped, overflow) = test_left_shift(overflown_shift)?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert!(overflow);
+
+            // Non-overflowing right shift
+            let test_right_shift = |rhs| {
+                test_overflowing(
+                    int,
+                    rhs,
+                    PositiveInt::checked_shr,
+                    PositiveInt::overflowing_shr,
+                    PositiveInt::wrapping_shr,
+                    [
+                        Box::new(|int, rhs| int >> rhs),
+                        Box::new(|int, rhs| &int >> rhs),
+                        Box::new(|int, rhs| int >> &rhs),
+                        Box::new(|int, rhs| &int >> &rhs),
+                        Box::new(|mut int, rhs| {
+                            int >>= rhs;
+                            int
+                        }),
+                        Box::new(|mut int, rhs| {
+                            int >>= &rhs;
+                            int
+                        }),
+                    ],
+                )
+            };
+            let expected_wrapped = PositiveInt(int.0 >> wrapped_shift);
+            let (wrapped, overflow) = test_right_shift(wrapped_shift)?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert!(!overflow);
+
+            // Overflowing right shift
+            let (wrapped, overflow) = test_right_shift(overflown_shift)?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert!(overflow);
+
+            // Rotate can be expressed in terms of shifts and binary ops
+            prop_assert_eq!(
+                int.rotate_left(rhs),
+                (int << wrapped_shift) | int.wrapping_shr(PositiveInt::EFFECTIVE_BITS - wrapped_shift)
+            );
+            prop_assert_eq!(
+                int.rotate_right(rhs),
+                (int >> wrapped_shift) | int.wrapping_shl(PositiveInt::EFFECTIVE_BITS - wrapped_shift)
+            );
+        }
+
+        /// Test int-usize binary operations
+        #[test]
+        fn int_usize(int: PositiveInt, other: usize) {
+            // Ordering passes through
+            prop_assert_eq!(int == other, usize::from(int) == other);
+            prop_assert_eq!(
+                int.partial_cmp(&other),
+                usize::from(int).partial_cmp(&other)
+            );
+            prop_assert_eq!(other == int, other == usize::from(int));
+            prop_assert_eq!(
+                other.partial_cmp(&int),
+                other.partial_cmp(&usize::from(int))
+            );
+
+            // Bitwise AND passes through (no risk of setting high-order bit)
+            #[allow(clippy::cast_possible_truncation)]
+            let expected = PositiveInt(int.0 & (other as c_uint));
+            prop_assert_eq!(int & other, expected);
+            prop_assert_eq!(other & int, expected);
+            prop_assert_eq!(&int & other, expected);
+            prop_assert_eq!(&other & int, expected);
+            prop_assert_eq!(int & (&other), expected);
+            prop_assert_eq!(other & (&int), expected);
+            prop_assert_eq!(&int & (&other), expected);
+            prop_assert_eq!(&other & (&int), expected);
+            let mut tmp = int;
+            tmp &= other;
+            prop_assert_eq!(tmp, expected);
+            tmp = int;
+            tmp &= &other;
+            prop_assert_eq!(tmp, expected);
+
+            // Non-overflowing bitwise OR
+            let small_other = other & usize::from(PositiveInt::MAX);
+            let small_other_unsigned = c_uint::try_from(small_other).unwrap();
+            let expected = PositiveInt(int.0 | small_other_unsigned);
+            prop_assert_eq!(int | small_other, expected);
+            prop_assert_eq!(small_other | int, expected);
+            prop_assert_eq!(&int | small_other, expected);
+            prop_assert_eq!(small_other | &int, expected);
+            prop_assert_eq!(int | &small_other, expected);
+            prop_assert_eq!(&small_other | int, expected);
+            prop_assert_eq!(&int | &small_other, expected);
+            prop_assert_eq!(&small_other | &int, expected);
+            tmp = int;
+            tmp |= small_other;
+            prop_assert_eq!(tmp, expected);
+            tmp = int;
+            tmp |= &small_other;
+            prop_assert_eq!(tmp, expected);
+
+            // Overflowing bitwise OR
+            let first_large_bit = 1usize << PositiveInt::EFFECTIVE_BITS;
+            let mut large_other = other;
+            if other < first_large_bit {
+                large_other |= first_large_bit
+            };
+            assert_debug_panics(|| int | large_other, expected)?;
+            assert_debug_panics(|| large_other | int, expected)?;
+            assert_debug_panics(|| &int | large_other, expected)?;
+            assert_debug_panics(|| large_other | &int, expected)?;
+            assert_debug_panics(|| int | &large_other, expected)?;
+            assert_debug_panics(|| &large_other | int, expected)?;
+            assert_debug_panics(|| &int | &large_other, expected)?;
+            assert_debug_panics(|| &large_other | &int, expected)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp |= large_other;
+                    tmp
+                },
+                expected,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp |= &large_other;
+                    tmp
+                },
+                expected,
+            )?;
+
+            // Non-overflowing bitwise XOR
+            let expected = PositiveInt(int.0 ^ small_other_unsigned);
+            prop_assert_eq!(int ^ small_other, expected);
+            prop_assert_eq!(small_other ^ int, expected);
+            prop_assert_eq!(&int ^ small_other, expected);
+            prop_assert_eq!(small_other ^ &int, expected);
+            prop_assert_eq!(int ^ &small_other, expected);
+            prop_assert_eq!(&small_other ^ int, expected);
+            prop_assert_eq!(&int ^ &small_other, expected);
+            prop_assert_eq!(&small_other ^ &int, expected);
+            tmp = int;
+            tmp ^= small_other;
+            prop_assert_eq!(tmp, expected);
+            tmp = int;
+            tmp ^= &small_other;
+            prop_assert_eq!(tmp, expected);
+
+            // Overflowing bitwise XOR
+            assert_debug_panics(|| int ^ large_other, expected)?;
+            assert_debug_panics(|| large_other ^ int, expected)?;
+            assert_debug_panics(|| &int ^ large_other, expected)?;
+            assert_debug_panics(|| large_other ^ &int, expected)?;
+            assert_debug_panics(|| int ^ &large_other, expected)?;
+            assert_debug_panics(|| &large_other ^ int, expected)?;
+            assert_debug_panics(|| &int ^ &large_other, expected)?;
+            assert_debug_panics(|| &large_other ^ &int, expected)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp ^= large_other;
+                    tmp
+                },
+                expected,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp ^= &large_other;
+                    tmp
+                },
+                expected,
+            )?;
+
+            // Multiplication by an usize in PositiveInt range works as usual
+            let small_other_int = PositiveInt::try_from(small_other).unwrap();
+            let (wrapped, overflow) = int.overflowing_mul(small_other_int);
+            if overflow {
+                assert_debug_panics(|| int * small_other, wrapped)?;
+                assert_debug_panics(|| small_other * int, wrapped)?;
+                assert_debug_panics(|| &int * small_other, wrapped)?;
+                assert_debug_panics(|| small_other * (&int), wrapped)?;
+                assert_debug_panics(|| int * (&small_other), wrapped)?;
+                assert_debug_panics(|| &small_other * int, wrapped)?;
+                assert_debug_panics(|| &int * (&small_other), wrapped)?;
+                assert_debug_panics(|| &small_other * (&int), wrapped)?;
+                assert_debug_panics(
+                    || {
+                        let mut tmp = int;
+                        tmp *= small_other;
+                        tmp
+                    },
+                    wrapped,
+                )?;
+                assert_debug_panics(
+                    || {
+                        let mut tmp = int;
+                        tmp *= &small_other;
+                        tmp
+                    },
+                    wrapped,
+                )?;
+            } else {
+                prop_assert_eq!(int * small_other, wrapped);
+                prop_assert_eq!(small_other * int, wrapped);
+                prop_assert_eq!(&int * small_other, wrapped);
+                prop_assert_eq!(small_other * (&int), wrapped);
+                prop_assert_eq!(int * (&small_other), wrapped);
+                prop_assert_eq!(&small_other * int, wrapped);
+                prop_assert_eq!(&int * (&small_other), wrapped);
+                prop_assert_eq!(&small_other * (&int), wrapped);
+                tmp = int;
+                tmp *= small_other;
+                prop_assert_eq!(tmp, wrapped);
+                tmp = int;
+                tmp *= &small_other;
+                prop_assert_eq!(tmp, wrapped);
+            }
+
+            // Multiplication by an out-of-range usize fails for all ints but
+            // zero (which is tested elsewhere)
+            let zero = PositiveInt::ZERO;
+            if int != zero {
+                assert_debug_panics(|| int * large_other, wrapped)?;
+                assert_debug_panics(|| large_other * int, wrapped)?;
+                assert_debug_panics(|| &int * large_other, wrapped)?;
+                assert_debug_panics(|| large_other * (&int), wrapped)?;
+                assert_debug_panics(|| int * (&large_other), wrapped)?;
+                assert_debug_panics(|| &large_other * int, wrapped)?;
+                assert_debug_panics(|| &int * (&large_other), wrapped)?;
+                assert_debug_panics(|| &large_other * (&int), wrapped)?;
+                assert_debug_panics(
+                    || {
+                        let mut tmp = int;
+                        tmp *= large_other;
+                        tmp
+                    },
+                    wrapped,
+                )?;
+                assert_debug_panics(
+                    || {
+                        let mut tmp = int;
+                        tmp *= &large_other;
+                        tmp
+                    },
+                    wrapped,
+                )?;
+            }
+
+            // Division by an in-range nonzero usize passes through
+            if other != 0 {
+                let expected = int / small_other_int;
+                prop_assert_eq!(int / small_other, expected);
+                prop_assert_eq!(&int / small_other, expected);
+                prop_assert_eq!(int / &small_other, expected);
+                prop_assert_eq!(&int / &small_other, expected);
+                tmp = int;
+                tmp /= small_other;
+                prop_assert_eq!(tmp, expected);
+                tmp = int;
+                tmp /= &small_other;
+                prop_assert_eq!(tmp, expected);
+            }
+
+            // Division by an out-of-range usize always returns zero
+            prop_assert_eq!(int / large_other, zero);
+            prop_assert_eq!(&int / large_other, zero);
+            prop_assert_eq!(int / &large_other, zero);
+            prop_assert_eq!(&int / &large_other, zero);
+            tmp = int;
+            tmp /= large_other;
+            prop_assert_eq!(tmp, zero);
+            tmp = int;
+            tmp /= &large_other;
+            prop_assert_eq!(tmp, zero);
+
+            // Remainder from an in-range nonzero usize passes through
+            if other != 0 {
+                let expected = int % small_other_int;
+                prop_assert_eq!(int % small_other, expected);
+                prop_assert_eq!(&int % small_other, expected);
+                prop_assert_eq!(int % &small_other, expected);
+                prop_assert_eq!(&int % &small_other, expected);
+                tmp = int;
+                tmp %= small_other;
+                prop_assert_eq!(tmp, expected);
+                tmp = int;
+                tmp %= &small_other;
+                prop_assert_eq!(tmp, expected);
+            }
+
+            // Remainder from an out-of-range usize is identity
+            prop_assert_eq!(int % large_other, int);
+            prop_assert_eq!(&int % large_other, int);
+            prop_assert_eq!(int % &large_other, int);
+            prop_assert_eq!(&int % &large_other, int);
+            tmp = int;
+            tmp %= large_other;
+            prop_assert_eq!(tmp, int);
+            tmp = int;
+            tmp %= &large_other;
+            prop_assert_eq!(tmp, int);
+
+            // Non-overflowing left shift must keep high-order bit cleared
+            let effective_bits = PositiveInt::EFFECTIVE_BITS as usize;
+            let wrapped_shift = other % effective_bits;
+            let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
+            prop_assert_eq!(int << wrapped_shift, wrapped_result);
+            prop_assert_eq!(&int << wrapped_shift, wrapped_result);
+            prop_assert_eq!(int << (&wrapped_shift), wrapped_result);
+            prop_assert_eq!(&int << (&wrapped_shift), wrapped_result);
+            tmp = int;
+            tmp <<= wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+            tmp = int;
+            tmp <<= &wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+
+            // Overflowing left shift should panic or wraparound
+            let overflown_shift = other.saturating_add(effective_bits);
+            assert_debug_panics(|| int << overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| &int << overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| int << (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(|| &int << (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp <<= overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp <<= &overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+
+            // Non-overflowing right shift can pass through
+            let wrapped_result = PositiveInt(int.0 >> wrapped_shift);
+            prop_assert_eq!(int >> wrapped_shift, wrapped_result);
+            prop_assert_eq!(&int >> wrapped_shift, wrapped_result);
+            prop_assert_eq!(int >> (&wrapped_shift), wrapped_result);
+            prop_assert_eq!(&int >> (&wrapped_shift), wrapped_result);
+            tmp = int;
+            tmp >>= wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+            tmp = int;
+            tmp >>= &wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+
+            // Overflowing right shift should panic or wraparound
+            assert_debug_panics(|| int >> overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| &int >> overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| int >> (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(|| &int >> (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp >>= overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp >>= &overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+
+            // Check RangeFrom-like PositiveInt iterator in strided pattern
+            let actual = PositiveInt::iter_range_from(int);
+            let expected = (int.0)..;
+            let remaining_iters = usize::from(PositiveInt::MAX - int);
+            let max_stride = remaining_iters / INFINITE_ITERS;
+            let stride = other % max_stride;
+            compare_iters_infinite(actual, |i| i.nth(stride), expected, |i| i.nth(stride))?;
+        }
+
+        /// Test int-isize binary operations
+        #[test]
+        fn int_isize(int: PositiveInt, other: isize) {
+            // Addition
+            let (expected_wrapped, expected_overflow) =
+                predict_overflowing_result(int, other, usize::overflowing_add_signed);
+            let (wrapped, overflow) = test_overflowing(
+                int,
+                other,
+                PositiveInt::checked_add_signed,
+                PositiveInt::overflowing_add_signed,
+                PositiveInt::wrapping_add_signed,
+                [
+                    Box::new(|int, other| int + other),
+                    Box::new(|int, other| other + int),
+                    Box::new(|int, other| &int + other),
+                    Box::new(|int, other| other + &int),
+                    Box::new(|int, other| int + &other),
+                    Box::new(|int, other| &other + int),
+                    Box::new(|int, other| &int + &other),
+                    Box::new(|int, other| &other + &int),
+                    Box::new(|mut int, other| {
+                        int += other;
+                        int
+                    }),
+                    Box::new(|mut int, other| {
+                        int += &other;
+                        int
+                    }),
+                ],
+            )?;
+            prop_assert_eq!(wrapped, expected_wrapped);
+            prop_assert_eq!(overflow, expected_overflow);
+            if overflow {
+                if other > 0 {
+                    prop_assert_eq!(int.saturating_add_signed(other), PositiveInt::MAX);
+                } else {
+                    prop_assert_eq!(int.saturating_add_signed(other), PositiveInt::MIN);
+                }
+            } else {
+                prop_assert_eq!(int.saturating_add_signed(other), wrapped);
+            }
+
+            // Subtraction
+            let (wrapped, overflow) = if other == isize::MIN {
+                predict_overflowing_result(
+                    int,
+                    // iN::MIN is -(1 << (iN::BITS - 1)
+                    // e.g. i8::MIN is -(1 << (8 - 1)) = -(1 << 7).
+                    1usize << (isize::BITS - 1),
+                    usize::overflowing_sub,
+                )
+            } else {
+                predict_overflowing_result(int, -other, usize::overflowing_add_signed)
+            };
+            if overflow {
+                assert_debug_panics(|| int - other, wrapped)?;
+                assert_debug_panics(|| &int - other, wrapped)?;
+                assert_debug_panics(|| int - &other, wrapped)?;
+                assert_debug_panics(|| &int - &other, wrapped)?;
+                assert_debug_panics(
+                    || {
+                        let mut tmp = int;
+                        tmp -= other;
+                        tmp
+                    },
+                    wrapped,
+                )?;
+                assert_debug_panics(
+                    || {
+                        let mut tmp = int;
+                        tmp -= &other;
+                        tmp
+                    },
+                    wrapped,
+                )?;
+            } else {
+                prop_assert_eq!(int - other, wrapped);
+                prop_assert_eq!(&int - other, wrapped);
+                prop_assert_eq!(int - &other, wrapped);
+                prop_assert_eq!(&int - &other, wrapped);
+                let mut tmp = int;
+                tmp -= other;
+                prop_assert_eq!(tmp, wrapped);
+                tmp = int;
+                tmp -= &other;
+                prop_assert_eq!(tmp, wrapped);
+            }
+
+            // Non-overflowing left shift must keep high-order bit cleared
+            let effective_bits = isize::try_from(PositiveInt::EFFECTIVE_BITS).unwrap();
+            let wrapped_shift = other.rem_euclid(effective_bits);
+            let wrapped_result = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
+            prop_assert_eq!(int << wrapped_shift, wrapped_result);
+            prop_assert_eq!(&int << wrapped_shift, wrapped_result);
+            prop_assert_eq!(int << (&wrapped_shift), wrapped_result);
+            prop_assert_eq!(&int << (&wrapped_shift), wrapped_result);
+            let mut tmp = int;
+            tmp <<= wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+            tmp = int;
+            tmp <<= &wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+
+            // Overflowing left shift should panic or wraparound
+            let overflown_shift = other.saturating_add(effective_bits);
+            assert_debug_panics(|| int << overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| &int << overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| int << (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(|| &int << (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp <<= overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp <<= &overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+
+            // Non-overflowing right shift must keep high-order bit cleared as well
+            // (with signed operands, a shift of -EFFECTIVE_BITS is possible!)
+            let wrapped_result = PositiveInt((int.0 >> wrapped_shift) & PositiveInt::MAX.0);
+            prop_assert_eq!(int >> wrapped_shift, wrapped_result);
+            prop_assert_eq!(&int >> wrapped_shift, wrapped_result);
+            prop_assert_eq!(int >> (&wrapped_shift), wrapped_result);
+            prop_assert_eq!(&int >> (&wrapped_shift), wrapped_result);
+            tmp = int;
+            tmp >>= wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+            tmp = int;
+            tmp >>= &wrapped_shift;
+            prop_assert_eq!(tmp, wrapped_result);
+
+            // Overflowing right shift should panic or wraparound
+            assert_debug_panics(|| int >> overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| &int >> overflown_shift, wrapped_result)?;
+            assert_debug_panics(|| int >> (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(|| &int >> (&overflown_shift), wrapped_result)?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp >>= overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+            assert_debug_panics(
+                || {
+                    let mut tmp = int;
+                    tmp >>= &overflown_shift;
+                    tmp
+                },
+                wrapped_result,
+            )?;
+        }
+
+        /// Test int-int-usize ternary operations
+        #[test]
+        fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: usize) {
+            // Check Range-like PositiveInt iterator in strided pattern
+            let actual = PositiveInt::iter_range(i1, i2);
+            let expected = (i1.0)..(i2.0);
+            compare_iters_finite(
+                actual.clone(),
+                |i| i.nth(step),
+                expected.clone(),
+                |i| i.nth(step),
+            )?;
+            compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step))?;
+
+            // Check RangeInclusive-like PositiveInt iterator in strided pattern
+            let actual = PositiveInt::iter_range_inclusive(i1, i2);
+            let expected = (i1.0)..=(i2.0);
+            compare_iters_finite(
+                actual.clone(),
+                |i| i.nth(step),
+                expected.clone(),
+                |i| i.nth(step),
+            )?;
+            compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step))?;
+        }
+
+        /// Test iterator reductions
+        #[allow(clippy::redundant_closure_for_method_calls)]
+        #[test]
+        fn reductions(ints: Vec<PositiveInt>) {
+            use std::iter::Copied;
+            type IntRefIter<'a> = std::slice::Iter<'a, PositiveInt>;
+
+            fn test_reduction(
+                ints: &[PositiveInt],
+                neutral: PositiveInt,
+                overflowing_op: impl Fn(PositiveInt, PositiveInt) -> (PositiveInt, bool),
+                reduce_by_ref: impl Fn(IntRefIter<'_>) -> PositiveInt + RefUnwindSafe,
+                reduce_by_value: impl Fn(Copied<IntRefIter<'_>>) -> PositiveInt + RefUnwindSafe,
+            ) -> Result<(), TestCaseError> {
+                // Perform reduction using the overflowing operator
+                let (wrapping_result, overflow) = ints.iter().copied().fold(
+                    (neutral, false),
+                    |(wrapping_acc, prev_overflow), elem| {
+                        let (wrapping_acc, new_overflow) = overflowing_op(wrapping_acc, elem);
+                        (wrapping_acc, prev_overflow || new_overflow)
+                    },
+                );
+
+                // Test the standard reductions accordingly
+                let reductions: [&(dyn Fn() -> PositiveInt + RefUnwindSafe); 2] =
+                    [&|| reduce_by_ref(ints.iter()), &|| {
+                        reduce_by_value(ints.iter().copied())
+                    }];
+                for reduction in reductions {
+                    if overflow {
+                        assert_debug_panics(reduction, wrapping_result)?;
+                    } else {
+                        prop_assert_eq!(reduction(), wrapping_result);
+                    }
+                }
+                Ok(())
+            }
+
+            test_reduction(
+                &ints,
+                PositiveInt::ZERO,
+                PositiveInt::overflowing_add,
+                |ref_iter| ref_iter.sum::<PositiveInt>(),
+                |value_iter| value_iter.sum::<PositiveInt>(),
+            )?;
+            test_reduction(
+                &ints,
+                PositiveInt::ONE,
+                PositiveInt::overflowing_mul,
+                |ref_iter| ref_iter.product::<PositiveInt>(),
+                |value_iter| value_iter.product::<PositiveInt>(),
+            )?;
+        }
     }
 }
