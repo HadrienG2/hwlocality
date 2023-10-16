@@ -488,7 +488,7 @@ mod tests {
                 });
                 prop_assert_eq!(errno::errno(), start_errno);
                 Ok(res)
-            })?;
+            });
 
             // Interpret results
             match output {
@@ -496,13 +496,13 @@ mod tests {
                     unwind_result.expect_err("Should panic on -1");
                 }
                 -1 => prop_assert_eq!(
-                    unwind_result.unwrap(),
+                    unwind_result.unwrap()?,
                     Err(RawHwlocError {
                         api,
                         errno: Some(new_errno)
                     })
                 ),
-                positive => prop_assert_eq!(unwind_result.unwrap(), Ok(u32::try_from(positive).unwrap())),
+                positive => prop_assert_eq!(unwind_result.unwrap()?, Ok(u32::try_from(positive).unwrap())),
             }
         }
 
@@ -623,20 +623,20 @@ mod tests {
                     output
                 });
                 prop_assert_eq!(errno::errno(), start_errno);
-                res
+                Ok(res)
             });
 
             // Interpret outcome
             match output {
                 -1 => prop_assert_eq!(
-                    unwind_result.unwrap(),
+                    unwind_result.unwrap()?,
                     Err(RawHwlocError {
                         api,
                         errno: Some(new_errno)
                     })
                 ),
-                0 => prop_assert_eq!(unwind_result.unwrap(), Ok(false)),
-                1 => prop_assert_eq!(unwind_result.unwrap(), Ok(true)),
+                0 => prop_assert_eq!(unwind_result.unwrap()?, Ok(false)),
+                1 => prop_assert_eq!(unwind_result.unwrap()?, Ok(true)),
                 _ => {
                     unwind_result.expect_err("Should panic on non-bool output");
                 }

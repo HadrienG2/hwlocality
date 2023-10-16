@@ -61,14 +61,14 @@ pub enum BridgeType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for BridgeType {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }
@@ -95,14 +95,14 @@ pub enum CacheType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for CacheType {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }
@@ -163,14 +163,14 @@ pub enum OSDeviceType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for OSDeviceType {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }
@@ -494,14 +494,14 @@ impl ObjectType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for ObjectType {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }
@@ -599,7 +599,7 @@ mod tests {
 
         #[test]
         fn unary_type(ty: ObjectType) {
-            fn check_any_type(ty: ObjectType) {
+            fn check_any_type(ty: ObjectType) -> Result<(), TestCaseError> {
                 prop_assert_eq!(
                     [
                         ty.is_normal(),
@@ -618,21 +618,25 @@ mod tests {
                     ty.is_cpu_data_cache() || ty.is_cpu_instruction_cache()
                 );
                 prop_assert!(!(ty.is_cpu_data_cache() && ty.is_cpu_instruction_cache()));
+                Ok(())
             }
-            fn check_normal(ty: ObjectType) {
-                check_any_type(ty);
+            fn check_normal(ty: ObjectType) -> Result<(), TestCaseError> {
+                check_any_type(ty)?;
                 prop_assert!(ty.is_normal());
                 prop_assert_eq!(ty.is_leaf(), ty == ObjectType::PU);
+                Ok(())
             }
-            fn check_memory(ty: ObjectType) {
-                check_any_type(ty);
+            fn check_memory(ty: ObjectType) -> Result<(), TestCaseError> {
+                check_any_type(ty)?;
                 prop_assert!(ty.is_memory());
                 prop_assert_eq!(ty.is_leaf(), ty == ObjectType::NUMANode);
+                Ok(())
             }
-            fn check_io(ty: ObjectType) {
-                check_any_type(ty);
+            fn check_io(ty: ObjectType) -> Result<(), TestCaseError> {
+                check_any_type(ty)?;
                 prop_assert!(ty.is_io());
                 prop_assert!(!ty.is_leaf());
+                Ok(())
             }
             match ty {
                 ObjectType::Machine
@@ -640,7 +644,7 @@ mod tests {
                 | ObjectType::Core
                 | ObjectType::Group
                 | ObjectType::PU => {
-                    check_normal(ty);
+                    check_normal(ty)?;
                     prop_assert!(!ty.is_cpu_cache());
                 }
                 ObjectType::L1Cache
@@ -648,24 +652,24 @@ mod tests {
                 | ObjectType::L3Cache
                 | ObjectType::L4Cache
                 | ObjectType::L5Cache => {
-                    check_normal(ty);
+                    check_normal(ty)?;
                     prop_assert!(ty.is_cpu_data_cache());
                 }
                 ObjectType::L1ICache | ObjectType::L2ICache | ObjectType::L3ICache => {
-                    check_normal(ty);
+                    check_normal(ty)?;
                     prop_assert!(ty.is_cpu_instruction_cache());
                 }
-                ObjectType::NUMANode => check_memory(ty),
-                ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty),
+                ObjectType::NUMANode => check_memory(ty)?,
+                ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty)?,
                 ObjectType::Misc => {
-                    check_any_type(ty);
+                    check_any_type(ty)?;
                     prop_assert!(!ty.is_leaf());
                 }
                 #[cfg(feature = "hwloc-2_1_0")]
-                ObjectType::MemCache => check_memory(ty),
+                ObjectType::MemCache => check_memory(ty)?,
                 #[cfg(feature = "hwloc-2_1_0")]
                 ObjectType::Die => {
-                    check_normal(ty);
+                    check_normal(ty)?;
                     prop_assert!(!ty.is_cpu_cache());
                 }
             }

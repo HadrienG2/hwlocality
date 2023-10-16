@@ -139,6 +139,7 @@ impl Arbitrary for SyntheticExportFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_topology_export_synthetic_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_topology_export_synthetic_flags_e::arbitrary_with(args)
+            .prop_map(Self::from_bits_truncate)
     }
 }

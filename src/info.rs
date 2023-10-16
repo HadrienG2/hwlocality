@@ -158,8 +158,8 @@ mod tests {
             // Check high-level accessors
             let name_c = CString::new(name.as_ref()).unwrap();
             let value_c = CString::new(value.as_ref()).unwrap();
-            prop_assert_eq!(CString::from(info.name()), name_c);
-            prop_assert_eq!(CString::from(info.value()), value_c);
+            prop_assert_eq!(&CString::from(info.name()), &name_c);
+            prop_assert_eq!(&CString::from(info.value()), &value_c);
             prop_assert_eq!(
                 format!("{info:#?}"),
                 format!(

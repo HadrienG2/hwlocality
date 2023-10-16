@@ -32,6 +32,8 @@ use crate::{
     ffi::string::LibcString,
 };
 use bitflags::bitflags;
+#[cfg(all(feature = "hwloc-2_5_0", any(test, feature = "proptest")))]
+use enum_iterator::Sequence;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
 use hwlocality_sys::{
@@ -547,7 +549,7 @@ impl Arbitrary for AddDistancesFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_distances_add_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_distances_add_flag_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 
@@ -1452,13 +1454,13 @@ impl Arbitrary for DistancesKind {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_distances_kind_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_distances_kind_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg_attr(any(test, feature = "proptest"), derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(
     Copy,
     Clone,
@@ -1527,14 +1529,14 @@ pub enum DistancesTransform {
 #[cfg(feature = "hwloc-2_5_0")]
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for DistancesTransform {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }

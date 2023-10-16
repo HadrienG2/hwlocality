@@ -458,18 +458,19 @@ impl Arbitrary for CacheAssociativity {
     type Parameters = ();
     type Strategy = prop::sample::Select<Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): ()) -> Self::Strategy {
         // Bias RNG to ensure reasonably uniform variant coverage
-        prop::sample::select(
-            &[
-                Self::Unknown,
-                Self::Full,
-                Self::Ways(NonZeroUsize::MIN),
-                Self::Ways(NonZeroUsize::new(2).expect("not zero")),
-                Self::Ways(NonZeroUsize::new(usize::MAX - 1).expect("not zero")),
-                Self::Ways(NonZeroUsize::MAX),
-            ][..],
-        )
+        static VARIANTS: &[CacheAssociativity] = &[
+            CacheAssociativity::Unknown,
+            CacheAssociativity::Full,
+            CacheAssociativity::Ways(NonZeroUsize::MIN),
+            // SAFETY: Greater than zero
+            CacheAssociativity::Ways(unsafe { NonZeroUsize::new_unchecked(2) }),
+            // SAFETY: Greater than zero
+            CacheAssociativity::Ways(unsafe { NonZeroUsize::new_unchecked(usize::MAX - 1) }),
+            CacheAssociativity::Ways(NonZeroUsize::MAX),
+        ];
+        prop::sample::select(VARIANTS)
     }
 }
 //
@@ -1026,8 +1027,7 @@ impl Arbitrary for OSDeviceAttributes {
         fn(hwlocality_sys::hwloc_obj_osdev_type_t) -> Self,
     >;
 
-    #[allow(unused)]
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): ()) -> Self::Strategy {
         // Bias RNG to ensure reasonable coverage of valid device types
         use hwlocality_sys::hwloc_obj_osdev_type_t;
         let num_valid_device_types = enum_iterator::all::<OSDeviceType>()
@@ -1200,10 +1200,11 @@ mod tests {
     );
 
     #[test]
-    fn default() {
-        check_any_numa(&NUMANodeAttributes::default());
-        check_any_group(&GroupAttributes::default());
-        check_any_pci(&PCIDeviceAttributes::default());
+    fn default() -> Result<(), TestCaseError> {
+        check_any_numa(&NUMANodeAttributes::default())?;
+        check_any_group(&GroupAttributes::default())?;
+        check_any_pci(&PCIDeviceAttributes::default())?;
+        Ok(())
     }
 
     proptest! {
@@ -1224,7 +1225,7 @@ mod tests {
                 numa_attr
             };
             prop_assert_eq!(numa_attr.local_memory(), NonZeroU64::new(local_memory));
-            check_any_numa(&numa_attr);
+            check_any_numa(&numa_attr)?;
 
             let mut raw = hwloc_obj_attr_u { numa: numa_attr.0 };
             let ptr: *mut hwloc_obj_attr_u = &mut raw;
@@ -1245,7 +1246,7 @@ mod tests {
     proptest! {
         #[test]
         fn unary_cache(ty in cpu_cache_type(), cache_attr: CacheAttributes) {
-            check_any_cache(&cache_attr);
+            check_any_cache(&cache_attr)?;
             let mut raw = hwloc_obj_attr_u {
                 cache: cache_attr.0,
             };
@@ -1261,7 +1262,7 @@ mod tests {
 
         #[test]
         fn unary_group(group_attr: GroupAttributes) {
-            check_any_group(&group_attr);
+            check_any_group(&group_attr)?;
             let mut raw = hwloc_obj_attr_u {
                 group: group_attr.0,
             };
@@ -1277,7 +1278,7 @@ mod tests {
 
         #[test]
         fn unary_pci(pcidev_attr: PCIDeviceAttributes) {
-            check_any_pci(&pcidev_attr);
+            check_any_pci(&pcidev_attr)?;
             let mut raw = hwloc_obj_attr_u {
                 pcidev: pcidev_attr.0,
             };
@@ -1293,7 +1294,7 @@ mod tests {
 
         #[test]
         fn unary_bridge(bridge_attr: BridgeAttributes) {
-            check_any_bridge(&bridge_attr);
+            check_any_bridge(&bridge_attr)?;
             let mut raw = hwloc_obj_attr_u {
                 bridge: bridge_attr.0,
             };
@@ -1309,7 +1310,7 @@ mod tests {
 
         #[test]
         fn unary_osdev(osdev_attr: OSDeviceAttributes) {
-            check_any_osdev(&osdev_attr);
+            check_any_osdev(&osdev_attr)?;
             let mut raw = hwloc_obj_attr_u {
                 osdev: osdev_attr.0,
             };
@@ -1859,6 +1860,7 @@ mod tests {
         #[allow(clippy::option_if_let_else)]
         let upstream_dbg = if let Ok(upstream_type) = BridgeType::try_from(upstream_type) {
             prop_assert_eq!(attr.upstream_type(), upstream_type);
+            #[allow(clippy::single_match_else)]
             match attr.upstream_attributes() {
                 Some(UpstreamAttributes::PCI(pci)) => {
                     prop_assert_eq!(upstream_type, BridgeType::PCI);
@@ -1866,7 +1868,7 @@ mod tests {
                     // SAFETY: We must assume correct union tagging here
                     let expected_ptr: *const hwloc_pcidev_attr_s = unsafe { &attr.0.upstream.pci };
                     prop_assert_eq!(actual_ptr, expected_ptr);
-                    check_any_pci(pci);
+                    check_any_pci(pci)?;
                 }
                 None => prop_assert_ne!(upstream_type, BridgeType::PCI),
             }
@@ -1890,6 +1892,7 @@ mod tests {
             let downstream_type_dbg = format!("downstream_type: {downstream_type:?}");
             match downstream_type {
                 BridgeType::PCI => {
+                    #[allow(clippy::single_match_else)]
                     match attr.downstream_attributes() {
                         Some(DownstreamAttributes::PCI(downstream)) => {
                             let actual_ptr: *const RawDownstreamPCIAttributes =
@@ -1898,7 +1901,7 @@ mod tests {
                             // SAFETY: We must assume correct union tagging here
                             unsafe { &attr.0.downstream.pci };
                             prop_assert_eq!(actual_ptr, expected_ptr);
-                            check_any_downstream_pci(downstream);
+                            check_any_downstream_pci(downstream)?;
                             format!(
                                 "{downstream_type_dbg}, downstream_attributes: {:?}",
                                 attr.downstream_attributes()
@@ -2086,7 +2089,6 @@ mod tests {
         if let Some([parent, child]) = parent_child_attr {
             if !std::ptr::eq(bridge1, bridge2) {
                 prop_assert!(parent.depth() < child.depth());
-                unreachable!()
             }
         }
 

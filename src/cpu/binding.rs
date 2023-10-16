@@ -754,7 +754,7 @@ impl Arbitrary for CpuBindingFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_cpubind_flags_t::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_cpubind_flags_t::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 

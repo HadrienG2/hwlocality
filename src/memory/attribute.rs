@@ -1483,7 +1483,7 @@ impl Arbitrary for LocalNUMANodeFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_local_numanode_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_local_numanode_flag_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 
@@ -1608,6 +1608,6 @@ impl Arbitrary for MemoryAttributeFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_memattr_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_memattr_flag_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }

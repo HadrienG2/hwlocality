@@ -119,7 +119,7 @@ impl Arbitrary for LibcString {
     type Parameters = <String as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Perturb<
         <String as Arbitrary>::Strategy,
-        fn(String, prop::test_runner::TestRng) -> LibcString,
+        fn(String, prop::test_runner::TestRng) -> Self,
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
@@ -134,7 +134,7 @@ impl Arbitrary for LibcString {
                     }
                 })
                 .collect::<String>();
-            LibcString::new(s).unwrap()
+            Self::new(s).expect("input was sanitized above, can't fail")
         })
     }
 }
@@ -242,9 +242,9 @@ mod tests {
             // Test basic properties
             prop_assert_eq!(c.len(), s.len() + 1);
             // SAFETY: Safe as a type invariant of LibcString
-            prop_assert_eq!(unsafe { CStr::from_ptr(c.borrow()) }.to_str().unwrap(), s);
-            prop_assert_eq!(c.as_ref(), s);
-            prop_assert_eq!(c.to_string(), s);
+            prop_assert_eq!(unsafe { CStr::from_ptr(c.borrow()) }.to_str().unwrap(), &s);
+            prop_assert_eq!(c.as_ref(), &s);
+            prop_assert_eq!(&c.to_string(), &s);
             prop_assert_eq!(format!("{c:?}"), format!("{s:?}"));
 
             // Test cloning

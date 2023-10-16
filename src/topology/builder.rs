@@ -874,7 +874,7 @@ impl Arbitrary for BuildFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_topology_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_topology_flags_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 
@@ -941,14 +941,14 @@ pub enum TypeFilter {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for TypeFilter {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }
@@ -1113,8 +1113,11 @@ pub(crate) mod tests {
     // NOTE: While this doesn't match the documentation of hwloc v2.9 at the
     //       time of writing, an hwloc maintainer confirmed it's correct:
     //       https://github.com/open-mpi/hwloc/issues/622#issuecomment-1753130738
-    pub(crate) fn default_type_filter(object_type: ObjectType) -> TypeFilter {
-        match object_type {
+    #[allow(clippy::unnecessary_wraps)]
+    pub(crate) fn default_type_filter(
+        object_type: ObjectType,
+    ) -> Result<TypeFilter, TestCaseError> {
+        let res = match object_type {
             ObjectType::Group => TypeFilter::KeepStructure,
             ObjectType::Misc => TypeFilter::KeepNone,
             #[cfg(feature = "hwloc-2_1_0")]
@@ -1123,7 +1126,8 @@ pub(crate) mod tests {
             #[cfg(feature = "hwloc-2_1_0")]
             ObjectType::Die => TypeFilter::KeepAll,
             _ => TypeFilter::KeepAll,
-        }
+        };
+        Ok(res)
     }
 
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1137,7 +1141,7 @@ pub(crate) mod tests {
         topology: &Topology,
         data_source: DataSource,
         build_flags: BuildFlags,
-        type_filter: impl Fn(ObjectType) -> TypeFilter,
+        type_filter: impl Fn(ObjectType) -> Result<TypeFilter, TestCaseError>,
     ) -> Result<(), TestCaseError> {
         prop_assert_eq!(format!("{:p}", *topology), format!("{:p}", topology.0));
         prop_assert!(topology.is_abi_compatible());
@@ -1151,7 +1155,7 @@ pub(crate) mod tests {
         for object_type in enum_iterator::all::<ObjectType>() {
             prop_assert_eq!(
                 topology.type_filter(object_type),
-                Ok(type_filter(object_type)),
+                Ok(type_filter(object_type)?),
                 "Unexpected filtering for objects of type {}",
                 object_type
             );
@@ -1198,17 +1202,18 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    fn check_default_builder(builder: &TopologyBuilder) {
+    fn check_default_builder(builder: &TopologyBuilder) -> Result<(), TestCaseError> {
         assert_eq!(format!("{:p}", *builder), format!("{:p}", builder.0));
         assert_eq!(builder.flags(), BuildFlags::default());
         for object_type in enum_iterator::all::<ObjectType>() {
             assert_eq!(
                 builder.type_filter(object_type),
-                Ok(default_type_filter(object_type)),
+                Ok(default_type_filter(object_type)?),
                 "Unexpected filtering for objects of type {}",
                 object_type
             );
         }
+        Ok(())
     }
 
     /// Test the various hwlocality-exposed ways to get a topology builder and a
@@ -1221,7 +1226,7 @@ pub(crate) mod tests {
             TopologyBuilder::new(),
             TopologyBuilder::default(),
         ] {
-            check_default_builder(&default_builder);
+            check_default_builder(&default_builder)?;
             default_topologies.push(default_builder.build().unwrap());
         }
         for topology in &default_topologies {
@@ -1257,7 +1262,7 @@ pub(crate) mod tests {
         Ok(builder_opt)
     }
 
-    /// BuildFlags that are guaranteed to be valid
+    /// [`BuildFlags`] that are guaranteed to be valid
     fn valid_build_flags() -> impl Strategy<Value = BuildFlags> {
         any::<BuildFlags>().prop_filter(
             "This test only makes sense with valid build flags",
@@ -1295,11 +1300,11 @@ pub(crate) mod tests {
         fn from_pid(build_flags in valid_build_flags()) {
             // Attempt to configure a builder to get data from a certain process
             let builder_from_pid =
-                |pid: ProcessId| Ok(builder_with_flags(build_flags)?.unwrap().from_pid(pid));
+                |pid: ProcessId| Ok::<_, TestCaseError>(builder_with_flags(build_flags)?.unwrap().from_pid(pid));
 
             // Expect readout from a certain pid to fail
             let expect_fail = |pid: ProcessId| {
-                match builder_from_pid(pid) {
+                match builder_from_pid(pid)? {
                     Ok(builder) => {
                         // Not validating PID early is acceptable due to TOCTOU race
                         builder
@@ -1345,7 +1350,7 @@ pub(crate) mod tests {
         fn from_synthetic(build_flags in valid_build_flags()) {
             // Attempt to configure a builder from a Synthetic string
             let builder_from_synthetic =
-                |synthetic: &str| Ok(builder_with_flags(build_flags)?.unwrap().from_synthetic(synthetic));
+                |synthetic: &str| Ok::<_, TestCaseError>(builder_with_flags(build_flags)?.unwrap().from_synthetic(synthetic));
 
             // Try building from an invalid string with an inner NUL
             prop_assert!(matches!(
@@ -1380,7 +1385,7 @@ pub(crate) mod tests {
                 DataSource::Synthetic,
                 build_flags,
                 default_type_filter,
-            );
+            )?;
 
             // Object counts can't be right if allowed resources are queried from
             // this system, since we're nothing like that synthetic topology
@@ -1423,9 +1428,9 @@ pub(crate) mod tests {
             }
 
             // Use a default-built topology as our reference
-            let default = builder_with_flags(build_flags).unwrap().build().unwrap();
+            let default = builder_with_flags(build_flags)?.unwrap().build().unwrap();
             let check_xml_topology = |topology: &Topology| {
-                check_topology(topology, DataSource::Xml, build_flags, default_type_filter);
+                check_topology(topology, DataSource::Xml, build_flags, default_type_filter)?;
                 for object_type in enum_iterator::all::<ObjectType>() {
                     prop_assert_eq!(
                         topology.objects_with_type(object_type).count(),
@@ -1439,7 +1444,7 @@ pub(crate) mod tests {
             // Test round trip through in-memory XML buffer
             {
                 let xml = default.export_xml(XMLExportFlags::default()).unwrap();
-                let topology = builder_with_flags(build_flags)
+                let topology = builder_with_flags(build_flags)?
                     .unwrap()
                     .from_xml(&xml)
                     .unwrap()
@@ -1454,7 +1459,7 @@ pub(crate) mod tests {
                 default
                     .export_xml_file(Some(&path), XMLExportFlags::default())
                     .unwrap();
-                let topology = builder_with_flags(build_flags)
+                let topology = builder_with_flags(build_flags)?
                     .unwrap()
                     .from_xml_file(path)
                     .unwrap()
@@ -1500,9 +1505,9 @@ pub(crate) mod tests {
                     if ty == object_type {
                         // Important is equivalent to All for Non-IO objects
                         if filter == TypeFilter::KeepImportant && !ty.is_io() {
-                            TypeFilter::KeepAll
+                            Ok(TypeFilter::KeepAll)
                         } else {
-                            filter
+                            Ok(filter)
                         }
                     } else {
                         default_type_filter(ty)
@@ -1533,7 +1538,7 @@ pub(crate) mod tests {
                     || [ObjectType::Machine, ObjectType::PU, ObjectType::NUMANode].contains(&ty)
                     || (filter == TypeFilter::KeepStructure && (ty.is_io() || ty == ObjectType::Misc))
                 {
-                    default_type_filter(ty)
+                    default_type_filter(ty)?
                 } else if filter == TypeFilter::KeepImportant && !ty.is_io() {
                     let actual = topology.type_filter(ty).unwrap();
                     prop_assert!([TypeFilter::KeepAll, TypeFilter::KeepImportant].contains(&actual));
@@ -1565,9 +1570,9 @@ pub(crate) mod tests {
             let predicted_filter = |ty: ObjectType| {
                 if ty.is_cpu_cache() {
                     if filter == TypeFilter::KeepImportant {
-                        TypeFilter::KeepAll
+                        Ok(TypeFilter::KeepAll)
                     } else {
-                        filter
+                        Ok(filter)
                     }
                 } else {
                     default_type_filter(ty)
@@ -1596,9 +1601,9 @@ pub(crate) mod tests {
             let predicted_filter = |ty: ObjectType| {
                 if ty.is_cpu_instruction_cache() {
                     if filter == TypeFilter::KeepImportant {
-                        TypeFilter::KeepAll
+                        Ok(TypeFilter::KeepAll)
                     } else {
-                        filter
+                        Ok(filter)
                     }
                 } else {
                     default_type_filter(ty)
@@ -1628,7 +1633,7 @@ pub(crate) mod tests {
                 let topology = result.unwrap().build().unwrap();
                 let predicted_filter = |ty: ObjectType| {
                     if ty.is_io() {
-                        filter
+                        Ok(filter)
                     } else {
                         default_type_filter(ty)
                     }
@@ -1659,7 +1664,7 @@ pub(crate) mod tests {
                 DataSource::ThisSystem,
                 build_flags,
                 default_type_filter,
-            );
+            )?;
         }
     }
 }

@@ -1230,7 +1230,7 @@ impl Arbitrary for MemoryBindingFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_membind_flags_t::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_membind_flags_t::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 //
@@ -1353,14 +1353,14 @@ pub enum MemoryBindingPolicy {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for MemoryBindingPolicy {
-    type Parameters = <usize as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        usize::arbitrary_with(args).map(|idx| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        (0..Self::CARDINALITY).prop_map(|idx| {
             enum_iterator::all::<Self>()
-                .nth(idx % Self::CARDINALITY)
-                .expect("Per above modulo, this cannot happen")
+                .nth(idx)
+                .expect("idx is in range by definition")
         })
     }
 }

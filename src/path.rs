@@ -81,15 +81,14 @@ mod tests {
         #[test]
         fn make_hwloc_path(path: PathBuf) {
             let res = super::make_hwloc_path(&path);
-            match path.to_str() {
-                Some(s) => {
-                    if s.contains('\0') {
-                        prop_assert_eq!(res, Err(PathError::ContainsNul));
-                    } else {
-                        prop_assert_eq!(res.as_ref().map(AsRef::as_ref), Ok(s));
-                    }
+            if let Some(s) = path.to_str() {
+                if s.contains('\0') {
+                    prop_assert_eq!(res, Err(PathError::ContainsNul));
+                } else {
+                    prop_assert_eq!(res.as_ref().map(AsRef::as_ref), Ok(s));
                 }
-                None => prop_assert_eq!(res, Err(PathError::NotUnicode)),
+            } else {
+                prop_assert_eq!(res, Err(PathError::NotUnicode))
             }
         }
     }

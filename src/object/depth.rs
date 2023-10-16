@@ -151,11 +151,11 @@ impl Arbitrary for Depth {
     type Parameters = <(NormalDepth, bool) as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
         <(NormalDepth, bool) as Arbitrary>::Strategy,
-        fn((NormalDepth, bool)) -> Depth,
+        fn((NormalDepth, bool)) -> Self,
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        <(NormalDepth, bool)>::arbitrary_with(args).map(|(normal_depth, is_normal)| {
+        <(NormalDepth, bool)>::arbitrary_with(args).prop_map(|(normal_depth, is_normal)| {
             if is_normal {
                 Self::Normal(normal_depth)
             } else {
@@ -343,8 +343,6 @@ mod tests {
         fn unary(depth: Depth) {
             // A depth is either normal or virtual
             prop_assert!(matches!(depth, Depth::Normal(_)) || Depth::VIRTUAL_DEPTHS.contains(&depth));
-            prop_assert_eq!(depth.clone(), depth);
-
             if let Depth::Normal(normal) = depth {
                 prop_assert_eq!(depth.to_string(), normal.to_string());
                 prop_assert_eq!(NormalDepth::try_from(depth), Ok(normal));
@@ -380,7 +378,8 @@ mod tests {
         fn from_raw(value: hwloc_get_type_depth_e) {
             let depth_res = Depth::from_raw(value);
             if value >= 0 {
-                prop_assert_eq!(depth_res, Ok(usize::try_from(value).unwrap()));
+                prop_assert!(depth_res.is_ok());
+                prop_assert_eq!(depth_res.unwrap(), usize::try_from(value).unwrap());
             } else if value == HWLOC_TYPE_DEPTH_UNKNOWN {
                 prop_assert_eq!(depth_res, Err(TypeToDepthError::Nonexistent));
             } else if value == HWLOC_TYPE_DEPTH_MULTIPLE {

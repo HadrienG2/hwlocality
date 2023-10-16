@@ -591,7 +591,7 @@ impl Arbitrary for DistributeFlags {
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_distrib_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
+        hwloc_distrib_flags_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
     }
 }
 //
@@ -973,7 +973,7 @@ unsafe impl Sync for Topology {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
+    use crate::{bitmap::BitmapIndex, ffi::PositiveInt, topology::builder::tests::DataSource};
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
@@ -1029,7 +1029,7 @@ mod tests {
     }
 
     #[test]
-    fn clone() {
+    fn clone() -> Result<(), TestCaseError> {
         let topology = Topology::test_instance();
         let clone = topology.clone();
         assert_ne!(format!("{:p}", *topology), format!("{clone:p}"));
@@ -1037,15 +1037,18 @@ mod tests {
             topology,
             DataSource::ThisSystem,
             topology.build_flags(),
-            |ty| topology.type_filter(ty).unwrap(),
-        );
+            |ty| Ok(topology.type_filter(ty).unwrap()),
+        )?;
         assert!(!topology.contains(clone.root_object()));
+        Ok(())
     }
 
-    /// Bias the max_depth input to `distribute_items` tests so that interesting
-    /// depth values below the maximum possible depth are sampled often enough
-    fn max_depth() -> impl Strategy<Value = usize> {
-        0..(2 * Topology::test_instance().depth())
+    /// Bias the `max_depth` input to `distribute_items` tests so that
+    /// interesting depth values below the maximum possible depth are sampled
+    /// often enough
+    fn max_depth() -> impl Strategy<Value = NormalDepth> {
+        (0..(2 * usize::from(Topology::test_instance().depth())))
+            .prop_map(|us| NormalDepth::try_from(us).unwrap())
     }
 
     proptest! {
@@ -1076,7 +1079,7 @@ mod tests {
         let overlapping_ordered_roots = topology
             .objects_with_type(ObjectType::PU)
             .map(|pu| {
-                (0..pu.ancestors().count()).prop_map(|depth| pu.ancestors.nth(depth).unwrap())
+                (0..pu.ancestors().count()).prop_map(|depth| pu.ancestors().nth(depth).unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -1093,7 +1096,7 @@ mod tests {
             let mut new_roots = Vec::new();
             let mut covered_cpuset = CpuSet::new();
             for (_depth, root) in roots_of_increasing_depth {
-                let root_cpuset = root.cpuset.unwrap();
+                let root_cpuset = root.cpuset().unwrap();
                 if !covered_cpuset.includes(root_cpuset) {
                     assert!(!covered_cpuset.intersects(root_cpuset));
                     new_roots.push(root);
@@ -1116,7 +1119,7 @@ mod tests {
             flags: DistributeFlags,
         ) {
             prop_assert_eq!(
-                Topology::test_instance().distribute_items(&disjoint_roots.0, 0, max_depth, flags),
+                Topology::test_instance().distribute_items(&disjoint_roots, 0, max_depth, flags),
                 Ok(Vec::new())
             );
         }
@@ -1271,7 +1274,7 @@ mod tests {
     /// To the random input provided by `disjoint_roots`, add an extra root that
     /// overlaps with the existing ones
     fn overlapping_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
-        disjoint_roots().prop_flat_map(|mut disjoint_roots| {
+        disjoint_roots().prop_flat_map(|disjoint_roots| {
             // Randomly pick a CPU in the set covered by the disjoint roots, and
             // find the smallest hwloc object (normally a PU) that covers it.
             // This will be used to check distribute_items's handling of
@@ -1283,13 +1286,16 @@ mod tests {
             });
             let overlapping_pu = (0..full_set.weight().unwrap()).prop_map(|cpu_idx| {
                 topology
-                    .smallest_object_covering_cpuset(&CpuSet::from(cpu_idx))
+                    .smallest_object_covering_cpuset(&CpuSet::from(
+                        BitmapIndex::try_from(cpu_idx).unwrap(),
+                    ))
                     .unwrap()
             });
 
             // Insert this overlapping object at a random position
-            (overlapping_pu, 0..disjoint_roots.len()).prop_map(
-                move |(overlapping_pu, bad_root_idx)| {
+            let num_roots = disjoint_roots.len();
+            (Just(disjoint_roots), overlapping_pu, 0..num_roots).prop_map(
+                |(mut disjoint_roots, overlapping_pu, bad_root_idx)| {
                     disjoint_roots.insert(bad_root_idx, overlapping_pu);
                     disjoint_roots
                 },
@@ -1316,7 +1322,7 @@ mod tests {
     /// To the random input provided by `disjoint_roots`, add an extra root from
     /// a different topology, and report at which index it was added
     fn foreign_roots_and_idx() -> impl Strategy<Value = (Vec<&'static TopologyObject>, usize)> {
-        disjoint_roots().prop_flat_map(|mut disjoint_roots| {
+        disjoint_roots().prop_flat_map(|disjoint_roots| {
             // Pick a random object in the foreign topology, it will be used to
             // check distribute_item's handling of foreign roots
             let foreign_topology = Topology::foreign_instance();
@@ -1326,8 +1332,9 @@ mod tests {
             });
 
             // Insert this foreign object at a random position, report where
-            (foreign_object, 0..disjoint_roots.len()).prop_map(
-                move |(foreign_object, bad_root_idx)| {
+            let num_roots = disjoint_roots.len();
+            (Just(disjoint_roots), foreign_object, 0..num_roots).prop_map(
+                |(mut disjoint_roots, foreign_object, bad_root_idx)| {
                     disjoint_roots.insert(bad_root_idx, foreign_object);
                     (disjoint_roots, bad_root_idx)
                 },

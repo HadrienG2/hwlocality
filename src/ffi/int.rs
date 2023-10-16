@@ -3568,10 +3568,10 @@ mod tests {
     /// Assert that calling some code panics
     #[track_caller]
     fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) -> Result<(), TestCaseError> {
-        prop_assert!(
-            matches!(std::panic::catch_unwind(f), Err(_)),
+        Ok(prop_assert!(
+            std::panic::catch_unwind(f).is_err(),
             "Operation should have panicked, but didn't"
-        )
+        ))
     }
 
     /// Assert that calling some code panics in debug builds and does not do so
@@ -3588,7 +3588,7 @@ mod tests {
                 f(), // <- Should not panic in release builds
                 release_result,
                 "Operation does not produce the expected result in release builds"
-            )?;
+            );
         }
         Ok(())
     }
@@ -3667,6 +3667,7 @@ mod tests {
         prop_assert_eq!(zero.wrapping_neg(), zero);
         prop_assert_eq!(zero.checked_neg(), Some(zero));
         prop_assert_eq!(zero.overflowing_neg(), (zero, false));
+        Ok(())
     }
 
     proptest! {
@@ -3675,9 +3676,6 @@ mod tests {
         fn unary_int(int: PositiveInt) {
             // Version of int's payload with the unused bits set
             let set_unused = int.0 | UNUSED_BITS;
-
-            // Make sure clone is trivial and equality works early on
-            prop_assert_eq!(int.clone(), int);
 
             // Bit fiddling
             prop_assert_eq!(int.count_ones(), int.0.count_ones());
@@ -3896,7 +3894,7 @@ mod tests {
         let Ok(as_usize) = usize::from_str_radix(src, radix) else {
             // If it fails for usize, it should fail for PositiveInt
             prop_assert!(result.is_err());
-            return;
+            return Ok(());
         };
 
         // Handle the fact that valid PositiveInt is a subset of usize
@@ -3906,7 +3904,7 @@ mod tests {
                 prop_assert_eq!(result.unwrap(), as_usize);
             }
             _overflow => {
-                prop_assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
+                prop_assert!(matches!(result, Err(e) if e.kind() == &IntErrorKind::PosOverflow));
             }
         }
         Ok(())
