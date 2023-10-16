@@ -25,6 +25,8 @@ use libc::{ENOSYS, EXDEV};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     ffi::{c_int, c_uint},
     fmt::Display,
@@ -743,16 +745,13 @@ impl CpuBindingFlags {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for CpuBindingFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_cpubind_flags_t::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for CpuBindingFlags {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::i32::Any, fn(hwloc_cpubind_flags_t) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_cpubind_flags_t::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 

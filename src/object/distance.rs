@@ -49,6 +49,8 @@ use hwlocality_sys::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     ffi::{c_int, c_uint, c_ulong},
     fmt::{self, Debug},
@@ -536,16 +538,14 @@ bitflags! {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for AddDistancesFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_distances_add_flag_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for AddDistancesFlag {
+    type Parameters = ();
+    type Strategy =
+        prop::strategy::Map<prop::num::u64::Any, fn(hwloc_distances_add_flag_e) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_distances_add_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 
@@ -1441,22 +1441,19 @@ impl DistancesKind {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for DistancesKind {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_distances_kind_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for DistancesKind {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_distances_kind_e) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_distances_kind_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(enum_iterator::Sequence))]
 #[derive(
     Copy,
     Clone,
@@ -1523,21 +1520,17 @@ pub enum DistancesTransform {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for DistancesTransform {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        use enum_iterator::Sequence;
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for DistancesTransform {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(
-            Some(*self),
-            enum_iterator::Sequence::previous,
-        ))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 

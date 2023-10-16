@@ -212,6 +212,14 @@ pub mod object;
 pub mod path;
 pub mod topology;
 
+/// Re-export proptest version we're built against
+#[cfg(feature = "proptest")]
+pub use proptest;
+
+/// Re-export enum_iterator version we're built against
+#[cfg(feature = "proptest")]
+pub use enum_iterator;
+
 use crate::ffi::int;
 use hwlocality_sys::{hwloc_pid_t, hwloc_thread_t};
 #[allow(unused)]

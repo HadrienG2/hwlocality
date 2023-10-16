@@ -18,7 +18,7 @@ use crate::{
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
@@ -33,6 +33,8 @@ use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     borrow::{Borrow, BorrowMut},
     ffi::{c_int, c_void},
@@ -1219,16 +1221,13 @@ impl MemoryBindingFlags {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for MemoryBindingFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_membind_flags_t::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for MemoryBindingFlags {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::i32::Any, fn(hwloc_membind_flags_t) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_membind_flags_t::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 //
@@ -1349,17 +1348,17 @@ pub enum MemoryBindingPolicy {
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for MemoryBindingPolicy {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for MemoryBindingPolicy {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 

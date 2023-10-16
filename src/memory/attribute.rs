@@ -47,6 +47,8 @@ use libc::{EBUSY, EINVAL, ENOENT};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     ffi::{c_int, c_uint, c_ulong, CStr},
     hash::Hash,
@@ -1472,16 +1474,14 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for LocalNUMANodeFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_local_numanode_flag_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for LocalNUMANodeFlags {
+    type Parameters = ();
+    type Strategy =
+        prop::strategy::Map<prop::num::u64::Any, fn(hwloc_local_numanode_flag_e) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_local_numanode_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 
@@ -1597,15 +1597,12 @@ impl MemoryAttributeFlags {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for MemoryAttributeFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_memattr_flag_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for MemoryAttributeFlags {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_memattr_flag_e) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_memattr_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }

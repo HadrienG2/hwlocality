@@ -3392,7 +3392,6 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::DefaultHasher,
@@ -3581,14 +3580,15 @@ mod tests {
         release_result: R,
     ) -> Result<(), TestCaseError> {
         if cfg!(debug_assertions) {
-            assert_panics(f)
+            assert_panics(f)?;
         } else {
             prop_assert_eq!(
                 f(), // <- Should not panic in release builds
                 release_result,
                 "Operation does not produce the expected result in release builds"
-            )
+            )?;
         }
+        Ok(())
     }
 
     /// Compare a [`PositiveInt`] and a [`c_uint`] iterator in a certain iteration scheme,
@@ -3635,39 +3635,39 @@ mod tests {
         hasher.finish()
     }
 
+    /// Test basic properties of our constants
+    #[test]
+    fn constants() -> Result<(), TestCaseError> {
+        // Constants and conversions to/from bool
+        prop_assert_eq!(PositiveInt::MIN, PositiveInt::ZERO);
+        prop_assert_eq!(PositiveInt::ZERO, 0);
+        prop_assert_eq!(PositiveInt::ONE, 1);
+        prop_assert_eq!(
+            PositiveInt::MAX,
+            (1usize << PositiveInt::EFFECTIVE_BITS) - 1
+        );
+        prop_assert_eq!(PositiveInt::default(), 0);
+
+        // Now let's test some properties that are specific to zero
+        let zero = PositiveInt::ZERO;
+
+        // zero hits a narrow special code path for various operations
+        prop_assert_eq!(zero.trailing_zeros(), PositiveInt::EFFECTIVE_BITS);
+        prop_assert_eq!(zero.checked_neg(), Some(zero));
+
+        // Logarithm fails for zero
+        assert_panics(|| zero.ilog2())?;
+        assert_panics(|| zero.ilog10())?;
+        prop_assert_eq!(zero.checked_ilog2(), None);
+        prop_assert_eq!(zero.checked_ilog10(), None);
+
+        // Negation succeeds for zero
+        prop_assert_eq!(zero.wrapping_neg(), zero);
+        prop_assert_eq!(zero.checked_neg(), Some(zero));
+        prop_assert_eq!(zero.overflowing_neg(), (zero, false));
+    }
+
     proptest! {
-        /// Test basic properties of our constants
-        #[test]
-        fn constants() {
-            // Constants and conversions to/from bool
-            prop_assert_eq!(PositiveInt::MIN, PositiveInt::ZERO);
-            prop_assert_eq!(PositiveInt::ZERO, 0);
-            prop_assert_eq!(PositiveInt::ONE, 1);
-            prop_assert_eq!(
-                PositiveInt::MAX,
-                (1usize << PositiveInt::EFFECTIVE_BITS) - 1
-            );
-            prop_assert_eq!(PositiveInt::default(), 0);
-
-            // Now let's test some properties that are specific to zero
-            let zero = PositiveInt::ZERO;
-
-            // zero hits a narrow special code path for various operations
-            prop_assert_eq!(zero.trailing_zeros(), PositiveInt::EFFECTIVE_BITS);
-            prop_assert_eq!(zero.checked_neg(), Some(zero));
-
-            // Logarithm fails for zero
-            assert_panics(|| zero.ilog2())?;
-            assert_panics(|| zero.ilog10())?;
-            prop_assert_eq!(zero.checked_ilog2(), None);
-            prop_assert_eq!(zero.checked_ilog10(), None);
-
-            // Negation succeeds for zero
-            prop_assert_eq!(zero.wrapping_neg(), zero);
-            prop_assert_eq!(zero.checked_neg(), Some(zero));
-            prop_assert_eq!(zero.overflowing_neg(), (zero, false));
-        }
-
         /// Test properties of unary operations on positive ints
         #[test]
         fn unary_int(int: PositiveInt) {
@@ -3876,38 +3876,40 @@ mod tests {
             tmp *= &x;
             prop_assert_eq!(tmp, zero);
         }
+    }
 
-        /// Test [`str`] -> [`PositiveInt`] conversion (common harness)
-        fn test_from_str_radix(
-            src: &str,
-            radix: u32,
-            parse: impl FnOnce() -> Result<PositiveInt, ParseIntError> + UnwindSafe,
-        ) -> Result<(), TestCaseError> {
-            // Handle excessive radix
-            if !(2..=36).contains(&radix) {
-                return assert_panics(parse);
+    /// Test [`str`] -> [`PositiveInt`] conversion (common harness)
+    fn test_from_str_radix(
+        src: &str,
+        radix: u32,
+        parse: impl FnOnce() -> Result<PositiveInt, ParseIntError> + UnwindSafe,
+    ) -> Result<(), TestCaseError> {
+        // Handle excessive radix
+        if !(2..=36).contains(&radix) {
+            return assert_panics(parse);
+        }
+        let result = parse();
+
+        // Use known-good parser to usize
+        let Ok(as_usize) = usize::from_str_radix(src, radix) else {
+            // If it fails for usize, it should fail for PositiveInt
+            prop_assert!(result.is_err());
+            return;
+        };
+
+        // Handle the fact that valid PositiveInt is a subset of usize
+        const MAX: usize = PositiveInt::MAX.0 as usize;
+        match as_usize {
+            0..=MAX => {
+                prop_assert_eq!(result.unwrap(), as_usize);
             }
-            let result = parse();
-
-            // Use known-good parser to usize
-            let Ok(as_usize) = usize::from_str_radix(src, radix) else {
-                // If it fails for usize, it should fail for PositiveInt
-                prop_assert!(result.is_err());
-                return;
-            };
-
-            // Handle the fact that valid PositiveInt is a subset of usize
-            const MAX: usize = PositiveInt::MAX.0 as usize;
-            match as_usize {
-                0..=MAX => {
-                    prop_assert_eq!(result.unwrap(), as_usize);
-                }
-                _overflow => {
-                    prop_assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
-                }
+            _overflow => {
+                prop_assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
             }
         }
+    }
 
+    proptest! {
         /// Test str -> PositiveInt conversion via the FromStr trait
         #[test]
         fn from_str(src: String) {
@@ -3920,80 +3922,82 @@ mod tests {
             let radix = radix % 37;
             test_from_str_radix(&src, radix, || PositiveInt::from_str_radix(&src, radix))?;
         }
+    }
 
-        /// Test a faillible operation, produce the checked result for verification
-        ///
-        /// If `release_result` is `Some(result)`, it indicates that in release
-        /// builds, the faillible operation will return `result` instead of
-        /// panicking. This is the behavior of most built-in arithmetic operations.
-        ///
-        /// If `release_result` is `None`, it indicates that the faillible operation
-        /// should panick even in release mode, as e.g. ilog() does.
-        fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
-            int: PositiveInt,
-            rhs: Rhs,
-            checked_op: impl FnOnce(PositiveInt, Rhs) -> Option<PositiveInt>,
-            faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
-            release_result: Option<PositiveInt>,
-        ) -> Result<Option<PositiveInt>, TestCaseError> {
-            let checked_result = checked_op(int, rhs);
-            match (checked_result, release_result) {
-                (Some(result), _) => {
-                    for faillible_op in faillible_ops {
-                        prop_assert_eq!(faillible_op(int, rhs), result);
-                    }
-                }
-                (None, Some(release_result)) => {
-                    for faillible_op in faillible_ops {
-                        assert_debug_panics(|| faillible_op(int, rhs), release_result)?;
-                    }
-                }
-                (None, None) => {
-                    for faillible_op in faillible_ops {
-                        assert_panics(|| faillible_op(int, rhs))?;
-                    }
+    /// Test a faillible operation, produce the checked result for verification
+    ///
+    /// If `release_result` is `Some(result)`, it indicates that in release
+    /// builds, the faillible operation will return `result` instead of
+    /// panicking. This is the behavior of most built-in arithmetic operations.
+    ///
+    /// If `release_result` is `None`, it indicates that the faillible operation
+    /// should panick even in release mode, as e.g. ilog() does.
+    fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
+        int: PositiveInt,
+        rhs: Rhs,
+        checked_op: impl FnOnce(PositiveInt, Rhs) -> Option<PositiveInt>,
+        faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
+        release_result: Option<PositiveInt>,
+    ) -> Result<Option<PositiveInt>, TestCaseError> {
+        let checked_result = checked_op(int, rhs);
+        match (checked_result, release_result) {
+            (Some(result), _) => {
+                for faillible_op in faillible_ops {
+                    prop_assert_eq!(faillible_op(int, rhs), result);
                 }
             }
-            Ok(checked_result)
-        }
-
-        /// Test an overflowing operation, produce the overflowing result for verification
-        fn test_overflowing<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
-            int: PositiveInt,
-            rhs: Rhs,
-            checked_op: impl Fn(PositiveInt, Rhs) -> Option<PositiveInt>,
-            overflowing_op: impl Fn(PositiveInt, Rhs) -> (PositiveInt, bool),
-            wrapping_op: impl Fn(PositiveInt, Rhs) -> PositiveInt,
-            faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
-        ) -> Result<(PositiveInt, bool), TestCaseError> {
-            let overflowing_result = overflowing_op(int, rhs);
-            let (wrapped_result, overflow) = overflowing_result;
-            prop_assert_eq!(wrapping_op(int, rhs), wrapped_result);
-            let checked_result =
-                test_faillible(int, rhs, checked_op, faillible_ops, Some(wrapped_result))?;
-            if overflow {
-                prop_assert_eq!(checked_result, None);
-            } else {
-                prop_assert_eq!(checked_result, Some(wrapped_result));
+            (None, Some(release_result)) => {
+                for faillible_op in faillible_ops {
+                    assert_debug_panics(|| faillible_op(int, rhs), release_result)?;
+                }
             }
-            Ok(overflowing_result)
+            (None, None) => {
+                for faillible_op in faillible_ops {
+                    assert_panics(|| faillible_op(int, rhs))?;
+                }
+            }
         }
+        Ok(checked_result)
+    }
 
-        /// Predict the result of an overflowing [`PositiveInt`] operation from the
-        /// result of the equivalent overflowing usize operation.
-        fn predict_overflowing_result<IntRhs, UsizeRhs: From<IntRhs>>(
-            i1: PositiveInt,
-            i2: IntRhs,
-            usize_op: fn(usize, UsizeRhs) -> (usize, bool),
-        ) -> (PositiveInt, bool) {
-            let used_bits_usize = (1usize << PositiveInt::EFFECTIVE_BITS) - 1;
-            let max_usize = usize::from(PositiveInt::MAX);
-            let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), UsizeRhs::from(i2));
-            let expected_wrapped = PositiveInt::try_from(wrapped_usize & used_bits_usize).unwrap();
-            let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
-            (expected_wrapped, expected_overflow)
+    /// Test an overflowing operation, produce the overflowing result for verification
+    fn test_overflowing<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
+        int: PositiveInt,
+        rhs: Rhs,
+        checked_op: impl Fn(PositiveInt, Rhs) -> Option<PositiveInt>,
+        overflowing_op: impl Fn(PositiveInt, Rhs) -> (PositiveInt, bool),
+        wrapping_op: impl Fn(PositiveInt, Rhs) -> PositiveInt,
+        faillible_ops: [Box<dyn Fn(PositiveInt, Rhs) -> PositiveInt + RefUnwindSafe>; LEN],
+    ) -> Result<(PositiveInt, bool), TestCaseError> {
+        let overflowing_result = overflowing_op(int, rhs);
+        let (wrapped_result, overflow) = overflowing_result;
+        prop_assert_eq!(wrapping_op(int, rhs), wrapped_result);
+        let checked_result =
+            test_faillible(int, rhs, checked_op, faillible_ops, Some(wrapped_result))?;
+        if overflow {
+            prop_assert_eq!(checked_result, None);
+        } else {
+            prop_assert_eq!(checked_result, Some(wrapped_result));
         }
+        Ok(overflowing_result)
+    }
 
+    /// Predict the result of an overflowing [`PositiveInt`] operation from the
+    /// result of the equivalent overflowing usize operation.
+    fn predict_overflowing_result<IntRhs, UsizeRhs: From<IntRhs>>(
+        i1: PositiveInt,
+        i2: IntRhs,
+        usize_op: fn(usize, UsizeRhs) -> (usize, bool),
+    ) -> (PositiveInt, bool) {
+        let used_bits_usize = (1usize << PositiveInt::EFFECTIVE_BITS) - 1;
+        let max_usize = usize::from(PositiveInt::MAX);
+        let (wrapped_usize, overflow_usize) = usize_op(usize::from(i1), UsizeRhs::from(i2));
+        let expected_wrapped = PositiveInt::try_from(wrapped_usize & used_bits_usize).unwrap();
+        let expected_overflow = overflow_usize || (wrapped_usize > max_usize);
+        (expected_wrapped, expected_overflow)
+    }
+
+    proptest! {
         /// Test int-int binary operations
         #[test]
         fn int_int(i1: PositiveInt, i2: PositiveInt) {

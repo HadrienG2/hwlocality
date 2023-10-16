@@ -36,6 +36,8 @@ use libc::EINVAL;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     convert::TryInto,
     fmt::{self, Pointer},
@@ -580,16 +582,13 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for DistributeFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_distrib_flags_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for DistributeFlags {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_distrib_flags_e) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_distrib_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 //

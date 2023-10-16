@@ -18,7 +18,7 @@ use crate::{
     },
 };
 use derive_more::Display;
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
@@ -36,13 +36,15 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     cmp::{Ordering, PartialOrd},
     ffi::c_int,
 };
 
 /// Type of one side (upstream or downstream) of an I/O bridge
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_bridge_type_e")]
 #[doc(alias = "hwloc_obj_bridge_type_t")]
@@ -57,17 +59,17 @@ pub enum BridgeType {
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for BridgeType {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for BridgeType {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 
@@ -91,17 +93,17 @@ pub enum CacheType {
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for CacheType {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for CacheType {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 
@@ -159,17 +161,17 @@ pub enum OSDeviceType {
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for OSDeviceType {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for OSDeviceType {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 
@@ -490,17 +492,17 @@ impl ObjectType {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for ObjectType {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for ObjectType {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 //
@@ -532,7 +534,6 @@ mod tests {
     };
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,
@@ -584,187 +585,188 @@ mod tests {
         io::Write
     );
 
-    // For object subtypes, the only logic we implement is arbitrary, so just
-    // exercise that it doesn't crash and we're good to go
+    proptest! {
+        // For object subtypes, the only logic we implement is arbitrary, so just
+        // exercise that it doesn't crash and we're good to go
+        #[test]
+        fn arbitrary_bridge_type(_ty: BridgeType) {}
+        #[test]
+        fn arbitrary_cache_type(_ty: CacheType) {}
+        #[test]
+        fn arbitrary_os_device_type(_ty: OSDeviceType) {}
 
-    #[quickcheck]
-    fn arbitrary_bridge_type(_ty: BridgeType) {}
-    #[quickcheck]
-    fn arbitrary_cache_type(_ty: CacheType) {}
-    #[quickcheck]
-    fn arbitrary_os_device_type(_ty: OSDeviceType) {}
+        // For top-level object types, however, we do have some logic to test
 
-    // For top-level object types, however, we do have some logic
-
-    #[quickcheck]
-    fn unary_type(ty: ObjectType) {
-        fn check_any_type(ty: ObjectType) {
-            assert_eq!(
-                [
-                    ty.is_normal(),
-                    ty.is_memory(),
-                    ty.is_io(),
-                    ty == ObjectType::Misc
-                ]
-                .into_iter()
-                .filter(|&b| b)
-                .count(),
-                1
-            );
-            assert!(ty.is_normal() || !ty.is_cpu_cache());
-            assert_eq!(
-                ty.is_cpu_cache(),
-                ty.is_cpu_data_cache() || ty.is_cpu_instruction_cache()
-            );
-            assert!(!(ty.is_cpu_data_cache() && ty.is_cpu_instruction_cache()));
-        }
-        fn check_normal(ty: ObjectType) {
-            check_any_type(ty);
-            assert!(ty.is_normal());
-            assert_eq!(ty.is_leaf(), ty == ObjectType::PU);
-        }
-        fn check_memory(ty: ObjectType) {
-            check_any_type(ty);
-            assert!(ty.is_memory());
-            assert_eq!(ty.is_leaf(), ty == ObjectType::NUMANode);
-        }
-        fn check_io(ty: ObjectType) {
-            check_any_type(ty);
-            assert!(ty.is_io());
-            assert!(!ty.is_leaf());
-        }
-        match ty {
-            ObjectType::Machine
-            | ObjectType::Package
-            | ObjectType::Core
-            | ObjectType::Group
-            | ObjectType::PU => {
-                check_normal(ty);
-                assert!(!ty.is_cpu_cache());
+        #[test]
+        fn unary_type(ty: ObjectType) {
+            fn check_any_type(ty: ObjectType) {
+                prop_assert_eq!(
+                    [
+                        ty.is_normal(),
+                        ty.is_memory(),
+                        ty.is_io(),
+                        ty == ObjectType::Misc
+                    ]
+                    .into_iter()
+                    .filter(|&b| b)
+                    .count(),
+                    1
+                );
+                prop_assert!(ty.is_normal() || !ty.is_cpu_cache());
+                prop_assert_eq!(
+                    ty.is_cpu_cache(),
+                    ty.is_cpu_data_cache() || ty.is_cpu_instruction_cache()
+                );
+                prop_assert!(!(ty.is_cpu_data_cache() && ty.is_cpu_instruction_cache()));
             }
-            ObjectType::L1Cache
-            | ObjectType::L2Cache
-            | ObjectType::L3Cache
-            | ObjectType::L4Cache
-            | ObjectType::L5Cache => {
-                check_normal(ty);
-                assert!(ty.is_cpu_data_cache());
-            }
-            ObjectType::L1ICache | ObjectType::L2ICache | ObjectType::L3ICache => {
-                check_normal(ty);
-                assert!(ty.is_cpu_instruction_cache());
-            }
-            ObjectType::NUMANode => check_memory(ty),
-            ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty),
-            ObjectType::Misc => {
+            fn check_normal(ty: ObjectType) {
                 check_any_type(ty);
-                assert!(!ty.is_leaf());
+                prop_assert!(ty.is_normal());
+                prop_assert_eq!(ty.is_leaf(), ty == ObjectType::PU);
             }
-            #[cfg(feature = "hwloc-2_1_0")]
-            ObjectType::MemCache => check_memory(ty),
-            #[cfg(feature = "hwloc-2_1_0")]
-            ObjectType::Die => {
-                check_normal(ty);
-                assert!(!ty.is_cpu_cache());
+            fn check_memory(ty: ObjectType) {
+                check_any_type(ty);
+                prop_assert!(ty.is_memory());
+                prop_assert_eq!(ty.is_leaf(), ty == ObjectType::NUMANode);
             }
-        }
-    }
-
-    #[quickcheck]
-    fn binary_type(ty1: ObjectType, ty2: ObjectType) {
-        assert_eq!(ty1 == ty2, ty1.to_raw() == ty2.to_raw());
-        let expected_ordering = match (ty1, ty2) {
-            // Equal ordering only appears for equal types
-            (x, x2) if x == x2 => Some(Ordering::Equal),
-            // === Only pairs of two different types can appear below
-
-            // Machine is above everything else
-            (ObjectType::Machine, _) => Some(Ordering::Less),
-            (_, ObjectType::Machine) => Some(Ordering::Greater),
-
-            // Non-normal objects are unordered wrt other normal objects
-            (normal, not_normal) | (not_normal, normal)
-                if normal.is_normal() && !not_normal.is_normal() =>
-            {
-                None
+            fn check_io(ty: ObjectType) {
+                check_any_type(ty);
+                prop_assert!(ty.is_io());
+                prop_assert!(!ty.is_leaf());
             }
-
-            // Specify relative ordering of non-normal objects
-            (not_normal1, not_normal2) if !not_normal1.is_normal() => {
-                match (not_normal1, not_normal2) {
-                    #[cfg(feature = "hwloc-2_1_0")]
-                    (ObjectType::MemCache, _) => Some(Ordering::Less),
-                    #[cfg(feature = "hwloc-2_1_0")]
-                    (_, ObjectType::MemCache) => Some(Ordering::Greater),
-                    (ObjectType::NUMANode, _) => Some(Ordering::Less),
-                    (_, ObjectType::NUMANode) => Some(Ordering::Greater),
-                    (ObjectType::Bridge, _) => Some(Ordering::Less),
-                    (_, ObjectType::Bridge) => Some(Ordering::Greater),
-                    (ObjectType::PCIDevice, _) => Some(Ordering::Less),
-                    (_, ObjectType::PCIDevice) => Some(Ordering::Greater),
-                    (ObjectType::OSDevice, _misc) => Some(Ordering::Less),
-                    (_misc, ObjectType::OSDevice) => Some(Ordering::Greater),
-                    _ => unreachable!(),
+            match ty {
+                ObjectType::Machine
+                | ObjectType::Package
+                | ObjectType::Core
+                | ObjectType::Group
+                | ObjectType::PU => {
+                    check_normal(ty);
+                    prop_assert!(!ty.is_cpu_cache());
+                }
+                ObjectType::L1Cache
+                | ObjectType::L2Cache
+                | ObjectType::L3Cache
+                | ObjectType::L4Cache
+                | ObjectType::L5Cache => {
+                    check_normal(ty);
+                    prop_assert!(ty.is_cpu_data_cache());
+                }
+                ObjectType::L1ICache | ObjectType::L2ICache | ObjectType::L3ICache => {
+                    check_normal(ty);
+                    prop_assert!(ty.is_cpu_instruction_cache());
+                }
+                ObjectType::NUMANode => check_memory(ty),
+                ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty),
+                ObjectType::Misc => {
+                    check_any_type(ty);
+                    prop_assert!(!ty.is_leaf());
+                }
+                #[cfg(feature = "hwloc-2_1_0")]
+                ObjectType::MemCache => check_memory(ty),
+                #[cfg(feature = "hwloc-2_1_0")]
+                ObjectType::Die => {
+                    check_normal(ty);
+                    prop_assert!(!ty.is_cpu_cache());
                 }
             }
+        }
 
-            // === Only (normal, normal) pairs remain
-            (ty1, ty2) if !(ty1.is_normal() && ty2.is_normal()) => unreachable!(),
+        #[test]
+        fn binary_type(ty1: ObjectType, ty2: ObjectType) {
+            prop_assert_eq!(ty1 == ty2, ty1.to_raw() == ty2.to_raw());
+            let expected_ordering = match (ty1, ty2) {
+                // Equal ordering only appears for equal types
+                (x, x2) if x == x2 => Some(Ordering::Equal),
+                // === Only pairs of two different types can appear below
 
-            // Specify relative ordering of normal objects
-            (ObjectType::Group, _) => Some(Ordering::Less),
-            (_, ObjectType::Group) => Some(Ordering::Greater),
-            (ObjectType::Package, _) => Some(Ordering::Less),
-            (_, ObjectType::Package) => Some(Ordering::Greater),
-            #[cfg(feature = "hwloc-2_1_0")]
-            (ObjectType::Die, _) => Some(Ordering::Less),
-            #[cfg(feature = "hwloc-2_1_0")]
-            (_, ObjectType::Die) => Some(Ordering::Greater),
-            (ObjectType::L5Cache, _) => Some(Ordering::Less),
-            (_, ObjectType::L5Cache) => Some(Ordering::Greater),
-            (ObjectType::L4Cache, _) => Some(Ordering::Less),
-            (_, ObjectType::L4Cache) => Some(Ordering::Greater),
-            (ObjectType::L3Cache, _) => Some(Ordering::Less),
-            (_, ObjectType::L3Cache) => Some(Ordering::Greater),
-            (ObjectType::L3ICache, _) => Some(Ordering::Less),
-            (_, ObjectType::L3ICache) => Some(Ordering::Greater),
-            (ObjectType::L2Cache, _) => Some(Ordering::Less),
-            (_, ObjectType::L2Cache) => Some(Ordering::Greater),
-            (ObjectType::L2ICache, _) => Some(Ordering::Less),
-            (_, ObjectType::L2ICache) => Some(Ordering::Greater),
-            (ObjectType::L1Cache, _) => Some(Ordering::Less),
-            (_, ObjectType::L1Cache) => Some(Ordering::Greater),
-            (ObjectType::L1ICache, _) => Some(Ordering::Less),
-            (_, ObjectType::L1ICache) => Some(Ordering::Greater),
-            (ObjectType::Core, _pu) => Some(Ordering::Less),
-            (_pu, ObjectType::Core) => Some(Ordering::Greater),
+                // Machine is above everything else
+                (ObjectType::Machine, _) => Some(Ordering::Less),
+                (_, ObjectType::Machine) => Some(Ordering::Greater),
 
-            // I shouldn't have forgotten anything
-            _ => unreachable!(),
-        };
-        assert_eq!(ty1.partial_cmp(&ty2), expected_ordering);
-    }
+                // Non-normal objects are unordered wrt other normal objects
+                (normal, not_normal) | (not_normal, normal)
+                    if normal.is_normal() && !not_normal.is_normal() =>
+                {
+                    None
+                }
 
-    #[quickcheck]
-    fn type_order_matches_depth_order(idx1: usize, idx2: usize) {
-        let topology = Topology::test_instance();
-        let num_objects = topology.objects().count();
-        let obj1 = topology.objects().nth(idx1 % num_objects).unwrap();
-        let obj2 = topology.objects().nth(idx2 % num_objects).unwrap();
-        let ty1 = obj1.object_type();
-        let ty2 = obj2.object_type();
-        if let Some(type_order) = obj1.object_type().partial_cmp(&obj2.object_type()) {
-            if ty1.is_normal()
-                && ty1 != ObjectType::Group
-                && ty2.is_normal()
-                && ty2 != ObjectType::Group
-            {
-                assert_eq!(
-                    type_order,
-                    obj1.depth()
-                        .assume_normal()
-                        .cmp(&obj2.depth().assume_normal())
-                )
+                // Specify relative ordering of non-normal objects
+                (not_normal1, not_normal2) if !not_normal1.is_normal() => {
+                    match (not_normal1, not_normal2) {
+                        #[cfg(feature = "hwloc-2_1_0")]
+                        (ObjectType::MemCache, _) => Some(Ordering::Less),
+                        #[cfg(feature = "hwloc-2_1_0")]
+                        (_, ObjectType::MemCache) => Some(Ordering::Greater),
+                        (ObjectType::NUMANode, _) => Some(Ordering::Less),
+                        (_, ObjectType::NUMANode) => Some(Ordering::Greater),
+                        (ObjectType::Bridge, _) => Some(Ordering::Less),
+                        (_, ObjectType::Bridge) => Some(Ordering::Greater),
+                        (ObjectType::PCIDevice, _) => Some(Ordering::Less),
+                        (_, ObjectType::PCIDevice) => Some(Ordering::Greater),
+                        (ObjectType::OSDevice, _misc) => Some(Ordering::Less),
+                        (_misc, ObjectType::OSDevice) => Some(Ordering::Greater),
+                        _ => unreachable!(),
+                    }
+                }
+
+                // === Only (normal, normal) pairs remain
+                (ty1, ty2) if !(ty1.is_normal() && ty2.is_normal()) => unreachable!(),
+
+                // Specify relative ordering of normal objects
+                (ObjectType::Group, _) => Some(Ordering::Less),
+                (_, ObjectType::Group) => Some(Ordering::Greater),
+                (ObjectType::Package, _) => Some(Ordering::Less),
+                (_, ObjectType::Package) => Some(Ordering::Greater),
+                #[cfg(feature = "hwloc-2_1_0")]
+                (ObjectType::Die, _) => Some(Ordering::Less),
+                #[cfg(feature = "hwloc-2_1_0")]
+                (_, ObjectType::Die) => Some(Ordering::Greater),
+                (ObjectType::L5Cache, _) => Some(Ordering::Less),
+                (_, ObjectType::L5Cache) => Some(Ordering::Greater),
+                (ObjectType::L4Cache, _) => Some(Ordering::Less),
+                (_, ObjectType::L4Cache) => Some(Ordering::Greater),
+                (ObjectType::L3Cache, _) => Some(Ordering::Less),
+                (_, ObjectType::L3Cache) => Some(Ordering::Greater),
+                (ObjectType::L3ICache, _) => Some(Ordering::Less),
+                (_, ObjectType::L3ICache) => Some(Ordering::Greater),
+                (ObjectType::L2Cache, _) => Some(Ordering::Less),
+                (_, ObjectType::L2Cache) => Some(Ordering::Greater),
+                (ObjectType::L2ICache, _) => Some(Ordering::Less),
+                (_, ObjectType::L2ICache) => Some(Ordering::Greater),
+                (ObjectType::L1Cache, _) => Some(Ordering::Less),
+                (_, ObjectType::L1Cache) => Some(Ordering::Greater),
+                (ObjectType::L1ICache, _) => Some(Ordering::Less),
+                (_, ObjectType::L1ICache) => Some(Ordering::Greater),
+                (ObjectType::Core, _pu) => Some(Ordering::Less),
+                (_pu, ObjectType::Core) => Some(Ordering::Greater),
+
+                // I shouldn't have forgotten anything
+                _ => unreachable!(),
+            };
+            prop_assert_eq!(ty1.partial_cmp(&ty2), expected_ordering);
+        }
+
+        #[test]
+        fn type_order_matches_depth_order(idx1: usize, idx2: usize) {
+            let topology = Topology::test_instance();
+            let num_objects = topology.objects().count();
+            let obj1 = topology.objects().nth(idx1 % num_objects).unwrap();
+            let obj2 = topology.objects().nth(idx2 % num_objects).unwrap();
+            let ty1 = obj1.object_type();
+            let ty2 = obj2.object_type();
+            if let Some(type_order) = obj1.object_type().partial_cmp(&obj2.object_type()) {
+                if ty1.is_normal()
+                    && ty1 != ObjectType::Group
+                    && ty2.is_normal()
+                    && ty2 != ObjectType::Group
+                {
+                    prop_assert_eq!(
+                        type_order,
+                        obj1.depth()
+                            .assume_normal()
+                            .cmp(&obj2.depth().assume_normal())
+                    )
+                }
             }
         }
     }

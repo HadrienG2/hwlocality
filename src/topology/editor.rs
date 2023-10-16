@@ -49,7 +49,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
@@ -61,6 +61,8 @@ use libc::{EINVAL, ENOMEM};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     fmt::{self, Write},
     panic::{AssertUnwindSafe, UnwindSafe},
@@ -550,16 +552,13 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for RestrictFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_restrict_flags_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for RestrictFlags {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_restrict_flags_e) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_restrict_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
 
@@ -639,7 +638,7 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
 pub struct AllowSetError;
 
 /// Control merging of newly inserted groups with existing objects
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another
@@ -658,17 +657,17 @@ pub enum GroupMerge {
     Always,
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for GroupMerge {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for GroupMerge {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        usize::arbitrary_with(args).map(|idx| {
+            enum_iterator::all::<Self>()
+                .nth(idx % Self::CARDINALITY)
+                .expect("Per above modulo, this cannot happen")
+        })
     }
 }
 //

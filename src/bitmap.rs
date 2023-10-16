@@ -3126,7 +3126,6 @@ pub(crate) mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use proptest::prelude::*;
     use static_assertions::{
         assert_eq_align, assert_eq_size, assert_impl_all, assert_not_impl_any, assert_type_eq_all,
     };
@@ -3524,54 +3523,54 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    #[allow(clippy::redundant_clone)]
+    #[test]
+    fn empty() {
+        let empty = Bitmap::new();
+        let mut empty2 = Bitmap::full();
+        empty2.unset_range::<PositiveInt>(..);
+        let inverse = Bitmap::full();
+
+        let test_empty = |empty: &Bitmap| {
+            prop_assert_eq!(empty.first_set(), None);
+            prop_assert_eq!(empty.first_unset().map(usize::from), Some(0));
+            prop_assert!(empty.is_empty());
+            prop_assert!(!empty.is_full());
+            prop_assert_eq!(empty.into_iter().count(), 0);
+            prop_assert_eq!(empty.iter_set().count(), 0);
+            prop_assert_eq!(empty.last_set(), None);
+            prop_assert_eq!(empty.last_unset(), None);
+            prop_assert_eq!(empty.weight(), Some(0));
+
+            for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
+                prop_assert_eq!(expected, usize::from(idx));
+            }
+            for (expected, idx) in empty
+                .clone()
+                .into_iter()
+                .enumerate()
+                .take(INFINITE_EXPLORE_ITERS)
+            {
+                prop_assert_eq!(expected, usize::from(idx));
+            }
+
+            prop_assert_eq!(format!("{empty:?}"), "");
+            prop_assert_eq!(format!("{empty}"), "");
+            prop_assert_eq!(!empty, inverse);
+            prop_assert_eq!(!(empty.clone()), inverse);
+            Ok(())
+        };
+        test_empty(&empty)?;
+        test_empty(&empty.clone())?;
+        test_empty(&empty2)?;
+        test_empty(&Bitmap::default())?;
+
+        test_basic_inplace(&empty, &inverse)?;
+
+        test_low_level_nonnull(empty)?;
+    }
+
     proptest! {
-        #[allow(clippy::redundant_clone)]
-        #[test]
-        fn empty() {
-            let empty = Bitmap::new();
-            let mut empty2 = Bitmap::full();
-            empty2.unset_range::<PositiveInt>(..);
-            let inverse = Bitmap::full();
-
-            let test_empty = |empty: &Bitmap| {
-                prop_assert_eq!(empty.first_set(), None);
-                prop_assert_eq!(empty.first_unset().map(usize::from), Some(0));
-                prop_assert!(empty.is_empty());
-                prop_assert!(!empty.is_full());
-                prop_assert_eq!(empty.into_iter().count(), 0);
-                prop_assert_eq!(empty.iter_set().count(), 0);
-                prop_assert_eq!(empty.last_set(), None);
-                prop_assert_eq!(empty.last_unset(), None);
-                prop_assert_eq!(empty.weight(), Some(0));
-
-                for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
-                    prop_assert_eq!(expected, usize::from(idx));
-                }
-                for (expected, idx) in empty
-                    .clone()
-                    .into_iter()
-                    .enumerate()
-                    .take(INFINITE_EXPLORE_ITERS)
-                {
-                    prop_assert_eq!(expected, usize::from(idx));
-                }
-
-                prop_assert_eq!(format!("{empty:?}"), "");
-                prop_assert_eq!(format!("{empty}"), "");
-                prop_assert_eq!(!empty, inverse);
-                prop_assert_eq!(!(empty.clone()), inverse);
-                Ok(())
-            };
-            test_empty(&empty)?;
-            test_empty(&empty.clone())?;
-            test_empty(&empty2)?;
-            test_empty(&Bitmap::default())?;
-
-            test_basic_inplace(&empty, &inverse)?;
-
-            test_low_level_nonnull(empty)?;
-        }
-
         #[test]
         fn empty_extend(extra: HashSet<BitmapIndex>) {
             let mut extended = Bitmap::new();
@@ -3631,51 +3630,53 @@ pub(crate) mod tests {
 
             test_bitmap_ref_binops(&empty, &other)?;
         }
+    }
 
-        #[allow(clippy::redundant_clone)]
-        #[test]
-        fn full() {
-            let full = Bitmap::full();
-            let full2 = Bitmap::from_range::<PositiveInt>(..);
-            let mut full3 = Bitmap::new();
-            full3.set_range::<PositiveInt>(..);
-            let inverse = Bitmap::new();
+    #[allow(clippy::redundant_clone)]
+    #[test]
+    fn full() {
+        let full = Bitmap::full();
+        let full2 = Bitmap::from_range::<PositiveInt>(..);
+        let mut full3 = Bitmap::new();
+        full3.set_range::<PositiveInt>(..);
+        let inverse = Bitmap::new();
 
-            let test_full = |full: &Bitmap| {
-                prop_assert_eq!(full.first_set().map(usize::from), Some(0));
-                prop_assert_eq!(full.first_unset(), None);
-                prop_assert!(!full.is_empty());
-                prop_assert!(full.is_full());
-                prop_assert_eq!(full.iter_unset().count(), 0);
-                prop_assert_eq!(full.last_set(), None);
-                prop_assert_eq!(full.last_unset(), None);
-                prop_assert_eq!(full.weight(), None);
+        let test_full = |full: &Bitmap| {
+            prop_assert_eq!(full.first_set().map(usize::from), Some(0));
+            prop_assert_eq!(full.first_unset(), None);
+            prop_assert!(!full.is_empty());
+            prop_assert!(full.is_full());
+            prop_assert_eq!(full.iter_unset().count(), 0);
+            prop_assert_eq!(full.last_set(), None);
+            prop_assert_eq!(full.last_unset(), None);
+            prop_assert_eq!(full.weight(), None);
 
-                fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) -> Result<(), TestCaseError> {
-                    for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
-                        prop_assert_eq!(expected, usize::from(idx));
-                    }
-                    Ok(())
+            fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) -> Result<(), TestCaseError> {
+                for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
+                    prop_assert_eq!(expected, usize::from(idx));
                 }
-                test_iter_set(full.into_iter())?;
-                test_iter_set(full.clone().into_iter())?;
-                test_iter_set(full.iter_set())?;
-
-                prop_assert_eq!(format!("{full:?}"), "0-");
-                prop_assert_eq!(format!("{full}"), "0-");
-                prop_assert_eq!(!full, inverse);
-                prop_assert_eq!(!(full.clone()), inverse);
                 Ok(())
-            };
-            test_full(&full)?;
-            test_full(&full.clone())?;
-            test_full(&full2)?;
-            test_full(&full3)?;
+            }
+            test_iter_set(full.into_iter())?;
+            test_iter_set(full.clone().into_iter())?;
+            test_iter_set(full.iter_set())?;
 
-            test_basic_inplace(&full, &inverse)?;
-            test_low_level_nonnull(full)?;
-        }
+            prop_assert_eq!(format!("{full:?}"), "0-");
+            prop_assert_eq!(format!("{full}"), "0-");
+            prop_assert_eq!(!full, inverse);
+            prop_assert_eq!(!(full.clone()), inverse);
+            Ok(())
+        };
+        test_full(&full)?;
+        test_full(&full.clone())?;
+        test_full(&full2)?;
+        test_full(&full3)?;
 
+        test_basic_inplace(&full, &inverse)?;
+        test_low_level_nonnull(full)?;
+    }
+
+    proptest! {
         #[test]
         fn full_extend(extra: HashSet<BitmapIndex>) {
             let mut extended = Bitmap::full();
@@ -3734,7 +3735,7 @@ pub(crate) mod tests {
             prop_assert!(buf.is_full());
 
             prop_assert_eq!(&full ^ &other, not_other);
-            prop_assert_eq!((full.clone() ^ &other), not_other);
+            prop_assert_eq!(full.clone() ^ &other, not_other);
             buf.fill();
             buf ^= &other;
             prop_assert_eq!(buf, not_other);

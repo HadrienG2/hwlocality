@@ -22,6 +22,8 @@ use hwlocality_sys::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::ffi::{c_char, CString};
 
 /// # Exporting Topologies to Synthetic
@@ -128,15 +130,15 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for SyntheticExportFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_topology_export_synthetic_flags_e::arbitrary(g))
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for SyntheticExportFlags {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<
+        prop::num::u64::Any,
+        fn(hwloc_topology_export_synthetic_flags_e) -> Self,
+    >;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        hwloc_topology_export_synthetic_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
     }
 }
