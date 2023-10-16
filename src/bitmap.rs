@@ -1178,15 +1178,12 @@ impl Arbitrary for Bitmap {
     type Parameters = <(HashSet<BitmapIndex>, bool) as Arbitrary>::Parameters;
 
     type Strategy = prop::strategy::Map<
-        (
-            <HashSet<BitmapIndex> as Arbitrary>::Strategy,
-            prop::bool::Any,
-        ),
-        fn(HashSet<BitmapIndex>, bool) -> Bitmap,
+        <(HashSet<BitmapIndex>, bool) as Arbitrary>::Strategy,
+        fn((HashSet<BitmapIndex>, bool)) -> Bitmap,
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        <(HashSet<BitmapIndex>, bool)>::arbitrary_with(args).prop_map(|set_indices, infinite| {
+        <(HashSet<BitmapIndex>, bool)>::arbitrary_with(args).prop_map(|(set_indices, infinite)| {
             // Start with an arbitrary finite bitmap
             let mut result = set_indices.into_iter().collect::<Bitmap>();
 
@@ -2401,7 +2398,7 @@ macro_rules! impl_bitmap_newtype {
 
             type Strategy = proptest::strategy::Map<
                 <$crate::bitmap::Bitmap as proptest::arbitrary::Arbitrary>::Strategy,
-                Self,
+                fn($crate::bitmap::Bitmap) -> Self,
             >;
 
             fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {

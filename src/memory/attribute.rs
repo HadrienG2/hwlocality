@@ -1476,9 +1476,11 @@ bitflags! {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for LocalNUMANodeFlags {
-    type Parameters = ();
-    type Strategy =
-        prop::strategy::Map<prop::num::u64::Any, fn(hwloc_local_numanode_flag_e) -> Self>;
+    type Parameters = <hwloc_local_numanode_flag_e as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_local_numanode_flag_e as Arbitrary>::Strategy,
+        fn(hwloc_local_numanode_flag_e) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_local_numanode_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
@@ -1599,8 +1601,11 @@ impl MemoryAttributeFlags {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for MemoryAttributeFlags {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_memattr_flag_e) -> Self>;
+    type Parameters = <hwloc_memattr_flag_e as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_memattr_flag_e as Arbitrary>::Strategy,
+        fn(hwloc_memattr_flag_e) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_memattr_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)

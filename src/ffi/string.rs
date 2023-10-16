@@ -4,10 +4,8 @@ use crate::errors::NulError;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "quickcheck"))]
-use quickcheck::{Arbitrary, Gen};
-#[cfg(any(test, feature = "quickcheck"))]
-use rand::Rng;
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     ffi::{c_char, c_void},
     fmt::{self, Debug, Display},
@@ -116,33 +114,28 @@ impl LibcString {
     }
 }
 
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for LibcString {
-    fn arbitrary(g: &mut Gen) -> Self {
-        let mut rng = rand::thread_rng();
-        // Start from a valid UTF-8 string...
-        let s = String::arbitrary(g)
-            .chars()
-            // ...but replace NUL with arbitrary other ASCII chars
-            .map(|c| {
-                if c == '\0' {
-                    char::from(rng.gen_range(1..=127))
-                } else {
-                    c
-                }
-            })
-            .collect::<String>();
-        Self::new(s).expect("Ensured absence of NUL above")
-    }
+    type Parameters = <String as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Perturb<
+        <String as Arbitrary>::Strategy,
+        fn(String, prop::test_runner::TestRng) -> LibcString,
+    >;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(
-            self.as_ref()
-                .to_owned()
-                .shrink()
-                .filter_map(|s| Self::new(s).ok()),
-        )
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        String::arbitrary_with(args).prop_perturb(|s, mut rng| {
+            let s = s
+                .chars()
+                .map(|c| {
+                    if c == '\0' {
+                        char::from(rng.gen_range(1..=127))
+                    } else {
+                        c
+                    }
+                })
+                .collect::<String>();
+            LibcString::new(s).unwrap()
+        })
     }
 }
 
@@ -222,54 +215,59 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
     use std::ffi::CStr;
 
     macro_rules! check_new {
         ($result:expr, $input:expr) => {
             match ($input.contains('\0'), $result) {
                 (false, Ok(result)) => result,
-                (true, Err(NulError)) => return,
+                (true, Err(NulError)) => return Ok(()),
                 (false, Err(NulError)) | (true, Ok(_)) => {
-                    panic!("LibcString::new should error out if and only if NUL is present")
+                    prop_assert!(
+                        false,
+                        "LibcString::new should error out if and only if NUL is present"
+                    );
+                    unreachable!()
                 }
             }
         };
     }
 
-    #[quickcheck]
-    fn unary(s: String) {
-        // Set up a C string
-        let c = check_new!(LibcString::new(&s), &s);
+    proptest! {
+        #[test]
+        fn unary(s: String) {
+            // Set up a C string
+            let c = check_new!(LibcString::new(&s), &s);
 
-        // Test basic properties
-        assert_eq!(c.len(), s.len() + 1);
-        // SAFETY: Safe as a type invariant of LibcString
-        assert_eq!(unsafe { CStr::from_ptr(c.borrow()) }.to_str().unwrap(), s);
-        assert_eq!(c.as_ref(), s);
-        assert_eq!(c.to_string(), s);
-        assert_eq!(format!("{c:?}"), format!("{s:?}"));
+            // Test basic properties
+            prop_assert_eq!(c.len(), s.len() + 1);
+            // SAFETY: Safe as a type invariant of LibcString
+            prop_assert_eq!(unsafe { CStr::from_ptr(c.borrow()) }.to_str().unwrap(), s);
+            prop_assert_eq!(c.as_ref(), s);
+            prop_assert_eq!(c.to_string(), s);
+            prop_assert_eq!(format!("{c:?}"), format!("{s:?}"));
 
-        // Test cloning
-        let c2 = c.clone();
-        assert_eq!(c2.len(), c.len());
-        assert_ne!(c2.borrow(), c.borrow());
-        assert_eq!(c2.as_ref(), c.as_ref());
+            // Test cloning
+            let c2 = c.clone();
+            prop_assert_eq!(c2.len(), c.len());
+            prop_assert_ne!(c2.borrow(), c.borrow());
+            prop_assert_eq!(c2.as_ref(), c.as_ref());
 
-        // Test raw char* extraction
-        let backup = c.0;
-        let raw = c.into_raw();
-        assert_eq!(raw, backup.cast::<c_char>().as_ptr());
+            // Test raw char* extraction
+            let backup = c.0;
+            let raw = c.into_raw();
+            prop_assert_eq!(raw, backup.cast::<c_char>().as_ptr());
 
-        // SAFETY: Effectively replicates Drop. Correct because since into_raw()
-        //         has been called, Drop will not be called.
-        unsafe { libc::free(raw.cast::<c_void>()) };
-    }
+            // SAFETY: Effectively replicates Drop. Correct because since into_raw()
+            //         has been called, Drop will not be called.
+            unsafe { libc::free(raw.cast::<c_void>()) };
+        }
 
-    #[quickcheck]
-    fn binary(s1: String, s2: String) {
-        let c1 = check_new!(LibcString::new(&s1), &s1);
-        let c2 = check_new!(LibcString::new(&s2), &s2);
-        assert_eq!(c1 == c2, s1 == s2);
+        #[test]
+        fn binary(s1: String, s2: String) {
+            let c1 = check_new!(LibcString::new(&s1), &s1);
+            let c2 = check_new!(LibcString::new(&s2), &s2);
+            prop_assert_eq!(c1 == c2, s1 == s2);
+        }
     }
 }

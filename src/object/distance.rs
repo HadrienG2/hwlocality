@@ -539,10 +539,12 @@ bitflags! {
 //
 #[cfg(feature = "hwloc-2_5_0")]
 #[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for AddDistancesFlag {
-    type Parameters = ();
-    type Strategy =
-        prop::strategy::Map<prop::num::u64::Any, fn(hwloc_distances_add_flag_e) -> Self>;
+impl Arbitrary for AddDistancesFlags {
+    type Parameters = <hwloc_distances_add_flag_e as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_distances_add_flag_e as Arbitrary>::Strategy,
+        fn(hwloc_distances_add_flag_e) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_distances_add_flag_e::arbitrary_with(args).map(Self::from_bits_truncate)
@@ -1443,8 +1445,11 @@ impl DistancesKind {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for DistancesKind {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_distances_kind_e) -> Self>;
+    type Parameters = <hwloc_distances_kind_e as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_distances_kind_e as Arbitrary>::Strategy,
+        fn(hwloc_distances_kind_e) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_distances_kind_e::arbitrary_with(args).map(Self::from_bits_truncate)
@@ -1522,8 +1527,8 @@ pub enum DistancesTransform {
 #[cfg(feature = "hwloc-2_5_0")]
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for DistancesTransform {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {

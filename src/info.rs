@@ -117,7 +117,7 @@ mod tests {
     use crate::ffi::{string::LibcString, transparent::AsNewtype};
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,
@@ -142,56 +142,58 @@ mod tests {
         UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    #[quickcheck]
-    fn unary(name: LibcString, value: LibcString) {
-        // Set up test entity
-        // SAFETY: `name` and `value` won't be invalidated while this exists
-        let raw_info = unsafe { TextualInfo::borrow_raw(&name, &value) };
-        // SAFETY: raw_info was built from known-good data
-        let info: &TextualInfo = unsafe { (&raw_info).as_newtype() };
+    proptest! {
+        #[test]
+        fn unary(name: LibcString, value: LibcString) {
+            // Set up test entity
+            // SAFETY: `name` and `value` won't be invalidated while this exists
+            let raw_info = unsafe { TextualInfo::borrow_raw(&name, &value) };
+            // SAFETY: raw_info was built from known-good data
+            let info: &TextualInfo = unsafe { (&raw_info).as_newtype() };
 
-        // Check raw data
-        assert_eq!(info.0.name, name.borrow().cast_mut());
-        assert_eq!(info.0.value, value.borrow().cast_mut());
+            // Check raw data
+            prop_assert_eq!(info.0.name, name.borrow().cast_mut());
+            prop_assert_eq!(info.0.value, value.borrow().cast_mut());
 
-        // Check high-level accessors
-        let name_c = CString::new(name.as_ref()).unwrap();
-        let value_c = CString::new(value.as_ref()).unwrap();
-        assert_eq!(CString::from(info.name()), name_c);
-        assert_eq!(CString::from(info.value()), value_c);
-        assert_eq!(
-            format!("{info:#?}"),
-            format!(
-                "TextualInfo {{\n    \
-                    name: {name_c:?},\n    \
-                    value: {value_c:?},\n\
-                }}",
-            )
-        );
+            // Check high-level accessors
+            let name_c = CString::new(name.as_ref()).unwrap();
+            let value_c = CString::new(value.as_ref()).unwrap();
+            prop_assert_eq!(CString::from(info.name()), name_c);
+            prop_assert_eq!(CString::from(info.value()), value_c);
+            prop_assert_eq!(
+                format!("{info:#?}"),
+                format!(
+                    "TextualInfo {{\n    \
+                        name: {name_c:?},\n    \
+                        value: {value_c:?},\n\
+                    }}",
+                )
+            );
 
-        // Check hashing
-        let state = RandomState::new();
-        let mut expected_hasher = state.build_hasher();
-        name_c.hash(&mut expected_hasher);
-        value_c.hash(&mut expected_hasher);
-        let mut actual_hasher = state.build_hasher();
-        info.hash(&mut actual_hasher);
-        assert_eq!(actual_hasher.finish(), expected_hasher.finish());
-    }
+            // Check hashing
+            let state = RandomState::new();
+            let mut expected_hasher = state.build_hasher();
+            name_c.hash(&mut expected_hasher);
+            value_c.hash(&mut expected_hasher);
+            let mut actual_hasher = state.build_hasher();
+            info.hash(&mut actual_hasher);
+            prop_assert_eq!(actual_hasher.finish(), expected_hasher.finish());
+        }
 
-    #[quickcheck]
-    fn binary(name1: LibcString, name2: LibcString, value1: LibcString, value2: LibcString) {
-        // Set up test entity
-        // SAFETY: `name` and `value` won't be invalidated while this exists
-        let raw_info1 = unsafe { TextualInfo::borrow_raw(&name1, &value1) };
-        // SAFETY: raw_info1 was built from known-good data
-        let info1: &TextualInfo = unsafe { (&raw_info1).as_newtype() };
-        // SAFETY: `name` and `value` won't be invalidated while this exists
-        let raw_info2 = unsafe { TextualInfo::borrow_raw(&name2, &value2) };
-        // SAFETY: raw_info2 was built from known-good data
-        let info2: &TextualInfo = unsafe { (&raw_info2).as_newtype() };
+        #[test]
+        fn binary(name1: LibcString, name2: LibcString, value1: LibcString, value2: LibcString) {
+            // Set up test entity
+            // SAFETY: `name` and `value` won't be invalidated while this exists
+            let raw_info1 = unsafe { TextualInfo::borrow_raw(&name1, &value1) };
+            // SAFETY: raw_info1 was built from known-good data
+            let info1: &TextualInfo = unsafe { (&raw_info1).as_newtype() };
+            // SAFETY: `name` and `value` won't be invalidated while this exists
+            let raw_info2 = unsafe { TextualInfo::borrow_raw(&name2, &value2) };
+            // SAFETY: raw_info2 was built from known-good data
+            let info2: &TextualInfo = unsafe { (&raw_info2).as_newtype() };
 
-        // Check equality
-        assert_eq!(info1 == info2, name1 == name2 && value1 == value2);
+            // Check equality
+            prop_assert_eq!(info1 == info2, name1 == name2 && value1 == value2);
+        }
     }
 }

@@ -867,8 +867,11 @@ impl BuildFlags {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for BuildFlags {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::u64::Any, fn(hwloc_topology_flags_e) -> Self>;
+    type Parameters = <hwloc_topology_flags_e as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_topology_flags_e as Arbitrary>::Strategy,
+        fn(hwloc_topology_flags_e) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_topology_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)
@@ -938,8 +941,8 @@ pub enum TypeFilter {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for TypeFilter {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {

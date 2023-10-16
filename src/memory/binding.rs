@@ -1223,8 +1223,11 @@ impl MemoryBindingFlags {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for MemoryBindingFlags {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::i32::Any, fn(hwloc_membind_flags_t) -> Self>;
+    type Parameters = <hwloc_membind_flags_t as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_membind_flags_t as Arbitrary>::Strategy,
+        fn(hwloc_membind_flags_t) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_membind_flags_t::arbitrary_with(args).map(Self::from_bits_truncate)
@@ -1350,8 +1353,8 @@ pub enum MemoryBindingPolicy {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for MemoryBindingPolicy {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {

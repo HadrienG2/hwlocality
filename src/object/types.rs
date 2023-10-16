@@ -61,8 +61,8 @@ pub enum BridgeType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for BridgeType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {
@@ -95,8 +95,8 @@ pub enum CacheType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for CacheType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {
@@ -163,8 +163,8 @@ pub enum OSDeviceType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for OSDeviceType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {
@@ -494,8 +494,8 @@ impl ObjectType {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for ObjectType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::usize::Any, fn(usize) -> Self>;
+    type Parameters = <usize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<usize as Arbitrary>::Strategy, fn(usize) -> Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         usize::arbitrary_with(args).map(|idx| {

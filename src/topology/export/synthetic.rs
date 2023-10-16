@@ -132,9 +132,9 @@ bitflags! {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for SyntheticExportFlags {
-    type Parameters = ();
+    type Parameters = <hwloc_topology_export_synthetic_flags_e as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
-        prop::num::u64::Any,
+        <hwloc_topology_export_synthetic_flags_e as Arbitrary>::Strategy,
         fn(hwloc_topology_export_synthetic_flags_e) -> Self,
     >;
 

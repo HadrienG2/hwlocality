@@ -155,9 +155,11 @@ bitflags! {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for XMLExportFlags {
-    type Parameters = ();
-    type Strategy =
-        prop::strategy::Map<prop::num::u64::Any, fn(hwloc_topology_export_xml_flags_e) -> Self>;
+    type Parameters = <hwloc_topology_export_xml_flags_e as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_topology_export_xml_flags_e as Arbitrary>::Strategy,
+        fn(hwloc_topology_export_xml_flags_e) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_topology_export_xml_flags_e::arbitrary_with(args).map(Self::from_bits_truncate)

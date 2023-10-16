@@ -747,8 +747,11 @@ impl CpuBindingFlags {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for CpuBindingFlags {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<prop::num::i32::Any, fn(hwloc_cpubind_flags_t) -> Self>;
+    type Parameters = <hwloc_cpubind_flags_t as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <hwloc_cpubind_flags_t as Arbitrary>::Strategy,
+        fn(hwloc_cpubind_flags_t) -> Self,
+    >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         hwloc_cpubind_flags_t::arbitrary_with(args).map(Self::from_bits_truncate)

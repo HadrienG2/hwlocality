@@ -2297,11 +2297,13 @@ where
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for PositiveInt {
     type Parameters = prop::collection::SizeRange;
-    type Strategy = prop::strategy::Map<std::ops::RangeInclusive<c_uint>, Self>;
+    type Strategy = prop::strategy::Map<std::ops::RangeInclusive<c_uint>, fn(c_uint) -> Self>;
 
-    fn arbitrary_with(params: Self::Parameters) {
+    fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
         let to_c_uint = |x: usize| c_uint::try_from(x).unwrap_or(c_uint::MAX);
-        (to_c_uint(params.start())..=to_c_uint(params.end())).prop_map(Self)
+        let start = to_c_uint(params.start());
+        let end = to_c_uint(params.end_incl());
+        (start..=end).prop_map(Self)
     }
 }
 
@@ -3907,6 +3909,7 @@ mod tests {
                 prop_assert_eq!(result.unwrap_err().kind(), &IntErrorKind::PosOverflow);
             }
         }
+        Ok(())
     }
 
     proptest! {
