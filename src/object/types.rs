@@ -74,7 +74,7 @@ impl Arbitrary for BridgeType {
 }
 
 /// Cache type
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_cache_type_e")]
 #[doc(alias = "hwloc_obj_cache_type_t")]
@@ -108,7 +108,7 @@ impl Arbitrary for CacheType {
 }
 
 /// Type of a OS device
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_osdev_type_e")]
 #[doc(alias = "hwloc_obj_osdev_type_t")]
@@ -189,7 +189,7 @@ impl Arbitrary for OSDeviceType {
 /// It can also help to think of it as comparing the relative depths of each type, so
 /// a `ObjectType::Machine` will be smaller than a `ObjectType::PU` since the machine
 /// contains processing units.
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
 #[doc(alias = "hwloc_obj_type_e")]
 #[doc(alias = "hwloc_obj_type_t")]

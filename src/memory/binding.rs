@@ -1287,7 +1287,7 @@ pub(crate) enum MemoryBindingOperation {
 /// Not all systems support all kinds of binding.
 /// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]

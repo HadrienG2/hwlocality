@@ -28,7 +28,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::From;
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
@@ -885,7 +885,7 @@ impl Arbitrary for BuildFlags {
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
 #[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]
