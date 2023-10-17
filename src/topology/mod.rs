@@ -973,7 +973,7 @@ unsafe impl Sync for Topology {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bitmap::BitmapIndex, ffi::PositiveInt, topology::builder::tests::DataSource};
+    use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
@@ -1296,10 +1296,10 @@ mod tests {
                 acc |= root.cpuset().unwrap();
                 acc
             });
-            let overlapping_pu = (0..full_set.weight().unwrap()).prop_map(|cpu_idx| {
+            let overlapping_pu = (0..full_set.weight().unwrap()).prop_map(move |cpu_idx| {
                 topology
                     .smallest_object_covering_cpuset(&CpuSet::from(
-                        BitmapIndex::try_from(cpu_idx).unwrap(),
+                        full_set.iter_set().nth(cpu_idx).unwrap(),
                     ))
                     .unwrap()
             });
