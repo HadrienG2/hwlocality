@@ -76,7 +76,7 @@ mod tests {
         Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    /// Default proptest path generator isn't exhaustive, which is bad
+    /// Path generator that's actually exhaustive, unlike proptest's default
     fn any_path() -> impl Strategy<Value = PathBuf> {
         PathBuf::arbitrary_with(PathParams::default().with_component_regex(".*"))
     }

@@ -2300,9 +2300,9 @@ impl Arbitrary for PositiveInt {
     type Strategy = prop::strategy::Map<std::ops::RangeInclusive<c_uint>, fn(c_uint) -> Self>;
 
     fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
-        let to_c_uint = |x: usize| c_uint::try_from(x).unwrap_or(c_uint::MAX);
-        let start = to_c_uint(params.start());
-        let end = to_c_uint(params.end_incl());
+        let to_inner = |x: usize| Self::try_from(x).unwrap_or(Self::MAX).0;
+        let start = to_inner(params.start());
+        let end = to_inner(params.end_incl());
         (start..=end).prop_map(Self)
     }
 }
