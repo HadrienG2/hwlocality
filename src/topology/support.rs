@@ -23,6 +23,8 @@ use hwlocality_sys::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{
     ffi::c_uchar,
     fmt::{self, Debug},
@@ -194,6 +196,33 @@ impl DiscoverySupport {
     }
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for DiscoverySupport {
+    type Parameters = ();
+    type Strategy =
+        prop::strategy::Map<[crate::test_utils::AnyHwlocBool; 6], fn([c_uchar; 6]) -> Self>;
+
+    #[allow(unused)]
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        let b = crate::test_utils::any_hwloc_bool();
+        [b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b].prop_map(
+            |([pu, numa, numa_memory, disallowed_pu, disallowed_numa, cpukind_efficiency])| {
+                Self(hwloc_topology_discovery_support {
+                    pu,
+                    numa,
+                    numa_memory,
+                    #[cfg(feature = "hwloc-2_4_0")]
+                    disallowed_pu,
+                    #[cfg(feature = "hwloc-2_4_0")]
+                    disallowed_numa,
+                    #[cfg(feature = "hwloc-2_4_0")]
+                    cpukind_efficiency,
+                })
+            },
+        )
+    }
+}
+//
 impl Debug for DiscoverySupport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("DiscoverySupport");
@@ -290,6 +319,50 @@ impl CpuBindingSupport {
     #[doc(alias = "hwloc_topology_cpubind_support::get_thisthread_last_cpu_location")]
     pub fn get_current_thread_last_cpu_location(&self) -> bool {
         support_flag(self.0.get_thisthread_last_cpu_location)
+    }
+}
+//
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for CpuBindingSupport {
+    type Parameters = ();
+    type Strategy =
+        prop::strategy::Map<[crate::test_utils::AnyHwlocBool; 11], fn([c_uchar; 11]) -> Self>;
+
+    #[allow(unused)]
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        let b = crate::test_utils::any_hwloc_bool();
+        [
+            b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
+            b.clone(), b.clone(), b.clone(), b.clone(), b
+        ].prop_map(
+            |([
+                set_thisproc_cpubind,
+                get_thisproc_cpubind,
+                set_proc_cpubind,
+                get_proc_cpubind,
+                set_thisthread_cpubind,
+                get_thisthread_cpubind,
+                set_thread_cpubind,
+                get_thread_cpubind,
+                get_thisproc_last_cpu_location,
+                get_proc_last_cpu_location,
+                get_thisthread_last_cpu_location
+            ])| {
+                Self(hwloc_topology_cpubind_support {
+                    set_thisproc_cpubind,
+                    get_thisproc_cpubind,
+                    set_proc_cpubind,
+                    get_proc_cpubind,
+                    set_thisthread_cpubind,
+                    get_thisthread_cpubind,
+                    set_thread_cpubind,
+                    get_thread_cpubind,
+                    get_thisproc_last_cpu_location,
+                    get_proc_last_cpu_location,
+                    get_thisthread_last_cpu_location,
+                })
+            },
+        )
     }
 }
 //
@@ -426,6 +499,59 @@ impl MemoryBindingSupport {
     }
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for MemoryBindingSupport {
+    type Parameters = ();
+    type Strategy =
+        prop::strategy::Map<[crate::test_utils::AnyHwlocBool; 15], fn([c_uchar; 15]) -> Self>;
+
+    #[allow(unused)]
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        let b = crate::test_utils::any_hwloc_bool();
+        [
+            b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
+            b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
+            b.clone(), b.clone(), b
+        ].prop_map(
+            |([
+                set_thisproc_membind,
+                get_thisproc_membind,
+                set_proc_membind,
+                get_proc_membind,
+                set_thisthread_membind,
+                get_thisthread_membind,
+                set_area_membind,
+                get_area_membind,
+                alloc_membind,
+                firsttouch_membind,
+                bind_membind,
+                interleave_membind,
+                nexttouch_membind,
+                migrate_membind,
+                get_area_memlocation,
+            ])| {
+                Self(hwloc_topology_membind_support {
+                    set_thisproc_membind,
+                    get_thisproc_membind,
+                    set_proc_membind,
+                    get_proc_membind,
+                    set_thisthread_membind,
+                    get_thisthread_membind,
+                    set_area_membind,
+                    get_area_membind,
+                    alloc_membind,
+                    firsttouch_membind,
+                    bind_membind,
+                    interleave_membind,
+                    nexttouch_membind,
+                    migrate_membind,
+                    get_area_memlocation,
+                })
+            },
+        )
+    }
+}
+//
 impl Debug for MemoryBindingSupport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MemoryBindingSupport")
@@ -468,6 +594,19 @@ impl MiscSupport {
     #[doc(alias = "hwloc_topology_misc_support::imported_support")]
     pub fn imported(&self) -> bool {
         support_flag(self.0.imported_support)
+    }
+}
+//
+#[cfg(feature = "hwloc-2_3_0")]
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for MiscSupport {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<crate::test_utils::AnyHwlocBool, fn(c_uchar) -> Self>;
+
+    #[allow(unused)]
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        crate::test_utils::any_hwloc_bool()
+            .prop_map(|(imported_support)| Self(hwloc_topology_misc_support { imported_support }))
     }
 }
 //
@@ -556,139 +695,51 @@ mod tests {
         PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    fn expect_support(
-        discovery: hwloc_topology_discovery_support,
-        cpubind: hwloc_topology_cpubind_support,
-        membind: hwloc_topology_membind_support,
-    ) {
-        let support = Topology::test_instance().feature_support();
-        let flag = |flag: c_uchar| flag != 0;
+    #[cfg(not(feature = "hwloc-2_3_0"))]
+    fn any_support_components(
+    ) -> impl Strategy<Value = (DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)> {
+        any::<(DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)>()
+    }
 
-        let discovery_support = support.discovery().unwrap();
-        assert_eq!(discovery_support.pu_count(), flag(discovery.pu));
-        assert_eq!(discovery_support.numa_count(), flag(discovery.numa));
-        assert_eq!(discovery_support.numa_memory(), flag(discovery.numa_memory));
-        #[cfg(feature = "hwloc-2_1_0")]
-        {
-            assert_eq!(
-                discovery_support.disallowed_pu(),
-                flag(discovery.disallowed_pu)
-            );
-            assert_eq!(
-                discovery_support.disallowed_numa(),
-                flag(discovery.disallowed_numa)
-            );
+    #[cfg(feature = "hwloc-2_3_0")]
+    fn any_support_components() -> impl Strategy<
+        Value = (
+            DiscoverySupport,
+            CpuBindingSupport,
+            MemoryBindingSupport,
+            MiscSupport,
+        ),
+    > {
+        any::<(
+            DiscoverySupport,
+            CpuBindingSupport,
+            MemoryBindingSupport,
+            MiscSupport,
+        )>()
+    }
+
+    proptest! {
+        #[test]
+        fn random(components in any_support_components()) {
+            #[cfg(not(feature = "hwloc-2_3_0"))]
+            let (discovery, cpubind, membind) = components;
+            #[cfg(feature = "hwloc-2_3_0")]
+            let (discovery, cpubind, membind, misc) = components;
+            let random_support = FeatureSupport(hwloc_topology_support {
+                discovery: &discovery.0,
+                cpubind: &cpubind.0,
+                membind: &membind.0,
+                #[cfg(feature = "hwloc-2_3_0")]
+                misc: &misc.0,
+            });
+            check_any_support(&random_support)?;
         }
-        // NOTE: Support for cpukind_efficiency has varied over time, so can't
-        //       test its value for a given OS
-
-        let cpubind_support = support.cpu_binding().unwrap();
-        assert_eq!(
-            cpubind_support.set_current_process(),
-            flag(cpubind.set_thisproc_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.get_current_process(),
-            flag(cpubind.get_thisproc_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.set_process(),
-            flag(cpubind.set_proc_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.get_process(),
-            flag(cpubind.get_proc_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.set_current_thread(),
-            flag(cpubind.set_thisthread_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.get_current_thread(),
-            flag(cpubind.get_thisthread_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.set_thread(),
-            flag(cpubind.set_thread_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.get_thread(),
-            flag(cpubind.get_thread_cpubind)
-        );
-        assert_eq!(
-            cpubind_support.get_current_process_last_cpu_location(),
-            flag(cpubind.get_thisproc_last_cpu_location)
-        );
-        assert_eq!(
-            cpubind_support.get_process_last_cpu_location(),
-            flag(cpubind.get_proc_last_cpu_location)
-        );
-        assert_eq!(
-            cpubind_support.get_current_thread_last_cpu_location(),
-            flag(cpubind.get_thisthread_last_cpu_location)
-        );
-
-        let membind_support = support.memory_binding().unwrap();
-        assert_eq!(
-            membind_support.set_current_process(),
-            flag(membind.set_thisproc_membind)
-        );
-        assert_eq!(
-            membind_support.get_current_process(),
-            flag(membind.get_thisproc_membind)
-        );
-        assert_eq!(
-            membind_support.set_process(),
-            flag(membind.set_proc_membind)
-        );
-        assert_eq!(
-            membind_support.get_process(),
-            flag(membind.get_proc_membind)
-        );
-        assert_eq!(
-            membind_support.set_current_thread(),
-            flag(membind.set_thisthread_membind)
-        );
-        assert_eq!(
-            membind_support.get_current_thread(),
-            flag(membind.get_thisthread_membind)
-        );
-        assert_eq!(membind_support.set_area(), flag(membind.set_area_membind));
-        assert_eq!(membind_support.get_area(), flag(membind.get_area_membind));
-        assert_eq!(
-            membind_support.get_area_memory_location(),
-            flag(membind.get_area_memlocation)
-        );
-        assert_eq!(
-            membind_support.allocate_bound(),
-            flag(membind.alloc_membind)
-        );
-        assert_eq!(
-            membind_support.first_touch_policy(),
-            flag(membind.firsttouch_membind)
-        );
-        assert_eq!(membind_support.bind_policy(), flag(membind.bind_membind));
-        assert_eq!(
-            membind_support.interleave_policy(),
-            flag(membind.interleave_membind)
-        );
-        assert_eq!(
-            membind_support.next_touch_policy(),
-            flag(membind.nexttouch_membind)
-        );
-        assert_eq!(
-            membind_support.migrate_flag(),
-            flag(membind.migrate_membind)
-        );
-
-        #[cfg(feature = "hwloc-2_3_0")]
-        assert!(!support.misc().unwrap().imported());
     }
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn linux() {
-        expect_support(
+    fn linux() -> Result<(), TestCaseError> {
+        expect_os_support(
             hwloc_topology_discovery_support {
                 pu: 1,
                 numa: 1,
@@ -730,13 +781,13 @@ mod tests {
                 migrate_membind: 1,
                 get_area_memlocation: 1,
             },
-        );
+        )
     }
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn macos() {
-        expect_support(
+    fn macos() -> Result<(), TestCaseError> {
+        expect_os_support(
             hwloc_topology_discovery_support {
                 pu: 1,
                 numa: 1,
@@ -778,13 +829,13 @@ mod tests {
                 migrate_membind: 0,
                 get_area_memlocation: 0,
             },
-        );
+        )
     }
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn windows() {
-        expect_support(
+    fn windows() -> Result<(), TestCaseError> {
+        expect_os_support(
             hwloc_topology_discovery_support {
                 pu: 1,
                 numa: 1,
@@ -826,11 +877,11 @@ mod tests {
                 migrate_membind: 0,
                 get_area_memlocation: 1,
             },
-        );
+        )
     }
 
     #[test]
-    fn feature_support() {
+    fn basics() {
         let default_support = Topology::test_instance().feature_support();
         let null_support = &FeatureSupport(hwloc_topology_support {
             discovery: ptr::null(),
@@ -898,5 +949,130 @@ mod tests {
         compare(default_support, null_membind, false);
         #[cfg(feature = "hwloc-2_3_0")]
         compare(default_support, null_misc, false);
+    }
+
+    fn expect_os_support(
+        discovery: hwloc_topology_discovery_support,
+        cpubind: hwloc_topology_cpubind_support,
+        membind: hwloc_topology_membind_support,
+    ) -> Result<(), TestCaseError> {
+        let support = Topology::test_instance().feature_support();
+        check_any_support(support)?;
+
+        let discovery_raw = support.discovery().unwrap().0;
+        assert_eq!(
+            discovery_raw,
+            hwloc_topology_discovery_support {
+                #[cfg(all(feature = "hwloc-2_4_0", target_os = "linux"))]
+                // Support for cpukind_efficiency varies from one Linux distro
+                // to another, so can't test its value in CI...
+                cpukind_efficiency: discovery_raw.cpukind_efficiency,
+                ..discovery
+            }
+        );
+
+        assert_eq!(support.cpu_binding().unwrap().0, cpubind);
+        assert_eq!(support.memory_binding().unwrap().0, membind);
+
+        #[cfg(feature = "hwloc-2_3_0")]
+        assert_eq!(
+            support.misc().unwrap().0,
+            hwlocality_sys::hwloc_topology_misc_support {
+                imported_support: 0
+            }
+        );
+
+        Ok(())
+    }
+
+    fn check_any_support(support: &FeatureSupport) -> Result<(), TestCaseError> {
+        macro_rules! check_flags {
+            (
+                $(
+                    $(#[$category_attrs:meta])*
+                    $category:ident {
+                        $(
+                            $(#[$method_attrs:meta])*
+                            $flag_repr:ident -> $flag:ident,
+                        )*
+                    },
+                )*
+            ) => {
+                $(
+
+                    $(#[$category_attrs])*
+                    {
+                        let category = support.$category().unwrap();
+                        $(
+                            $(#[$method_attrs])*
+                            check_flag(
+                                category.0.$flag_repr,
+                                || category.$flag(),
+                            )?;
+                        )*
+                    }
+                )*
+            }
+        }
+        check_flags!(
+            discovery {
+                pu -> pu_count,
+                numa -> numa_count,
+                numa_memory -> numa_memory,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_pu -> disallowed_pu,
+                #[cfg(feature = "hwloc-2_1_0")]
+                disallowed_numa -> disallowed_numa,
+                #[cfg(feature = "hwloc-2_4_0")]
+                cpukind_efficiency -> cpukind_efficiency,
+            },
+            cpu_binding {
+                set_thisproc_cpubind -> set_current_process,
+                get_thisproc_cpubind -> get_current_process,
+                set_proc_cpubind -> set_process,
+                get_proc_cpubind -> get_process,
+                set_thisthread_cpubind -> set_current_thread,
+                get_thisthread_cpubind -> get_current_thread,
+                set_thread_cpubind -> set_thread,
+                get_thread_cpubind -> get_thread,
+                get_thisproc_last_cpu_location -> get_current_process_last_cpu_location,
+                get_proc_last_cpu_location -> get_process_last_cpu_location,
+                get_thisthread_last_cpu_location -> get_current_thread_last_cpu_location,
+            },
+            memory_binding {
+                set_thisproc_membind -> set_current_process,
+                get_thisproc_membind -> get_current_process,
+                set_proc_membind -> set_process,
+                get_proc_membind -> get_process,
+                set_thisthread_membind -> set_current_thread,
+                get_thisthread_membind -> get_current_thread,
+                set_area_membind -> set_area,
+                get_area_membind -> get_area,
+                get_area_memlocation -> get_area_memory_location,
+                alloc_membind -> allocate_bound,
+                firsttouch_membind -> first_touch_policy,
+                bind_membind -> bind_policy,
+                interleave_membind -> interleave_policy,
+                nexttouch_membind -> next_touch_policy,
+                migrate_membind -> migrate_flag,
+            },
+            #[cfg(feature = "hwloc-2_3_0")]
+            misc {
+                imported_support -> imported,
+            },
+        );
+        Ok(())
+    }
+
+    fn check_flag(
+        flag_repr: c_uchar,
+        flag: impl FnOnce() -> bool + UnwindSafe,
+    ) -> Result<(), TestCaseError> {
+        if flag_repr <= 1 {
+            prop_assert_eq!(c_uchar::from(flag()), flag_repr);
+        } else {
+            prop_assert!(std::panic::catch_unwind(|| flag()).is_err());
+        }
+        Ok(())
     }
 }
