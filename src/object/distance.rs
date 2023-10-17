@@ -1281,6 +1281,11 @@ impl<'topology> Distances<'topology> {
     /// [`Distances::replace_objects()`]. One may use e.g.
     /// [`Topology::object_with_same_locality()`] to easily convert between
     /// similar objects of different types.
+    ///
+    /// # Errors
+    ///
+    /// [`TransformError`] if one attempts to use
+    /// [`DistanceTransform::RemoveNone`] to reduce the number of objects to <2.
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_distances_transform")]
     pub fn transform(

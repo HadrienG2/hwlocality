@@ -207,8 +207,9 @@ impl<'topology> TopologyEditor<'topology> {
     /// Restrict the topology to the given CPU set or nodeset
     ///
     /// The topology is modified so as to remove all objects that are not
-    /// included (or partially included) in the specified CPU or NUMANode set.
-    /// All objects CPU and node sets are restricted accordingly.
+    /// included (or partially included) in the specified [`CpuSet`] or
+    /// [`NodeSet`] set. All objects CPU and node sets are restricted
+    /// accordingly.
     ///
     /// Restricting the topology removes some locality information, hence the
     /// remaining objects may get reordered (including PUs and NUMA nodes), and

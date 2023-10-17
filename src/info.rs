@@ -175,9 +175,9 @@ mod tests {
             let mut expected_hasher = state.build_hasher();
             name_c.hash(&mut expected_hasher);
             value_c.hash(&mut expected_hasher);
-            let mut actual_hasher = state.build_hasher();
-            info.hash(&mut actual_hasher);
-            prop_assert_eq!(actual_hasher.finish(), expected_hasher.finish());
+            let expected_hash = expected_hasher.finish();
+            let actual_hash = state.hash_one(info);
+            prop_assert_eq!(actual_hash, expected_hash);
         }
 
         #[test]
