@@ -212,11 +212,11 @@ pub mod object;
 pub mod path;
 pub mod topology;
 
-/// Re-export proptest version we're built against
+/// Re-export `proptest` version we're built against
 #[cfg(feature = "proptest")]
 pub use proptest;
 
-/// Re-export enum_iterator version we're built against
+/// Re-export `enum_iterator` version we're built against
 #[cfg(feature = "proptest")]
 pub use enum_iterator;
 

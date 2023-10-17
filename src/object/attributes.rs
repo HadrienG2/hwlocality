@@ -459,7 +459,7 @@ impl Arbitrary for CacheAssociativity {
     type Strategy = prop::sample::Select<Self>;
 
     fn arbitrary_with((): ()) -> Self::Strategy {
-        // Bias RNG to ensure reasonably uniform variant coverage
+        /// Bias RNG to ensure reasonably uniform variant coverage
         static VARIANTS: &[CacheAssociativity] = &[
             CacheAssociativity::Unknown,
             CacheAssociativity::Full,
