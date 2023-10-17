@@ -151,18 +151,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for XMLExportFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_topology_export_xml_flags_e::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.into_iter().map(move |value| self_ ^ value))
-    }
-}
+crate::impl_arbitrary_for_bitflags!(XMLExportFlags, hwloc_topology_export_xml_flags_e);
 
 /// XML string emitted by hwloc
 ///

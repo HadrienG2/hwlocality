@@ -300,7 +300,7 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
     use std::{
         fmt::{self, Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
@@ -352,354 +352,356 @@ mod tests {
         PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    #[quickcheck]
-    fn check_errno_normal(
-        output: i128,
-        lowest_good: i128,
-        start_errno: i32,
-        new_errno: NonZeroU32,
-    ) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
+    proptest! {
+        #[test]
+        fn check_errno_normal(
+            output: i128,
+            lowest_good: i128,
+            start_errno: i32,
+            new_errno: NonZeroU32,
+        ) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
 
-        // Errno is only checked on failure
-        let expected_errno = (output < lowest_good).then_some(new_errno);
-        assert_eq!(
-            super::check_errno(
+            // Errno is only checked on failure
+            let expected_errno = (output < lowest_good).then_some(new_errno);
+            prop_assert_eq!(
+                super::check_errno(
+                    || {
+                        errno::set_errno(new_errno);
+                        output
+                    },
+                    lowest_good
+                ),
+                (output, expected_errno)
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn check_errno_in_vain(output: i128, lowest_good: i128, start_errno: i32) {
+            // Not setting errno on failure is handled properly
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            prop_assert_eq!(super::check_errno(|| output, lowest_good), (output, None));
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn ptr_success(nonnull: NonZeroUsize, start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "foo";
+            let nonnull_ptr = NonNull::new(nonnull.get() as *mut u8).unwrap();
+
+            // Non-null output means success
+            prop_assert_eq!(
+                super::call_hwloc_ptr(api, || {
+                    errno::set_errno(new_errno);
+                    nonnull_ptr.as_ptr()
+                }),
+                Ok(nonnull_ptr)
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+            prop_assert_eq!(
+                super::call_hwloc_ptr_mut(api, || {
+                    errno::set_errno(new_errno);
+                    nonnull_ptr.as_ptr()
+                }),
+                Ok(nonnull_ptr)
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn ptr_fail_with_errno(start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "bar";
+
+            // Null output means failure and will lead to an errno check
+            let null_ptr = ptr::null_mut::<Vec<f32>>();
+            prop_assert_eq!(
+                super::call_hwloc_ptr(api, || {
+                    errno::set_errno(new_errno);
+                    null_ptr
+                }),
+                Err(RawHwlocError {
+                    api,
+                    errno: Some(new_errno)
+                })
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+            prop_assert_eq!(
+                super::call_hwloc_ptr_mut(api, || {
+                    errno::set_errno(new_errno);
+                    null_ptr
+                }),
+                Err(RawHwlocError {
+                    api,
+                    errno: Some(new_errno)
+                })
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn ptr_fail_wo_errno(start_errno: i32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "baz";
+            let null_ptr = ptr::null_mut::<String>();
+
+            // Not setting errno on failure is handled properly
+            prop_assert_eq!(
+                super::call_hwloc_ptr(api, || { null_ptr }),
+                Err(RawHwlocError { api, errno: None })
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+            prop_assert_eq!(
+                super::call_hwloc_ptr_mut(api, || { null_ptr }),
+                Err(RawHwlocError { api, errno: None })
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn int_normal_general(output: i32, start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "abc";
+
+            // Run the function
+            let unwind_result = panic::catch_unwind(|| {
+                let res = super::call_hwloc_int_normal(api, || {
+                    errno::set_errno(new_errno);
+                    output
+                });
+                prop_assert_eq!(errno::errno(), start_errno);
+                Ok(res)
+            });
+
+            // Interpret results
+            match output {
+                bad if bad < -1 => {
+                    unwind_result.expect_err("Should panic on -1");
+                }
+                -1 => prop_assert_eq!(
+                    unwind_result.unwrap()?,
+                    Err(RawHwlocError {
+                        api,
+                        errno: Some(new_errno)
+                    })
+                ),
+                positive => prop_assert_eq!(unwind_result.unwrap()?, Ok(u32::try_from(positive).unwrap())),
+            }
+        }
+
+        #[test]
+        fn int_normal_err_with_errno(start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "def";
+
+            // Returning -1 means failure and will lead to an errno check
+            prop_assert_eq!(
+                super::call_hwloc_int_normal(api, || {
+                    errno::set_errno(new_errno);
+                    -1
+                }),
+                Err(RawHwlocError {
+                    api,
+                    errno: Some(new_errno)
+                })
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn int_normal_err_wo_errno(start_errno: i32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "ghi";
+
+            // Not setting errno on failure is handled properly
+            prop_assert_eq!(
+                super::call_hwloc_int_normal(api, || -1),
+                Err(RawHwlocError { api, errno: None })
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
+        }
+
+        #[test]
+        fn int_raw_with_errno(
+            output: i32,
+            lowest_good_value: i32,
+            start_errno: i32,
+            new_errno: NonZeroU32,
+        ) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "jkl";
+
+            // Run the function
+            let result = super::call_hwloc_int_raw(
+                api,
                 || {
                     errno::set_errno(new_errno);
                     output
                 },
-                lowest_good
-            ),
-            (output, expected_errno)
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
+                lowest_good_value,
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
 
-    #[quickcheck]
-    fn check_errno_in_vain(output: i128, lowest_good: i128, start_errno: i32) {
-        // Not setting errno on failure is handled properly
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        assert_eq!(super::check_errno(|| output, lowest_good), (output, None));
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn ptr_success(nonnull: NonZeroUsize, start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "foo";
-        let nonnull_ptr = NonNull::new(nonnull.get() as *mut u8).unwrap();
-
-        // Non-null output means success
-        assert_eq!(
-            super::call_hwloc_ptr(api, || {
-                errno::set_errno(new_errno);
-                nonnull_ptr.as_ptr()
-            }),
-            Ok(nonnull_ptr)
-        );
-        assert_eq!(errno::errno(), start_errno);
-        assert_eq!(
-            super::call_hwloc_ptr_mut(api, || {
-                errno::set_errno(new_errno);
-                nonnull_ptr.as_ptr()
-            }),
-            Ok(nonnull_ptr)
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn ptr_fail_with_errno(start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "bar";
-
-        // Null output means failure and will lead to an errno check
-        let null_ptr = ptr::null_mut::<Vec<f32>>();
-        assert_eq!(
-            super::call_hwloc_ptr(api, || {
-                errno::set_errno(new_errno);
-                null_ptr
-            }),
-            Err(RawHwlocError {
-                api,
-                errno: Some(new_errno)
-            })
-        );
-        assert_eq!(errno::errno(), start_errno);
-        assert_eq!(
-            super::call_hwloc_ptr_mut(api, || {
-                errno::set_errno(new_errno);
-                null_ptr
-            }),
-            Err(RawHwlocError {
-                api,
-                errno: Some(new_errno)
-            })
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn ptr_fail_wo_errno(start_errno: i32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "baz";
-        let null_ptr = ptr::null_mut::<String>();
-
-        // Not setting errno on failure is handled properly
-        assert_eq!(
-            super::call_hwloc_ptr(api, || { null_ptr }),
-            Err(RawHwlocError { api, errno: None })
-        );
-        assert_eq!(errno::errno(), start_errno);
-        assert_eq!(
-            super::call_hwloc_ptr_mut(api, || { null_ptr }),
-            Err(RawHwlocError { api, errno: None })
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn int_normal_general(output: i32, start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "abc";
-
-        // Run the function
-        let unwind_result = panic::catch_unwind(|| {
-            let res = super::call_hwloc_int_normal(api, || {
-                errno::set_errno(new_errno);
-                output
-            });
-            assert_eq!(errno::errno(), start_errno);
-            res
-        });
-
-        // Interpret results
-        match output {
-            bad if bad < -1 => {
-                unwind_result.expect_err("Should panic on -1");
+            // Interpret outcome
+            if output >= lowest_good_value {
+                prop_assert_eq!(result, Ok(output));
+            } else {
+                prop_assert_eq!(
+                    result,
+                    Err(RawNegIntError {
+                        api,
+                        result: output,
+                        errno: Some(new_errno),
+                    })
+                );
             }
-            -1 => assert_eq!(
-                unwind_result.unwrap(),
+        }
+
+        #[test]
+        fn int_raw_wo_errno(output: i32, lowest_good_value: i32, start_errno: i32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "opq";
+
+            // Run the function
+            let result = super::call_hwloc_int_raw(api, || output, lowest_good_value);
+            prop_assert_eq!(errno::errno(), start_errno);
+
+            // Interpret outcome
+            if output >= lowest_good_value {
+                prop_assert_eq!(result, Ok(output));
+            } else {
+                prop_assert_eq!(
+                    result,
+                    Err(RawNegIntError {
+                        api,
+                        result: output,
+                        errno: None,
+                    })
+                );
+            }
+        }
+
+        #[test]
+        fn bool_general(output: i32, start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "rst";
+
+            // Run the function
+            let unwind_result = panic::catch_unwind(|| {
+                let res = super::call_hwloc_bool(api, || {
+                    errno::set_errno(new_errno);
+                    output
+                });
+                prop_assert_eq!(errno::errno(), start_errno);
+                Ok(res)
+            });
+
+            // Interpret outcome
+            match output {
+                -1 => prop_assert_eq!(
+                    unwind_result.unwrap()?,
+                    Err(RawHwlocError {
+                        api,
+                        errno: Some(new_errno)
+                    })
+                ),
+                0 => prop_assert_eq!(unwind_result.unwrap()?, Ok(false)),
+                1 => prop_assert_eq!(unwind_result.unwrap()?, Ok(true)),
+                _ => {
+                    unwind_result.expect_err("Should panic on non-bool output");
+                }
+            }
+        }
+
+        #[test]
+        fn bool_err_with_errno(start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "uvw";
+
+            // Run the function
+            prop_assert_eq!(
+                super::call_hwloc_bool(api, || {
+                    errno::set_errno(new_errno);
+                    -1
+                }),
                 Err(RawHwlocError {
                     api,
                     errno: Some(new_errno)
                 })
-            ),
-            positive => assert_eq!(unwind_result.unwrap(), Ok(u32::try_from(positive).unwrap())),
-        }
-    }
-
-    #[quickcheck]
-    fn int_normal_err_with_errno(start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "def";
-
-        // Returning -1 means failure and will lead to an errno check
-        assert_eq!(
-            super::call_hwloc_int_normal(api, || {
-                errno::set_errno(new_errno);
-                -1
-            }),
-            Err(RawHwlocError {
-                api,
-                errno: Some(new_errno)
-            })
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn int_normal_err_wo_errno(start_errno: i32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "ghi";
-
-        // Not setting errno on failure is handled properly
-        assert_eq!(
-            super::call_hwloc_int_normal(api, || -1),
-            Err(RawHwlocError { api, errno: None })
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn int_raw_with_errno(
-        output: i32,
-        lowest_good_value: i32,
-        start_errno: i32,
-        new_errno: NonZeroU32,
-    ) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "jkl";
-
-        // Run the function
-        let result = super::call_hwloc_int_raw(
-            api,
-            || {
-                errno::set_errno(new_errno);
-                output
-            },
-            lowest_good_value,
-        );
-        assert_eq!(errno::errno(), start_errno);
-
-        // Interpret outcome
-        if output >= lowest_good_value {
-            assert_eq!(result, Ok(output));
-        } else {
-            assert_eq!(
-                result,
-                Err(RawNegIntError {
-                    api,
-                    result: output,
-                    errno: Some(new_errno),
-                })
             );
+            prop_assert_eq!(errno::errno(), start_errno);
         }
-    }
 
-    #[quickcheck]
-    fn int_raw_wo_errno(output: i32, lowest_good_value: i32, start_errno: i32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "opq";
+        #[test]
+        fn bool_err_wo_errno(start_errno: i32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "xyz";
 
-        // Run the function
-        let result = super::call_hwloc_int_raw(api, || output, lowest_good_value);
-        assert_eq!(errno::errno(), start_errno);
-
-        // Interpret outcome
-        if output >= lowest_good_value {
-            assert_eq!(result, Ok(output));
-        } else {
-            assert_eq!(
-                result,
-                Err(RawNegIntError {
-                    api,
-                    result: output,
-                    errno: None,
-                })
+            // Run the function
+            prop_assert_eq!(
+                super::call_hwloc_bool(api, || -1),
+                Err(RawHwlocError { api, errno: None })
             );
+            prop_assert_eq!(errno::errno(), start_errno);
         }
-    }
 
-    #[quickcheck]
-    fn bool_general(output: i32, start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "rst";
+        #[test]
+        fn bool_success(output: bool, start_errno: i32, new_errno: NonZeroU32) {
+            // Test boilerplate
+            let start_errno = Errno(start_errno.wrapping_abs());
+            let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
+            let _errno_guard = ErrnoGuard::new(start_errno);
+            let api = "cthulhu_phtagn";
 
-        // Run the function
-        let unwind_result = panic::catch_unwind(|| {
-            let res = super::call_hwloc_bool(api, || {
-                errno::set_errno(new_errno);
-                output
-            });
-            assert_eq!(errno::errno(), start_errno);
-            res
-        });
-
-        // Interpret outcome
-        match output {
-            -1 => assert_eq!(
-                unwind_result.unwrap(),
-                Err(RawHwlocError {
-                    api,
-                    errno: Some(new_errno)
-                })
-            ),
-            0 => assert_eq!(unwind_result.unwrap(), Ok(false)),
-            1 => assert_eq!(unwind_result.unwrap(), Ok(true)),
-            _ => {
-                unwind_result.expect_err("Should panic on non-bool output");
-            }
+            // Run the function
+            prop_assert_eq!(
+                super::call_hwloc_bool(api, || {
+                    errno::set_errno(new_errno);
+                    i32::from(output)
+                }),
+                Ok(output)
+            );
+            prop_assert_eq!(errno::errno(), start_errno);
         }
-    }
 
-    #[quickcheck]
-    fn bool_err_with_errno(start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "uvw";
-
-        // Run the function
-        assert_eq!(
-            super::call_hwloc_bool(api, || {
-                errno::set_errno(new_errno);
-                -1
-            }),
-            Err(RawHwlocError {
-                api,
-                errno: Some(new_errno)
-            })
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn bool_err_wo_errno(start_errno: i32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "xyz";
-
-        // Run the function
-        assert_eq!(
-            super::call_hwloc_bool(api, || -1),
-            Err(RawHwlocError { api, errno: None })
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn bool_success(output: bool, start_errno: i32, new_errno: NonZeroU32) {
-        // Test boilerplate
-        let start_errno = Errno(start_errno.wrapping_abs());
-        let new_errno = Errno(i32::from_ne_bytes(new_errno.get().to_ne_bytes()).wrapping_abs());
-        let _errno_guard = ErrnoGuard::new(start_errno);
-        let api = "cthulhu_phtagn";
-
-        // Run the function
-        assert_eq!(
-            super::call_hwloc_bool(api, || {
-                errno::set_errno(new_errno);
-                i32::from(output)
-            }),
-            Ok(output)
-        );
-        assert_eq!(errno::errno(), start_errno);
-    }
-
-    #[quickcheck]
-    fn parameter_error_from(x: i128) {
-        assert_eq!(ParameterError::from(x), ParameterError(x));
+        #[test]
+        fn parameter_error_from(x: i128) {
+            prop_assert_eq!(ParameterError::from(x), ParameterError(x));
+        }
     }
 }

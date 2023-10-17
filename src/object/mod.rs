@@ -2133,19 +2133,25 @@ impl TopologyObject {
             (type_chars, attr_chars)
         };
 
+        let cpuset_str = self.cpuset().map_or_else(
+            || " without a CpuSet".to_owned(),
+            |cpuset| format!(" with {cpuset}"),
+        );
+
         // SAFETY: - Output of call_snprintf should be valid C strings
         //         - We're not touching type_chars and attr_chars while type_str
         //           and attr_str are live.
         unsafe {
             let type_str = CStr::from_ptr(type_chars.as_ptr()).to_string_lossy();
             let attr_str = CStr::from_ptr(attr_chars.as_ptr()).to_string_lossy();
+            let type_and_cpuset = format!("{type_str}{cpuset_str}");
             if attr_str.is_empty() {
-                f.pad(&type_str)
+                f.pad(&type_and_cpuset)
             } else if f.alternate() {
-                let s = format!("{type_str} (\n  {attr_str}\n)");
+                let s = format!("{type_and_cpuset} (\n  {attr_str}\n)");
                 f.pad(&s)
             } else {
-                let s = format!("{type_str} ({attr_str})");
+                let s = format!("{type_and_cpuset} ({attr_str})");
                 f.pad(&s)
             }
         }

@@ -580,18 +580,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for DistributeFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_distrib_flags_e::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
-    }
-}
+crate::impl_arbitrary_for_bitflags!(DistributeFlags, hwloc_distrib_flags_e);
 //
 impl Default for DistributeFlags {
     fn default() -> Self {
@@ -975,11 +964,10 @@ mod tests {
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck::Arbitrary;
-    use quickcheck_macros::quickcheck;
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        collections::BTreeSet,
+        collections::{BTreeMap, BTreeSet},
         error::Error,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
@@ -1023,72 +1011,117 @@ mod tests {
         UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    /// Set of valid (disjoint) roots for [`Topology::distribute_items()`],
-    /// taken from [`Topology::test_instance()`]
-    #[derive(Clone, Debug, Default)]
-    struct DisjointRoots(Vec<&'static TopologyObject>);
-    //
-    impl Arbitrary for DisjointRoots {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            // Pick a set of (sub-roots), given a known root
-            fn pick_roots<'output>(
-                g: &mut quickcheck::Gen,
-                root: &'output TopologyObject,
-                output: &mut Vec<&'output TopologyObject>,
-            ) {
-                // Either we add the current root or recurse through children
-                if bool::arbitrary(g) || root.normal_arity() == 0 {
-                    output.push(root);
-                } else {
-                    for child in root.normal_children() {
-                        // We can drop children, this is how we test scenarios
-                        // where roots have partial topology coverage
-                        if bool::arbitrary(g) {
-                            pick_roots(g, child, output);
-                        }
-                    }
-                }
-            }
-            let mut output = Vec::new();
-            while output.is_empty() {
-                pick_roots(g, Topology::test_instance().root_object(), &mut output);
-            }
-            Self(output)
-        }
+    #[test]
+    fn default_distribute_flags() {
+        assert_eq!(DistributeFlags::default(), DistributeFlags::empty());
+    }
 
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            // Like the quickcheck tuple shrinkers, we try to shrink roots one
-            // by one and chain the resulting iterators
-            let old_roots = self.0.clone();
-            Box::new((0..self.0.len()).flat_map(move |shrunk_root_idx| {
-                // Shrinking a root means going up its ancestor chain...
-                let old_roots = old_roots.clone();
-                (old_roots[shrunk_root_idx].ancestors()).map(move |shrunk_root| {
-                    // ...keeping all other roots mostly the same, but pruning
-                    // those that are children of the newly shrunk root
-                    let new_roots = (old_roots.iter().enumerate())
-                        .filter_map(|(old_idx, old_root)| {
-                            if old_idx == shrunk_root_idx {
-                                Some(shrunk_root)
-                            } else {
-                                (!old_root.is_in_subtree(shrunk_root)).then_some(old_root)
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    Self(new_roots)
-                })
-            }))
+    #[test]
+    fn clone() -> Result<(), TestCaseError> {
+        let topology = Topology::test_instance();
+        let clone = topology.clone();
+        assert_ne!(format!("{:p}", *topology), format!("{clone:p}"));
+        builder::tests::check_topology(
+            topology,
+            DataSource::ThisSystem,
+            topology.build_flags(),
+            |ty| Ok(topology.type_filter(ty).unwrap()),
+        )?;
+        assert!(!topology.contains(clone.root_object()));
+        Ok(())
+    }
+
+    /// Bias the `max_depth` input to `distribute_items` tests so that
+    /// interesting depth values below the maximum possible depth are sampled
+    /// often enough
+    fn max_depth() -> impl Strategy<Value = NormalDepth> {
+        (0..(2 * usize::from(Topology::test_instance().depth())))
+            .prop_map(|us| NormalDepth::try_from(us).unwrap())
+    }
+
+    proptest! {
+        // Check that absence of roots to distribute too is reported correctly
+        #[test]
+        fn distribute_nowhere(num_items: NonZeroU8, max_depth in max_depth(), flags: DistributeFlags) {
+            let num_items = usize::from(num_items.get());
+            prop_assert_eq!(
+                Topology::test_instance().distribute_items(&[], num_items, max_depth, flags),
+                Err(DistributeError::EmptyRoots)
+            );
         }
     }
-    //
-    impl Eq for DisjointRoots {}
-    //
-    impl PartialEq for DisjointRoots {
-        fn eq(&self, other: &Self) -> bool {
-            self.0.len() == other.0.len()
-                && self.0.iter().zip(&other.0).all(
-                    |(obj1, obj2): (&&TopologyObject, &&TopologyObject)| std::ptr::eq(*obj1, *obj2),
-                )
+
+    /// Generate valid (disjoint) roots for [`Topology::distribute_items()`],
+    /// taken from [`Topology::test_instance()`]
+    fn disjoint_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
+        // Starting from PU objects, which are the leaves of the normal object
+        // tree, go up an arbitrary amount of ancestors from each PU. This gives
+        // us a list of root candidates with a few issues to be adressed:
+        //
+        // - There root candidates are not disjoint, i.e. one proposed root can
+        //   be the parent of another, and a given root may appear multiple
+        //   times because it has been reached from two different leaf PUs.
+        // - These root candidates are exhaustive, they cover every reachable
+        //   CPU. We want tests to exercise roots that don't cover every CPU.
+        // - Roots are ordered by PU index, which is not something we want for
+        //   test inputs : they should appear in any order
+        let topology = Topology::test_instance();
+        let overlapping_exhaustive_ordered_roots = topology
+            .objects_with_type(ObjectType::PU)
+            .map(|pu| {
+                // Pick an arbitrary ancestor of this PU, or the PU itself
+                (0..=pu.ancestors().count()).prop_map(move |depth| {
+                    std::iter::once(pu)
+                        .chain(pu.ancestors())
+                        .nth(depth)
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // First, we address the duplication issue
+        let exhaustive_ordered_roots = overlapping_exhaustive_ordered_roots.prop_map(|roots| {
+            // Sort roots by increasing depth, so parents go before children
+            let roots_of_increasing_depth = roots
+                .into_iter()
+                .map(|root| (root.depth().assume_normal(), root))
+                .collect::<BTreeMap<_, _>>();
+
+            // Iterate from parent to children, keeping track of which CPUs we
+            // already covered and using this to eliminate duplicate roots
+            let mut deduplicated_roots = Vec::new();
+            let mut covered_cpuset = CpuSet::new();
+            for (_depth, root) in roots_of_increasing_depth {
+                let root_cpuset = root.cpuset().unwrap();
+                if !covered_cpuset.includes(root_cpuset) {
+                    assert!(!covered_cpuset.intersects(root_cpuset));
+                    deduplicated_roots.push(root);
+                    covered_cpuset |= root_cpuset;
+                }
+            }
+            deduplicated_roots
+        });
+
+        // Now we have disjoint roots, which we can reorder and sample to avoid
+        // test bias originating from root order and exhaustiveness
+        exhaustive_ordered_roots.prop_flat_map(|exhaustive_ordered_roots| {
+            let num_roots = exhaustive_ordered_roots.len();
+            prop::sample::subsequence(exhaustive_ordered_roots, 1..=num_roots).prop_shuffle()
+        })
+    }
+
+    proptest! {
+        // Check that requests to distribute 0 items are handled correctly
+        #[test]
+        fn distribute_nothing(
+            disjoint_roots in disjoint_roots(),
+            max_depth in max_depth(),
+            flags: DistributeFlags,
+        ) {
+            prop_assert_eq!(
+                Topology::test_instance().distribute_items(&disjoint_roots, 0, max_depth, flags),
+                Ok(Vec::new())
+            );
         }
     }
 
@@ -1117,199 +1150,222 @@ mod tests {
         input
     }
 
-    #[quickcheck]
-    fn distribute_nothing(
-        disjoint_roots: DisjointRoots,
-        max_depth: NormalDepth,
-        flags: DistributeFlags,
-    ) {
-        assert_eq!(
-            Topology::test_instance().distribute_items(&disjoint_roots.0, 0, max_depth, flags),
-            Ok(Vec::new())
-        );
-    }
+    proptest! {
+        // Check that distribute_items works well given correct inputs
+        #[test]
+        fn distribute_correct(
+            disjoint_roots in disjoint_roots(),
+            max_depth in max_depth(),
+            num_items: NonZeroU8,
+            flags: DistributeFlags,
+        ) {
+            // Set up test state
+            let topology = Topology::test_instance();
+            let num_items = usize::from(num_items.get());
 
-    #[quickcheck]
-    fn distribute_nowhere(num_items: NonZeroU8, max_depth: NormalDepth, flags: DistributeFlags) {
-        let num_items = usize::from(num_items.get());
-        assert_eq!(
-            Topology::test_instance().distribute_items(&[], num_items, max_depth, flags),
-            Err(DistributeError::EmptyRoots)
-        );
-    }
+            // Check results on normal roots
+            #[allow(clippy::cast_precision_loss)]
+            {
+                // Run the computation
+                let item_sets = topology
+                    .distribute_items(&disjoint_roots, num_items, max_depth, flags)
+                    .unwrap();
+                prop_assert_eq!(item_sets.len(), num_items);
 
-    #[quickcheck]
-    fn distribute_items(
-        disjoint_roots: DisjointRoots,
-        num_items: NonZeroU8,
-        max_depth: NormalDepth,
-        flags: DistributeFlags,
-        overlapping_cpu_selector: usize,
-        foreign_idx_selector: usize,
-    ) {
-        // Set up test state
-        let topology = Topology::test_instance();
-        let disjoint_roots = disjoint_roots.0;
-        let num_items = usize::from(num_items.get());
+                // Predict among which leaves of the object tree work items could
+                // potentially have been distributed
+                let possible_leaf_objects = find_possible_leaves(&disjoint_roots, max_depth);
+                let mut possible_leaf_sets = possible_leaf_objects
+                    .iter()
+                    .map(|obj| obj.cpuset().unwrap().clone_target())
+                    .collect::<BTreeSet<CpuSet>>();
 
-        // Determine the maximal max_depth value that will make a difference and
-        // roll a random max_depth accordingly.
-        let max_depth = max_depth % (topology.depth() + 1);
-
-        // Check results on normal roots
-        #[allow(clippy::cast_precision_loss)]
-        {
-            // Run the computation
-            let item_sets = topology
-                .distribute_items(&disjoint_roots, num_items, max_depth, flags)
-                .unwrap();
-            assert_eq!(item_sets.len(), num_items);
-
-            // Predict among which leaves of the object tree work items could
-            // potentially have been distributed
-            let possible_leaf_objects = find_possible_leaves(&disjoint_roots, max_depth);
-            let mut possible_leaf_sets = possible_leaf_objects
-                .iter()
-                .map(|obj| obj.cpuset().unwrap().clone_target())
-                .collect::<BTreeSet<CpuSet>>();
-
-            // Count how many work items were distributed to each leaf
-            let mut items_per_set = Vec::<(CpuSet, usize)>::new();
-            for item_set in item_sets {
-                match items_per_set.last_mut() {
-                    Some((last_set, count)) if last_set == &item_set => *count += 1,
-                    _ => items_per_set.push((item_set, 1)),
-                }
-            }
-
-            // Make sure work items were indeed only distributed to these leaves
-            for item_set in items_per_set.iter().map(|(set, _count)| set) {
-                // ...but bear in mind that the algorithm may merge adjacent
-                // leaf cpusets if there are fewer items than leaf cpusets.
-                if !possible_leaf_sets.contains(item_set) {
-                    // Compute the expected effect of merging
-                    let subsets = possible_leaf_objects
-                        .iter()
-                        .map(|obj| obj.cpuset().unwrap())
-                        .skip_while(|&subset| !item_set.includes(subset))
-                        .take_while(|&subset| item_set.includes(subset))
-                        .map(|subset| subset.clone_target())
-                        .collect::<Vec<_>>();
-                    let merged_set = subsets.iter().fold(CpuSet::new(), |mut acc, subset| {
-                        acc |= subset;
-                        acc
-                    });
-
-                    // Check if this indeed what happened
-                    assert_eq!(
-                        item_set,
-                        &merged_set,
-                        "Distributed set {item_set} is not part of expected leaf sets {possible_leaf_sets:?}"
-                    );
-                    assert_eq!(
-                        items_per_set
-                            .iter()
-                            .filter(|(item_set, _count)| item_set.intersects(&merged_set))
-                            .count(),
-                        1,
-                        "Merging should only occurs when 1 item is shared by N leaves"
-                    );
-
-                    // Take the merging of leaves into account
-                    for subset in subsets {
-                        assert!(possible_leaf_sets.remove(&subset));
+                // Count how many work items were distributed to each leaf
+                let mut items_per_set = Vec::<(CpuSet, usize)>::new();
+                for item_set in item_sets {
+                    match items_per_set.last_mut() {
+                        Some((last_set, count)) if last_set == &item_set => *count += 1,
+                        _ => items_per_set.push((item_set, 1)),
                     }
-                    assert!(possible_leaf_sets.insert(merged_set));
                 }
-            }
 
-            // Make sure the leaves that were actually used are disjoint (i.e.
-            // no distributing to a parent AND its children)
-            assert!(!sets_overlap(items_per_set.iter().map(|(set, _count)| set)));
+                // Make sure work items were indeed only distributed to these leaves
+                for item_set in items_per_set.iter().map(|(set, _count)| set) {
+                    // ...but bear in mind that the algorithm may merge adjacent
+                    // leaf cpusets if there are fewer items than leaf cpusets.
+                    if !possible_leaf_sets.contains(item_set) {
+                        // Compute the expected effect of merging
+                        let subsets = possible_leaf_objects
+                            .iter()
+                            .map(|obj| obj.cpuset().unwrap())
+                            .skip_while(|&subset| !item_set.includes(subset))
+                            .take_while(|&subset| item_set.includes(subset))
+                            .map(|subset| subset.clone_target())
+                            .collect::<Vec<_>>();
+                        let merged_set = subsets.iter().fold(CpuSet::new(), |mut acc, subset| {
+                            acc |= subset;
+                            acc
+                        });
 
-            // Check that the distribution is as close to ideal as possible,
-            // given that work items cannot be split in halves
-            let total_weight = items_per_set
-                .iter()
-                .map(|(leaf_set, _count)| leaf_set.weight().unwrap())
-                .sum::<usize>();
-            for (leaf_set, items_per_leaf) in &items_per_set {
-                let cpu_share = leaf_set.weight().unwrap() as f64 / total_weight as f64;
+                        // Check if this indeed what happened
+                        prop_assert_eq!(
+                            item_set,
+                            &merged_set,
+                            "Distributed set {} is not part of expected leaf sets {:?}",
+                            item_set,
+                            possible_leaf_sets
+                        );
+                        prop_assert_eq!(
+                            items_per_set
+                                .iter()
+                                .filter(|(item_set, _count)| item_set.intersects(&merged_set))
+                                .count(),
+                            1,
+                            "Merging should only occurs when 1 item is shared by N leaves"
+                        );
+
+                        // Take the merging of leaves into account
+                        for subset in subsets {
+                            prop_assert!(possible_leaf_sets.remove(&subset));
+                        }
+                        prop_assert!(possible_leaf_sets.insert(merged_set));
+                    }
+                }
+
+                // Make sure the leaves that were actually used are disjoint (i.e.
+                // no distributing to a parent AND its children)
+                prop_assert!(!sets_overlap(items_per_set.iter().map(|(set, _count)| set)));
+
+                // Check that the distribution is as close to ideal as possible,
+                // given that work items cannot be split in halves
+                let total_weight = items_per_set
+                    .iter()
+                    .map(|(leaf_set, _count)| leaf_set.weight().unwrap())
+                    .sum::<usize>();
+                for (leaf_set, items_per_leaf) in &items_per_set {
+                    let cpu_share = leaf_set.weight().unwrap() as f64 / total_weight as f64;
+                    let ideal_share = num_items as f64 * cpu_share;
+                    prop_assert!((*items_per_leaf as f64 - ideal_share).abs() <= 1.0);
+                }
+
+                // Check that the distribution is biased towards earlier or later
+                // leaves depending on distribution flags, due to roots being
+                // enumerated in reverse order
+                let (first_set, items_per_leaf) = items_per_set.first().unwrap();
+                let first_set_intersects = |root: Option<&TopologyObject>| {
+                    Ok(prop_assert!(first_set.intersects(root.unwrap().cpuset().unwrap())))
+                };
+                if flags.contains(DistributeFlags::REVERSE) {
+                    first_set_intersects(disjoint_roots.last().copied())?;
+                } else {
+                    first_set_intersects(disjoint_roots.first().copied())?;
+                }
+                let cpu_share = first_set.weight().unwrap() as f64 / total_weight as f64;
                 let ideal_share = num_items as f64 * cpu_share;
-                assert!((*items_per_leaf as f64 - ideal_share).abs() <= 1.0);
+                let bias = *items_per_leaf as f64 - ideal_share;
+                prop_assert!(
+                    bias >= 0.0,
+                    "Earlier roots should get favored for item allocation"
+                );
             }
-
-            // Check that the distribution is biased towards earlier or later
-            // leaves depending on distribution flags, due to roots being
-            // enumerated in reverse order
-            let (first_set, items_per_leaf) = items_per_set.first().unwrap();
-            let first_set_intersects = |root: Option<&TopologyObject>| {
-                assert!(first_set.intersects(root.unwrap().cpuset().unwrap()))
-            };
-            if flags.contains(DistributeFlags::REVERSE) {
-                first_set_intersects(disjoint_roots.last().copied());
-            } else {
-                first_set_intersects(disjoint_roots.first().copied());
-            }
-            let cpu_share = first_set.weight().unwrap() as f64 / total_weight as f64;
-            let ideal_share = num_items as f64 * cpu_share;
-            let bias = *items_per_leaf as f64 - ideal_share;
-            assert!(
-                bias >= 0.0,
-                "Earlier roots should get favored for item allocation"
-            );
         }
+    }
 
-        // Test with overlapping roots
-        {
-            let mut overlapping_roots = disjoint_roots.clone();
+    /// To the random input provided by `disjoint_roots`, add an extra root that
+    /// overlaps with the existing ones
+    fn overlapping_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
+        disjoint_roots().prop_flat_map(|disjoint_roots| {
+            // Randomly pick a CPU in the set covered by the disjoint roots, and
+            // find the smallest hwloc object (normally a PU) that covers it.
+            // This will be used to check distribute_items's handling of
+            // duplicate roots.
+            let topology = Topology::test_instance();
             let full_set = disjoint_roots.iter().fold(CpuSet::new(), |mut acc, root| {
                 acc |= root.cpuset().unwrap();
                 acc
             });
-            let random_bit = overlapping_cpu_selector % full_set.weight().unwrap();
-            let cpu = full_set.into_iter().nth(random_bit).unwrap();
-            overlapping_roots.push(
+            let overlapping_pu = (0..full_set.weight().unwrap()).prop_map(move |cpu_idx| {
                 topology
-                    .smallest_object_covering_cpuset(&CpuSet::from(cpu))
-                    .unwrap(),
-            );
-            assert_eq!(
-                topology.distribute_items(&overlapping_roots, num_items, max_depth, flags),
+                    .smallest_object_covering_cpuset(&CpuSet::from(
+                        full_set.iter_set().nth(cpu_idx).unwrap(),
+                    ))
+                    .unwrap()
+            });
+
+            // Empirically, this can pick a PU without a cpuset on weird systems
+            // like GitHub's CI nodes . Address this by going up ancestors until
+            // a cpuset is found.
+            let overlapping_root = overlapping_pu.prop_map(|pu| {
+                std::iter::once(pu)
+                    .chain(pu.ancestors())
+                    .find(|root| root.cpuset().is_some())
+                    .unwrap()
+            });
+
+            // Insert this overlapping object at a random position
+            let num_roots = disjoint_roots.len();
+            (Just(disjoint_roots), overlapping_root, 0..num_roots).prop_map(
+                |(mut disjoint_roots, overlapping_root, bad_root_idx)| {
+                    disjoint_roots.insert(bad_root_idx, overlapping_root);
+                    disjoint_roots
+                },
+            )
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn distribute_overlapping(
+            overlapping_roots in overlapping_roots(),
+            max_depth in max_depth(),
+            num_items: NonZeroU8,
+            flags: DistributeFlags,
+        ) {
+            let num_items = usize::from(num_items.get());
+            prop_assert_eq!(
+                Topology::test_instance().distribute_items(&overlapping_roots, num_items, max_depth, flags),
                 Err(DistributeError::OverlappingRoots)
             );
         }
+    }
 
-        // Inject a foreign root from foreign_instance at some position of the
-        // distribution roots list and try again.
-        {
-            let mut roots_with_foreigner = disjoint_roots;
-            let insert_pos = foreign_idx_selector % roots_with_foreigner.len();
-            let foreign_obj = Topology::foreign_instance().root_object();
-            roots_with_foreigner.insert(insert_pos, foreign_obj);
-            assert_eq!(
-                topology.distribute_items(&roots_with_foreigner, num_items, max_depth, flags),
-                Err(DistributeError::ForeignRoot(foreign_obj.into()))
+    /// To the random input provided by `disjoint_roots`, add an extra root from
+    /// a different topology, and report at which index it was added
+    fn foreign_roots_and_idx() -> impl Strategy<Value = (Vec<&'static TopologyObject>, usize)> {
+        disjoint_roots().prop_flat_map(|disjoint_roots| {
+            // Pick a random object in the foreign topology, it will be used to
+            // check distribute_item's handling of foreign roots
+            let foreign_topology = Topology::foreign_instance();
+            let num_objects = foreign_topology.normal_objects().count();
+            let foreign_object = (0..num_objects).prop_map(|foreign_idx| {
+                foreign_topology.normal_objects().nth(foreign_idx).unwrap()
+            });
+
+            // Insert this foreign object at a random position, report where
+            let num_roots = disjoint_roots.len();
+            (Just(disjoint_roots), foreign_object, 0..num_roots).prop_map(
+                |(mut disjoint_roots, foreign_object, bad_root_idx)| {
+                    disjoint_roots.insert(bad_root_idx, foreign_object);
+                    (disjoint_roots, bad_root_idx)
+                },
+            )
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn distribute_items(
+            (foreign_roots, foreign_idx) in foreign_roots_and_idx(),
+            max_depth in max_depth(),
+            num_items: NonZeroU8,
+            flags: DistributeFlags,
+        ) {
+            let num_items = usize::from(num_items.get());
+            let foreign_object = foreign_roots[foreign_idx];
+            prop_assert_eq!(
+                Topology::test_instance().distribute_items(&foreign_roots, num_items, max_depth, flags),
+                Err(DistributeError::ForeignRoot(foreign_object.into()))
             );
         }
-    }
-
-    #[test]
-    fn default_distribute_flags() {
-        assert_eq!(DistributeFlags::default(), DistributeFlags::empty());
-    }
-
-    #[test]
-    fn clone() {
-        let topology = Topology::test_instance();
-        let clone = topology.clone();
-        assert_ne!(format!("{:p}", *topology), format!("{clone:p}"));
-        builder::tests::check_topology(
-            topology,
-            DataSource::ThisSystem,
-            topology.build_flags(),
-            |ty| topology.type_filter(ty).unwrap(),
-        );
-        assert!(!topology.contains(clone.root_object()));
     }
 }

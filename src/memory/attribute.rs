@@ -709,8 +709,8 @@ impl<'topology> MemoryAttribute<'topology> {
     /// `initiator` should be specified if and only if this attribute has the
     /// flag [`MemoryAttributeFlags::NEED_INITIATOR`].
     ///
-    /// The initiator should be a CpuSet when refering to accesses performed by
-    /// CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
+    /// The initiator should be a [`CpuSet`] when refering to accesses performed
+    /// by CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
     /// internally by hwloc, but user-defined memory attributes may for instance
     /// use it to provide custom information about host memory accesses
     /// performed by GPUs.
@@ -909,8 +909,8 @@ impl<'topology> MemoryAttribute<'topology> {
     /// [`MemoryAttributeFlags::NEED_INITIATOR`]. In that case, it acts as a
     /// filter to only report targets that have a value for this initiator.
     ///
-    /// The initiator should be a CpuSet when refering to accesses performed by
-    /// CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
+    /// The initiator should be a [`CpuSet`] when refering to accesses performed
+    /// by CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
     /// internally by hwloc, but user-defined memory attributes may for instance
     /// use it to provide custom information about host memory accesses
     /// performed by GPUs.
@@ -1472,18 +1472,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for LocalNUMANodeFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_local_numanode_flag_e::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
-    }
-}
+crate::impl_arbitrary_for_bitflags!(LocalNUMANodeFlags, hwloc_local_numanode_flag_e);
 
 /// Target NUMA nodes
 #[derive(Copy, Clone, Debug)]
@@ -1597,15 +1586,4 @@ impl MemoryAttributeFlags {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for MemoryAttributeFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_memattr_flag_e::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
-    }
-}
+crate::impl_arbitrary_for_bitflags!(MemoryAttributeFlags, hwloc_memattr_flag_e);

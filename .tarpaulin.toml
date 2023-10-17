@@ -1,10 +1,8 @@
 [release_tests]
-engine = "Llvm"
 features = "hwloc-latest"
 release = true
 workspace = true
 
 [debug_tests]
-engine = "Llvm"
 features = "hwloc-latest"
 workspace = true

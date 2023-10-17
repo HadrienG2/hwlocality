@@ -18,7 +18,7 @@ use crate::{
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
@@ -1219,18 +1219,7 @@ impl MemoryBindingFlags {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for MemoryBindingFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_membind_flags_t::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
-    }
-}
+crate::impl_arbitrary_for_bitflags!(MemoryBindingFlags, hwloc_membind_flags_t);
 //
 // NOTE: No default because user must consciously think about the need for PROCESS
 
@@ -1288,7 +1277,7 @@ pub(crate) enum MemoryBindingOperation {
 /// Not all systems support all kinds of binding.
 /// [`Topology::feature_support()`] may be used to query the
 /// actual memory binding support in the currently used operating system.
-#[cfg_attr(any(test, feature = "quickcheck"), derive(Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(
     Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
 )]
@@ -1349,19 +1338,7 @@ pub enum MemoryBindingPolicy {
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for MemoryBindingPolicy {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(Some(*self), Sequence::previous))
-    }
-}
+crate::impl_arbitrary_for_sequence!(MemoryBindingPolicy);
 
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory

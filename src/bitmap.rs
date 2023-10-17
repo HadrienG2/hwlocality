@@ -65,10 +65,12 @@ use hwlocality_sys::hwloc_bitmap_s;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "quickcheck"))]
-use quickcheck::{Arbitrary, Gen};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 #[cfg(doc)]
 use std::collections::BTreeSet;
+#[cfg(any(test, feature = "proptest"))]
+use std::collections::HashSet;
 use std::{
     borrow::{Borrow, BorrowMut},
     cmp::Ordering,
@@ -1171,45 +1173,28 @@ const MALLOC_FAIL_ONLY: &str =
 /// Common error message for operations that shouldn't fail
 const SHOULD_NOT_FAIL: &str = "This operation has no known failure mode";
 
-#[cfg(any(test, feature = "quickcheck"))]
+#[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for Bitmap {
-    fn arbitrary(g: &mut Gen) -> Self {
-        use std::collections::HashSet;
+    type Parameters = <(HashSet<BitmapIndex>, bool) as Arbitrary>::Parameters;
 
-        // Start with an arbitrary finite bitmap
-        let mut result = HashSet::<BitmapIndex>::arbitrary(g)
-            .into_iter()
-            .collect::<Self>();
+    type Strategy = prop::strategy::Map<
+        <(HashSet<BitmapIndex>, bool) as Arbitrary>::Strategy,
+        fn((HashSet<BitmapIndex>, bool)) -> Self,
+    >;
 
-        // Decide by coin flip to extend infinitely on the right or not
-        if bool::arbitrary(g) {
-            let last = result.last_set().unwrap_or(BitmapIndex::MIN);
-            result.set_range(last..);
-        }
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        <(HashSet<BitmapIndex>, bool)>::arbitrary_with(args).prop_map(|(set_indices, infinite)| {
+            // Start with an arbitrary finite bitmap
+            let mut result = set_indices.into_iter().collect::<Self>();
 
-        result
-    }
+            // Decide by coin flip to extend infinitely on the right or not
+            if infinite {
+                let last = result.last_set().unwrap_or(BitmapIndex::MIN);
+                result.set_range(last..);
+            }
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        use std::collections::HashSet;
-
-        // If this is infinite, start by removing the infinite part, and make
-        // the the first output of our shrinker
-        let mut local = self.clone();
-        let first_finite = local.weight().is_none().then(|| {
-            local.unset_range(self.last_unset().unwrap_or(BitmapIndex::MIN)..);
-            local.clone()
-        });
-
-        // Now this is finite, convert to HashSet<BitmapIndex> and offload the
-        // shrinking work to HashSet's Arbitrary implementation
-        let set = local.into_iter().collect::<HashSet<_>>();
-        Box::new(
-            first_finite
-                .into_iter()
-                .chain(set.shrink().map(|set| set.into_iter().collect::<Self>())),
-        )
+            result
+        })
     }
 }
 
@@ -2407,15 +2392,18 @@ macro_rules! impl_bitmap_newtype {
             }
         }
 
-        #[cfg(any(test, feature = "quickcheck"))]
-        impl quickcheck::Arbitrary for $newtype {
-            fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-                Self($crate::bitmap::Bitmap::arbitrary(g))
-            }
+        #[cfg(any(test, feature = "proptest"))]
+        impl proptest::arbitrary::Arbitrary for $newtype {
+            type Parameters = <$crate::bitmap::Bitmap as proptest::arbitrary::Arbitrary>::Parameters;
 
-            #[cfg(not(tarpaulin_include))]
-            fn shrink(&self) -> Box<dyn std::iter::Iterator<Item = Self>> {
-                Box::new(self.0.shrink().map(Self))
+            type Strategy = proptest::strategy::Map<
+                <$crate::bitmap::Bitmap as proptest::arbitrary::Arbitrary>::Strategy,
+                fn($crate::bitmap::Bitmap) -> Self,
+            >;
+
+            fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+                use proptest::prelude::*;
+                <$crate::bitmap::Bitmap as Arbitrary>::arbitrary_with(args).prop_map(Self)
             }
         }
 
@@ -2667,7 +2655,7 @@ macro_rules! impl_bitmap_newtype_tests {
             };
             #[allow(unused)]
             use pretty_assertions::{assert_eq, assert_ne};
-            use quickcheck_macros::quickcheck;
+            use proptest::prelude::*;
             use std::{
                 borrow::{Borrow, BorrowMut},
                 collections::hash_map::RandomState,
@@ -2821,315 +2809,313 @@ macro_rules! impl_bitmap_newtype_tests {
                 }
             }
 
-            #[quickcheck]
-            fn from_idx(idx: PositiveInt) {
-                assert_eq!($newtype::from(idx), $newtype(Bitmap::from(idx)));
+            proptest! {
+                #[test]
+                fn from_idx(idx: PositiveInt) {
+                    prop_assert_eq!($newtype::from(idx), $newtype(Bitmap::from(idx)));
+                }
+
+                #[test]
+                fn from_range(range: RangeInclusive<PositiveInt>) {
+                    prop_assert_eq!(
+                        $newtype::from_range(range.clone()),
+                        $newtype(Bitmap::from_range(range))
+                    );
+                }
+
+                #[test]
+                fn from_iterator(v: Vec<PositiveInt>) {
+                    let new = v.iter().copied().collect::<$newtype>();
+                    let inner = v.into_iter().collect::<Bitmap>();
+                    prop_assert_eq!(new, $newtype(inner));
+                }
+
+                #[test]
+                fn to_from_bitmap(bitmap: Bitmap) {
+                    let new = $newtype::from(bitmap.clone());
+                    prop_assert_eq!(&new.0, &bitmap);
+                    prop_assert_eq!(&Bitmap::from(new), &bitmap);
+                }
             }
 
-            #[quickcheck]
-            fn from_range(range: RangeInclusive<PositiveInt>) {
-                assert_eq!(
-                    $newtype::from_range(range.clone()),
-                    $newtype(Bitmap::from_range(range))
-                );
-            }
-
-            #[quickcheck]
-            fn from_iterator(v: Vec<PositiveInt>) {
-                let new = v.iter().copied().collect::<$newtype>();
-                let inner = v.into_iter().collect::<Bitmap>();
-                assert_eq!(new, $newtype(inner));
-            }
-
-            #[quickcheck]
-            fn to_from_bitmap(bitmap: Bitmap) {
-                let new = $newtype::from(bitmap.clone());
-                assert_eq!(new.0, bitmap);
-                assert_eq!(Bitmap::from(new), bitmap);
-            }
-
-            fn test_newtype_ref(new: &$newtype, new_ref: BitmapRef<'_, $newtype>) {
+            fn test_newtype_ref(new: &$newtype, new_ref: BitmapRef<'_, $newtype>) -> Result<(), TestCaseError> {
                 let clone: $newtype = new_ref.clone_target();
-                assert_eq!(clone, new);
+                prop_assert_eq!(clone, new);
 
-                assert_eq!(
+                prop_assert_eq!(
                     <BitmapRef<'_, _> as AsRef<$newtype>>::as_ref(&new_ref).as_ptr(),
                     new.as_ptr()
                 );
-                assert_eq!(
+                prop_assert_eq!(
                     <BitmapRef<'_, _> as AsRef<Bitmap>>::as_ref(&new_ref).as_ptr(),
                     new.as_ptr()
                 );
-                assert_eq!(
+                prop_assert_eq!(
                     <BitmapRef<'_, _> as Borrow<$newtype>>::borrow(&new_ref).as_ptr(),
                     new.as_ptr()
                 );
-                assert_eq!(
+                prop_assert_eq!(
                     <BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&new_ref).as_ptr(),
                     new.as_ptr()
                 );
-                assert_eq!(
+                prop_assert_eq!(
                     <&BitmapRef<'_, _> as Borrow<$newtype>>::borrow(&&new_ref).as_ptr(),
                     new.as_ptr()
                 );
-                assert_eq!(
+                prop_assert_eq!(
                     <BitmapRef<'_, _> as Deref>::deref(&new_ref).as_ptr(),
                     new.as_ptr()
                 );
                 let bitmap_ref = BitmapRef::<Bitmap>::from(new_ref);
-                assert_eq!(bitmap_ref.as_ptr(), new_ref.as_ptr());
+                prop_assert_eq!(bitmap_ref.as_ptr(), new_ref.as_ptr());
                 let new_ref2 = BitmapRef::<$newtype>::from(bitmap_ref);
-                assert_eq!(new_ref2.as_ptr(), new_ref.as_ptr());
+                prop_assert_eq!(new_ref2.as_ptr(), new_ref.as_ptr());
 
-                assert_eq!(format!("{new:?}"), format!("{new_ref:?}"));
-                assert_eq!(new.to_string(), new_ref.to_string());
+                prop_assert_eq!(format!("{new:?}"), format!("{new_ref:?}"));
+                prop_assert_eq!(new.to_string(), new_ref.to_string());
                 let state = RandomState::new();
-                assert_eq!(state.hash_one(new), state.hash_one(new_ref));
-                assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
+                prop_assert_eq!(state.hash_one(new), state.hash_one(new_ref));
+                prop_assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
 
-                assert!(new
+                prop_assert!(new
                     .iter_set()
                     .take(INFINITE_EXPLORE_ITERS)
                     .eq(new_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
-                assert!(new
+                prop_assert!(new
                     .iter_set()
                     .take(INFINITE_EXPLORE_ITERS)
                     .eq((&new_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
 
-                assert_eq!(!new, !new_ref);
-                assert_eq!(!new, !&new_ref);
+                prop_assert_eq!(!new, !new_ref);
+                prop_assert_eq!(!new, !&new_ref);
+                Ok(())
             }
 
-            #[quickcheck]
-            fn unary(new: $newtype) {
-                // Test unary newtype operations
-                assert_eq!(new.first_set(), new.0.first_set());
-                assert_eq!(new.last_set(), new.0.last_set());
-                assert_eq!(new.weight(), new.0.weight());
-                assert_eq!(new.first_unset(), new.0.first_unset());
-                assert_eq!(new.last_unset(), new.0.last_unset());
-                assert_eq!(
-                    format!("{new:?}"),
-                    format!("{}({:?})", stringify!($newtype), new.0)
-                );
-                assert_eq!(format!("{:p}", new), format!("{:p}", new.0));
-                assert_eq!(
-                    new.to_string(),
-                    format!("{}({})", stringify!($newtype), new.0)
-                );
-                let state = RandomState::new();
-                assert_eq!(state.hash_one(&new), state.hash_one(&new.0));
-                // SAFETY: No mutation going on
-                unsafe { assert_eq!(new.inner(), new.0.inner()) };
-                //
-                assert!(new
-                    .iter_set()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                assert!((&new)
-                    .into_iter()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                assert!(new
-                    .clone()
-                    .into_iter()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                assert!(new
-                    .iter_unset()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq(new.0.iter_unset().take(INFINITE_EXPLORE_ITERS)));
-                //
-                let mut buf = new.clone();
-                buf.clear();
-                assert!(buf.is_empty());
-                //
-                buf.fill();
-                assert!(buf.is_full());
-                //
-                if new.weight().unwrap_or(usize::MAX) >= 1 {
+            proptest! {
+                #[test]
+                fn unary(new: $newtype) {
+                    // Test unary newtype operations
+                    prop_assert_eq!(new.first_set(), new.0.first_set());
+                    prop_assert_eq!(new.last_set(), new.0.last_set());
+                    prop_assert_eq!(new.weight(), new.0.weight());
+                    prop_assert_eq!(new.first_unset(), new.0.first_unset());
+                    prop_assert_eq!(new.last_unset(), new.0.last_unset());
+                    prop_assert_eq!(
+                        format!("{new:?}"),
+                        format!("{}({:?})", stringify!($newtype), new.0)
+                    );
+                    prop_assert_eq!(format!("{:p}", new), format!("{:p}", new.0));
+                    prop_assert_eq!(
+                        new.to_string(),
+                        format!("{}({})", stringify!($newtype), new.0)
+                    );
+                    let state = RandomState::new();
+                    prop_assert_eq!(state.hash_one(&new), state.hash_one(&new.0));
+                    // SAFETY: No mutation going on
+                    unsafe { prop_assert_eq!(new.inner(), new.0.inner()) };
+                    //
+                    prop_assert!(new
+                        .iter_set()
+                        .take(INFINITE_EXPLORE_ITERS)
+                        .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                    prop_assert!((&new)
+                        .into_iter()
+                        .take(INFINITE_EXPLORE_ITERS)
+                        .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                    prop_assert!(new
+                        .clone()
+                        .into_iter()
+                        .take(INFINITE_EXPLORE_ITERS)
+                        .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                    prop_assert!(new
+                        .iter_unset()
+                        .take(INFINITE_EXPLORE_ITERS)
+                        .eq(new.0.iter_unset().take(INFINITE_EXPLORE_ITERS)));
+                    //
+                    let mut buf = new.clone();
+                    buf.clear();
+                    prop_assert!(buf.is_empty());
+                    //
+                    buf.fill();
+                    prop_assert!(buf.is_full());
+                    //
+                    if new.weight().unwrap_or(usize::MAX) >= 1 {
+                        buf.copy_from(&new);
+                        buf.singlify();
+                        prop_assert_eq!(buf.weight(), Some(1));
+                    }
+                    //
                     buf.copy_from(&new);
-                    buf.singlify();
-                    assert_eq!(buf.weight(), Some(1));
-                }
-                //
-                buf.copy_from(&new);
-                buf.invert();
-                assert_eq!(buf, $newtype(!&new.0));
+                    buf.invert();
+                    prop_assert_eq!(&buf, &$newtype(!&new.0));
 
-                // Test AsRef-like conversions to Bitmap and BitmapRef
-                assert!(
-                    ptr::eq(
-                        <$newtype as AsRef<Bitmap>>::as_ref(&new),
-                        &new.0
-                    )
-                );
-                assert!(
-                    ptr::eq(
-                        <$newtype as Borrow<Bitmap>>::borrow(&new),
-                        &new.0
-                    )
-                );
-                buf.copy_from(&new);
-                assert_eq!(
-                    <$newtype as AsMut<Bitmap>>::as_mut(&mut buf).as_ptr(),
-                    buf.0.as_ptr()
-                );
-                assert_eq!(
-                    <$newtype as BorrowMut<Bitmap>>::borrow_mut(&mut buf).as_ptr(),
-                    buf.0.as_ptr()
-                );
+                    // Test AsRef-like conversions to Bitmap and BitmapRef
+                    prop_assert!(
+                        ptr::eq(
+                            <$newtype as AsRef<Bitmap>>::as_ref(&new),
+                            &new.0
+                        )
+                    );
+                    prop_assert!(
+                        ptr::eq(
+                            <$newtype as Borrow<Bitmap>>::borrow(&new),
+                            &new.0
+                        )
+                    );
+                    buf.copy_from(&new);
+                    prop_assert_eq!(
+                        <$newtype as AsMut<Bitmap>>::as_mut(&mut buf).as_ptr(),
+                        buf.0.as_ptr()
+                    );
+                    prop_assert_eq!(
+                        <$newtype as BorrowMut<Bitmap>>::borrow_mut(&mut buf).as_ptr(),
+                        buf.0.as_ptr()
+                    );
 
-                // Test SpecializedBitmap operations
-                assert_eq!(SpecializedBitmap::to_owned(&new), new);
-                assert_eq!(SpecializedBitmap::to_owned(&BitmapRef::from(&new)), new);
+                    // Test SpecializedBitmap operations
+                    prop_assert_eq!(&SpecializedBitmap::to_owned(&new), &new);
+                    prop_assert_eq!(&SpecializedBitmap::to_owned(&BitmapRef::from(&new)), &new);
 
-                // Test low-level functions and BitmapRef<$newtype>
-                test_newtype_ref(&new, BitmapRef::from(&new));
-                let new = ManuallyDrop::new(new);
-                let new_const = new.as_ptr();
-                let new_mut = new_const.cast_mut();
-                let new_nonnull = NonNull::new(new_mut).unwrap();
-                // SAFETY: We won't use this pointer to mutate
-                assert_eq!(unsafe { new.inner() }, new_nonnull);
-                {
-                    // SAFETY: If it worked for the original newtype, it works here too,
-                    //         as long as we leave the original aside and refrain from
-                    //         dropping the newtype on either side.
-                    let new = unsafe { $newtype::from_owned_nonnull(new_nonnull) };
-                    assert_eq!(new.as_ptr(), new_const);
-                    std::mem::forget(new);
-                }
-                {
-                    // SAFETY: If it worked for the original newtype, it works here too,
-                    //         as long as we leave the original aside and refrain from
-                    //         dropping the newtype on either side.
-                    let new = unsafe { $newtype::from_owned_raw_mut(new_nonnull.as_ptr()).unwrap() };
-                    assert_eq!(new.as_ptr(), new_const);
-                    std::mem::forget(new);
-                }
-                let new = ManuallyDrop::into_inner(new);
-                {
-                    // SAFETY: Safe as long as we don't invalidate the original
-                    let borrow = unsafe { $newtype::borrow_from_nonnull(new_nonnull) };
-                    assert_eq!(borrow.as_ptr(), new_const);
-                    test_newtype_ref(&new, borrow);
-                }
-                {
-                    // SAFETY: Safe as long as we don't invalidate the original
-                    let borrow = unsafe { $newtype::borrow_from_raw(new.as_ptr()).unwrap() };
-                    assert_eq!(borrow.as_ptr(), new_const);
-                    test_newtype_ref(&new, borrow);
-                }
-                let mut new = new;
-                {
-                    // SAFETY: Safe as long as we don't invalidate the original
-                    let borrow = unsafe { $newtype::borrow_from_raw_mut(new.as_mut_ptr()).unwrap() };
-                    assert_eq!(borrow.as_ptr(), new_const);
-                    test_newtype_ref(&new, borrow);
+                    // Test low-level functions and BitmapRef<$newtype>
+                    test_newtype_ref(&&new, BitmapRef::from(&new))?;
+                    let new = ManuallyDrop::new(new);
+                    let new_const = new.as_ptr();
+                    let new_mut = new_const.cast_mut();
+                    let new_nonnull = NonNull::new(new_mut).unwrap();
+                    // SAFETY: We won't use this pointer to mutate
+                    prop_assert_eq!(unsafe { new.inner() }, new_nonnull);
+                    {
+                        // SAFETY: If it worked for the original newtype, it works here too,
+                        //         as long as we leave the original aside and refrain from
+                        //         dropping the newtype on either side.
+                        let new = unsafe { $newtype::from_owned_nonnull(new_nonnull) };
+                        prop_assert_eq!(new.as_ptr(), new_const);
+                        std::mem::forget(new);
+                    }
+                    {
+                        // SAFETY: If it worked for the original newtype, it works here too,
+                        //         as long as we leave the original aside and refrain from
+                        //         dropping the newtype on either side.
+                        let new = unsafe { $newtype::from_owned_raw_mut(new_nonnull.as_ptr()).unwrap() };
+                        prop_assert_eq!(new.as_ptr(), new_const);
+                        std::mem::forget(new);
+                    }
+                    let new = ManuallyDrop::into_inner(new);
+                    {
+                        // SAFETY: Safe as long as we don't invalidate the original
+                        let borrow = unsafe { $newtype::borrow_from_nonnull(new_nonnull) };
+                        prop_assert_eq!(borrow.as_ptr(), new_const);
+                        test_newtype_ref(&new, borrow)?;
+                    }
+                    {
+                        // SAFETY: Safe as long as we don't invalidate the original
+                        let borrow = unsafe { $newtype::borrow_from_raw(new.as_ptr()).unwrap() };
+                        prop_assert_eq!(borrow.as_ptr(), new_const);
+                        test_newtype_ref(&new, borrow)?;
+                    }
+                    let mut new = new;
+                    {
+                        // SAFETY: Safe as long as we don't invalidate the original
+                        let borrow = unsafe { $newtype::borrow_from_raw_mut(new.as_mut_ptr()).unwrap() };
+                        prop_assert_eq!(borrow.as_ptr(), new_const);
+                        test_newtype_ref(&new, borrow)?;
+                    }
                 }
 
-                // Workaround for tarpaulin not honoring
-                // cfg(not(tarpaulin_include)) inside the newtype macros...
-                {
-                    use quickcheck::Arbitrary;
-                    std::mem::drop(new.shrink());
+                #[test]
+                fn op_idx(new: $newtype, idx: PositiveInt) {
+                    let mut buf = new.clone();
+                    buf.set_only(idx);
+                    prop_assert_eq!(&buf, &$newtype::from(idx));
+                    buf.set_all_but(idx);
+                    prop_assert_eq!(&buf, &!$newtype::from(idx));
+
+                    buf.copy_from(&new);
+                    buf.set(idx);
+                    prop_assert!(buf.is_set(idx));
+                    let mut bitmap_buf = new.clone().0;
+                    bitmap_buf.set(idx);
+                    prop_assert_eq!(&buf, &$newtype::from(bitmap_buf.clone()));
+
+                    buf.copy_from(&new);
+                    buf.unset(idx);
+                    prop_assert!(!buf.is_set(idx));
+                    bitmap_buf.copy_from(&new.0);
+                    bitmap_buf.unset(idx);
+                    prop_assert_eq!(buf, $newtype::from(bitmap_buf.clone()));
                 }
-            }
 
-            #[quickcheck]
-            fn op_idx(new: $newtype, idx: PositiveInt) {
-                let mut buf = new.clone();
-                buf.set_only(idx);
-                assert_eq!(buf, $newtype::from(idx));
-                buf.set_all_but(idx);
-                assert_eq!(buf, !$newtype::from(idx));
+                #[test]
+                fn op_range(new: $newtype, range: RangeInclusive<PositiveInt>) {
+                    let mut buf = new.clone();
+                    let mut bitmap_buf = new.0.clone();
+                    buf.set_range(range.clone());
+                    bitmap_buf.set_range(range.clone());
+                    prop_assert_eq!(&buf, &$newtype(bitmap_buf.clone()));
 
-                buf.copy_from(&new);
-                buf.set(idx);
-                assert!(buf.is_set(idx));
-                let mut bitmap_buf = new.clone().0;
-                bitmap_buf.set(idx);
-                assert_eq!(buf, $newtype::from(bitmap_buf.clone()));
+                    buf.copy_from(&new);
+                    bitmap_buf.copy_from(&new.0);
+                    buf.unset_range(range.clone());
+                    bitmap_buf.unset_range(range);
+                    prop_assert_eq!(buf, $newtype::from(bitmap_buf));
+                }
 
-                buf.copy_from(&new);
-                buf.unset(idx);
-                assert!(!buf.is_set(idx));
-                bitmap_buf.copy_from(&new.0);
-                bitmap_buf.unset(idx);
-                assert_eq!(buf, $newtype::from(bitmap_buf.clone()));
-            }
+                #[test]
+                fn op_iterator(mut new: $newtype, v: Vec<PositiveInt>) {
+                    let mut inner = new.0.clone();
+                    new.extend(v.clone());
+                    inner.extend(v);
+                    prop_assert_eq!(new, $newtype(inner));
+                }
 
-            #[quickcheck]
-            fn op_range(new: $newtype, range: RangeInclusive<PositiveInt>) {
-                let mut buf = new.clone();
-                let mut bitmap_buf = new.0.clone();
-                buf.set_range(range.clone());
-                bitmap_buf.set_range(range.clone());
-                assert_eq!(buf, $newtype(bitmap_buf.clone()));
+                #[test]
+                fn binary(new1: $newtype, new2: $newtype) {
+                    // Test binary newtype operations
+                    prop_assert_eq!(new1.intersects(&new2), new1.0.intersects(&new2.0));
+                    prop_assert_eq!(new1.includes(&new2), new1.0.includes(&new2.0));
+                    prop_assert_eq!(&new1 & &new2, $newtype(&new1.0 & &new2.0));
+                    prop_assert_eq!(&new1 | &new2, $newtype(&new1.0 | &new2.0));
+                    prop_assert_eq!(&new1 ^ &new2, $newtype(&new1.0 ^ &new2.0));
+                    prop_assert_eq!(&new1 - &new2, $newtype(&new1.0 - &new2.0));
+                    prop_assert_eq!(new1.clone() & &new2, $newtype(&new1.0 & &new2.0));
+                    prop_assert_eq!(new1.clone() | &new2, $newtype(&new1.0 | &new2.0));
+                    prop_assert_eq!(new1.clone() ^ &new2, $newtype(&new1.0 ^ &new2.0));
+                    prop_assert_eq!(new1.clone() - &new2, $newtype(&new1.0 - &new2.0));
+                    prop_assert_eq!(&new1 == &new2, &new1 == &new2);
+                    prop_assert_eq!(new1.partial_cmp(&new2), new1.0.partial_cmp(&new2.0));
+                    prop_assert_eq!(new1.cmp(&new2), new1.0.cmp(&new2.0));
+                    //
+                    let mut buf = new1.clone();
+                    buf.copy_from(&new2);
+                    prop_assert_eq!(&buf, &new2);
+                    //
+                    buf.copy_from(&new1);
+                    buf &= &new2;
+                    prop_assert_eq!(&buf, &(&new1 & &new2));
+                    buf.copy_from(&new1);
+                    buf |= &new2;
+                    prop_assert_eq!(&buf, &(&new1 | &new2));
+                    buf.copy_from(&new1);
+                    buf ^= &new2;
+                    prop_assert_eq!(&buf, &(&new1 ^ &new2));
+                    buf.copy_from(&new1);
+                    buf -= &new2;
+                    prop_assert_eq!(buf, &new1 - &new2);
 
-                buf.copy_from(&new);
-                bitmap_buf.copy_from(&new.0);
-                buf.unset_range(range.clone());
-                bitmap_buf.unset_range(range);
-                assert_eq!(buf, $newtype::from(bitmap_buf));
-            }
-
-            #[quickcheck]
-            fn op_iterator(mut new: $newtype, v: Vec<PositiveInt>) {
-                let mut inner = new.0.clone();
-                new.extend(v.clone());
-                inner.extend(v);
-                assert_eq!(new, $newtype(inner));
-            }
-
-            #[quickcheck]
-            fn binary(new1: $newtype, new2: $newtype) {
-                // Test binary newtype operations
-                assert_eq!(new1.intersects(&new2), new1.0.intersects(&new2.0));
-                assert_eq!(new1.includes(&new2), new1.0.includes(&new2.0));
-                assert_eq!(&new1 & &new2, $newtype(&new1.0 & &new2.0));
-                assert_eq!(&new1 | &new2, $newtype(&new1.0 | &new2.0));
-                assert_eq!(&new1 ^ &new2, $newtype(&new1.0 ^ &new2.0));
-                assert_eq!(&new1 - &new2, $newtype(&new1.0 - &new2.0));
-                assert_eq!(new1.clone() & &new2, $newtype(&new1.0 & &new2.0));
-                assert_eq!(new1.clone() | &new2, $newtype(&new1.0 | &new2.0));
-                assert_eq!(new1.clone() ^ &new2, $newtype(&new1.0 ^ &new2.0));
-                assert_eq!(new1.clone() - &new2, $newtype(&new1.0 - &new2.0));
-                assert_eq!(&new1 == &new2, &new1 == &new2);
-                assert_eq!(new1.partial_cmp(&new2), new1.0.partial_cmp(&new2.0));
-                assert_eq!(new1.cmp(&new2), new1.0.cmp(&new2.0));
-                //
-                let mut buf = new1.clone();
-                buf.copy_from(&new2);
-                assert_eq!(buf, new2);
-                //
-                buf.copy_from(&new1);
-                buf &= &new2;
-                assert_eq!(buf, &new1 & &new2);
-                buf.copy_from(&new1);
-                buf |= &new2;
-                assert_eq!(buf, &new1 | &new2);
-                buf.copy_from(&new1);
-                buf ^= &new2;
-                assert_eq!(buf, &new1 ^ &new2);
-                buf.copy_from(&new1);
-                buf -= &new2;
-                assert_eq!(buf, &new1 - &new2);
-
-                // Test binary BitmapRef operations
-                let new1_ref = BitmapRef::from(&new1);
-                assert_eq!(new1_ref & &new2, &new1 & &new2);
-                assert_eq!(&new1_ref & &new2, &new1 & &new2);
-                assert_eq!(new1_ref | &new2, &new1 | &new2);
-                assert_eq!(&new1_ref | &new2, &new1 | &new2);
-                assert_eq!(new1_ref ^ &new2, &new1 ^ &new2);
-                assert_eq!(&new1_ref ^ &new2, &new1 ^ &new2);
-                assert_eq!(new1_ref - &new2, &new1 - &new2);
-                assert_eq!(&new1_ref - &new2, &new1 - &new2);
-                assert_eq!(new1_ref == &new2, &new1 == &new2);
-                assert_eq!(new1_ref.partial_cmp(&new2), new1.partial_cmp(&new2));
-                assert_eq!(new1_ref.cmp(&BitmapRef::from(&new2)), new1.cmp(&new2));
+                    // Test binary BitmapRef operations
+                    let new1_ref = BitmapRef::from(&new1);
+                    prop_assert_eq!(new1_ref & &new2, &new1 & &new2);
+                    prop_assert_eq!(&new1_ref & &new2, &new1 & &new2);
+                    prop_assert_eq!(new1_ref | &new2, &new1 | &new2);
+                    prop_assert_eq!(&new1_ref | &new2, &new1 | &new2);
+                    prop_assert_eq!(new1_ref ^ &new2, &new1 ^ &new2);
+                    prop_assert_eq!(&new1_ref ^ &new2, &new1 ^ &new2);
+                    prop_assert_eq!(new1_ref - &new2, &new1 - &new2);
+                    prop_assert_eq!(&new1_ref - &new2, &new1 - &new2);
+                    prop_assert_eq!(new1_ref == &new2, &new1 == &new2);
+                    prop_assert_eq!(new1_ref.partial_cmp(&new2), new1.partial_cmp(&new2));
+                    prop_assert_eq!(new1_ref.cmp(&BitmapRef::from(&new2)), new1.cmp(&new2));
+                }
             }
         }
     };
@@ -3141,7 +3127,6 @@ pub(crate) mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
     use static_assertions::{
         assert_eq_align, assert_eq_size, assert_impl_all, assert_not_impl_any, assert_type_eq_all,
     };
@@ -3329,29 +3314,34 @@ pub(crate) mod tests {
         }
     }
 
-    fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) {
-        assert_eq!(format!("{:p}", *initial), format!("{:p}", initial.0));
+    fn test_basic_inplace(initial: &Bitmap, inverse: &Bitmap) -> Result<(), TestCaseError> {
+        prop_assert_eq!(format!("{:p}", *initial), format!("{:p}", initial.0));
 
         let mut buf = initial.clone();
         buf.clear();
-        assert!(buf.is_empty());
+        prop_assert!(buf.is_empty());
 
         buf.copy_from(initial);
         buf.fill();
-        assert!(buf.is_full());
+        prop_assert!(buf.is_full());
 
         buf.copy_from(initial);
         buf.invert();
-        assert_eq!(buf, *inverse);
+        prop_assert_eq!(&buf, inverse);
 
         if initial.weight().unwrap_or(usize::MAX) > 0 {
             buf.copy_from(initial);
             buf.singlify();
-            assert_eq!(buf.weight(), Some(1));
+            prop_assert_eq!(buf.weight(), Some(1));
         }
+        Ok(())
     }
 
-    fn test_indexing(initial: &Bitmap, index: BitmapIndex, initially_set: bool) {
+    fn test_indexing(
+        initial: &Bitmap,
+        index: BitmapIndex,
+        initially_set: bool,
+    ) -> Result<(), TestCaseError> {
         let single = Bitmap::from(index);
         let single_hole = !&single;
 
@@ -3362,57 +3352,59 @@ pub(crate) mod tests {
             .weight()
             .unwrap_or(usize::from(index) + INFINITE_EXPLORE_ITERS);
 
-        assert_eq!(initial.is_set(index), initially_set);
+        prop_assert_eq!(initial.is_set(index), initially_set);
 
         let mut buf = initial.clone();
         buf.set(index);
-        assert_eq!(
+        prop_assert_eq!(
             buf.weight(),
             initial.weight().map(|w| w + usize::from(!initially_set))
         );
         for idx in std::iter::once(index).chain(initial.iter_set().take(max_iters)) {
-            assert!(buf.is_set(idx));
+            prop_assert!(buf.is_set(idx));
         }
 
         buf.copy_from(initial);
         buf.set_only(index);
-        assert_eq!(buf, single);
+        prop_assert_eq!(&buf, &single);
 
         buf.copy_from(initial);
         buf.set_all_but(index);
-        assert_eq!(buf, single_hole);
+        prop_assert_eq!(&buf, &single_hole);
 
         buf.copy_from(initial);
         buf.unset(index);
-        assert_eq!(
+        prop_assert_eq!(
             buf.weight(),
             initial.weight().map(|w| w - usize::from(initially_set))
         );
         for idx in initial.iter_set().take(max_iters) {
-            assert_eq!(buf.is_set(idx), idx != index);
+            prop_assert_eq!(buf.is_set(idx), idx != index);
         }
+        Ok(())
     }
 
-    fn test_and_sub(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) {
-        assert_eq!(b1 & b2, *and);
-        assert_eq!(b1.clone() & b2, *and);
+    fn test_and_sub(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) -> Result<(), TestCaseError> {
+        prop_assert_eq!(&(b1 & b2), and);
+        prop_assert_eq!(&(b1.clone() & b2), and);
         let mut buf = b1.clone();
         buf &= b2;
-        assert_eq!(buf, *and);
+        prop_assert_eq!(&buf, and);
 
         let b1_andnot_b2 = b1 & !b2;
-        assert_eq!(b1 - b2, b1_andnot_b2);
-        assert_eq!(b1.clone() - b2, b1_andnot_b2);
+        prop_assert_eq!(&(b1 - b2), &b1_andnot_b2);
+        prop_assert_eq!(&(b1.clone() - b2), &b1_andnot_b2);
         buf.copy_from(b1);
         buf -= b2;
-        assert_eq!(buf, b1_andnot_b2);
+        prop_assert_eq!(&buf, &b1_andnot_b2);
 
         let b2_andnot_b1 = b2 & !b1;
-        assert_eq!(b2 - b1, b2_andnot_b1);
-        assert_eq!(b2.clone() - b1, b2_andnot_b1);
+        prop_assert_eq!(&(b2 - b1), &b2_andnot_b1);
+        prop_assert_eq!(&(b2.clone() - b1), &b2_andnot_b1);
         buf.copy_from(b2);
         buf -= b1;
-        assert_eq!(buf, b2_andnot_b1);
+        prop_assert_eq!(buf, b2_andnot_b1);
+        Ok(())
     }
 
     #[test]
@@ -3425,18 +3417,18 @@ pub(crate) mod tests {
         }
     }
 
-    fn test_low_level_nonnull(bitmap: Bitmap) {
-        test_bitmap_ref(&bitmap, BitmapRef::from(&bitmap));
+    fn test_low_level_nonnull(bitmap: Bitmap) -> Result<(), TestCaseError> {
+        test_bitmap_ref(&bitmap, BitmapRef::from(&bitmap))?;
         let bitmap = ManuallyDrop::new(bitmap);
         let inner = bitmap.0;
         // SAFETY: We won't use this pointer to mutate
-        assert_eq!(unsafe { bitmap.inner() }, inner);
+        prop_assert_eq!(unsafe { bitmap.inner() }, inner);
         {
             // SAFETY: If it worked for the original bitmap, it works here too,
             //         as long as we leave the original aside and refrain from
             //         dropping the bitmap on either side.
             let bitmap = unsafe { Bitmap::from_owned_nonnull(inner) };
-            assert_eq!(bitmap.0, inner);
+            prop_assert_eq!(bitmap.0, inner);
             std::mem::forget(bitmap);
         }
         {
@@ -3444,109 +3436,115 @@ pub(crate) mod tests {
             //         as long as we leave the original aside and refrain from
             //         dropping the bitmap on either side.
             let bitmap = unsafe { Bitmap::from_owned_raw_mut(inner.as_ptr()).unwrap() };
-            assert_eq!(bitmap.0, inner);
+            prop_assert_eq!(bitmap.0, inner);
             std::mem::forget(bitmap);
         }
         let bitmap = ManuallyDrop::into_inner(bitmap);
         {
             // SAFETY: Safe as long as we don't invalidate the original
             let borrow = unsafe { Bitmap::borrow_from_nonnull(inner) };
-            assert_eq!(borrow.0, inner);
-            test_bitmap_ref(&bitmap, borrow);
+            prop_assert_eq!(borrow.0, inner);
+            test_bitmap_ref(&bitmap, borrow)?;
         }
         {
             // SAFETY: Safe as long as we don't invalidate the original
             let borrow = unsafe { Bitmap::borrow_from_raw(bitmap.as_ptr()).unwrap() };
-            assert_eq!(borrow.0, inner);
-            test_bitmap_ref(&bitmap, borrow);
+            prop_assert_eq!(borrow.0, inner);
+            test_bitmap_ref(&bitmap, borrow)?;
         }
         let mut bitmap = bitmap;
         {
             // SAFETY: Safe as long as we don't invalidate the original
             let borrow = unsafe { Bitmap::borrow_from_raw_mut(bitmap.as_mut_ptr()).unwrap() };
-            assert_eq!(borrow.0, inner);
-            test_bitmap_ref(&bitmap, borrow);
+            prop_assert_eq!(borrow.0, inner);
+            test_bitmap_ref(&bitmap, borrow)?;
         }
+        Ok(())
     }
 
-    fn test_bitmap_ref(bitmap: &Bitmap, bitmap_ref: BitmapRef<'_, Bitmap>) {
+    fn test_bitmap_ref(
+        bitmap: &Bitmap,
+        bitmap_ref: BitmapRef<'_, Bitmap>,
+    ) -> Result<(), TestCaseError> {
         let clone: Bitmap = bitmap_ref.clone_target();
-        assert_eq!(clone, bitmap);
+        prop_assert_eq!(clone, bitmap);
 
-        assert_eq!(
+        prop_assert_eq!(
             <BitmapRef<'_, _> as AsRef<Bitmap>>::as_ref(&bitmap_ref).as_ptr(),
             bitmap.as_ptr()
         );
-        assert_eq!(
+        prop_assert_eq!(
             <BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&bitmap_ref).as_ptr(),
             bitmap.as_ptr()
         );
-        assert_eq!(
+        prop_assert_eq!(
             <&BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&&bitmap_ref).as_ptr(),
             bitmap.as_ptr()
         );
-        assert_eq!(
+        prop_assert_eq!(
             <BitmapRef<'_, _> as Deref>::deref(&bitmap_ref).as_ptr(),
             bitmap.as_ptr()
         );
 
-        assert_eq!(format!("{bitmap:?}"), format!("{bitmap_ref:?}"));
-        assert_eq!(bitmap.to_string(), bitmap_ref.to_string());
+        prop_assert_eq!(format!("{bitmap:?}"), format!("{bitmap_ref:?}"));
+        prop_assert_eq!(bitmap.to_string(), bitmap_ref.to_string());
         let state = RandomState::new();
-        assert_eq!(state.hash_one(bitmap), state.hash_one(bitmap_ref));
-        assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
+        prop_assert_eq!(state.hash_one(bitmap), state.hash_one(bitmap_ref));
+        prop_assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
 
-        assert!(bitmap
+        prop_assert!(bitmap
             .iter_set()
             .take(INFINITE_EXPLORE_ITERS)
             .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
-        assert!(bitmap
+        prop_assert!(bitmap
             .iter_set()
             .take(INFINITE_EXPLORE_ITERS)
             .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
 
-        assert_eq!(!bitmap, !bitmap_ref);
-        assert_eq!(!bitmap, !&bitmap_ref);
+        prop_assert_eq!(!bitmap, !bitmap_ref);
+        prop_assert_eq!(!bitmap, !&bitmap_ref);
+        Ok(())
     }
 
-    fn test_bitmap_ref_binops(bitmap: &Bitmap, other: &Bitmap) {
+    fn test_bitmap_ref_binops(bitmap: &Bitmap, other: &Bitmap) -> Result<(), TestCaseError> {
         let bitmap_ref = BitmapRef::from(bitmap);
 
-        assert_eq!(bitmap_ref & other, bitmap & other);
-        assert_eq!(&bitmap_ref & other, bitmap & other);
-        assert_eq!(bitmap_ref | other, bitmap | other);
-        assert_eq!(&bitmap_ref | other, bitmap | other);
-        assert_eq!(bitmap_ref ^ other, bitmap ^ other);
-        assert_eq!(&bitmap_ref ^ other, bitmap ^ other);
-        assert_eq!(bitmap_ref - other, bitmap - other);
-        assert_eq!(&bitmap_ref - other, bitmap - other);
+        prop_assert_eq!(bitmap_ref & other, bitmap & other);
+        prop_assert_eq!(&bitmap_ref & other, bitmap & other);
+        prop_assert_eq!(bitmap_ref | other, bitmap | other);
+        prop_assert_eq!(&bitmap_ref | other, bitmap | other);
+        prop_assert_eq!(bitmap_ref ^ other, bitmap ^ other);
+        prop_assert_eq!(&bitmap_ref ^ other, bitmap ^ other);
+        prop_assert_eq!(bitmap_ref - other, bitmap - other);
+        prop_assert_eq!(&bitmap_ref - other, bitmap - other);
 
-        assert_eq!(bitmap_ref == other, bitmap == other);
-        assert_eq!(bitmap_ref.partial_cmp(other), bitmap.partial_cmp(other));
-        assert_eq!(bitmap_ref.cmp(&BitmapRef::from(other)), bitmap.cmp(other));
+        prop_assert_eq!(bitmap_ref == other, bitmap == other);
+        prop_assert_eq!(bitmap_ref.partial_cmp(other), bitmap.partial_cmp(other));
+        prop_assert_eq!(bitmap_ref.cmp(&BitmapRef::from(other)), bitmap.cmp(other));
+        Ok(())
     }
 
     #[allow(clippy::redundant_clone)]
     #[test]
-    fn empty() {
+    fn empty() -> Result<(), TestCaseError> {
         let empty = Bitmap::new();
         let mut empty2 = Bitmap::full();
         empty2.unset_range::<PositiveInt>(..);
         let inverse = Bitmap::full();
 
         let test_empty = |empty: &Bitmap| {
-            assert_eq!(empty.first_set(), None);
-            assert_eq!(empty.first_unset().map(usize::from), Some(0));
-            assert!(empty.is_empty());
-            assert!(!empty.is_full());
-            assert_eq!(empty.into_iter().count(), 0);
-            assert_eq!(empty.iter_set().count(), 0);
-            assert_eq!(empty.last_set(), None);
-            assert_eq!(empty.last_unset(), None);
-            assert_eq!(empty.weight(), Some(0));
+            prop_assert_eq!(empty.first_set(), None);
+            prop_assert_eq!(empty.first_unset().map(usize::from), Some(0));
+            prop_assert!(empty.is_empty());
+            prop_assert!(!empty.is_full());
+            prop_assert_eq!(empty.into_iter().count(), 0);
+            prop_assert_eq!(empty.iter_set().count(), 0);
+            prop_assert_eq!(empty.last_set(), None);
+            prop_assert_eq!(empty.last_unset(), None);
+            prop_assert_eq!(empty.weight(), Some(0));
 
             for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
-                assert_eq!(expected, usize::from(idx));
+                prop_assert_eq!(expected, usize::from(idx));
             }
             for (expected, idx) in empty
                 .clone()
@@ -3554,87 +3552,91 @@ pub(crate) mod tests {
                 .enumerate()
                 .take(INFINITE_EXPLORE_ITERS)
             {
-                assert_eq!(expected, usize::from(idx));
+                prop_assert_eq!(expected, usize::from(idx));
             }
 
-            assert_eq!(format!("{empty:?}"), "");
-            assert_eq!(format!("{empty}"), "");
-            assert_eq!(!empty, inverse);
-            assert_eq!(!(empty.clone()), inverse);
+            prop_assert_eq!(format!("{empty:?}"), "");
+            prop_assert_eq!(format!("{empty}"), "");
+            prop_assert_eq!(&(!empty), &inverse);
+            prop_assert_eq!(&(!(empty.clone())), &inverse);
+            Ok(())
         };
-        test_empty(&empty);
-        test_empty(&empty.clone());
-        test_empty(&empty2);
-        test_empty(&Bitmap::default());
+        test_empty(&empty)?;
+        test_empty(&empty.clone())?;
+        test_empty(&empty2)?;
+        test_empty(&Bitmap::default())?;
 
-        test_basic_inplace(&empty, &inverse);
+        test_basic_inplace(&empty, &inverse)?;
 
-        test_low_level_nonnull(empty);
+        test_low_level_nonnull(empty)?;
+        Ok(())
     }
 
-    #[quickcheck]
-    fn empty_extend(extra: HashSet<BitmapIndex>) {
-        let mut extended = Bitmap::new();
-        extended.extend(extra.iter().copied());
+    proptest! {
+        #[test]
+        fn empty_extend(extra: HashSet<BitmapIndex>) {
+            let mut extended = Bitmap::new();
+            extended.extend(extra.iter().copied());
 
-        assert_eq!(extended.weight(), Some(extra.len()));
-        for idx in extra {
-            assert!(extended.is_set(idx));
-        }
-    }
-
-    #[quickcheck]
-    fn empty_op_index(index: BitmapIndex) {
-        test_indexing(&Bitmap::new(), index, false);
-    }
-
-    #[quickcheck]
-    fn empty_op_range(range: Range<BitmapIndex>) {
-        let mut buf = Bitmap::new();
-        buf.set_range(range.clone());
-        assert_eq!(buf, Bitmap::from_range(range.clone()));
-        buf.clear();
-
-        buf.unset_range(range);
-        assert!(buf.is_empty());
-    }
-
-    #[quickcheck]
-    fn empty_op_bitmap(other: Bitmap) {
-        let empty = Bitmap::new();
-
-        assert_eq!(empty.includes(&other), other.is_empty());
-        assert!(other.includes(&empty));
-        assert!(!empty.intersects(&other));
-
-        assert_eq!(empty == other, other.is_empty());
-        if other.is_empty() {
-            let state = RandomState::new();
-            assert_eq!(state.hash_one(&other), state.hash_one(&empty));
-        } else {
-            assert!(empty < other);
+            prop_assert_eq!(extended.weight(), Some(extra.len()));
+            for idx in extra {
+                prop_assert!(extended.is_set(idx));
+            }
         }
 
-        test_and_sub(&empty, &other, &empty);
+        #[test]
+        fn empty_op_index(index: BitmapIndex) {
+            test_indexing(&Bitmap::new(), index, false)?;
+        }
 
-        assert_eq!(&empty | &other, other);
-        assert_eq!(empty.clone() | &other, other);
-        let mut buf = Bitmap::new();
-        buf |= &other;
-        assert_eq!(buf, other);
+        #[test]
+        fn empty_op_range(range: Range<BitmapIndex>) {
+            let mut buf = Bitmap::new();
+            buf.set_range(range.clone());
+            prop_assert_eq!(&buf, &Bitmap::from_range(range.clone()));
+            buf.clear();
 
-        assert_eq!(&empty ^ &other, other);
-        assert_eq!(empty.clone() ^ &other, other);
-        buf.clear();
-        buf ^= &other;
-        assert_eq!(buf, other);
+            buf.unset_range(range);
+            prop_assert!(buf.is_empty());
+        }
 
-        test_bitmap_ref_binops(&empty, &other);
+        #[test]
+        fn empty_op_bitmap(other: Bitmap) {
+            let empty = Bitmap::new();
+
+            prop_assert_eq!(empty.includes(&other), other.is_empty());
+            prop_assert!(other.includes(&empty));
+            prop_assert!(!empty.intersects(&other));
+
+            prop_assert_eq!(empty == other, other.is_empty());
+            if other.is_empty() {
+                let state = RandomState::new();
+                prop_assert_eq!(state.hash_one(&other), state.hash_one(&empty));
+            } else {
+                prop_assert!(empty < other);
+            }
+
+            test_and_sub(&empty, &other, &empty)?;
+
+            prop_assert_eq!(&(&empty | &other), &other);
+            prop_assert_eq!(&(empty.clone() | &other), &other);
+            let mut buf = Bitmap::new();
+            buf |= &other;
+            prop_assert_eq!(&buf, &other);
+
+            prop_assert_eq!(&(&empty ^ &other), &other);
+            prop_assert_eq!(&(empty.clone() ^ &other), &other);
+            buf.clear();
+            buf ^= &other;
+            prop_assert_eq!(&buf, &other);
+
+            test_bitmap_ref_binops(&empty, &other)?;
+        }
     }
 
     #[allow(clippy::redundant_clone)]
     #[test]
-    fn full() {
+    fn full() -> Result<(), TestCaseError> {
         let full = Bitmap::full();
         let full2 = Bitmap::from_range::<PositiveInt>(..);
         let mut full3 = Bitmap::new();
@@ -3642,734 +3644,741 @@ pub(crate) mod tests {
         let inverse = Bitmap::new();
 
         let test_full = |full: &Bitmap| {
-            assert_eq!(full.first_set().map(usize::from), Some(0));
-            assert_eq!(full.first_unset(), None);
-            assert!(!full.is_empty());
-            assert!(full.is_full());
-            assert_eq!(full.iter_unset().count(), 0);
-            assert_eq!(full.last_set(), None);
-            assert_eq!(full.last_unset(), None);
-            assert_eq!(full.weight(), None);
+            prop_assert_eq!(full.first_set().map(usize::from), Some(0));
+            prop_assert_eq!(full.first_unset(), None);
+            prop_assert!(!full.is_empty());
+            prop_assert!(full.is_full());
+            prop_assert_eq!(full.iter_unset().count(), 0);
+            prop_assert_eq!(full.last_set(), None);
+            prop_assert_eq!(full.last_unset(), None);
+            prop_assert_eq!(full.weight(), None);
 
-            fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) {
+            fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) -> Result<(), TestCaseError> {
                 for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
-                    assert_eq!(expected, usize::from(idx));
+                    prop_assert_eq!(expected, usize::from(idx));
                 }
+                Ok(())
             }
-            test_iter_set(full.into_iter());
-            test_iter_set(full.clone().into_iter());
-            test_iter_set(full.iter_set());
+            test_iter_set(full.into_iter())?;
+            test_iter_set(full.clone().into_iter())?;
+            test_iter_set(full.iter_set())?;
 
-            assert_eq!(format!("{full:?}"), "0-");
-            assert_eq!(format!("{full}"), "0-");
-            assert_eq!(!full, inverse);
-            assert_eq!(!(full.clone()), inverse);
+            prop_assert_eq!(format!("{full:?}"), "0-");
+            prop_assert_eq!(format!("{full}"), "0-");
+            prop_assert_eq!(&(!full), &inverse);
+            prop_assert_eq!(&(!(full.clone())), &inverse);
+            Ok(())
         };
-        test_full(&full);
-        test_full(&full.clone());
-        test_full(&full2);
-        test_full(&full3);
+        test_full(&full)?;
+        test_full(&full.clone())?;
+        test_full(&full2)?;
+        test_full(&full3)?;
 
-        test_basic_inplace(&full, &inverse);
-        test_low_level_nonnull(full);
+        test_basic_inplace(&full, &inverse)?;
+        test_low_level_nonnull(full)?;
+        Ok(())
     }
 
-    #[quickcheck]
-    fn full_extend(extra: HashSet<BitmapIndex>) {
-        let mut extended = Bitmap::full();
-        extended.extend(extra.iter().copied());
-        assert!(extended.is_full());
-    }
-
-    #[quickcheck]
-    fn full_op_index(index: BitmapIndex) {
-        test_indexing(&Bitmap::full(), index, true);
-    }
-
-    #[quickcheck]
-    fn full_op_range(range: Range<BitmapIndex>) {
-        let mut ranged_hole = Bitmap::from_range(range.clone());
-        ranged_hole.invert();
-
-        let mut buf = Bitmap::full();
-        buf.set_range(range.clone());
-        assert!(buf.is_full());
-
-        buf.fill();
-        buf.unset_range(range);
-        assert_eq!(buf, ranged_hole);
-    }
-
-    #[quickcheck]
-    fn full_op_bitmap(other: Bitmap) {
-        let full = Bitmap::full();
-        let not_other = !&other;
-
-        assert!(full.includes(&other));
-        assert_eq!(other.includes(&full), other.is_full());
-        assert_eq!(full.intersects(&other), !other.is_empty());
-
-        assert_eq!(full == other, other.is_full());
-        if other.is_full() {
-            let state = RandomState::new();
-            assert_eq!(state.hash_one(&other), state.hash_one(&full));
+    proptest! {
+        #[test]
+        fn full_extend(extra: HashSet<BitmapIndex>) {
+            let mut extended = Bitmap::full();
+            extended.extend(extra.iter().copied());
+            prop_assert!(extended.is_full());
         }
-        assert_eq!(
-            full.cmp(&other),
+
+        #[test]
+        fn full_op_index(index: BitmapIndex) {
+            test_indexing(&Bitmap::full(), index, true)?;
+        }
+
+        #[test]
+        fn full_op_range(range: Range<BitmapIndex>) {
+            let mut ranged_hole = Bitmap::from_range(range.clone());
+            ranged_hole.invert();
+
+            let mut buf = Bitmap::full();
+            buf.set_range(range.clone());
+            prop_assert!(buf.is_full());
+
+            buf.fill();
+            buf.unset_range(range);
+            prop_assert_eq!(buf, ranged_hole);
+        }
+
+        #[test]
+        fn full_op_bitmap(other: Bitmap) {
+            let full = Bitmap::full();
+            let not_other = !&other;
+
+            prop_assert!(full.includes(&other));
+            prop_assert_eq!(other.includes(&full), other.is_full());
+            prop_assert_eq!(full.intersects(&other), !other.is_empty());
+
+            prop_assert_eq!(full == other, other.is_full());
             if other.is_full() {
-                Ordering::Equal
-            } else {
-                Ordering::Greater
+                let state = RandomState::new();
+                prop_assert_eq!(state.hash_one(&other), state.hash_one(&full));
             }
-        );
-
-        test_and_sub(&full, &other, &other);
-
-        assert!((&full | &other).is_full());
-        assert!((full.clone() | &other).is_full());
-        let mut buf = Bitmap::full();
-        buf |= &other;
-        assert!(buf.is_full());
-
-        assert_eq!(&full ^ &other, not_other);
-        assert_eq!((full.clone() ^ &other), not_other);
-        buf.fill();
-        buf ^= &other;
-        assert_eq!(buf, not_other);
-
-        test_bitmap_ref_binops(&full, &other);
-    }
-
-    #[allow(clippy::redundant_clone)]
-    #[quickcheck]
-    fn from_range(range: RangeInclusive<BitmapIndex>) {
-        let ranged_bitmap = Bitmap::from_range(range.clone());
-
-        // Predict bitmap properties from range properties
-        let elems = (usize::from(*range.start())..=usize::from(*range.end()))
-            .map(|idx| BitmapIndex::try_from(idx).unwrap())
-            .collect::<Vec<_>>();
-        let first_unset = if elems.first() == Some(&BitmapIndex::MIN) {
-            elems
-                .last()
-                .copied()
-                .and_then(|item| item.checked_add_signed(1))
-        } else {
-            Some(BitmapIndex::MIN)
-        };
-        let unset_after_set = elems.last().map_or(Some(BitmapIndex::MIN), |last_set| {
-            last_set.checked_add_signed(1)
-        });
-        let display = if let (Some(first), Some(last)) = (elems.first(), elems.last()) {
-            if first == last {
-                format!("{first}")
-            } else {
-                format!("{first}-{last}")
-            }
-        } else {
-            String::new()
-        };
-        let inverse = if let (Some(&first), Some(last)) = (elems.first(), elems.last()) {
-            let mut buf = Bitmap::from_range(..first);
-            if let Some(after_last) = last.checked_add_signed(1) {
-                buf.set_range(after_last..)
-            }
-            buf
-        } else {
-            Bitmap::full()
-        };
-
-        // Check that the bitmap has the expected properties
-        let test_ranged = |ranged_bitmap: &Bitmap| {
-            assert_eq!(ranged_bitmap.first_set(), elems.first().copied());
-            assert_eq!(ranged_bitmap.first_unset(), first_unset);
-            assert_eq!(ranged_bitmap.is_empty(), elems.is_empty());
-            assert!(!ranged_bitmap.is_full());
-            assert_eq!(ranged_bitmap.into_iter().collect::<Vec<_>>(), elems);
-            assert_eq!(ranged_bitmap.clone().into_iter().collect::<Vec<_>>(), elems);
-            assert_eq!(ranged_bitmap.iter_set().collect::<Vec<_>>(), elems);
-            assert_eq!(ranged_bitmap.last_set(), elems.last().copied());
-            assert_eq!(ranged_bitmap.last_unset(), None);
-            assert_eq!(ranged_bitmap.weight(), Some(elems.len()));
-
-            let mut unset = ranged_bitmap.iter_unset();
-            if let Some(first_set) = elems.first() {
-                for expected_unset in 0..usize::from(*first_set) {
-                    assert_eq!(unset.next().map(usize::from), Some(expected_unset));
-                }
-            }
-            let mut expected_unset =
-                std::iter::successors(unset_after_set, |unset| unset.checked_add_signed(1));
-            for unset_index in unset.take(INFINITE_EXPLORE_ITERS) {
-                assert_eq!(unset_index, expected_unset.next().unwrap())
-            }
-
-            assert_eq!(format!("{ranged_bitmap:?}"), display);
-            assert_eq!(format!("{ranged_bitmap}"), display);
-            assert_eq!(!ranged_bitmap, inverse);
-            assert_eq!(!(ranged_bitmap.clone()), inverse);
-        };
-        test_ranged(&ranged_bitmap);
-        test_ranged(&ranged_bitmap.clone());
-
-        // Run unary tests common to all bitmaps
-        test_basic_inplace(&ranged_bitmap, &inverse);
-        test_low_level_nonnull(ranged_bitmap.clone());
-
-        // Quickly check other kinds of ranges
-        let mut exclude_left = Bitmap::from_range((
-            Bound::Excluded(*range.start()),
-            Bound::Included(*range.end()),
-        ));
-        assert!(!exclude_left.is_set(*range.start()));
-        if range.contains(range.start()) {
-            exclude_left.set(*range.start());
-        }
-        assert_eq!(exclude_left, ranged_bitmap);
-        //
-        let mut exclude_right = Bitmap::from_range(*range.start()..*range.end());
-        assert!(!exclude_right.is_set(*range.end()));
-        if range.contains(range.end()) {
-            exclude_right.set(*range.end());
-        }
-        assert_eq!(exclude_right, ranged_bitmap);
-    }
-
-    #[quickcheck]
-    fn from_range_extend(range: RangeInclusive<BitmapIndex>, extra: HashSet<BitmapIndex>) {
-        let mut extended = Bitmap::from_range(range.clone());
-        let mut indices = extra.clone();
-        extended.extend(extra);
-
-        for idx in usize::from(*range.start())..=usize::from(*range.end()) {
-            indices.insert(idx.try_into().unwrap());
-        }
-
-        assert_eq!(extended.weight(), Some(indices.len()));
-        for idx in indices {
-            assert!(extended.is_set(idx));
-        }
-    }
-
-    #[quickcheck]
-    fn from_range_op_index(range: RangeInclusive<BitmapIndex>, index: BitmapIndex) {
-        test_indexing(
-            &Bitmap::from_range(range.clone()),
-            index,
-            range.contains(&index),
-        );
-    }
-
-    #[quickcheck]
-    fn from_range_op_range(
-        range: RangeInclusive<BitmapIndex>,
-        other_range: RangeInclusive<BitmapIndex>,
-    ) {
-        let usized = range_inclusive_to_usize(&range);
-        let other_usized = range_inclusive_to_usize(&other_range);
-
-        let num_indices = |range: &RangeInclusive<usize>| range.clone().count();
-        let num_common_indices = if usized.is_empty() || other_usized.is_empty() {
-            0
-        } else {
-            num_indices(
-                &(*usized.start().max(other_usized.start())
-                    ..=*usized.end().min(other_usized.end())),
-            )
-        };
-
-        let ranged_bitmap = Bitmap::from_range(range);
-
-        let mut buf = ranged_bitmap.clone();
-        buf.set_range(other_range.clone());
-        assert_eq!(
-            buf.weight().unwrap(),
-            num_indices(&usized) + num_indices(&other_usized) - num_common_indices
-        );
-        for idx in usized.clone().chain(other_usized.clone()) {
-            assert!(buf.is_set(idx));
-        }
-
-        buf.copy_from(&ranged_bitmap);
-        buf.unset_range(other_range);
-        assert_eq!(
-            buf.weight().unwrap(),
-            num_indices(&usized) - num_common_indices
-        );
-        for idx in usized {
-            assert_eq!(buf.is_set(idx), !other_usized.contains(&idx));
-        }
-    }
-
-    #[allow(clippy::similar_names)]
-    #[quickcheck]
-    fn from_range_op_bitmap(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
-        let ranged_bitmap = Bitmap::from_range(range.clone());
-        let usized = range_inclusive_to_usize(&range);
-
-        assert_eq!(
-            ranged_bitmap.includes(&other),
-            other.is_empty()
-                || (other.last_set().is_some() && other.iter_set().all(|idx| range.contains(&idx)))
-        );
-        assert_eq!(
-            other.includes(&ranged_bitmap),
-            usized.clone().all(|idx| other.is_set(idx))
-        );
-        assert_eq!(
-            ranged_bitmap.intersects(&other),
-            usized.clone().any(|idx| other.is_set(idx))
-        );
-
-        assert_eq!(
-            ranged_bitmap == other,
-            other.weight() == Some(usized.count()) && other.includes(&ranged_bitmap)
-        );
-        if ranged_bitmap == other {
-            let state = RandomState::new();
-            assert_eq!(state.hash_one(&other), state.hash_one(&ranged_bitmap));
-        }
-
-        if ranged_bitmap.is_empty() {
-            assert_eq!(
-                ranged_bitmap.cmp(&other),
-                if other.is_empty() {
+            prop_assert_eq!(
+                full.cmp(&other),
+                if other.is_full() {
                     Ordering::Equal
                 } else {
-                    Ordering::Less
+                    Ordering::Greater
                 }
             );
-        } else {
-            match ranged_bitmap.cmp(&other) {
-                Ordering::Less => {
-                    assert!(
-                        other.last_set().unwrap_or(BitmapIndex::MAX) > *range.end()
-                            || (other.includes(&ranged_bitmap)
-                                && other.first_set().unwrap_or(BitmapIndex::MIN) < *range.start())
-                    )
+
+            test_and_sub(&full, &other, &other)?;
+
+            prop_assert!((&full | &other).is_full());
+            prop_assert!((full.clone() | &other).is_full());
+            let mut buf = Bitmap::full();
+            buf |= &other;
+            prop_assert!(buf.is_full());
+
+            prop_assert_eq!(&(&full ^ &other), &not_other);
+            prop_assert_eq!(&(full.clone() ^ &other), &not_other);
+            buf.fill();
+            buf ^= &other;
+            prop_assert_eq!(buf, not_other);
+
+            test_bitmap_ref_binops(&full, &other)?;
+        }
+
+        #[allow(clippy::redundant_clone)]
+        #[test]
+        fn from_range(range: RangeInclusive<BitmapIndex>) {
+            let ranged_bitmap = Bitmap::from_range(range.clone());
+
+            // Predict bitmap properties from range properties
+            let elems = (usize::from(*range.start())..=usize::from(*range.end()))
+                .map(|idx| BitmapIndex::try_from(idx).unwrap())
+                .collect::<Vec<_>>();
+            let first_unset = if elems.first() == Some(&BitmapIndex::MIN) {
+                elems
+                    .last()
+                    .copied()
+                    .and_then(|item| item.checked_add_signed(1))
+            } else {
+                Some(BitmapIndex::MIN)
+            };
+            let unset_after_set = elems.last().map_or(Some(BitmapIndex::MIN), |last_set| {
+                last_set.checked_add_signed(1)
+            });
+            let display = if let (Some(first), Some(last)) = (elems.first(), elems.last()) {
+                if first == last {
+                    format!("{first}")
+                } else {
+                    format!("{first}-{last}")
                 }
-                Ordering::Equal => assert_eq!(ranged_bitmap, other),
-                Ordering::Greater => assert!(!other.includes(&ranged_bitmap)),
+            } else {
+                String::new()
+            };
+            let inverse = if let (Some(&first), Some(last)) = (elems.first(), elems.last()) {
+                let mut buf = Bitmap::from_range(..first);
+                if let Some(after_last) = last.checked_add_signed(1) {
+                    buf.set_range(after_last..)
+                }
+                buf
+            } else {
+                Bitmap::full()
+            };
+
+            // Check that the bitmap has the expected properties
+            let test_ranged = |ranged_bitmap: &Bitmap| {
+                prop_assert_eq!(ranged_bitmap.first_set(), elems.first().copied());
+                prop_assert_eq!(ranged_bitmap.first_unset(), first_unset);
+                prop_assert_eq!(ranged_bitmap.is_empty(), elems.is_empty());
+                prop_assert!(!ranged_bitmap.is_full());
+                prop_assert_eq!(&ranged_bitmap.into_iter().collect::<Vec<_>>(), &elems);
+                prop_assert_eq!(&ranged_bitmap.clone().into_iter().collect::<Vec<_>>(), &elems);
+                prop_assert_eq!(&ranged_bitmap.iter_set().collect::<Vec<_>>(), &elems);
+                prop_assert_eq!(&ranged_bitmap.last_set(), &elems.last().copied());
+                prop_assert_eq!(ranged_bitmap.last_unset(), None);
+                prop_assert_eq!(ranged_bitmap.weight(), Some(elems.len()));
+
+                let mut unset = ranged_bitmap.iter_unset();
+                if let Some(first_set) = elems.first() {
+                    for expected_unset in 0..usize::from(*first_set) {
+                        prop_assert_eq!(unset.next().map(usize::from), Some(expected_unset));
+                    }
+                }
+                let mut expected_unset =
+                    std::iter::successors(unset_after_set, |unset| unset.checked_add_signed(1));
+                for unset_index in unset.take(INFINITE_EXPLORE_ITERS) {
+                    prop_assert_eq!(unset_index, expected_unset.next().unwrap())
+                }
+
+                prop_assert_eq!(&format!("{ranged_bitmap:?}"), &display);
+                prop_assert_eq!(&format!("{ranged_bitmap}"), &display);
+                prop_assert_eq!(&(!ranged_bitmap), &inverse);
+                prop_assert_eq!(&(!(ranged_bitmap.clone())), &inverse);
+                Ok(())
+            };
+            test_ranged(&ranged_bitmap)?;
+            test_ranged(&ranged_bitmap.clone())?;
+
+            // Run unary tests common to all bitmaps
+            test_basic_inplace(&ranged_bitmap, &inverse)?;
+            test_low_level_nonnull(ranged_bitmap.clone())?;
+
+            // Quickly check other kinds of ranges
+            let mut exclude_left = Bitmap::from_range((
+                Bound::Excluded(*range.start()),
+                Bound::Included(*range.end()),
+            ));
+            prop_assert!(!exclude_left.is_set(*range.start()));
+            if range.contains(range.start()) {
+                exclude_left.set(*range.start());
             }
-        }
-
-        let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
-
-        let mut ranged_and_other = other_finite
-            .iter_set()
-            .filter(|idx| range.contains(idx))
-            .collect::<Bitmap>();
-        if let Some(infinite) = &other_infinite {
-            if !ranged_bitmap.is_empty() {
-                ranged_and_other.set_range(infinite.start.max(*range.start())..=*range.end());
-            }
-        }
-        test_and_sub(&ranged_bitmap, &other, &ranged_and_other);
-
-        let mut ranged_or_other = other.clone();
-        ranged_or_other.set_range(range);
-        assert_eq!(&ranged_bitmap | &other, ranged_or_other);
-        assert_eq!(ranged_bitmap.clone() | &other, ranged_or_other);
-        let mut buf = ranged_bitmap.clone();
-        buf |= &other;
-        assert_eq!(buf, ranged_or_other);
-
-        let ranged_xor_other = ranged_or_other - ranged_and_other;
-        assert_eq!(&ranged_bitmap ^ &other, ranged_xor_other);
-        assert_eq!(ranged_bitmap.clone() ^ &other, ranged_xor_other);
-        let mut buf = ranged_bitmap.clone();
-        buf ^= &other;
-        assert_eq!(buf, ranged_xor_other);
-
-        test_bitmap_ref_binops(&ranged_bitmap, &other);
-    }
-
-    #[quickcheck]
-    fn from_iterator(indices: HashSet<BitmapIndex>) {
-        let bitmap = indices.iter().copied().collect::<Bitmap>();
-        assert_eq!(bitmap.weight(), Some(indices.len()));
-        for idx in indices {
-            assert!(bitmap.is_set(idx));
-        }
-    }
-
-    #[allow(clippy::redundant_clone)]
-    #[quickcheck]
-    fn arbitrary(bitmap: Bitmap) {
-        // Test properties pertaining to first iterator output
-        assert_eq!(bitmap.first_set(), bitmap.iter_set().next());
-        assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
-        assert_eq!(bitmap.is_empty(), bitmap.first_set().is_none());
-        assert_eq!(bitmap.is_full(), bitmap.first_unset().is_none());
-
-        // Test iterator-wide properties
-        fn test_iter(
-            bitmap: &Bitmap,
-            iter_set: impl Iterator<Item = BitmapIndex>,
-        ) -> (Bitmap, String) {
-            let mut iter_set = iter_set.peekable();
-            let mut iter_unset = bitmap.iter_unset().peekable();
-
-            // Iterate over BitmapIndex until the end ot either iterator is reached
-            let mut next_index = BitmapIndex::MIN;
-            let mut set_stripe_start = None;
-            let mut observed_weight = 0;
-            let mut observed_last_set = None;
-            let mut observed_last_unset = None;
-            let mut inverse = Bitmap::full();
-            let mut display = String::new();
+            prop_assert_eq!(&exclude_left, &ranged_bitmap);
             //
-            while let (Some(next_set), Some(next_unset)) =
-                (iter_set.peek().copied(), iter_unset.peek().copied())
-            {
-                // Move least advanced iterator forward
-                match next_set.cmp(&next_unset) {
-                    Ordering::Less => {
-                        // Next index should be set
-                        iter_set.next();
-                        assert_eq!(next_set, next_index);
+            let mut exclude_right = Bitmap::from_range(*range.start()..*range.end());
+            prop_assert!(!exclude_right.is_set(*range.end()));
+            if range.contains(range.end()) {
+                exclude_right.set(*range.end());
+            }
+            prop_assert_eq!(exclude_right, ranged_bitmap);
+        }
 
-                        // Acknowledge that a set index has been processed
-                        observed_last_set = Some(next_set);
-                        observed_weight += 1;
-                        if set_stripe_start.is_none() {
-                            set_stripe_start = Some(next_set);
-                        }
-                    }
-                    // Next index should be unset
-                    Ordering::Greater => {
-                        // Next index should be unset
-                        iter_unset.next();
-                        assert_eq!(next_unset, next_index);
-                        observed_last_unset = Some(next_unset);
+        #[test]
+        fn from_range_extend(range: RangeInclusive<BitmapIndex>, extra: HashSet<BitmapIndex>) {
+            let mut extended = Bitmap::from_range(range.clone());
+            let mut indices = extra.clone();
+            extended.extend(extra);
 
-                        // If we just went through a stripe of set indices,
-                        // propagate that into the inverse & display predictions
-                        if let Some(first_set) = set_stripe_start {
-                            let last_set = observed_last_set.unwrap();
-                            inverse.unset_range(first_set..=last_set);
-                            if !display.is_empty() {
-                                write!(display, ",").unwrap();
-                            }
-                            write!(display, "{first_set}").unwrap();
-                            if last_set != first_set {
-                                write!(display, "-{last_set}").unwrap();
-                            }
-                            set_stripe_start = None;
-                        }
-                    }
-                    Ordering::Equal => unreachable!("Next index can't be both set and unset"),
-                }
-
-                // Update next_index
-                next_index = next_index.checked_add_signed(1).expect(
-                    "Shouldn't overflow if we had both a next set & unset index before iterating",
-                );
+            for idx in usize::from(*range.start())..=usize::from(*range.end()) {
+                indices.insert(idx.try_into().unwrap());
             }
 
-            // At this point, we reached the end of one of the iterators, and
-            // the other iterator should just keep producing an infinite
-            // sequence of consecutive indices. Reach some conclusions...
-            let mut infinite_iter: Box<dyn Iterator<Item = BitmapIndex>> =
-                match (iter_set.peek(), iter_unset.peek()) {
-                    (Some(next_set), None) => {
-                        // Check end-of-iterator properties
-                        assert_eq!(bitmap.last_set(), None);
-                        assert_eq!(bitmap.last_unset(), observed_last_unset);
-                        assert_eq!(bitmap.weight(), None);
+            prop_assert_eq!(extended.weight(), Some(indices.len()));
+            for idx in indices {
+                prop_assert!(extended.is_set(idx));
+            }
+        }
 
-                        // Handle last (infinite) range of set elements
-                        let stripe_start = set_stripe_start.unwrap_or(*next_set);
-                        inverse.unset_range(stripe_start..);
-                        if !display.is_empty() {
-                            write!(display, ",").unwrap();
-                        }
-                        write!(display, "{stripe_start}-").unwrap();
+        #[test]
+        fn from_range_op_index(range: RangeInclusive<BitmapIndex>, index: BitmapIndex) {
+            test_indexing(
+                &Bitmap::from_range(range.clone()),
+                index,
+                range.contains(&index),
+            )?;
+        }
 
-                        // Expose infinite iterator of set elements
-                        Box::new(iter_set)
+        #[test]
+        fn from_range_op_range(
+            range: RangeInclusive<BitmapIndex>,
+            other_range: RangeInclusive<BitmapIndex>,
+        ) {
+            let usized = range_inclusive_to_usize(&range);
+            let other_usized = range_inclusive_to_usize(&other_range);
+
+            let num_indices = |range: &RangeInclusive<usize>| range.clone().count();
+            let num_common_indices = if usized.is_empty() || other_usized.is_empty() {
+                0
+            } else {
+                num_indices(
+                    &(*usized.start().max(other_usized.start())
+                        ..=*usized.end().min(other_usized.end())),
+                )
+            };
+
+            let ranged_bitmap = Bitmap::from_range(range);
+
+            let mut buf = ranged_bitmap.clone();
+            buf.set_range(other_range.clone());
+            prop_assert_eq!(
+                buf.weight().unwrap(),
+                num_indices(&usized) + num_indices(&other_usized) - num_common_indices
+            );
+            for idx in usized.clone().chain(other_usized.clone()) {
+                prop_assert!(buf.is_set(idx));
+            }
+
+            buf.copy_from(&ranged_bitmap);
+            buf.unset_range(other_range);
+            prop_assert_eq!(
+                buf.weight().unwrap(),
+                num_indices(&usized) - num_common_indices
+            );
+            for idx in usized {
+                prop_assert_eq!(buf.is_set(idx), !other_usized.contains(&idx));
+            }
+        }
+
+        #[allow(clippy::similar_names)]
+        #[test]
+        fn from_range_op_bitmap(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
+            let ranged_bitmap = Bitmap::from_range(range.clone());
+            let usized = range_inclusive_to_usize(&range);
+
+            prop_assert_eq!(
+                ranged_bitmap.includes(&other),
+                other.is_empty()
+                    || (other.last_set().is_some() && other.iter_set().all(|idx| range.contains(&idx)))
+            );
+            prop_assert_eq!(
+                other.includes(&ranged_bitmap),
+                usized.clone().all(|idx| other.is_set(idx))
+            );
+            prop_assert_eq!(
+                ranged_bitmap.intersects(&other),
+                usized.clone().any(|idx| other.is_set(idx))
+            );
+
+            prop_assert_eq!(
+                ranged_bitmap == other,
+                other.weight() == Some(usized.count()) && other.includes(&ranged_bitmap)
+            );
+            if ranged_bitmap == other {
+                let state = RandomState::new();
+                prop_assert_eq!(state.hash_one(&other), state.hash_one(&ranged_bitmap));
+            }
+
+            if ranged_bitmap.is_empty() {
+                prop_assert_eq!(
+                    ranged_bitmap.cmp(&other),
+                    if other.is_empty() {
+                        Ordering::Equal
+                    } else {
+                        Ordering::Less
                     }
-                    (None, Some(_unset)) => {
-                        // Check end-of-iterator properties
-                        assert_eq!(bitmap.last_set(), observed_last_set);
-                        assert_eq!(bitmap.last_unset(), None);
-                        assert_eq!(bitmap.weight(), Some(observed_weight));
+                );
+            } else {
+                match ranged_bitmap.cmp(&other) {
+                    Ordering::Less => {
+                        prop_assert!(
+                            other.last_set().unwrap_or(BitmapIndex::MAX) > *range.end()
+                                || (other.includes(&ranged_bitmap)
+                                    && other.first_set().unwrap_or(BitmapIndex::MIN) < *range.start())
+                        )
+                    }
+                    Ordering::Equal => prop_assert_eq!(&ranged_bitmap, &other),
+                    Ordering::Greater => prop_assert!(!other.includes(&ranged_bitmap)),
+                }
+            }
 
-                        // Handle previous range of set elements, if any
-                        if let Some(first_set) = set_stripe_start {
-                            let last_set = observed_last_set.unwrap();
-                            inverse.unset_range(first_set..=last_set);
+            let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
+
+            let mut ranged_and_other = other_finite
+                .iter_set()
+                .filter(|idx| range.contains(idx))
+                .collect::<Bitmap>();
+            if let Some(infinite) = &other_infinite {
+                if !ranged_bitmap.is_empty() {
+                    ranged_and_other.set_range(infinite.start.max(*range.start())..=*range.end());
+                }
+            }
+            test_and_sub(&ranged_bitmap, &other, &ranged_and_other)?;
+
+            let mut ranged_or_other = other.clone();
+            ranged_or_other.set_range(range);
+            prop_assert_eq!(&(&ranged_bitmap | &other), &ranged_or_other);
+            prop_assert_eq!(&(ranged_bitmap.clone() | &other), &ranged_or_other);
+            let mut buf = ranged_bitmap.clone();
+            buf |= &other;
+            prop_assert_eq!(&buf, &ranged_or_other);
+
+            let ranged_xor_other = ranged_or_other - ranged_and_other;
+            prop_assert_eq!(&(&ranged_bitmap ^ &other), &ranged_xor_other);
+            prop_assert_eq!(&(ranged_bitmap.clone() ^ &other), &ranged_xor_other);
+            let mut buf = ranged_bitmap.clone();
+            buf ^= &other;
+            prop_assert_eq!(buf, ranged_xor_other);
+
+            test_bitmap_ref_binops(&ranged_bitmap, &other)?;
+        }
+
+        #[test]
+        fn from_iterator(indices: HashSet<BitmapIndex>) {
+            let bitmap = indices.iter().copied().collect::<Bitmap>();
+            prop_assert_eq!(bitmap.weight(), Some(indices.len()));
+            for idx in indices {
+                prop_assert!(bitmap.is_set(idx));
+            }
+        }
+
+        #[allow(clippy::redundant_clone)]
+        #[test]
+        fn arbitrary(bitmap: Bitmap) {
+            // Test properties pertaining to first iterator output
+            prop_assert_eq!(bitmap.first_set(), bitmap.iter_set().next());
+            prop_assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
+            prop_assert_eq!(bitmap.is_empty(), bitmap.first_set().is_none());
+            prop_assert_eq!(bitmap.is_full(), bitmap.first_unset().is_none());
+
+            // Test iterator-wide properties
+            fn test_iter(
+                bitmap: &Bitmap,
+                iter_set: impl Iterator<Item = BitmapIndex>,
+            ) -> Result<(Bitmap, String), TestCaseError> {
+                let mut iter_set = iter_set.peekable();
+                let mut iter_unset = bitmap.iter_unset().peekable();
+
+                // Iterate over BitmapIndex until the end ot either iterator is reached
+                let mut next_index = BitmapIndex::MIN;
+                let mut set_stripe_start = None;
+                let mut observed_weight = 0;
+                let mut observed_last_set = None;
+                let mut observed_last_unset = None;
+                let mut inverse = Bitmap::full();
+                let mut display = String::new();
+                //
+                while let (Some(next_set), Some(next_unset)) =
+                    (iter_set.peek().copied(), iter_unset.peek().copied())
+                {
+                    // Move least advanced iterator forward
+                    match next_set.cmp(&next_unset) {
+                        Ordering::Less => {
+                            // Next index should be set
+                            iter_set.next();
+                            prop_assert_eq!(next_set, next_index);
+
+                            // Acknowledge that a set index has been processed
+                            observed_last_set = Some(next_set);
+                            observed_weight += 1;
+                            if set_stripe_start.is_none() {
+                                set_stripe_start = Some(next_set);
+                            }
+                        }
+                        // Next index should be unset
+                        Ordering::Greater => {
+                            // Next index should be unset
+                            iter_unset.next();
+                            prop_assert_eq!(next_unset, next_index);
+                            observed_last_unset = Some(next_unset);
+
+                            // If we just went through a stripe of set indices,
+                            // propagate that into the inverse & display predictions
+                            if let Some(first_set) = set_stripe_start {
+                                let last_set = observed_last_set.unwrap();
+                                inverse.unset_range(first_set..=last_set);
+                                if !display.is_empty() {
+                                    write!(display, ",").unwrap();
+                                }
+                                write!(display, "{first_set}").unwrap();
+                                if last_set != first_set {
+                                    write!(display, "-{last_set}").unwrap();
+                                }
+                                set_stripe_start = None;
+                            }
+                        }
+                        Ordering::Equal => unreachable!("Next index can't be both set and unset"),
+                    }
+
+                    // Update next_index
+                    next_index = next_index.checked_add_signed(1).expect(
+                        "Shouldn't overflow if we had both a next set & unset index before iterating",
+                    );
+                }
+
+                // At this point, we reached the end of one of the iterators, and
+                // the other iterator should just keep producing an infinite
+                // sequence of consecutive indices. Reach some conclusions...
+                let mut infinite_iter: Box<dyn Iterator<Item = BitmapIndex>> =
+                    match (iter_set.peek(), iter_unset.peek()) {
+                        (Some(next_set), None) => {
+                            // Check end-of-iterator properties
+                            prop_assert_eq!(bitmap.last_set(), None);
+                            prop_assert_eq!(bitmap.last_unset(), observed_last_unset);
+                            prop_assert_eq!(bitmap.weight(), None);
+
+                            // Handle last (infinite) range of set elements
+                            let stripe_start = set_stripe_start.unwrap_or(*next_set);
+                            inverse.unset_range(stripe_start..);
                             if !display.is_empty() {
                                 write!(display, ",").unwrap();
                             }
-                            write!(display, "{first_set}").unwrap();
-                            if last_set != first_set {
-                                write!(display, "-{last_set}").unwrap();
-                            }
-                        }
+                            write!(display, "{stripe_start}-").unwrap();
 
-                        Box::new(iter_unset)
+                            // Expose infinite iterator of set elements
+                            Box::new(iter_set)
+                        }
+                        (None, Some(_unset)) => {
+                            // Check end-of-iterator properties
+                            prop_assert_eq!(bitmap.last_set(), observed_last_set);
+                            prop_assert_eq!(bitmap.last_unset(), None);
+                            prop_assert_eq!(bitmap.weight(), Some(observed_weight));
+
+                            // Handle previous range of set elements, if any
+                            if let Some(first_set) = set_stripe_start {
+                                let last_set = observed_last_set.unwrap();
+                                inverse.unset_range(first_set..=last_set);
+                                if !display.is_empty() {
+                                    write!(display, ",").unwrap();
+                                }
+                                write!(display, "{first_set}").unwrap();
+                                if last_set != first_set {
+                                    write!(display, "-{last_set}").unwrap();
+                                }
+                            }
+
+                            Box::new(iter_unset)
+                        }
+                        _ => unreachable!("At least one iterator is finite, they can't both be"),
+                    };
+
+                // ...and iterate the infinite iterator for a while to check it
+                // does seem to meet expectations.
+                for _ in 0..INFINITE_EXPLORE_ITERS {
+                    prop_assert_eq!(infinite_iter.next(), Some(next_index));
+                    if let Some(index) = next_index.checked_add_signed(1) {
+                        next_index = index;
+                    } else {
+                        break;
                     }
-                    _ => unreachable!("At least one iterator is finite, they can't both be"),
+                }
+
+                // Return predicted bitmap inverse and display
+                Ok((inverse, display))
+            }
+            let (inverse, display) = test_iter(&bitmap, (&bitmap).into_iter())?;
+            let (inverse2, display2) = test_iter(&bitmap, bitmap.clone().into_iter())?;
+            let (inverse3, display3) = test_iter(&bitmap, bitmap.iter_set())?;
+            //
+            prop_assert_eq!(&inverse, &inverse2);
+            prop_assert_eq!(&inverse, &inverse3);
+            prop_assert_eq!(&display, &display2);
+            prop_assert_eq!(&display, &display3);
+            prop_assert_eq!(&(!&bitmap), &inverse);
+            prop_assert_eq!(&(!bitmap.clone()), &inverse);
+            prop_assert_eq!(&format!("{bitmap:?}"), &display);
+            prop_assert_eq!(&format!("{bitmap}"), &display);
+
+            // Test properties that should be true of all bitmaps
+            test_basic_inplace(&bitmap, &inverse)?;
+            test_low_level_nonnull(bitmap.clone())?;
+
+            // Test that a clone is indistinguishable from the original bitmap
+            let clone = bitmap.clone();
+            prop_assert_eq!(clone.first_set(), bitmap.first_set());
+            prop_assert_eq!(clone.first_unset(), bitmap.first_unset());
+            prop_assert_eq!(clone.is_empty(), bitmap.is_empty());
+            prop_assert_eq!(clone.is_full(), bitmap.is_full());
+            prop_assert_eq!(clone.last_set(), bitmap.last_set());
+            prop_assert_eq!(clone.last_unset(), bitmap.last_unset());
+            prop_assert_eq!(clone.weight(), bitmap.weight());
+            //
+            let (finite, infinite) = split_infinite_bitmap(bitmap);
+            #[allow(clippy::option_if_let_else)]
+            if let Some(infinite) = infinite {
+                let test_iter = |mut iter_set: Box<dyn Iterator<Item = BitmapIndex>>| {
+                    let mut iter_unset = clone.iter_unset().fuse();
+                    let infinite_start = usize::from(infinite.start);
+                    for idx in 0..infinite_start {
+                        let next = if finite.is_set(idx) {
+                            iter_set.next()
+                        } else {
+                            iter_unset.next()
+                        };
+                        prop_assert_eq!(next.map(usize::from), Some(idx));
+                    }
+                    prop_assert_eq!(iter_unset.next(), None);
+                    for idx in (infinite_start..).take(INFINITE_EXPLORE_ITERS) {
+                        prop_assert_eq!(iter_set.next().map(usize::from), Some(idx));
+                    }
+                    Ok(())
+                };
+                test_iter(Box::new((&clone).into_iter()))?;
+                test_iter(Box::new(clone.iter_set()))?;
+            } else {
+                prop_assert_eq!(&((&clone).into_iter().collect::<Bitmap>()), &finite);
+                prop_assert_eq!(&(clone.iter_set().collect::<Bitmap>()), &finite);
+
+                let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN)) + 1
+                    - finite.weight().unwrap()
+                    + INFINITE_EXPLORE_ITERS;
+                let mut iterator = finite.iter_unset().zip(clone.iter_unset());
+                for _ in 0..num_iters {
+                    let (expected, actual) = iterator.next().unwrap();
+                    prop_assert_eq!(expected, actual);
+                }
+            }
+            //
+            prop_assert_eq!(&format!("{clone:?}"), &display);
+            prop_assert_eq!(&format!("{clone}"), &display);
+            prop_assert_eq!(!&clone, inverse);
+        }
+
+        #[test]
+        fn arbitrary_extend(bitmap: Bitmap, extra: HashSet<BitmapIndex>) {
+            let mut extended = bitmap.clone();
+            extended.extend(extra.iter().copied());
+
+            if let Some(bitmap_weight) = bitmap.weight() {
+                let extra_weight = extended
+                    .weight()
+                    .unwrap()
+                    .checked_sub(bitmap_weight)
+                    .expect("Extending a bitmap shouldn't reduce the weight");
+                prop_assert!(extra_weight <= extra.len());
+            }
+
+            for idx in extra {
+                prop_assert!(extended.is_set(idx));
+            }
+        }
+
+        #[test]
+        fn arbitrary_op_index(bitmap: Bitmap, index: BitmapIndex) {
+            test_indexing(&bitmap, index, bitmap.is_set(index))?;
+        }
+
+        #[test]
+        fn arbitrary_op_range(bitmap: Bitmap, range: Range<BitmapIndex>) {
+            let range_usize = usize::from(range.start)..usize::from(range.end);
+            let range_len = range_usize.clone().count();
+
+            let mut buf = bitmap.clone();
+            buf.set_range(range.clone());
+            if let Some(bitmap_weight) = bitmap.weight() {
+                let extra_weight = buf
+                    .weight()
+                    .unwrap()
+                    .checked_sub(bitmap_weight)
+                    .expect("Setting indices shouldn't reduce the weight");
+                prop_assert!(extra_weight <= range_len);
+
+                for idx in range_usize.clone() {
+                    prop_assert!(buf.is_set(idx));
+                }
+            }
+
+            buf.copy_from(&bitmap);
+            buf.unset_range(range);
+            if let Some(bitmap_weight) = bitmap.weight() {
+                let lost_weight = bitmap_weight
+                    .checked_sub(buf.weight().unwrap())
+                    .expect("Clearing indices shouldn't increase the weight");
+                prop_assert!(lost_weight <= range_len);
+
+                for idx in range_usize {
+                    prop_assert!(!buf.is_set(idx));
+                }
+            }
+        }
+
+        #[allow(clippy::similar_names)]
+        #[test]
+        fn arbitrary_op_bitmap(bitmap: Bitmap, other: Bitmap) {
+            let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
+            let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
+
+            prop_assert_eq!(
+                bitmap.includes(&other),
+                other_finite.iter_set().all(|idx| bitmap.is_set(idx))
+                    && match (&infinite, &other_infinite) {
+                        (Some(infinite), Some(other_infinite)) => {
+                            (usize::from(other_infinite.start)..usize::from(infinite.start))
+                                .all(|idx| finite.is_set(idx))
+                        }
+                        (_, None) => true,
+                        (None, Some(_)) => false,
+                    }
+            );
+
+            fn infinite_intersects_finite(infinite: &RangeFrom<BitmapIndex>, finite: &Bitmap) -> bool {
+                finite
+                    .last_set()
+                    .map_or(false, |last_set| infinite.start <= last_set)
+            }
+            prop_assert_eq!(
+                bitmap.intersects(&other),
+                finite.iter_set().any(|idx| other.is_set(idx))
+                    || match (&infinite, &other_infinite) {
+                        (Some(_), Some(_)) => true,
+                        (Some(infinite), None) => infinite_intersects_finite(infinite, &other_finite),
+                        (None, Some(other_infinite)) =>
+                            infinite_intersects_finite(other_infinite, &finite),
+                        (None, None) => false,
+                    }
+            );
+
+            prop_assert_eq!(
+                bitmap == other,
+                bitmap.includes(&other) && other.includes(&bitmap)
+            );
+            if bitmap == other {
+                let state = RandomState::new();
+                prop_assert_eq!(state.hash_one(&other), state.hash_one(&bitmap));
+            }
+
+            fn expected_cmp(bitmap: &Bitmap, reference: &Bitmap) -> Ordering {
+                let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
+                let (ref_finite, ref_infinite) = split_infinite_bitmap(reference.clone());
+
+                let finite_end = match (infinite, ref_infinite) {
+                    (Some(_), None) => return Ordering::Greater,
+                    (None, Some(_)) => return Ordering::Less,
+                    (Some(infinite), Some(ref_infinite)) => infinite.start.max(ref_infinite.start),
+                    (None, None) => finite
+                        .last_set()
+                        .unwrap_or(BitmapIndex::MIN)
+                        .max(ref_finite.last_set().unwrap_or(BitmapIndex::MIN)),
                 };
 
-            // ...and iterate the infinite iterator for a while to check it
-            // does seem to meet expectations.
-            for _ in 0..INFINITE_EXPLORE_ITERS {
-                assert_eq!(infinite_iter.next(), Some(next_index));
-                if let Some(index) = next_index.checked_add_signed(1) {
-                    next_index = index;
-                } else {
-                    break;
-                }
-            }
-
-            // Return predicted bitmap inverse and display
-            (inverse, display)
-        }
-        let (inverse, display) = test_iter(&bitmap, (&bitmap).into_iter());
-        let (inverse2, display2) = test_iter(&bitmap, bitmap.clone().into_iter());
-        let (inverse3, display3) = test_iter(&bitmap, bitmap.iter_set());
-        //
-        assert_eq!(inverse, inverse2);
-        assert_eq!(inverse, inverse3);
-        assert_eq!(display, display2);
-        assert_eq!(display, display3);
-        assert_eq!(!&bitmap, inverse);
-        assert_eq!(!bitmap.clone(), inverse);
-        assert_eq!(format!("{bitmap:?}"), display);
-        assert_eq!(format!("{bitmap}"), display);
-
-        // Test properties that should be true of all bitmaps
-        test_basic_inplace(&bitmap, &inverse);
-        test_low_level_nonnull(bitmap.clone());
-
-        // Test that a clone is indistinguishable from the original bitmap
-        let clone = bitmap.clone();
-        assert_eq!(clone.first_set(), bitmap.first_set());
-        assert_eq!(clone.first_unset(), bitmap.first_unset());
-        assert_eq!(clone.is_empty(), bitmap.is_empty());
-        assert_eq!(clone.is_full(), bitmap.is_full());
-        assert_eq!(clone.last_set(), bitmap.last_set());
-        assert_eq!(clone.last_unset(), bitmap.last_unset());
-        assert_eq!(clone.weight(), bitmap.weight());
-        //
-        let (finite, infinite) = split_infinite_bitmap(bitmap);
-        #[allow(clippy::option_if_let_else)]
-        if let Some(infinite) = infinite {
-            let test_iter = |mut iter_set: Box<dyn Iterator<Item = BitmapIndex>>| {
-                let mut iter_unset = clone.iter_unset().fuse();
-                let infinite_start = usize::from(infinite.start);
-                for idx in 0..infinite_start {
-                    let next = if finite.is_set(idx) {
-                        iter_set.next()
-                    } else {
-                        iter_unset.next()
-                    };
-                    assert_eq!(next.map(usize::from), Some(idx));
-                }
-                assert_eq!(iter_unset.next(), None);
-                for idx in (infinite_start..).take(INFINITE_EXPLORE_ITERS) {
-                    assert_eq!(iter_set.next().map(usize::from), Some(idx));
-                }
-            };
-            test_iter(Box::new((&clone).into_iter()));
-            test_iter(Box::new(clone.iter_set()));
-        } else {
-            assert_eq!((&clone).into_iter().collect::<Bitmap>(), finite);
-            assert_eq!(clone.iter_set().collect::<Bitmap>(), finite);
-
-            let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN)) + 1
-                - finite.weight().unwrap()
-                + INFINITE_EXPLORE_ITERS;
-            let mut iterator = finite.iter_unset().zip(clone.iter_unset());
-            for _ in 0..num_iters {
-                let (expected, actual) = iterator.next().unwrap();
-                assert_eq!(expected, actual);
-            }
-        }
-        //
-        assert_eq!(format!("{clone:?}"), display);
-        assert_eq!(format!("{clone}"), display);
-        assert_eq!(!&clone, inverse);
-    }
-
-    #[quickcheck]
-    fn arbitrary_extend(bitmap: Bitmap, extra: HashSet<BitmapIndex>) {
-        let mut extended = bitmap.clone();
-        extended.extend(extra.iter().copied());
-
-        if let Some(bitmap_weight) = bitmap.weight() {
-            let extra_weight = extended
-                .weight()
-                .unwrap()
-                .checked_sub(bitmap_weight)
-                .expect("Extending a bitmap shouldn't reduce the weight");
-            assert!(extra_weight <= extra.len());
-        }
-
-        for idx in extra {
-            assert!(extended.is_set(idx));
-        }
-    }
-
-    #[quickcheck]
-    fn arbitrary_op_index(bitmap: Bitmap, index: BitmapIndex) {
-        test_indexing(&bitmap, index, bitmap.is_set(index))
-    }
-
-    #[quickcheck]
-    fn arbitrary_op_range(bitmap: Bitmap, range: Range<BitmapIndex>) {
-        let range_usize = usize::from(range.start)..usize::from(range.end);
-        let range_len = range_usize.clone().count();
-
-        let mut buf = bitmap.clone();
-        buf.set_range(range.clone());
-        if let Some(bitmap_weight) = bitmap.weight() {
-            let extra_weight = buf
-                .weight()
-                .unwrap()
-                .checked_sub(bitmap_weight)
-                .expect("Setting indices shouldn't reduce the weight");
-            assert!(extra_weight <= range_len);
-
-            for idx in range_usize.clone() {
-                assert!(buf.is_set(idx));
-            }
-        }
-
-        buf.copy_from(&bitmap);
-        buf.unset_range(range);
-        if let Some(bitmap_weight) = bitmap.weight() {
-            let lost_weight = bitmap_weight
-                .checked_sub(buf.weight().unwrap())
-                .expect("Clearing indices shouldn't increase the weight");
-            assert!(lost_weight <= range_len);
-
-            for idx in range_usize {
-                assert!(!buf.is_set(idx));
-            }
-        }
-    }
-
-    #[allow(clippy::similar_names)]
-    #[quickcheck]
-    fn arbitrary_op_bitmap(bitmap: Bitmap, other: Bitmap) {
-        let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
-        let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
-
-        assert_eq!(
-            bitmap.includes(&other),
-            other_finite.iter_set().all(|idx| bitmap.is_set(idx))
-                && match (&infinite, &other_infinite) {
-                    (Some(infinite), Some(other_infinite)) => {
-                        (usize::from(other_infinite.start)..usize::from(infinite.start))
-                            .all(|idx| finite.is_set(idx))
-                    }
-                    (_, None) => true,
-                    (None, Some(_)) => false,
-                }
-        );
-
-        fn infinite_intersects_finite(infinite: &RangeFrom<BitmapIndex>, finite: &Bitmap) -> bool {
-            finite
-                .last_set()
-                .map_or(false, |last_set| infinite.start <= last_set)
-        }
-        assert_eq!(
-            bitmap.intersects(&other),
-            finite.iter_set().any(|idx| other.is_set(idx))
-                || match (&infinite, &other_infinite) {
-                    (Some(_), Some(_)) => true,
-                    (Some(infinite), None) => infinite_intersects_finite(infinite, &other_finite),
-                    (None, Some(other_infinite)) =>
-                        infinite_intersects_finite(other_infinite, &finite),
-                    (None, None) => false,
-                }
-        );
-
-        assert_eq!(
-            bitmap == other,
-            bitmap.includes(&other) && other.includes(&bitmap)
-        );
-        if bitmap == other {
-            let state = RandomState::new();
-            assert_eq!(state.hash_one(&other), state.hash_one(&bitmap));
-        }
-
-        fn expected_cmp(bitmap: &Bitmap, reference: &Bitmap) -> Ordering {
-            let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
-            let (ref_finite, ref_infinite) = split_infinite_bitmap(reference.clone());
-
-            let finite_end = match (infinite, ref_infinite) {
-                (Some(_), None) => return Ordering::Greater,
-                (None, Some(_)) => return Ordering::Less,
-                (Some(infinite), Some(ref_infinite)) => infinite.start.max(ref_infinite.start),
-                (None, None) => finite
-                    .last_set()
-                    .unwrap_or(BitmapIndex::MIN)
-                    .max(ref_finite.last_set().unwrap_or(BitmapIndex::MIN)),
-            };
-
-            for idx in (0..=usize::from(finite_end)).rev() {
-                match (bitmap.is_set(idx), reference.is_set(idx)) {
-                    (true, false) => return Ordering::Greater,
-                    (false, true) => return Ordering::Less,
-                    _ => continue,
-                }
-            }
-            Ordering::Equal
-        }
-        assert_eq!(bitmap.cmp(&other), expected_cmp(&bitmap, &other));
-
-        let mut bitmap_and_other = finite
-            .iter_set()
-            .filter(|idx| other.is_set(*idx))
-            .collect::<Bitmap>();
-        match (&infinite, &other_infinite) {
-            (Some(infinite), Some(other_infinite)) => {
-                bitmap_and_other.set_range(infinite.start.max(other_infinite.start)..);
-                for idx in usize::from(infinite.start)..usize::from(other_infinite.start) {
-                    if other.is_set(idx) {
-                        bitmap_and_other.set(idx);
+                for idx in (0..=usize::from(finite_end)).rev() {
+                    match (bitmap.is_set(idx), reference.is_set(idx)) {
+                        (true, false) => return Ordering::Greater,
+                        (false, true) => return Ordering::Less,
+                        _ => continue,
                     }
                 }
+                Ordering::Equal
             }
-            (Some(infinite), None) => {
-                let other_end = other_finite.last_set().unwrap_or(BitmapIndex::MIN);
-                for idx in usize::from(infinite.start)..=usize::from(other_end) {
-                    if other.is_set(idx) {
-                        bitmap_and_other.set(idx)
+            prop_assert_eq!(bitmap.cmp(&other), expected_cmp(&bitmap, &other));
+
+            let mut bitmap_and_other = finite
+                .iter_set()
+                .filter(|idx| other.is_set(*idx))
+                .collect::<Bitmap>();
+            match (&infinite, &other_infinite) {
+                (Some(infinite), Some(other_infinite)) => {
+                    bitmap_and_other.set_range(infinite.start.max(other_infinite.start)..);
+                    for idx in usize::from(infinite.start)..usize::from(other_infinite.start) {
+                        if other.is_set(idx) {
+                            bitmap_and_other.set(idx);
+                        }
                     }
                 }
+                (Some(infinite), None) => {
+                    let other_end = other_finite.last_set().unwrap_or(BitmapIndex::MIN);
+                    for idx in usize::from(infinite.start)..=usize::from(other_end) {
+                        if other.is_set(idx) {
+                            bitmap_and_other.set(idx)
+                        }
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        test_and_sub(&bitmap, &other, &bitmap_and_other);
+            test_and_sub(&bitmap, &other, &bitmap_and_other)?;
 
-        let mut bitmap_or_other = finite;
-        for idx in &other_finite {
-            bitmap_or_other.set(idx);
-        }
-        if let Some(infinite) = infinite {
-            bitmap_or_other.set_range(infinite);
-        }
-        if let Some(other_infinite) = other_infinite {
-            bitmap_or_other.set_range(other_infinite);
-        }
-        assert_eq!(&bitmap | &other, bitmap_or_other);
-        assert_eq!(bitmap.clone() | &other, bitmap_or_other);
-        let mut buf = bitmap.clone();
-        buf |= &other;
-        assert_eq!(buf, bitmap_or_other);
+            let mut bitmap_or_other = finite;
+            for idx in &other_finite {
+                bitmap_or_other.set(idx);
+            }
+            if let Some(infinite) = infinite {
+                bitmap_or_other.set_range(infinite);
+            }
+            if let Some(other_infinite) = other_infinite {
+                bitmap_or_other.set_range(other_infinite);
+            }
+            prop_assert_eq!(&(&bitmap | &other), &bitmap_or_other);
+            prop_assert_eq!(&(bitmap.clone() | &other), &bitmap_or_other);
+            let mut buf = bitmap.clone();
+            buf |= &other;
+            prop_assert_eq!(&buf, &bitmap_or_other);
 
-        let bitmap_xor_other = bitmap_or_other - bitmap_and_other;
-        assert_eq!(&bitmap ^ &other, bitmap_xor_other);
-        assert_eq!(bitmap.clone() ^ &other, bitmap_xor_other);
-        buf.copy_from(&bitmap);
-        buf ^= &other;
-        assert_eq!(buf, bitmap_xor_other);
+            let bitmap_xor_other = bitmap_or_other - bitmap_and_other;
+            prop_assert_eq!(&(&bitmap ^ &other), &bitmap_xor_other);
+            prop_assert_eq!(&(bitmap.clone() ^ &other), &bitmap_xor_other);
+            buf.copy_from(&bitmap);
+            buf ^= &other;
+            prop_assert_eq!(buf, bitmap_xor_other);
 
-        test_bitmap_ref_binops(&bitmap, &other);
+            test_bitmap_ref_binops(&bitmap, &other)?;
+        }
     }
 }

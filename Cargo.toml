@@ -12,12 +12,16 @@ categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memor
 
 [workspace.dependencies]
 enum-iterator = "1.4.1"
-quickcheck = "1.0"
-quickcheck_macros = "1.0"
-rand = "0.8"
+proptest = { version = "1.3", default-features = false, features = ["std"] }
 libc = "0.2"
 static_assertions = "1.1.0"
 windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[profile.test.package.proptest]
+opt-level = 3
+
+[profile.test.package.rand_chacha]
+opt-level = 3
 
 [package]
 name = "hwlocality"
@@ -131,8 +135,8 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # Otherwise, the system installation of hwloc will be used.
 bundled = ["hwlocality-sys/bundled"]
 
-# Implement quickcheck's Arbitrary trait for types where it makes sense
-quickcheck = ["dep:enum-iterator", "dep:quickcheck", "dep:rand"]
+# Implement required infrastructure for property-based testing
+proptest = ["dep:enum-iterator", "dep:proptest"]
 
 [dependencies]
 # === Last dependency usage review performed 2023-09-30 ===
@@ -161,10 +165,9 @@ num_enum = { version = "0.7", default-features = false }
 # Used to simplify error reporting
 thiserror = "1.0"
 
-# Used for optional quickcheck feature
+# Used for optional proptest feature
 enum-iterator = { workspace = true, optional = true }
-quickcheck = { workspace = true, optional = true }
-rand = { workspace = true, optional = true }
+proptest = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Used to simplify examples and test error reporting
@@ -177,9 +180,7 @@ enum-iterator.workspace = true
 pretty_assertions = "1.4"
 
 # Used for random testing
-quickcheck.workspace = true
-quickcheck_macros.workspace = true
-rand.workspace = true
+proptest.workspace = true
 
 # Used to check trait implementations
 static_assertions.workspace = true

@@ -54,7 +54,7 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,
@@ -76,19 +76,20 @@ mod tests {
         Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    #[allow(clippy::option_if_let_else)]
-    #[quickcheck]
-    fn make_hwloc_path(path: PathBuf) {
-        let res = super::make_hwloc_path(&path);
-        match path.to_str() {
-            Some(s) => {
+    proptest! {
+        #[allow(clippy::option_if_let_else)]
+        #[test]
+        fn make_hwloc_path(path: PathBuf) {
+            let res = super::make_hwloc_path(&path);
+            if let Some(s) = path.to_str() {
                 if s.contains('\0') {
-                    assert_eq!(res, Err(PathError::ContainsNul));
+                    prop_assert_eq!(res, Err(PathError::ContainsNul));
                 } else {
-                    assert_eq!(res.as_ref().map(AsRef::as_ref), Ok(s));
+                    prop_assert_eq!(res.as_ref().map(AsRef::as_ref), Ok(s));
                 }
+            } else {
+                prop_assert_eq!(res, Err(PathError::NotUnicode))
             }
-            None => assert_eq!(res, Err(PathError::NotUnicode)),
         }
     }
 }

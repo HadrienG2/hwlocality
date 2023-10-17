@@ -37,6 +37,8 @@ use hwlocality_sys::{
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{ffi::c_int, fmt, num::TryFromIntError};
 use thiserror::Error;
 
@@ -144,31 +146,23 @@ impl Depth {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for Depth {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        if bool::arbitrary(g) {
-            NormalDepth::arbitrary(g).into()
-        } else {
-            Self::VIRTUAL_DEPTHS[usize::arbitrary(g) % Self::VIRTUAL_DEPTHS.len()]
-        }
-    }
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for Depth {
+    type Parameters = <(NormalDepth, bool) as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<
+        <(NormalDepth, bool) as Arbitrary>::Strategy,
+        fn((NormalDepth, bool)) -> Self,
+    >;
 
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        if let Self::Normal(normal) = self {
-            Box::new(normal.shrink().map(Self::Normal))
-        } else {
-            let self_ = *self;
-            Box::new(
-                Self::VIRTUAL_DEPTHS
-                    .iter()
-                    .copied()
-                    .rev()
-                    .skip_while(move |&depth| depth != self_)
-                    .skip(1),
-            )
-        }
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        <(NormalDepth, bool)>::arbitrary_with(args).prop_map(|(normal_depth, is_normal)| {
+            if is_normal {
+                Self::Normal(normal_depth)
+            } else {
+                let idx = usize::from(normal_depth) % Self::VIRTUAL_DEPTHS.len();
+                Self::VIRTUAL_DEPTHS[idx]
+            }
+        })
     }
 }
 //
@@ -283,7 +277,6 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use quickcheck_macros::quickcheck;
     use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
     use std::{
         error::Error,
@@ -345,71 +338,72 @@ mod tests {
         }
     }
 
-    #[quickcheck]
-    fn unary(depth: Depth) {
-        // A depth is either normal or virtual
-        assert!(matches!(depth, Depth::Normal(_)) || Depth::VIRTUAL_DEPTHS.contains(&depth));
-        assert_eq!(depth.clone(), depth);
-
-        if let Depth::Normal(normal) = depth {
-            assert_eq!(depth.to_string(), normal.to_string());
-            assert_eq!(NormalDepth::try_from(depth), Ok(normal));
-            assert_eq!(usize::try_from(depth).unwrap(), normal);
-            assert_eq!(depth.assume_normal(), normal);
-            assert!(depth.to_raw() >= 0);
-        } else {
-            assert_eq!(depth.to_string(), format!("<{depth:?}>"));
-            NormalDepth::try_from(depth).unwrap_err();
-            usize::try_from(depth).unwrap_err();
-            std::panic::catch_unwind(|| depth.assume_normal()).unwrap_err();
-            assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
+    proptest! {
+        #[test]
+        fn unary(depth: Depth) {
+            // A depth is either normal or virtual
+            prop_assert!(matches!(depth, Depth::Normal(_)) || Depth::VIRTUAL_DEPTHS.contains(&depth));
+            if let Depth::Normal(normal) = depth {
+                prop_assert_eq!(depth.to_string(), normal.to_string());
+                prop_assert_eq!(NormalDepth::try_from(depth), Ok(normal));
+                prop_assert_eq!(usize::try_from(depth).unwrap(), normal);
+                prop_assert_eq!(depth.assume_normal(), normal);
+                prop_assert!(depth.to_raw() >= 0);
+            } else {
+                prop_assert_eq!(depth.to_string(), format!("<{depth:?}>"));
+                prop_assert!(NormalDepth::try_from(depth).is_err());
+                prop_assert!(usize::try_from(depth).is_err());
+                prop_assert!(std::panic::catch_unwind(|| depth.assume_normal()).is_err());
+                prop_assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
+            }
         }
-    }
 
-    #[quickcheck]
-    fn from_normal(normal: NormalDepth) {
-        assert_eq!(Depth::from(normal), normal);
-        assert_eq!(normal, Depth::from(normal));
-    }
-
-    #[quickcheck]
-    fn from_usize(value: usize) {
-        if value < usize::from(NormalDepth::MAX) {
-            assert_eq!(Depth::try_from(value).unwrap(), value);
-            assert_eq!(value, Depth::try_from(value).unwrap());
-        } else {
-            Depth::try_from(value).unwrap_err();
+        #[test]
+        fn from_normal(normal: NormalDepth) {
+            prop_assert_eq!(Depth::from(normal), normal);
+            prop_assert_eq!(normal, Depth::from(normal));
         }
-    }
 
-    #[quickcheck]
-    fn from_raw(value: hwloc_get_type_depth_e) {
-        let depth_res = Depth::from_raw(value);
-        if value >= 0 {
-            assert_eq!(depth_res.unwrap(), usize::try_from(value).unwrap());
-        } else if value == HWLOC_TYPE_DEPTH_UNKNOWN {
-            assert_eq!(depth_res, Err(TypeToDepthError::Nonexistent));
-        } else if value == HWLOC_TYPE_DEPTH_MULTIPLE {
-            assert_eq!(depth_res, Err(TypeToDepthError::Multiple));
-        } else if value
-            > -2 - hwloc_get_type_depth_e::try_from(Depth::VIRTUAL_DEPTHS.len()).unwrap()
-        {
-            depth_res.unwrap();
-        } else {
-            assert_eq!(depth_res, Err(TypeToDepthError::Unexpected(value)));
+        #[test]
+        fn from_usize(value: usize) {
+            if value < usize::from(NormalDepth::MAX) {
+                prop_assert_eq!(Depth::try_from(value).unwrap(), value);
+                prop_assert_eq!(value, Depth::try_from(value).unwrap());
+            } else {
+                prop_assert!(Depth::try_from(value).is_err());
+            }
         }
-    }
 
-    #[quickcheck]
-    fn eq_int(depth: Depth, normal: NormalDepth) {
-        assert_eq!(depth == normal, depth == Depth::Normal(normal));
-    }
+        #[test]
+        fn from_raw(value: hwloc_get_type_depth_e) {
+            let depth_res = Depth::from_raw(value);
+            if value >= 0 {
+                prop_assert!(depth_res.is_ok());
+                prop_assert_eq!(depth_res.unwrap(), usize::try_from(value).unwrap());
+            } else if value == HWLOC_TYPE_DEPTH_UNKNOWN {
+                prop_assert_eq!(depth_res, Err(TypeToDepthError::Nonexistent));
+            } else if value == HWLOC_TYPE_DEPTH_MULTIPLE {
+                prop_assert_eq!(depth_res, Err(TypeToDepthError::Multiple));
+            } else if value
+                > -2 - hwloc_get_type_depth_e::try_from(Depth::VIRTUAL_DEPTHS.len()).unwrap()
+            {
+                prop_assert!(depth_res.is_ok());
+            } else {
+                prop_assert_eq!(depth_res, Err(TypeToDepthError::Unexpected(value)));
+            }
+        }
 
-    #[quickcheck]
-    fn eq_usize(depth: Depth, value: usize) {
-        assert_eq!(
-            depth == value,
-            PositiveInt::try_from(value).map_or(false, |value| depth == value)
-        );
+        #[test]
+        fn eq_int(depth: Depth, normal: NormalDepth) {
+            prop_assert_eq!(depth == normal, depth == Depth::Normal(normal));
+        }
+
+        #[test]
+        fn eq_usize(depth: Depth, value: usize) {
+            prop_assert_eq!(
+                depth == value,
+                PositiveInt::try_from(value).map_or(false, |value| depth == value)
+            );
+        }
     }
 }

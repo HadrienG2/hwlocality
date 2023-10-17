@@ -32,6 +32,8 @@ use crate::{
     ffi::string::LibcString,
 };
 use bitflags::bitflags;
+#[cfg(all(feature = "hwloc-2_5_0", any(test, feature = "proptest")))]
+use enum_iterator::Sequence;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
 use hwlocality_sys::{
@@ -536,18 +538,7 @@ bitflags! {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for AddDistancesFlags {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_distances_add_flag_e::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
-    }
-}
+crate::impl_arbitrary_for_bitflags!(AddDistancesFlags, hwloc_distances_add_flag_e);
 
 /// Failed to add a new distance matrix to the topology
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1277,6 +1268,12 @@ impl<'topology> Distances<'topology> {
     /// [`Distances::replace_objects()`]. One may use e.g.
     /// [`Topology::object_with_same_locality()`] to easily convert between
     /// similar objects of different types.
+    ///
+    /// # Errors
+    ///
+    /// [`TransformError`] if one attempts to use
+    /// [`DistancesTransform::RemoveNone`] to reduce the number of objects to
+    /// <2, which is forbidden.
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_distances_transform")]
     pub fn transform(
@@ -1441,22 +1438,12 @@ impl DistancesKind {
     }
 }
 //
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for DistancesKind {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self::from_bits_truncate(hwloc_distances_kind_e::arbitrary(g))
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let self_ = *self;
-        Box::new(self.iter().map(move |value| self_ ^ value))
-    }
-}
+#[cfg(any(test, feature = "proptest"))]
+crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg_attr(any(test, feature = "quickcheck"), derive(enum_iterator::Sequence))]
+#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(
     Copy,
     Clone,
@@ -1523,23 +1510,7 @@ pub enum DistancesTransform {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg(any(test, feature = "quickcheck"))]
-impl quickcheck::Arbitrary for DistancesTransform {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        use enum_iterator::Sequence;
-        enum_iterator::all::<Self>()
-            .nth(usize::arbitrary(g) % Self::CARDINALITY)
-            .expect("Per above modulo, this cannot happen")
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(std::iter::successors(
-            Some(*self),
-            enum_iterator::Sequence::previous,
-        ))
-    }
-}
+crate::impl_arbitrary_for_sequence!(DistancesTransform);
 
 /// Error returned when attempting to remove all distances using
 /// [`DistancesTransform::RemoveNone`].
