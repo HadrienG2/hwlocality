@@ -261,6 +261,51 @@ mod sealed {
 /// Import of [`Sealed`] that only this crate can use
 pub(crate) use sealed::Sealed;
 
+/// Implement [`proptest::Arbitrary`] for a C-like enum that implements
+/// [`enum_iterator::Sequence`]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_arbitrary_for_sequence {
+    ($sequence:ty) => {
+        #[cfg(any(test, feature = "proptest"))]
+        impl proptest::prelude::Arbitrary for $sequence {
+            type Parameters = ();
+            type Strategy = proptest::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
+
+            fn arbitrary_with((): ()) -> Self::Strategy {
+                let cardinality = <Self as enum_iterator::Sequence>::CARDINALITY;
+                (0..cardinality).prop_map(|idx| {
+                    enum_iterator::all::<Self>()
+                        .nth(idx)
+                        .expect("idx is in range by definition")
+                })
+            }
+        }
+    };
+}
+
+/// Implement [`proptest::Arbitrary`] for bitflags
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_arbitrary_for_bitflags {
+    ($flags:ty, $inner:ty) => {
+        #[cfg(any(test, feature = "proptest"))]
+        impl proptest::prelude::Arbitrary for $flags {
+            type Parameters = ();
+            type Strategy =
+                proptest::strategy::Map<proptest::sample::Subsequence<Self>, fn(Vec<Self>) -> Self>;
+
+            fn arbitrary_with((): ()) -> Self::Strategy {
+                use proptest::prelude::*;
+                let all_flags = Self::all().iter().collect::<Vec<_>>();
+                let num_flags = all_flags.len();
+                prop::sample::subsequence(all_flags, 0..num_flags)
+                    .prop_map(|flags| flags.into_iter().collect::<Self>())
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

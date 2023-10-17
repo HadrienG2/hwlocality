@@ -745,18 +745,7 @@ impl CpuBindingFlags {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for CpuBindingFlags {
-    type Parameters = <hwloc_cpubind_flags_t as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_cpubind_flags_t as Arbitrary>::Strategy,
-        fn(hwloc_cpubind_flags_t) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_cpubind_flags_t::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(CpuBindingFlags, hwloc_cpubind_flags_t);
 
 /// Object that is being bound to particular CPUs
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]

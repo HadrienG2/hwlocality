@@ -553,18 +553,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for RestrictFlags {
-    type Parameters = <hwloc_restrict_flags_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_restrict_flags_e as Arbitrary>::Strategy,
-        fn(hwloc_restrict_flags_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_restrict_flags_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(RestrictFlags, hwloc_restrict_flags_e);
 
 /// Requested adjustment to the allowed set of PUs and NUMA nodes
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -661,19 +650,7 @@ pub enum GroupMerge {
     Always,
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for GroupMerge {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(GroupMerge);
 //
 impl From<bool> for GroupMerge {
     fn from(value: bool) -> Self {

@@ -1221,18 +1221,7 @@ impl MemoryBindingFlags {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for MemoryBindingFlags {
-    type Parameters = <hwloc_membind_flags_t as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_membind_flags_t as Arbitrary>::Strategy,
-        fn(hwloc_membind_flags_t) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_membind_flags_t::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(MemoryBindingFlags, hwloc_membind_flags_t);
 //
 // NOTE: No default because user must consciously think about the need for PROCESS
 
@@ -1351,19 +1340,7 @@ pub enum MemoryBindingPolicy {
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for MemoryBindingPolicy {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(MemoryBindingPolicy);
 
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory

@@ -153,18 +153,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for XMLExportFlags {
-    type Parameters = <hwloc_topology_export_xml_flags_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_topology_export_xml_flags_e as Arbitrary>::Strategy,
-        fn(hwloc_topology_export_xml_flags_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_topology_export_xml_flags_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(XMLExportFlags, hwloc_topology_export_xml_flags_e);
 
 /// XML string emitted by hwloc
 ///

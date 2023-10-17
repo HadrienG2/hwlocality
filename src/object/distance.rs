@@ -540,18 +540,7 @@ bitflags! {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for AddDistancesFlags {
-    type Parameters = <hwloc_distances_add_flag_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_distances_add_flag_e as Arbitrary>::Strategy,
-        fn(hwloc_distances_add_flag_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_distances_add_flag_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(AddDistancesFlags, hwloc_distances_add_flag_e);
 
 /// Failed to add a new distance matrix to the topology
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1452,17 +1441,7 @@ impl DistancesKind {
 }
 //
 #[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for DistancesKind {
-    type Parameters = <hwloc_distances_kind_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_distances_kind_e as Arbitrary>::Strategy,
-        fn(hwloc_distances_kind_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_distances_kind_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1533,19 +1512,7 @@ pub enum DistancesTransform {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for DistancesTransform {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(DistancesTransform);
 
 /// Error returned when attempting to remove all distances using
 /// [`DistancesTransform::RemoveNone`].

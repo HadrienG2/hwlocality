@@ -59,19 +59,7 @@ pub enum BridgeType {
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for BridgeType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(BridgeType);
 
 /// Cache type
 #[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
@@ -93,19 +81,7 @@ pub enum CacheType {
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for CacheType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(CacheType);
 
 /// Type of a OS device
 #[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
@@ -161,19 +137,7 @@ pub enum OSDeviceType {
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for OSDeviceType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(OSDeviceType);
 
 /// Represents the type of a [`TopologyObject`].
 ///
@@ -492,19 +456,7 @@ impl ObjectType {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for ObjectType {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(ObjectType);
 //
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {

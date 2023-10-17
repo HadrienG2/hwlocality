@@ -1474,18 +1474,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for LocalNUMANodeFlags {
-    type Parameters = <hwloc_local_numanode_flag_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_local_numanode_flag_e as Arbitrary>::Strategy,
-        fn(hwloc_local_numanode_flag_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_local_numanode_flag_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(LocalNUMANodeFlags, hwloc_local_numanode_flag_e);
 
 /// Target NUMA nodes
 #[derive(Copy, Clone, Debug)]
@@ -1599,15 +1588,4 @@ impl MemoryAttributeFlags {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for MemoryAttributeFlags {
-    type Parameters = <hwloc_memattr_flag_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_memattr_flag_e as Arbitrary>::Strategy,
-        fn(hwloc_memattr_flag_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_memattr_flag_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(MemoryAttributeFlags, hwloc_memattr_flag_e);

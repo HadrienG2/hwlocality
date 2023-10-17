@@ -845,38 +845,26 @@ bitflags! {
         #[cfg(feature = "hwloc-2_8_0")]
         #[doc(alias = "HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS")]
         const IGNORE_CPU_KINDS = HWLOC_TOPOLOGY_FLAG_NO_CPUKINDS;
+        // TODO: If you add more build flags, update is_valid() and the
+        //       valid_build_flags() generator in the test suite.
     }
 }
 //
 impl BuildFlags {
     /// Truth that these flags are in a valid state
-    #[allow(unused_mut, clippy::let_and_return)]
+    #[allow(unused_mut)]
     pub(crate) fn is_valid(self) -> bool {
-        let mut valid = self.contains(Self::ASSUME_THIS_SYSTEM)
-            || !self.contains(Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM);
+        let mut need_this_system = Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM;
         #[cfg(feature = "hwloc-2_5_0")]
         {
-            valid &= self.contains(Self::ASSUME_THIS_SYSTEM)
-                || !self.intersects(
-                    Self::RESTRICT_CPU_TO_THIS_PROCESS | Self::RESTRICT_MEMORY_TO_THIS_PROCESS,
-                )
+            need_this_system
+                .insert(Self::RESTRICT_CPU_TO_THIS_PROCESS | Self::RESTRICT_MEMORY_TO_THIS_PROCESS);
         }
-        valid
+        self.contains(Self::ASSUME_THIS_SYSTEM) || !self.intersects(need_this_system)
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for BuildFlags {
-    type Parameters = <hwloc_topology_flags_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_topology_flags_e as Arbitrary>::Strategy,
-        fn(hwloc_topology_flags_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_topology_flags_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(BuildFlags, hwloc_topology_flags_e);
 
 /// Type filtering flags
 ///
@@ -939,19 +927,7 @@ pub enum TypeFilter {
     KeepImportant = HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for TypeFilter {
-    type Parameters = ();
-    type Strategy = prop::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
-
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        (0..Self::CARDINALITY).prop_map(|idx| {
-            enum_iterator::all::<Self>()
-                .nth(idx)
-                .expect("idx is in range by definition")
-        })
-    }
-}
+crate::impl_arbitrary_for_sequence!(TypeFilter);
 
 /// Errors that can occur when filtering types
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
@@ -1026,12 +1002,13 @@ unsafe impl Sync for TopologyBuilder {}
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::topology::export::xml::XMLExportFlags;
+    use crate::{object::TopologyObject, topology::export::xml::XMLExportFlags};
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
+        collections::HashSet,
         error::Error,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
@@ -1263,11 +1240,23 @@ pub(crate) mod tests {
     }
 
     /// [`BuildFlags`] that are guaranteed to be valid
+    #[allow(unused_mut)]
     fn valid_build_flags() -> impl Strategy<Value = BuildFlags> {
-        any::<BuildFlags>().prop_filter(
-            "This test only makes sense with valid build flags",
-            |flags| flags.is_valid(),
-        )
+        any::<BuildFlags>().prop_map(|mut flags| {
+            let mut need_this_system = BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM;
+            #[cfg(feature = "hwloc-2_5_0")]
+            {
+                need_this_system.insert(
+                    BuildFlags::RESTRICT_CPU_TO_THIS_PROCESS
+                        | BuildFlags::RESTRICT_MEMORY_TO_THIS_PROCESS,
+                );
+            }
+            if flags.intersects(need_this_system) {
+                flags.insert(BuildFlags::ASSUME_THIS_SYSTEM);
+            }
+            assert!(flags.is_valid());
+            flags
+        })
     }
 
     /// Shortcut when you only need a single builder with arbitrary build flags
@@ -1431,12 +1420,30 @@ pub(crate) mod tests {
             let default = builder_with_flags(build_flags)?.unwrap().build().unwrap();
             let check_xml_topology = |topology: &Topology| {
                 check_topology(topology, DataSource::Xml, build_flags, default_type_filter)?;
+
+                // XML export of topologies built with INCLUDE_DISALLOWED
+                // include disallowed objects, but said objects get flushed out
+                // by GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM, so comparing the
+                // two topologies needs a little care in this configuration.
+                let default_is_superset = build_flags.contains(
+                    BuildFlags::INCLUDE_DISALLOWED
+                    | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
+                );
+
                 for object_type in enum_iterator::all::<ObjectType>() {
-                    prop_assert_eq!(
-                        topology.objects_with_type(object_type).count(),
-                        default.objects_with_type(object_type).count(),
-                        "Unexpected number of {} objects", object_type
-                    );
+                    let objects_gpids = |topology: &Topology| {
+                        topology
+                            .objects_with_type(object_type)
+                            .map(TopologyObject::global_persistent_index)
+                            .collect::<HashSet<_>>()
+                    };
+                    let topology_gpids = objects_gpids(topology);
+                    let default_gpids = objects_gpids(&default);
+                    if default_is_superset {
+                        prop_assert!(topology_gpids.is_subset(&default_gpids));
+                    } else {
+                        prop_assert_eq!(topology_gpids, default_gpids);
+                    }
                 }
                 Ok(())
             };

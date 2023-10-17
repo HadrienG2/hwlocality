@@ -582,18 +582,7 @@ bitflags! {
     }
 }
 //
-#[cfg(any(test, feature = "proptest"))]
-impl Arbitrary for DistributeFlags {
-    type Parameters = <hwloc_distrib_flags_e as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <hwloc_distrib_flags_e as Arbitrary>::Strategy,
-        fn(hwloc_distrib_flags_e) -> Self,
-    >;
-
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        hwloc_distrib_flags_e::arbitrary_with(args).prop_map(Self::from_bits_truncate)
-    }
-}
+crate::impl_arbitrary_for_bitflags!(DistributeFlags, hwloc_distrib_flags_e);
 //
 impl Default for DistributeFlags {
     fn default() -> Self {
