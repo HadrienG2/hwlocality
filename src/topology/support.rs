@@ -211,9 +211,9 @@ impl Arbitrary for DiscoverySupport {
                     pu,
                     numa,
                     numa_memory,
-                    #[cfg(feature = "hwloc-2_4_0")]
+                    #[cfg(feature = "hwloc-2_1_0")]
                     disallowed_pu,
-                    #[cfg(feature = "hwloc-2_4_0")]
+                    #[cfg(feature = "hwloc-2_1_0")]
                     disallowed_numa,
                     #[cfg(feature = "hwloc-2_4_0")]
                     cpukind_efficiency,
