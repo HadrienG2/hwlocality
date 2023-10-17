@@ -17,9 +17,6 @@ libc = "0.2"
 static_assertions = "1.1.0"
 windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
-[profile.test]
-opt-level = 1
-
 [profile.test.package.proptest]
 opt-level = 3
 
