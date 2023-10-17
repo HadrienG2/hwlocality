@@ -310,12 +310,85 @@ macro_rules! impl_arbitrary_for_bitflags {
 /// Common tools for property-based testing
 #[cfg(any(test, feature = "proptest"))]
 pub(crate) mod test_utils {
-    use proptest::prelude::*;
+    use enum_iterator::Sequence;
+    use proptest::{
+        prelude::*,
+        sample::Select,
+        strategy::{Map, TupleUnion, WA},
+        string::RegexGeneratorStrategy,
+    };
+    use std::{
+        ffi::{c_uchar, c_uint},
+        fmt::Debug,
+        ops::RangeInclusive,
+    };
 
-    /// Default proptest string generator isn't exhaustive, which is bad
-    pub(crate) fn any_string() -> prop::string::RegexGeneratorStrategy<String> {
+    /// String generator that's actually exhaustive, unlike proptest's default
+    pub(crate) fn any_string() -> AnyString {
         prop::string::string_regex(".*").expect("this is a valid regex")
     }
+
+    /// Strategy emitted by [`any_string()`]
+    pub(crate) type AnyString = RegexGeneratorStrategy<String>;
+
+    /// Generate an hwloc boolean with reasonable valid state probability
+    pub(crate) fn any_hwloc_bool() -> AnyHwlocBool {
+        prop_oneof![
+            1 => prop::bool::ANY.prop_map(c_uchar::from),
+            4 => 2..=c_uchar::MAX,
+        ]
+    }
+
+    /// Strategy emitted by [`any_hwloc_bool()`]
+    pub(crate) type AnyHwlocBool = TupleUnion<(
+        WA<Map<prop::bool::Any, fn(bool) -> c_uchar>>,
+        WA<RangeInclusive<c_uchar>>,
+    )>;
+
+    /// Generate an integer where the 0 value is special
+    pub(crate) fn any_int_special0<Int: Arbitrary + Copy>(
+        zero: Int,
+        one: Int,
+        max: Int,
+    ) -> AnyIntSpecial0<Int>
+    where
+        RangeInclusive<Int>: Strategy,
+    {
+        prop_oneof![
+            4 => one..=max,
+            1 => Just(zero)
+        ]
+    }
+
+    /// Strategy emitted by [`any_int_special0()`]
+    pub(crate) type AnyIntSpecial0<Int> = TupleUnion<(WA<RangeInclusive<Int>>, WA<Just<Int>>)>;
+
+    /// Specialization of [`any_int_special0()`] for [`u64`]
+    pub(crate) fn any_u64_special0() -> AnyIntSpecial0<u64> {
+        any_int_special0(0, 1, u64::MAX)
+    }
+
+    /// Specialization of [`any_int_special0()`] for [`c_uint`]
+    pub(crate) fn any_uint_special0() -> AnyIntSpecial0<c_uint> {
+        any_int_special0(0, 1, c_uint::MAX)
+    }
+
+    /// Generate an hwloc enum repr with some reasonable odds of invalid value
+    pub(crate) fn any_enum_repr<Enum: Sequence, Repr: Copy + Debug + From<Enum> + TryInto<Enum>>(
+        min_repr: Repr,
+        max_repr: Repr,
+    ) -> AnyEnumRepr<Repr> {
+        let valid_reprs = enum_iterator::all::<Enum>()
+            .map(Repr::from)
+            .collect::<Vec<_>>();
+        prop_oneof![
+            4 => prop::sample::select(valid_reprs),  // Valid enum repr
+            1 => min_repr..=max_repr,
+        ]
+    }
+
+    /// Strategy emitted by [`any_enum_repr()`]
+    pub(crate) type AnyEnumRepr<Repr> = TupleUnion<(WA<Select<Repr>>, WA<RangeInclusive<Repr>>)>;
 }
 
 #[cfg(test)]

@@ -118,7 +118,7 @@ impl LibcString {
 impl Arbitrary for LibcString {
     type Parameters = ();
     type Strategy = prop::strategy::Perturb<
-        prop::string::RegexGeneratorStrategy<String>,
+        crate::test_utils::AnyString,
         fn(String, prop::test_runner::TestRng) -> Self,
     >;
 

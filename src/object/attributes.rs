@@ -239,17 +239,17 @@ impl MemoryPageType {
 impl Arbitrary for MemoryPageType {
     type Parameters = <u64 as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
-        (prop::sample::Select<u64>, <u64 as Arbitrary>::Strategy),
+        (
+            crate::test_utils::AnyIntSpecial0<u64>,
+            <u64 as Arbitrary>::Strategy,
+        ),
         fn((u64, u64)) -> Self,
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        (
-            // Bias RNG to ensure reasonable odds of zero sizes
-            prop::sample::select(&[0, 1, 2, u64::MAX - 1, u64::MAX][..]),
-            u64::arbitrary_with(args),
-        )
-            .prop_map(|(size, count)| Self(hwloc_memory_page_type_s { size, count }))
+        let size = crate::test_utils::any_u64_special0();
+        let count = u64::arbitrary_with(args);
+        (size, count).prop_map(|(size, count)| Self(hwloc_memory_page_type_s { size, count }))
     }
 }
 //
@@ -331,11 +331,16 @@ impl Arbitrary for CacheAttributes {
     type Parameters = ();
     type Strategy = prop::strategy::Map<
         (
-            prop::sample::Select<u64>,
-            prop::sample::Select<c_uint>,
-            prop::sample::Select<c_uint>,
-            prop::sample::Select<std::ffi::c_int>,
-            std::ops::Range<hwlocality_sys::hwloc_obj_cache_type_t>,
+            crate::test_utils::AnyIntSpecial0<u64>,
+            crate::test_utils::AnyIntSpecial0<c_uint>,
+            crate::test_utils::AnyIntSpecial0<c_uint>,
+            prop::strategy::TupleUnion<(
+                prop::strategy::WA<Just<std::ffi::c_int>>,
+                prop::strategy::WA<std::ops::RangeInclusive<std::ffi::c_int>>,
+                prop::strategy::WA<Just<std::ffi::c_int>>,
+                prop::strategy::WA<std::ops::RangeInclusive<std::ffi::c_int>>,
+            )>,
+            crate::test_utils::AnyEnumRepr<hwlocality_sys::hwloc_obj_cache_type_t>,
         ),
         fn(
             (
@@ -349,41 +354,28 @@ impl Arbitrary for CacheAttributes {
     >;
 
     fn arbitrary_with((): ()) -> Self::Strategy {
+        use crate::test_utils;
         use hwlocality_sys::hwloc_obj_cache_type_t;
         use std::ffi::c_int;
 
-        // Bias RNG to ensure reasonable odds of zero size/depth
-        let size = prop::sample::select(&[0, 1, 2, u64::MAX - 1, u64::MAX][..]);
-        let depth = prop::sample::select(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX][..]);
-        let linesize = prop::sample::select(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX][..]);
+        // Biased RNGs ensuring reasonable odds of zero size/depth
+        let size = test_utils::any_u64_special0();
+        let depth = test_utils::any_uint_special0();
+        let linesize = test_utils::any_uint_special0();
 
-        // Bias RNG to ensure reasonable associativity branch coverage
-        let associativity = prop::sample::select(
-            &[
-                // Invalid range
-                c_int::MIN,
-                c_int::MIN + 1,
-                -3,
-                -2,
-                // Full
-                -1,
-                // Unknown
-                0,
-                // N-ways range
-                1,
-                2,
-                c_int::MAX - 1,
-                c_int::MAX,
-            ][..],
+        // Biased RNG ensuring reasonable associativity branch coverage
+        let associativity = prop_oneof![
+            1 => Just(0),  // Unknown associativity
+            2 => 1..=c_int::MAX,  // N-ways associative
+            1 => Just(-1),  // Fully associative
+            1 => c_int::MIN..=-2  // Invalid associativity
+        ];
+
+        // Biased RNG ensuring reasonable valid/invalid cache type coverage
+        let cache_type = test_utils::any_enum_repr::<CacheType, hwloc_obj_cache_type_t>(
+            hwloc_obj_cache_type_t::MIN,
+            hwloc_obj_cache_type_t::MAX,
         );
-
-        // Bias RNG to ensure reasoable coverage of valid cache types
-        let num_valid_cache_types = enum_iterator::all::<CacheType>()
-            .map(hwloc_obj_cache_type_t::from)
-            .max()
-            .expect("enum has >= 1 variants")
-            + 1;
-        let cache_type = 0..(2 * num_valid_cache_types);
 
         // Put it all together
         (size, depth, linesize, associativity, cache_type).prop_map(
@@ -442,31 +434,30 @@ pub enum CacheAssociativity {
     #[default]
     Unknown,
 
-    /// Fully associative
-    Full,
-
     /// N-ways associative
     Ways(NonZeroUsize),
+
+    /// Fully associative
+    Full,
 }
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for CacheAssociativity {
-    type Parameters = ();
-    type Strategy = prop::sample::Select<Self>;
+    type Parameters = <NonZeroUsize as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::TupleUnion<(
+        prop::strategy::WA<Just<Self>>,
+        prop::strategy::WA<
+            prop::strategy::Map<<NonZeroUsize as Arbitrary>::Strategy, fn(NonZeroUsize) -> Self>,
+        >,
+        prop::strategy::WA<Just<Self>>,
+    )>;
 
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        /// Bias RNG to ensure reasonably uniform variant coverage
-        static VARIANTS: &[CacheAssociativity] = &[
-            CacheAssociativity::Unknown,
-            CacheAssociativity::Full,
-            CacheAssociativity::Ways(NonZeroUsize::MIN),
-            // SAFETY: Greater than zero
-            CacheAssociativity::Ways(unsafe { NonZeroUsize::new_unchecked(2) }),
-            // SAFETY: Greater than zero
-            CacheAssociativity::Ways(unsafe { NonZeroUsize::new_unchecked(usize::MAX - 1) }),
-            CacheAssociativity::Ways(NonZeroUsize::MAX),
-        ];
-        prop::sample::select(VARIANTS)
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            1 => Just(Self::Unknown),
+            3 => NonZeroUsize::arbitrary_with(args).prop_map(Self::Ways),
+            1 => Just(Self::Full),
+        ]
     }
 }
 //
@@ -549,28 +540,24 @@ impl Arbitrary for GroupAttributes {
     type Strategy = prop::strategy::Map<
         (
             <[c_uint; 3] as Arbitrary>::Strategy,
-            std::ops::Range<std::ffi::c_uchar>,
+            crate::test_utils::AnyHwlocBool,
         ),
         fn(([c_uint; 3], std::ffi::c_uchar)) -> Self,
     >;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        // Bias RNG to ensure reasonable odds of valid dont_merge flags
-        let dont_merge_range = 0..4;
-        (
-            <[c_uint; 3] as Arbitrary>::arbitrary_with(args),
-            dont_merge_range,
-        )
-            .prop_map(|([depth, kind, subkind], dont_merge)| {
-                Self(hwloc_group_attr_s {
-                    depth,
-                    kind,
-                    subkind,
-                    #[cfg(feature = "hwloc-2_0_4")]
-                    dont_merge,
-                })
+        let depth_kind_subkind = <[c_uint; 3] as Arbitrary>::arbitrary_with(args);
+        let dont_merge = crate::test_utils::any_hwloc_bool();
+        (depth_kind_subkind, dont_merge).prop_map(|([depth, kind, subkind], dont_merge)| {
+            Self(hwloc_group_attr_s {
+                depth,
+                kind,
+                subkind,
+                #[cfg(feature = "hwloc-2_0_4")]
+                dont_merge,
             })
+        })
     }
 }
 //
@@ -804,7 +791,7 @@ impl Arbitrary for BridgeAttributes {
         <(PCIDeviceAttributes, DownstreamPCIAttributes, c_uint) as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
         (
-            [std::ops::Range<hwloc_obj_bridge_type_t>; 2],
+            [crate::test_utils::AnyEnumRepr<hwloc_obj_bridge_type_t>; 2],
             <(PCIDeviceAttributes, DownstreamPCIAttributes, c_uint) as Arbitrary>::Strategy,
         ),
         fn(
@@ -817,14 +804,10 @@ impl Arbitrary for BridgeAttributes {
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        // Bias RNG to ensure reasonable coverage of valid bridge types
-        let num_valid_bridge_types = enum_iterator::all::<BridgeType>()
-            .map(hwloc_obj_bridge_type_t::from)
-            .max()
-            .expect("enum has >= 1 variants")
-            + 1;
-        let bridge_type = 0..(2 * num_valid_bridge_types);
-
+        let bridge_type = crate::test_utils::any_enum_repr::<BridgeType, hwloc_obj_bridge_type_t>(
+            hwloc_obj_bridge_type_t::MIN,
+            hwloc_obj_bridge_type_t::MAX,
+        );
         (
             [bridge_type.clone(), bridge_type],
             <(PCIDeviceAttributes, DownstreamPCIAttributes, c_uint)>::arbitrary_with(args),
@@ -1019,21 +1002,17 @@ impl OSDeviceAttributes {
 impl Arbitrary for OSDeviceAttributes {
     type Parameters = ();
     type Strategy = prop::strategy::Map<
-        std::ops::Range<hwlocality_sys::hwloc_obj_osdev_type_t>,
+        crate::test_utils::AnyEnumRepr<hwlocality_sys::hwloc_obj_osdev_type_t>,
         fn(hwlocality_sys::hwloc_obj_osdev_type_t) -> Self,
     >;
 
     fn arbitrary_with((): ()) -> Self::Strategy {
-        // Bias RNG to ensure reasonable coverage of valid device types
         use hwlocality_sys::hwloc_obj_osdev_type_t;
-        let num_valid_device_types = enum_iterator::all::<OSDeviceType>()
-            .map(hwloc_obj_osdev_type_t::from)
-            .max()
-            .expect("enum has >= 1 variants")
-            + 1;
-        let osdev_type = 0..(2 * num_valid_device_types);
-
-        osdev_type.prop_map(|ty| Self(hwloc_osdev_attr_s { ty }))
+        crate::test_utils::any_enum_repr::<OSDeviceType, hwloc_obj_osdev_type_t>(
+            hwloc_obj_osdev_type_t::MIN,
+            hwloc_obj_osdev_type_t::MAX,
+        )
+        .prop_map(|ty| Self(hwloc_osdev_attr_s { ty }))
     }
 }
 //

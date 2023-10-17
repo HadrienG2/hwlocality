@@ -148,21 +148,19 @@ impl Depth {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for Depth {
-    type Parameters = <(NormalDepth, bool) as Arbitrary>::Parameters;
-    type Strategy = prop::strategy::Map<
-        <(NormalDepth, bool) as Arbitrary>::Strategy,
-        fn((NormalDepth, bool)) -> Self,
-    >;
+    type Parameters = <NormalDepth as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::TupleUnion<(
+        prop::strategy::WA<
+            prop::strategy::Map<<NormalDepth as Arbitrary>::Strategy, fn(NormalDepth) -> Self>,
+        >,
+        prop::strategy::WA<prop::sample::Select<Self>>,
+    )>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        <(NormalDepth, bool)>::arbitrary_with(args).prop_map(|(normal_depth, is_normal)| {
-            if is_normal {
-                Self::Normal(normal_depth)
-            } else {
-                let idx = usize::from(normal_depth) % Self::VIRTUAL_DEPTHS.len();
-                Self::VIRTUAL_DEPTHS[idx]
-            }
-        })
+        prop_oneof![
+            4 => NormalDepth::arbitrary_with(args).prop_map(Self::Normal),
+            1 => prop::sample::select(Self::VIRTUAL_DEPTHS)
+        ]
     }
 }
 //
