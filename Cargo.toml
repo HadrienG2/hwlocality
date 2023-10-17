@@ -23,6 +23,15 @@ opt-level = 3
 [profile.test.package.rand_chacha]
 opt-level = 3
 
+# This profile runs tests without the assertions that are normally present in
+# debug mode and used to detect release mode in code. This way we can test both
+# the debug and release code paths of arithmetic ops without suffering the
+# slowness and coverage quality degradation that real release builds incur.
+[profile.release_like_test]
+inherits = "test"
+debug-assertions = false
+overflow-checks = false
+
 [package]
 name = "hwlocality"
 version = "1.0.0"

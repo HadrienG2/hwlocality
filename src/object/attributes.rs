@@ -328,11 +328,11 @@ impl CacheAttributes {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for CacheAttributes {
-    type Parameters = <c_uint as Arbitrary>::Parameters;
+    type Parameters = ();
     type Strategy = prop::strategy::Map<
         (
             prop::sample::Select<u64>,
-            <c_uint as Arbitrary>::Strategy,
+            prop::sample::Select<c_uint>,
             prop::sample::Select<c_uint>,
             prop::sample::Select<std::ffi::c_int>,
             std::ops::Range<hwlocality_sys::hwloc_obj_cache_type_t>,
@@ -348,12 +348,13 @@ impl Arbitrary for CacheAttributes {
         ) -> Self,
     >;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): ()) -> Self::Strategy {
         use hwlocality_sys::hwloc_obj_cache_type_t;
         use std::ffi::c_int;
 
-        // Bias RNG to ensure reasonable odds of zero size
+        // Bias RNG to ensure reasonable odds of zero size/depth
         let size = prop::sample::select(&[0, 1, 2, u64::MAX - 1, u64::MAX][..]);
+        let depth = prop::sample::select(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX][..]);
         let linesize = prop::sample::select(&[0, 1, 2, c_uint::MAX - 1, c_uint::MAX][..]);
 
         // Bias RNG to ensure reasonable associativity branch coverage
@@ -385,14 +386,8 @@ impl Arbitrary for CacheAttributes {
         let cache_type = 0..(2 * num_valid_cache_types);
 
         // Put it all together
-        (
-            size,
-            c_uint::arbitrary_with(args),
-            linesize,
-            associativity,
-            cache_type,
-        )
-            .prop_map(|(size, depth, linesize, associativity, ty)| {
+        (size, depth, linesize, associativity, cache_type).prop_map(
+            |(size, depth, linesize, associativity, ty)| {
                 Self(hwloc_cache_attr_s {
                     size,
                     depth,
@@ -400,7 +395,8 @@ impl Arbitrary for CacheAttributes {
                     associativity,
                     ty,
                 })
-            })
+            },
+        )
     }
 }
 //
@@ -1652,7 +1648,7 @@ mod tests {
             format!("{:?}", attr.depth())
         } else {
             assert_panics(|| attr.depth())?;
-            format!("\"{depth:?}\"")
+            "\"0\"".to_owned()
         };
 
         prop_assert_eq!(

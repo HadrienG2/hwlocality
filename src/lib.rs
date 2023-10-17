@@ -308,10 +308,16 @@ macro_rules! impl_arbitrary_for_bitflags {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
+    use proptest::prelude::*;
+
+    /// Default proptest string generator isn't exhaustive, which is bad
+    pub(crate) fn any_string() -> prop::string::RegexGeneratorStrategy<String> {
+        prop::string::string_regex(".*").unwrap()
+    }
 
     #[test]
     fn get_api_version() {

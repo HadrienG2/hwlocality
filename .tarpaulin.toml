@@ -1,8 +1,14 @@
-[release_tests]
+[release_like_test]
+fail-immediately = true
 features = "hwloc-latest"
-release = true
+implicit-test-threads = true
+profile = "release_like_test"
+skip-clean = true
 workspace = true
 
-[debug_tests]
+[normal_test]
+fail-immediately = true
 features = "hwloc-latest"
+implicit-test-threads = true
+skip-clean = true
 workspace = true
