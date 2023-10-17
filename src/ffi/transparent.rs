@@ -231,35 +231,42 @@ mod tests {
         TextualInfo::check_basic_layout();
         {
             // SAFETY: info is in a known-good state
-            let r = unsafe { (&info).as_newtype() };
+            let r = unsafe { <&hwloc_info_s as AsNewtype<TextualInfo>>::as_newtype(&info) };
             let p: *const TextualInfo = r;
             assert_eq!(p.cast::<hwloc_info_s>(), const_info);
-            assert!(ptr::eq(r.as_inner(), const_info));
+            assert!(ptr::eq(<&TextualInfo as AsInner>::as_inner(r), const_info));
         }
         {
             // SAFETY: info is in a known-good state
-            let r = unsafe { (&mut info).as_newtype() };
+            let r = unsafe { <&mut hwloc_info_s as AsNewtype<TextualInfo>>::as_newtype(&mut info) };
             let p: *mut TextualInfo = r;
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
-            assert!(ptr::eq(r.as_inner(), mut_info));
+            assert!(ptr::eq(
+                <&mut TextualInfo as AsInner>::as_inner(r),
+                mut_info
+            ));
         }
         {
             // SAFETY: info is in a known-good state
-            let p: NonNull<TextualInfo> = unsafe { nonnull_info.as_newtype() };
+            let p: NonNull<TextualInfo> = unsafe {
+                <NonNull<hwloc_info_s> as AsNewtype<TextualInfo>>::as_newtype(nonnull_info)
+            };
             assert_eq!(p.cast::<hwloc_info_s>(), nonnull_info);
-            assert_eq!(p.as_inner(), nonnull_info);
+            assert_eq!(<NonNull<TextualInfo> as AsInner>::as_inner(p), nonnull_info);
         }
         {
-            // SAFETY: info is in a known-good state
-            let p: *const TextualInfo = unsafe { const_info.as_newtype() };
+            let p: *const TextualInfo =
+                // SAFETY: info is in a known-good state
+                unsafe { <*const hwloc_info_s as AsNewtype<TextualInfo>>::as_newtype(const_info) };
             assert_eq!(p.cast::<hwloc_info_s>(), const_info);
-            assert_eq!(p.as_inner(), const_info);
+            assert_eq!(<*const TextualInfo as AsInner>::as_inner(p), const_info);
         }
         {
-            // SAFETY: info is in a known-good state
-            let p: *mut TextualInfo = unsafe { mut_info.as_newtype() };
+            let p: *mut TextualInfo =
+                // SAFETY: info is in a known-good state
+                unsafe { <*mut hwloc_info_s as AsNewtype<TextualInfo>>::as_newtype(mut_info) };
             assert_eq!(p.cast::<hwloc_info_s>(), mut_info);
-            assert_eq!(p.as_inner(), mut_info);
+            assert_eq!(<*mut TextualInfo as AsInner>::as_inner(p), mut_info);
         }
     }
 

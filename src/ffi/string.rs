@@ -116,14 +116,14 @@ impl LibcString {
 
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for LibcString {
-    type Parameters = <String as Arbitrary>::Parameters;
+    type Parameters = ();
     type Strategy = prop::strategy::Perturb<
-        <String as Arbitrary>::Strategy,
+        prop::string::RegexGeneratorStrategy<String>,
         fn(String, prop::test_runner::TestRng) -> Self,
     >;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        String::arbitrary_with(args).prop_perturb(|s, mut rng| {
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        crate::test_utils::any_string().prop_perturb(|s, mut rng| {
             let s = s
                 .chars()
                 .map(|c| {
@@ -213,6 +213,7 @@ unsafe impl Sync for LibcString {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::any_string;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use std::ffi::CStr;
@@ -235,7 +236,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn unary(s: String) {
+        fn unary(s in any_string()) {
             // Set up a C string
             let c = check_new!(LibcString::new(&s), &s);
 
@@ -264,7 +265,7 @@ mod tests {
         }
 
         #[test]
-        fn binary(s1: String, s2: String) {
+        fn binary((s1, s2) in (any_string(), any_string())) {
             let c1 = check_new!(LibcString::new(&s1), &s1);
             let c2 = check_new!(LibcString::new(&s2), &s2);
             prop_assert_eq!(c1 == c2, s1 == s2);

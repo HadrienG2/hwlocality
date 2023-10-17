@@ -3392,6 +3392,7 @@ impl Iterator for PositiveIntRangeFromIter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::any_string;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
@@ -3727,6 +3728,9 @@ mod tests {
             // Hashing
             prop_assert_eq!(hash(int), hash(int.0));
 
+            // Subtraction edge case (isize::MIN has no opposite)
+            assert_debug_panics(|| int - isize::MIN, int)?;
+
             // Division and remainder by zero
             {
                 // With PositiveInt denominator
@@ -3913,13 +3917,13 @@ mod tests {
     proptest! {
         /// Test str -> PositiveInt conversion via the FromStr trait
         #[test]
-        fn from_str(src: String) {
+        fn from_str(src in any_string()) {
             test_from_str_radix(&src, 10, || PositiveInt::from_str(&src))?;
         }
 
         /// Test str -> PositiveInt conversion via the from_str_radix() method
         #[test]
-        fn from_str_radix(src: String, radix: u32) {
+        fn from_str_radix(src in any_string(), radix: u32) {
             let radix = radix % 37;
             test_from_str_radix(&src, radix, || PositiveInt::from_str_radix(&src, radix))?;
         }
@@ -4965,7 +4969,10 @@ mod tests {
 
         /// Test int-int-usize ternary operations
         #[test]
-        fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: usize) {
+        fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: PositiveInt) {
+            // Keep step in PositiveInt range to avoid always overflowing
+            let step = usize::from(step);
+
             // Check Range-like PositiveInt iterator in strided pattern
             let actual = PositiveInt::iter_range(i1, i2);
             let expected = (i1.0)..(i2.0);

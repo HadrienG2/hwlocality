@@ -1420,14 +1420,22 @@ pub(crate) mod tests {
             let check_xml_topology = |topology: &Topology| {
                 check_topology(topology, DataSource::Xml, build_flags, default_type_filter)?;
 
-                // XML export of topologies built with INCLUDE_DISALLOWED
-                // include disallowed objects, but said objects get flushed out
-                // by GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM, so comparing the
-                // two topologies needs a little care in this configuration.
-                let default_is_superset = build_flags.contains(
+                // There are e number of hwloc features that can cause the
+                // topology built from XML to detect less objects than the
+                // original topology. Detect them all.
+                #[allow(unused_mut)]
+                let mut default_is_superset = build_flags.contains(
                     BuildFlags::INCLUDE_DISALLOWED
-                    | BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
+                ) && build_flags.intersects(
+                    BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM
                 );
+                #[cfg(feature = "hwloc-2_5_0")]
+                {
+                    default_is_superset |= build_flags.intersects(
+                        BuildFlags::RESTRICT_CPU_TO_THIS_PROCESS
+                        | BuildFlags::RESTRICT_MEMORY_TO_THIS_PROCESS
+                    );
+                }
 
                 for object_type in enum_iterator::all::<ObjectType>() {
                     let objects_gpids = |topology: &Topology| {

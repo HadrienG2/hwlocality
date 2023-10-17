@@ -54,7 +54,7 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
-    use proptest::prelude::*;
+    use proptest::{path::PathParams, prelude::*};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,
@@ -76,10 +76,15 @@ mod tests {
         Pointer, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
 
+    /// Default proptest path generator isn't exhaustive, which is bad
+    fn any_path() -> impl Strategy<Value = PathBuf> {
+        PathBuf::arbitrary_with(PathParams::default().with_component_regex(".*"))
+    }
+
     proptest! {
         #[allow(clippy::option_if_let_else)]
         #[test]
-        fn make_hwloc_path(path: PathBuf) {
+        fn make_hwloc_path(path in any_path()) {
             let res = super::make_hwloc_path(&path);
             if let Some(s) = path.to_str() {
                 if s.contains('\0') {
