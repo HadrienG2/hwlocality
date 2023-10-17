@@ -1071,7 +1071,7 @@ mod tests {
         if flag_repr <= 1 {
             prop_assert_eq!(c_uchar::from(flag()), flag_repr);
         } else {
-            prop_assert!(std::panic::catch_unwind(|| flag()).is_err());
+            prop_assert!(std::panic::catch_unwind(flag).is_err());
         }
         Ok(())
     }
