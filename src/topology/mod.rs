@@ -1068,23 +1068,31 @@ mod tests {
     fn disjoint_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
         // Starting from PU objects, which are the leaves of the normal object
         // tree, go up an arbitrary amount of ancestors from each PU. This gives
-        // us a list of root candidates with two issues to be adressed:
+        // us a list of root candidates with a few issues to be adressed:
         //
         // - There root candidates are not disjoint, i.e. one proposed root can
         //   be the parent of another, and a given root may appear multiple
         //   times because it has been reached from two different leaf PUs.
+        // - These root candidates are exhaustive, they cover every reachable
+        //   CPU. We want tests to exercise roots that don't cover every CPU.
         // - Roots are ordered by PU index, which is not something we want for
         //   test inputs : they should appear in any order
         let topology = Topology::test_instance();
-        let overlapping_ordered_roots = topology
+        let overlapping_exhaustive_ordered_roots = topology
             .objects_with_type(ObjectType::PU)
             .map(|pu| {
-                (0..pu.ancestors().count()).prop_map(|depth| pu.ancestors().nth(depth).unwrap())
+                // Pick an arbitrary ancestor of this PU, or the PU itself
+                (0..=pu.ancestors().count()).prop_map(move |depth| {
+                    std::iter::once(pu)
+                        .chain(pu.ancestors())
+                        .nth(depth)
+                        .unwrap()
+                })
             })
             .collect::<Vec<_>>();
 
-        // First, we eliminate the duplication issue
-        let ordered_roots = overlapping_ordered_roots.prop_map(|roots| {
+        // First, we address the duplication issue
+        let exhaustive_ordered_roots = overlapping_exhaustive_ordered_roots.prop_map(|roots| {
             // Sort roots by increasing depth, so parents go before children
             let roots_of_increasing_depth = roots
                 .into_iter()
@@ -1093,21 +1101,25 @@ mod tests {
 
             // Iterate from parent to children, keeping track of which CPUs we
             // already covered and using this to eliminate duplicate roots
-            let mut new_roots = Vec::new();
+            let mut deduplicated_roots = Vec::new();
             let mut covered_cpuset = CpuSet::new();
             for (_depth, root) in roots_of_increasing_depth {
                 let root_cpuset = root.cpuset().unwrap();
                 if !covered_cpuset.includes(root_cpuset) {
                     assert!(!covered_cpuset.intersects(root_cpuset));
-                    new_roots.push(root);
+                    deduplicated_roots.push(root);
                     covered_cpuset |= root_cpuset;
                 }
             }
-            new_roots
+            deduplicated_roots
         });
 
-        // Now we have disjoint roots, which we can reorder to avoid order bias
-        ordered_roots.prop_shuffle()
+        // Now we have disjoint roots, which we can reorder and sample to avoid
+        // test bias originating from root order and exhaustiveness
+        exhaustive_ordered_roots.prop_flat_map(|exhaustive_ordered_roots| {
+            let num_roots = exhaustive_ordered_roots.len();
+            prop::sample::subsequence(exhaustive_ordered_roots, 1..=num_roots).prop_shuffle()
+        })
     }
 
     proptest! {
@@ -1292,11 +1304,21 @@ mod tests {
                     .unwrap()
             });
 
+            // Empirically, this can pick a PU without a cpuset on weird systems
+            // like GitHub's CI nodes . Address this by going up ancestors until
+            // a cpuset is found.
+            let overlapping_root = overlapping_pu.prop_map(|pu| {
+                std::iter::once(pu)
+                    .chain(pu.ancestors())
+                    .find(|root| root.cpuset().is_some())
+                    .unwrap()
+            });
+
             // Insert this overlapping object at a random position
             let num_roots = disjoint_roots.len();
-            (Just(disjoint_roots), overlapping_pu, 0..num_roots).prop_map(
-                |(mut disjoint_roots, overlapping_pu, bad_root_idx)| {
-                    disjoint_roots.insert(bad_root_idx, overlapping_pu);
+            (Just(disjoint_roots), overlapping_root, 0..num_roots).prop_map(
+                |(mut disjoint_roots, overlapping_root, bad_root_idx)| {
+                    disjoint_roots.insert(bad_root_idx, overlapping_root);
                     disjoint_roots
                 },
             )

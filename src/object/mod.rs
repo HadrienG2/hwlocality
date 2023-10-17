@@ -2133,9 +2133,10 @@ impl TopologyObject {
             (type_chars, attr_chars)
         };
 
-        let cpuset_str = self
-            .cpuset()
-            .map_or_else(String::new, |cpuset| format!(" with {cpuset}"));
+        let cpuset_str = self.cpuset().map_or_else(
+            || "without a CpuSet".to_owned(),
+            |cpuset| format!(" with {cpuset}"),
+        );
 
         // SAFETY: - Output of call_snprintf should be valid C strings
         //         - We're not touching type_chars and attr_chars while type_str
