@@ -3392,7 +3392,7 @@ impl Iterator for PositiveIntRangeFromIter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::any_string;
+    use crate::test_utils::any_string;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::{assert_impl_all, assert_not_impl_any};

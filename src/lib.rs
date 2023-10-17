@@ -307,17 +307,22 @@ macro_rules! impl_arbitrary_for_bitflags {
     };
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+/// Common tools for property-based testing
+#[cfg(any(test, feature = "proptest"))]
+pub(crate) mod test_utils {
     use proptest::prelude::*;
 
     /// Default proptest string generator isn't exhaustive, which is bad
     pub(crate) fn any_string() -> prop::string::RegexGeneratorStrategy<String> {
-        prop::string::string_regex(".*").unwrap()
+        prop::string::string_regex(".*").expect("this is a valid regex")
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn get_api_version() {

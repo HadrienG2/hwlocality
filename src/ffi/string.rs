@@ -123,7 +123,7 @@ impl Arbitrary for LibcString {
     >;
 
     fn arbitrary_with((): ()) -> Self::Strategy {
-        crate::tests::any_string().prop_perturb(|s, mut rng| {
+        crate::test_utils::any_string().prop_perturb(|s, mut rng| {
             let s = s
                 .chars()
                 .map(|c| {
@@ -213,7 +213,7 @@ unsafe impl Sync for LibcString {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::any_string;
+    use crate::test_utils::any_string;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use std::ffi::CStr;
