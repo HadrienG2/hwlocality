@@ -1285,7 +1285,8 @@ impl<'topology> Distances<'topology> {
     /// # Errors
     ///
     /// [`TransformError`] if one attempts to use
-    /// [`DistanceTransform::RemoveNone`] to reduce the number of objects to <2.
+    /// [`DistancesTransform::RemoveNone`] to reduce the number of objects to
+    /// <2, which is forbidden.
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_distances_transform")]
     pub fn transform(
