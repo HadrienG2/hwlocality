@@ -57,8 +57,6 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "proptest"))]
-use proptest::prelude::*;
 use std::{
     fmt::{self, Pointer},
     path::{Path, PathBuf},
@@ -1006,6 +1004,7 @@ pub(crate) mod tests {
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::HashSet,

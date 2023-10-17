@@ -33,8 +33,6 @@ use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "proptest"))]
-use proptest::prelude::*;
 use std::{
     borrow::{Borrow, BorrowMut},
     ffi::{c_int, c_void},

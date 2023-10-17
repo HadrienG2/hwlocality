@@ -36,8 +36,6 @@ use libc::EINVAL;
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "proptest"))]
-use proptest::prelude::*;
 use std::{
     convert::TryInto,
     fmt::{self, Pointer},
@@ -966,6 +964,7 @@ mod tests {
     use bitflags::Flags;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
+    use proptest::prelude::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::{BTreeMap, BTreeSet},

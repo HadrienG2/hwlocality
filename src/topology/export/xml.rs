@@ -16,8 +16,6 @@ use hwlocality_sys::{hwloc_topology_export_xml_flags_e, HWLOC_TOPOLOGY_EXPORT_XM
 #[allow(unused)]
 #[cfg(test)]
 use pretty_assertions::{assert_eq, assert_ne};
-#[cfg(any(test, feature = "proptest"))]
-use proptest::prelude::*;
 use std::{
     borrow::Borrow,
     ffi::{c_char, c_uint, CStr, OsStr},

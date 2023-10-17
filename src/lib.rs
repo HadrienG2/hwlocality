@@ -273,6 +273,7 @@ macro_rules! impl_arbitrary_for_sequence {
             type Strategy = proptest::strategy::Map<std::ops::Range<usize>, fn(usize) -> Self>;
 
             fn arbitrary_with((): ()) -> Self::Strategy {
+                use proptest::prelude::*;
                 let cardinality = <Self as enum_iterator::Sequence>::CARDINALITY;
                 (0..cardinality).prop_map(|idx| {
                     enum_iterator::all::<Self>()
