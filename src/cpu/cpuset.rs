@@ -533,11 +533,3 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_cpuset_t")]
     CpuSet
 );
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::impl_bitmap_newtype_tests;
-
-    impl_bitmap_newtype_tests!(CpuSet);
-}

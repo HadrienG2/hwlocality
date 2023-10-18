@@ -240,14 +240,14 @@ impl Arbitrary for MemoryPageType {
     type Parameters = <u64 as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
         (
-            crate::test_utils::AnyIntSpecial0<u64>,
+            crate::strategies::IntSpecial0<u64>,
             <u64 as Arbitrary>::Strategy,
         ),
         fn((u64, u64)) -> Self,
     >;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let size = crate::test_utils::any_u64_special0();
+        let size = crate::strategies::u64_special0();
         let count = u64::arbitrary_with(args);
         (size, count).prop_map(|(size, count)| Self(hwloc_memory_page_type_s { size, count }))
     }
@@ -331,16 +331,16 @@ impl Arbitrary for CacheAttributes {
     type Parameters = ();
     type Strategy = prop::strategy::Map<
         (
-            crate::test_utils::AnyIntSpecial0<u64>,
-            crate::test_utils::AnyIntSpecial0<c_uint>,
-            crate::test_utils::AnyIntSpecial0<c_uint>,
+            crate::strategies::IntSpecial0<u64>,
+            crate::strategies::IntSpecial0<c_uint>,
+            crate::strategies::IntSpecial0<c_uint>,
             prop::strategy::TupleUnion<(
                 prop::strategy::WA<Just<std::ffi::c_int>>,
                 prop::strategy::WA<std::ops::RangeInclusive<std::ffi::c_int>>,
                 prop::strategy::WA<Just<std::ffi::c_int>>,
                 prop::strategy::WA<std::ops::RangeInclusive<std::ffi::c_int>>,
             )>,
-            crate::test_utils::AnyEnumRepr<hwlocality_sys::hwloc_obj_cache_type_t>,
+            crate::strategies::EnumRepr<hwlocality_sys::hwloc_obj_cache_type_t>,
         ),
         fn(
             (
@@ -353,15 +353,15 @@ impl Arbitrary for CacheAttributes {
         ) -> Self,
     >;
 
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        use crate::test_utils;
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use crate::strategies;
         use hwlocality_sys::hwloc_obj_cache_type_t;
         use std::ffi::c_int;
 
         // Biased RNGs ensuring reasonable odds of zero size/depth
-        let size = test_utils::any_u64_special0();
-        let depth = test_utils::any_uint_special0();
-        let linesize = test_utils::any_uint_special0();
+        let size = strategies::u64_special0();
+        let depth = strategies::uint_special0();
+        let linesize = strategies::uint_special0();
 
         // Biased RNG ensuring reasonable associativity branch coverage
         let associativity = prop_oneof![
@@ -372,7 +372,7 @@ impl Arbitrary for CacheAttributes {
         ];
 
         // Biased RNG ensuring reasonable valid/invalid cache type coverage
-        let cache_type = test_utils::any_enum_repr::<CacheType, hwloc_obj_cache_type_t>(
+        let cache_type = strategies::enum_repr::<CacheType, hwloc_obj_cache_type_t>(
             hwloc_obj_cache_type_t::MIN,
             hwloc_obj_cache_type_t::MAX,
         );
@@ -540,7 +540,7 @@ impl Arbitrary for GroupAttributes {
     type Strategy = prop::strategy::Map<
         (
             <[c_uint; 3] as Arbitrary>::Strategy,
-            crate::test_utils::AnyHwlocBool,
+            crate::strategies::HwlocBool,
         ),
         fn(([c_uint; 3], std::ffi::c_uchar)) -> Self,
     >;
@@ -548,7 +548,7 @@ impl Arbitrary for GroupAttributes {
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         let depth_kind_subkind = <[c_uint; 3] as Arbitrary>::arbitrary_with(args);
-        let dont_merge = crate::test_utils::any_hwloc_bool();
+        let dont_merge = crate::strategies::hwloc_bool();
         (depth_kind_subkind, dont_merge).prop_map(|([depth, kind, subkind], dont_merge)| {
             Self(hwloc_group_attr_s {
                 depth,
@@ -686,36 +686,45 @@ impl PCIDeviceAttributes {
 //
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for PCIDeviceAttributes {
-    type Parameters = <(PCIDomain, [u8; 4], [u16; 5], f32) as Arbitrary>::Parameters;
+    type Parameters = <(PCIDomain, [u8; 4], [u16; 5]) as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
-        <(PCIDomain, [u8; 4], [u16; 5], f32) as Arbitrary>::Strategy,
-        fn((PCIDomain, [u8; 4], [u16; 5], f32)) -> Self,
+        (
+            <(PCIDomain, [u8; 4], [u16; 5]) as Arbitrary>::Strategy,
+            prop::num::f32::Any,
+        ),
+        fn(((PCIDomain, [u8; 4], [u16; 5]), f32)) -> Self,
     >;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        <(PCIDomain, [u8; 4], [u16; 5], f32)>::arbitrary_with(args).prop_map(
-            |(
-                domain,
-                [bus, dev, func, revision],
-                [class_id, vendor_id, device_id, subvendor_id, subdevice_id],
-                linkspeed,
-            )| {
-                Self(hwloc_pcidev_attr_s {
-                    domain,
-                    bus,
-                    dev,
-                    func,
-                    class_id,
-                    vendor_id,
-                    device_id,
-                    subvendor_id,
-                    subdevice_id,
-                    revision,
-                    linkspeed,
-                })
-            },
+        (
+            <(PCIDomain, [u8; 4], [u16; 5])>::arbitrary_with(args),
+            prop::num::f32::ANY,
         )
+            .prop_map(
+                |(
+                    (
+                        domain,
+                        [bus, dev, func, revision],
+                        [class_id, vendor_id, device_id, subvendor_id, subdevice_id],
+                    ),
+                    linkspeed,
+                )| {
+                    Self(hwloc_pcidev_attr_s {
+                        domain,
+                        bus,
+                        dev,
+                        func,
+                        class_id,
+                        vendor_id,
+                        device_id,
+                        subvendor_id,
+                        subdevice_id,
+                        revision,
+                        linkspeed,
+                    })
+                },
+            )
     }
 }
 //
@@ -791,7 +800,7 @@ impl Arbitrary for BridgeAttributes {
         <(PCIDeviceAttributes, DownstreamPCIAttributes, c_uint) as Arbitrary>::Parameters;
     type Strategy = prop::strategy::Map<
         (
-            [crate::test_utils::AnyEnumRepr<hwloc_obj_bridge_type_t>; 2],
+            [crate::strategies::EnumRepr<hwloc_obj_bridge_type_t>; 2],
             <(PCIDeviceAttributes, DownstreamPCIAttributes, c_uint) as Arbitrary>::Strategy,
         ),
         fn(
@@ -804,7 +813,7 @@ impl Arbitrary for BridgeAttributes {
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let bridge_type = crate::test_utils::any_enum_repr::<BridgeType, hwloc_obj_bridge_type_t>(
+        let bridge_type = crate::strategies::enum_repr::<BridgeType, hwloc_obj_bridge_type_t>(
             hwloc_obj_bridge_type_t::MIN,
             hwloc_obj_bridge_type_t::MAX,
         );
@@ -1002,13 +1011,13 @@ impl OSDeviceAttributes {
 impl Arbitrary for OSDeviceAttributes {
     type Parameters = ();
     type Strategy = prop::strategy::Map<
-        crate::test_utils::AnyEnumRepr<hwlocality_sys::hwloc_obj_osdev_type_t>,
+        crate::strategies::EnumRepr<hwlocality_sys::hwloc_obj_osdev_type_t>,
         fn(hwlocality_sys::hwloc_obj_osdev_type_t) -> Self,
     >;
 
-    fn arbitrary_with((): ()) -> Self::Strategy {
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         use hwlocality_sys::hwloc_obj_osdev_type_t;
-        crate::test_utils::any_enum_repr::<OSDeviceType, hwloc_obj_osdev_type_t>(
+        crate::strategies::enum_repr::<OSDeviceType, hwloc_obj_osdev_type_t>(
             hwloc_obj_osdev_type_t::MIN,
             hwloc_obj_osdev_type_t::MAX,
         )
@@ -1041,6 +1050,7 @@ mod tests {
         object::{depth::NormalDepth, TopologyObject},
         topology::Topology,
     };
+    use enum_iterator::Sequence;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
@@ -1215,7 +1225,21 @@ mod tests {
     }
 
     fn cpu_cache_type() -> impl Strategy<Value = ObjectType> {
-        any::<ObjectType>().prop_filter("Need a CPU cache type here", |ty| ty.is_cpu_cache())
+        any::<ObjectType>().prop_map(|ty| {
+            if ty.is_cpu_cache() {
+                return ty;
+            }
+            let mut lower_ty = Some(ty);
+            let mut higher_ty = Some(ty);
+            loop {
+                lower_ty = lower_ty.and_then(|ty| ty.previous());
+                higher_ty = higher_ty.and_then(|ty| ty.next());
+                match (lower_ty, higher_ty) {
+                    (Some(ty), _) | (_, Some(ty)) if ty.is_cpu_cache() => return ty,
+                    _ => continue,
+                }
+            }
+        })
     }
 
     proptest! {

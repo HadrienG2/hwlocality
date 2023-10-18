@@ -2289,21 +2289,13 @@ where
     }
 }
 
-// PositiveInt is commonly used as an index in hwloc, and many index-based hwloc
-// APIs exhibit O(n) behavior depending on which index is passed as input.
-//
-// Therefore, we enforce that ints used in tests are "not too big" by having
-// proptest treat them like the size of a collection.
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for PositiveInt {
-    type Parameters = prop::collection::SizeRange;
+    type Parameters = ();
     type Strategy = prop::strategy::Map<std::ops::RangeInclusive<c_uint>, fn(c_uint) -> Self>;
 
-    fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
-        let to_inner = |x: usize| Self::try_from(x).unwrap_or(Self::MAX).0;
-        let start = to_inner(params.start());
-        let end = to_inner(params.end_incl());
-        (start..=end).prop_map(Self)
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        (Self::MIN.0..=Self::MAX.0).prop_map(Self)
     }
 }
 
@@ -3392,7 +3384,7 @@ impl Iterator for PositiveIntRangeFromIter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::any_string;
+    use crate::strategies::any_string;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
@@ -4315,10 +4307,30 @@ mod tests {
                 },
                 wrapped_result,
             )?;
+        }
+    }
 
+    /// Generate suitable bounds for an int-int range test
+    ///
+    /// We can't test arbitrarily wide ranges, because the test could take
+    /// forever to run ;)
+    fn int_range_bounds() -> impl Strategy<Value = [PositiveInt; 2]> {
+        let size_range = prop::collection::SizeRange::default();
+        let max_size = isize::try_from(size_range.end_excl()).unwrap();
+        any::<PositiveInt>()
+            .prop_flat_map(move |start| (Just(start), 0..start.saturating_add_signed(max_size).0))
+            .prop_map(|(start, end_uint)| {
+                [start, PositiveInt::const_try_from_c_uint(end_uint).unwrap()]
+            })
+    }
+
+    proptest! {
+        /// Test int ranges
+        #[test]
+        fn int_range([start, end] in int_range_bounds()) {
             // Check Range-like PositiveInt iterator
-            let actual = PositiveInt::iter_range(i1, i2);
-            let expected = (i1.0)..(i2.0);
+            let actual = PositiveInt::iter_range(start, end);
+            let expected = (start.0)..(end.0);
             prop_assert_eq!(actual.len(), expected.len());
             prop_assert_eq!(actual.size_hint(), expected.size_hint());
             prop_assert_eq!(actual.clone().count(), expected.len());
@@ -4340,8 +4352,8 @@ mod tests {
             )?;
 
             // Check RangeInclusive-like PositiveInt iterator
-            let actual = PositiveInt::iter_range_inclusive(i1, i2);
-            let expected = (i1.0)..=(i2.0);
+            let actual = PositiveInt::iter_range_inclusive(start, end);
+            let expected = (start.0)..=(end.0);
             prop_assert_eq!(actual.len(), expected.clone().count());
             prop_assert_eq!(actual.size_hint(), expected.size_hint());
             prop_assert_eq!(actual.clone().count(), expected.clone().count());
@@ -4966,16 +4978,27 @@ mod tests {
                 wrapped_result,
             )?;
         }
+    }
 
-        /// Test int-int-usize ternary operations
+    /// Generate an iteration step that isn't usually out of bounds, but can be
+    fn iter_step() -> impl Strategy<Value = usize> {
+        let max_normal_stride = prop::collection::SizeRange::default().end_excl();
+        prop_oneof![
+            4 => 0..max_normal_stride,
+            1 => any::<usize>()
+        ]
+    }
+
+    proptest! {
+        /// Test int ranges in a strided pattern
         #[test]
-        fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: PositiveInt) {
-            // Keep step in PositiveInt range to avoid always overflowing
-            let step = usize::from(step);
-
+        fn int_range_with_step(
+            [start, end] in int_range_bounds(),
+            step in iter_step()
+        ) {
             // Check Range-like PositiveInt iterator in strided pattern
-            let actual = PositiveInt::iter_range(i1, i2);
-            let expected = (i1.0)..(i2.0);
+            let actual = PositiveInt::iter_range(start, end);
+            let expected = (start.0)..(end.0);
             compare_iters_finite(
                 actual.clone(),
                 |i| i.nth(step),
@@ -4985,8 +5008,8 @@ mod tests {
             compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step))?;
 
             // Check RangeInclusive-like PositiveInt iterator in strided pattern
-            let actual = PositiveInt::iter_range_inclusive(i1, i2);
-            let expected = (i1.0)..=(i2.0);
+            let actual = PositiveInt::iter_range_inclusive(start, end);
+            let expected = (start.0)..=(end.0);
             compare_iters_finite(
                 actual.clone(),
                 |i| i.nth(step),
