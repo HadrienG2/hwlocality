@@ -1050,7 +1050,7 @@ mod tests {
         object::{depth::NormalDepth, TopologyObject},
         topology::Topology,
     };
-    use enum_iterator::Sequence;
+    use proptest::sample::Selector;
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
@@ -1224,22 +1224,15 @@ mod tests {
         }
     }
 
+    /// Pick a random CPU cache type
     fn cpu_cache_type() -> impl Strategy<Value = ObjectType> {
-        any::<ObjectType>().prop_map(|ty| {
-            if ty.is_cpu_cache() {
-                return ty;
-            }
-            let mut lower_ty = Some(ty);
-            let mut higher_ty = Some(ty);
-            loop {
-                lower_ty = lower_ty.and_then(|ty| ty.previous());
-                higher_ty = higher_ty.and_then(|ty| ty.next());
-                match (lower_ty, higher_ty) {
-                    (Some(ty), _) | (_, Some(ty)) if ty.is_cpu_cache() => return ty,
-                    _ => continue,
-                }
-            }
-        })
+        static CACHE_TYPES: OnceLock<Box<[ObjectType]>> = OnceLock::new();
+        let cache_types = CACHE_TYPES.get_or_init(|| {
+            enum_iterator::all::<ObjectType>()
+                .filter(|ty| ty.is_cpu_cache())
+                .collect()
+        });
+        prop::sample::select(&cache_types[..])
     }
 
     proptest! {
@@ -1370,8 +1363,7 @@ mod tests {
     /// Check properties that should be true of all topology objects
     #[test]
     fn unary_valid() -> Result<(), TestCaseError> {
-        let topology = Topology::test_instance();
-        for obj in topology.objects() {
+        for obj in Topology::test_objects() {
             check_valid_object(obj.object_type(), obj.attributes())?;
             match obj.attributes() {
                 Some(ObjectAttributes::NUMANode(attr)) => {
@@ -1436,28 +1428,24 @@ mod tests {
             };
             prop_assert_eq!(assoc1.partial_cmp(&assoc2), ord);
         }
+    }
 
-        /// Check properties that should be true of all pairs of topology objects
-        #[test]
-        fn binary_valid(idx1: usize, idx2: usize) {
-            // Precompute a list of all objects that have interesting attributes
-            struct ObjectsByType {
-                numa_nodes: Box<[&'static TopologyObject]>,
-                caches: Box<[&'static TopologyObject]>,
-                groups: Box<[&'static TopologyObject]>,
-                pci_devices: Box<[&'static TopologyObject]>,
-                bridges: Box<[&'static TopologyObject]>,
-            }
-            static OBJECTS_BY_TYPE: OnceLock<ObjectsByType> = OnceLock::new();
-            let ObjectsByType {
-                numa_nodes,
-                caches,
-                groups,
-                pci_devices,
-                bridges,
-            } = OBJECTS_BY_TYPE.get_or_init(|| {
+    /// List of objects from the test topology that have attributes
+    struct ObjectsWithAttrs {
+        numa_nodes: Box<[&'static TopologyObject]>,
+        caches: Box<[&'static TopologyObject]>,
+        groups: Box<[&'static TopologyObject]>,
+        pci_devices: Box<[&'static TopologyObject]>,
+        bridges: Box<[&'static TopologyObject]>,
+    }
+    //
+    impl ObjectsWithAttrs {
+        /// Memoized instance of [`ObjectsWithAttrs`]
+        fn instance() -> &'static Self {
+            static INSTANCE: OnceLock<ObjectsWithAttrs> = OnceLock::new();
+            INSTANCE.get_or_init(|| {
                 let topology = Topology::test_instance();
-                ObjectsByType {
+                Self {
                     numa_nodes: topology.objects_with_type(ObjectType::NUMANode).collect(),
                     caches: topology
                         .normal_objects()
@@ -1467,29 +1455,115 @@ mod tests {
                     pci_devices: topology.objects_with_type(ObjectType::PCIDevice).collect(),
                     bridges: topology.objects_with_type(ObjectType::Bridge).collect(),
                 }
-            });
+            })
+        }
+    }
 
-            // Check interesting pairs
-            let pick_pair = |list1: &[&'static TopologyObject], list2: &[&'static TopologyObject]| {
-                [list1[idx1 % list1.len()], list2[idx2 % list2.len()]]
-            };
-            if !numa_nodes.is_empty() {
-                check_valid_numa_pair(pick_pair(numa_nodes, numa_nodes))?;
+    /// Strategy that selects pairs of objects from pre-computed lists
+    fn object_pair(
+        type1: &'static [&'static TopologyObject],
+        type2: &'static [&'static TopologyObject],
+    ) -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        (any::<(Selector, Selector)>()).prop_map(move |(sel1, sel2)| {
+            let obj1 = sel1.try_select(type1.iter().copied())?;
+            let obj2 = sel2.try_select(type2.iter().copied())?;
+            Some([obj1, obj2])
+        })
+    }
+
+    /// Pick a pair of NUMA nodes in the test topology if possible
+    fn numa_pair() -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        let numa_nodes = &ObjectsWithAttrs::instance().numa_nodes;
+        object_pair(numa_nodes, numa_nodes)
+    }
+
+    proptest! {
+        /// Check properties that should be true of any pair of NUMA nodes
+        #[test]
+        fn valid_numa_pair(numa_pair in numa_pair()) {
+            if let Some(pair) = numa_pair {
+                check_valid_numa_pair(pair)?;
             }
-            if !caches.is_empty() {
-                check_valid_cache_pair(pick_pair(caches, caches))?;
+        }
+    }
+
+    /// Pick a pair of CPU caches in the test topology if possible
+    fn cache_pair() -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        let caches = &ObjectsWithAttrs::instance().caches;
+        object_pair(caches, caches)
+    }
+
+    proptest! {
+        /// Check properties that should be true of any pair of CPU caches
+        #[test]
+        fn valid_cache_pair(cache_pair in cache_pair()) {
+            if let Some(pair) = cache_pair {
+                check_valid_cache_pair(pair)?;
             }
-            if !groups.is_empty() {
-                check_valid_group_pair(pick_pair(groups, groups))?;
+        }
+    }
+
+    /// Pick a pair of goups in the test topology if possible
+    fn group_pair() -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        let groups = &ObjectsWithAttrs::instance().groups;
+        object_pair(groups, groups)
+    }
+
+    proptest! {
+        /// Check properties that should be true of any pair of groups
+        #[test]
+        fn valid_group_pair(group_pair in group_pair()) {
+            if let Some(pair) = group_pair {
+                check_valid_group_pair(pair)?;
             }
-            if !pci_devices.is_empty() {
-                check_valid_pci_pair(pick_pair(pci_devices, pci_devices))?;
+        }
+    }
+
+    /// Pick a pair of PCI devices in the test topology if possible
+    fn pci_pair() -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        let pci_devices = &ObjectsWithAttrs::instance().pci_devices;
+        object_pair(pci_devices, pci_devices)
+    }
+
+    proptest! {
+        /// Check properties that should be true of any pair of pcis
+        #[test]
+        fn valid_pci_pair(pci_pair in pci_pair()) {
+            if let Some(pair) = pci_pair {
+                check_valid_pci_pair(pair)?;
             }
-            if !bridges.is_empty() {
-                check_valid_bridge_pair(pick_pair(bridges, bridges))?;
+        }
+    }
+
+    /// Pick a pair of bridges in the test topology if possible
+    fn bridge_pair() -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        let bridges = &ObjectsWithAttrs::instance().bridges;
+        object_pair(bridges, bridges)
+    }
+
+    proptest! {
+        /// Check properties that should be true of any pair of bridges
+        #[test]
+        fn valid_bridge_pair(bridge_pair in bridge_pair()) {
+            if let Some(pair) = bridge_pair {
+                check_valid_bridge_pair(pair)?;
             }
-            if !(bridges.is_empty() || pci_devices.is_empty()) {
-                check_valid_bridge_pci(pick_pair(bridges, pci_devices))?;
+        }
+    }
+
+    /// Pick a (bridge, PCI device) pair in the test topology if possible
+    fn bridge_pci() -> impl Strategy<Value = Option<[&'static TopologyObject; 2]>> {
+        let bridges = &ObjectsWithAttrs::instance().bridges;
+        let pci_devices = &ObjectsWithAttrs::instance().pci_devices;
+        object_pair(bridges, pci_devices)
+    }
+
+    proptest! {
+        /// Check properties that should be true of any pair of bridges
+        #[test]
+        fn valid_bridge_pci(bridge_pci in bridge_pci()) {
+            if let Some(pair) = bridge_pci {
+                check_valid_bridge_pci(pair)?;
             }
         }
     }
