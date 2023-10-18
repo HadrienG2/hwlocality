@@ -7,7 +7,7 @@
 use crate::{errors::NulError, ffi::string::LibcString};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::path::Path;
 use thiserror::Error;
 
@@ -52,9 +52,9 @@ pub(crate) fn make_hwloc_path(path: impl AsRef<Path>) -> Result<LibcString, Path
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
     use proptest::{path::PathParams, prelude::*};
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,

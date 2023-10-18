@@ -35,7 +35,7 @@ use hwlocality_sys::{HWLOC_OBJ_DIE, HWLOC_OBJ_MEMCACHE};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     cmp::{Ordering, PartialOrd},
     ffi::c_int,
@@ -482,9 +482,9 @@ mod tests {
     use hwlocality_sys::{
         hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
     };
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
     use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,

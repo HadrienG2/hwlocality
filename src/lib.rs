@@ -226,7 +226,7 @@ use crate::ffi::int;
 use hwlocality_sys::{hwloc_pid_t, hwloc_thread_t};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 
 /// Thread identifier (OS-specific)
 ///
@@ -313,7 +313,7 @@ macro_rules! impl_arbitrary_for_bitflags {
 mod tests {
     use super::*;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
 
     #[test]
     fn get_api_version() {

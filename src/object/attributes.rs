@@ -23,11 +23,11 @@ use hwlocality_sys::{
     hwloc_pcidev_attr_s, RawDownstreamAttributes, RawDownstreamPCIAttributes,
     RawUpstreamAttributes,
 };
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 use std::{
     cmp::Ordering,
     ffi::c_uint,
@@ -1052,7 +1052,7 @@ mod tests {
     };
     use enum_iterator::Sequence;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,

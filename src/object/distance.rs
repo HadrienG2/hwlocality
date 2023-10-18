@@ -50,7 +50,7 @@ use hwlocality_sys::{
 };
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     ffi::{c_int, c_uint, c_ulong},
     fmt::{self, Debug},

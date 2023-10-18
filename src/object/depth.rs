@@ -34,11 +34,11 @@ use hwlocality_sys::{
     HWLOC_TYPE_DEPTH_MULTIPLE, HWLOC_TYPE_DEPTH_NUMANODE, HWLOC_TYPE_DEPTH_OS_DEVICE,
     HWLOC_TYPE_DEPTH_PCI_DEVICE, HWLOC_TYPE_DEPTH_UNKNOWN,
 };
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 use std::{ffi::c_int, fmt, num::TryFromIntError};
 use thiserror::Error;
 
@@ -274,7 +274,7 @@ pub enum TypeToDepthError {
 mod tests {
     use super::*;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
     use std::{
         error::Error,
@@ -361,9 +361,20 @@ mod tests {
             prop_assert_eq!(Depth::from(normal), normal);
             prop_assert_eq!(normal, Depth::from(normal));
         }
+    }
 
+    /// Generate [`usize`] values that are mostly in [`NormalDepth`] range to
+    /// make sure the [`from_usize()`] test has good coverage
+    fn mostly_small_usize() -> impl Strategy<Value = usize> {
+        prop_oneof![
+            4 => usize::from(NormalDepth::MIN)..usize::from(NormalDepth::MAX),
+            1 => any::<usize>()
+        ]
+    }
+
+    proptest! {
         #[test]
-        fn from_usize(value: usize) {
+        fn from_usize(value in mostly_small_usize()) {
             if value < usize::from(NormalDepth::MAX) {
                 prop_assert_eq!(Depth::try_from(value).unwrap(), value);
                 prop_assert_eq!(value, Depth::try_from(value).unwrap());

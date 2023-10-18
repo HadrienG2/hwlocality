@@ -60,7 +60,7 @@ use hwlocality_sys::{
 use libc::{EINVAL, ENOMEM};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     fmt::{self, Write},
     panic::{AssertUnwindSafe, UnwindSafe},

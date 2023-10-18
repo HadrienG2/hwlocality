@@ -20,11 +20,11 @@ use hwlocality_sys::{
     hwloc_topology_cpubind_support, hwloc_topology_discovery_support,
     hwloc_topology_membind_support, hwloc_topology_support,
 };
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 use std::{
     ffi::c_uchar,
     fmt::{self, Debug},
@@ -640,7 +640,7 @@ mod tests {
     use super::*;
     use crate::topology::Topology;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,

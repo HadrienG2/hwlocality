@@ -8,7 +8,7 @@ use crate::{
 };
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
 
 /// # Windows-specific helpers

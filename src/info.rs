@@ -8,7 +8,7 @@ use crate::ffi::{self, string::LibcString, transparent::TransparentNewtype};
 use hwlocality_sys::hwloc_info_s;
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{ffi::CStr, fmt, hash::Hash};
 
 /// Textual key-value information
@@ -115,9 +115,9 @@ unsafe impl TransparentNewtype for TextualInfo {
 mod tests {
     use super::*;
     use crate::ffi::{string::LibcString, transparent::AsNewtype};
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
     use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,

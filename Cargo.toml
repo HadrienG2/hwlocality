@@ -186,7 +186,7 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 enum-iterator.workspace = true
 
 # Used to ease debugging of string tests
-pretty_assertions = "1.4"
+similar-asserts = "1.5"
 
 # Used for random testing
 proptest.workspace = true

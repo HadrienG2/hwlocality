@@ -62,11 +62,11 @@ use crate::{
     Sealed,
 };
 use hwlocality_sys::hwloc_bitmap_s;
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 #[cfg(doc)]
 use std::collections::BTreeSet;
 #[cfg(any(test, feature = "proptest"))]
@@ -2072,10 +2072,10 @@ macro_rules! impl_bitmap_newtype {
             use derive_more::{AsMut, AsRef, From, Into, IntoIterator, Not};
             use hwlocality_sys::hwloc_bitmap_s;
             #[allow(unused)]
-            #[cfg(test)]
-            use pretty_assertions::{assert_eq, assert_ne};
             #[cfg(any(test, feature = "proptest"))]
             use proptest::prelude::*;
+            #[cfg(test)]
+            use similar_asserts::assert_eq;
             use std::{
                 borrow::{Borrow, BorrowMut},
                 cmp::Ordering,
@@ -2671,7 +2671,7 @@ macro_rules! impl_bitmap_newtype {
                     strategies::bitmap_index,
                 };
                 #[allow(unused)]
-                use pretty_assertions::{assert_eq, assert_ne};
+                use similar_asserts::assert_eq;
                 use std::{
                     collections::hash_map::RandomState,
                     error::Error,
@@ -3154,9 +3154,9 @@ macro_rules! impl_bitmap_newtype {
 pub(crate) mod tests {
     use super::*;
     use crate::strategies::bitmap_index;
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
     use proptest::sample::SizeRange;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
     use static_assertions::{
         assert_eq_align, assert_eq_size, assert_impl_all, assert_not_impl_any, assert_type_eq_all,
     };

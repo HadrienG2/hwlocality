@@ -41,7 +41,7 @@ use hwlocality_sys::{hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     ffi::{c_char, c_uint, CStr},
     fmt::{self, Debug, Display},
