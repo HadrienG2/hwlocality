@@ -964,7 +964,7 @@ mod tests {
     use super::*;
     use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
     use bitflags::Flags;
-    use proptest::{prelude::*, sample::SizeRange};
+    use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
@@ -1107,7 +1107,8 @@ mod tests {
         // Pick a non-empty subset of the roots and reorder it randomly
         exhaustive_ordered_roots
             .prop_flat_map(|roots| {
-                prop::sample::subsequence(roots, 1..SizeRange::default().end_excl())
+                let num_roots = roots.len();
+                prop::sample::subsequence(roots, 1..=num_roots)
             })
             .prop_shuffle()
     }
