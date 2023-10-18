@@ -137,7 +137,8 @@ impl Topology {
     /// Test topology instance
     ///
     /// Used to avoid redundant calls to Topology::new() in unit tests and
-    /// doctests that need read-only access to a default-initialized topology.
+    /// doctests that need read-only access to a topology.
+    ///
     /// Configured to expose as many concepts from hwloc as possible (disallowed
     /// CPUs, I/O objects, etc).
     ///
@@ -968,7 +969,7 @@ mod tests {
     use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        collections::{BTreeMap, BTreeSet},
+        collections::BTreeSet,
         error::Error,
         fmt::{
             self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
@@ -1055,19 +1056,19 @@ mod tests {
     /// Generate valid (disjoint) roots for [`Topology::distribute_items()`],
     /// taken from [`Topology::test_instance()`]
     fn disjoint_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
-        // Starting from PU objects, which are the leaves of the normal object
-        // tree, go up an arbitrary amount of ancestors from each PU. This gives
-        // us a list of root candidates with a few issues to be adressed:
+        // Starting from processing units, which are the smallest granularity at
+        // which we can distribute work, go up an arbitrary amount of ancestors
+        // from each PU. This gives us a list of root candidates with a few
+        // issues to be adressed:
         //
-        // - There root candidates are not disjoint, i.e. one proposed root can
-        //   be the parent of another, and a given root may appear multiple
-        //   times because it has been reached from two different leaf PUs.
-        // - These root candidates are exhaustive, they cover every reachable
-        //   CPU. We want tests to exercise roots that don't cover every CPU.
-        // - Roots are ordered by PU index, which is not something we want for
-        //   test inputs : they should appear in any order
-        let topology = Topology::test_instance();
-        let overlapping_exhaustive_ordered_roots = topology
+        // - They can overlap, i.e. one proposed root can be the parent of
+        //   another, and a given root may appear multiple times because it has
+        //   been reached from two different leaf PUs.
+        // - They cover the full cpuset of the topology. We also want to test
+        //   non-exhaustive configurations.
+        // - They are ordered by PU index. We also want to test non-ordered
+        //   configurations.
+        let overlapping_exhaustive_ordered_roots = Topology::test_instance()
             .objects_with_type(ObjectType::PU)
             .map(|pu| {
                 // Pick an arbitrary ancestor of this PU, or the PU itself
@@ -1080,35 +1081,36 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        // First, we address the duplication issue
-        let exhaustive_ordered_roots = overlapping_exhaustive_ordered_roots.prop_map(|roots| {
-            // Sort roots by increasing depth, so parents go before children
-            let roots_of_increasing_depth = roots
-                .into_iter()
-                .map(|root| (root.depth().assume_normal(), root))
-                .collect::<BTreeMap<_, _>>();
+        // Start by eliminating the deepest redundant roots...
+        let exhaustive_ordered_roots =
+            overlapping_exhaustive_ordered_roots.prop_map(|mut roots| {
+                // Sort roots by increasing depth, so parents go before children
+                roots.sort_unstable_by_key(|root| root.depth().assume_normal());
 
-            // Iterate from parent to children, keeping track of which CPUs we
-            // already covered and using this to eliminate duplicate roots
-            let mut deduplicated_roots = Vec::new();
-            let mut covered_cpuset = CpuSet::new();
-            for (_depth, root) in roots_of_increasing_depth {
-                let root_cpuset = root.cpuset().unwrap();
-                if !covered_cpuset.includes(root_cpuset) {
-                    assert!(!covered_cpuset.intersects(root_cpuset));
-                    deduplicated_roots.push(root);
-                    covered_cpuset |= root_cpuset;
+                // Iterate from parent to children, keeping track of which CPUs
+                // we already covered and using this to eliminate duplicates.
+                // Due to the above sorting, this will keep the coarsest-grained
+                // roots, avoiding an explosion of small PUs.
+                let mut deduplicated_roots = Vec::new();
+                let mut covered_cpuset = CpuSet::new();
+                for root in roots {
+                    let root_cpuset = root.cpuset().unwrap();
+                    if !covered_cpuset.includes(root_cpuset) {
+                        assert!(!covered_cpuset.intersects(root_cpuset));
+                        deduplicated_roots.push(root);
+                        covered_cpuset |= root_cpuset;
+                    }
                 }
-            }
-            deduplicated_roots
-        });
+                deduplicated_roots
+            });
 
-        // Now we have disjoint roots, which we can reorder and sample to avoid
-        // test bias originating from root order and exhaustiveness
-        exhaustive_ordered_roots.prop_flat_map(|exhaustive_ordered_roots| {
-            let num_roots = exhaustive_ordered_roots.len();
-            prop::sample::subsequence(exhaustive_ordered_roots, 1..=num_roots).prop_shuffle()
-        })
+        // Pick a non-empty subset of the roots and reorder it randomly
+        exhaustive_ordered_roots
+            .prop_flat_map(|roots| {
+                let num_roots = roots.len();
+                prop::sample::subsequence(roots, 1..=num_roots)
+            })
+            .prop_shuffle()
     }
 
     proptest! {
@@ -1330,27 +1332,30 @@ mod tests {
         }
     }
 
+    /// Pick a random normal object from the foreign test instance
+    fn foreign_normal_object() -> impl Strategy<Value = &'static TopologyObject> {
+        static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
+        let objects =
+            OBJECTS.get_or_init(|| Topology::foreign_instance().normal_objects().collect());
+        prop::sample::select(&objects[..])
+    }
+
     /// To the random input provided by `disjoint_roots`, add an extra root from
     /// a different topology, and report at which index it was added
     fn foreign_roots_and_idx() -> impl Strategy<Value = (Vec<&'static TopologyObject>, usize)> {
-        disjoint_roots().prop_flat_map(|disjoint_roots| {
-            // Pick a random object in the foreign topology, it will be used to
-            // check distribute_item's handling of foreign roots
-            let foreign_topology = Topology::foreign_instance();
-            let num_objects = foreign_topology.normal_objects().count();
-            let foreign_object = (0..num_objects).prop_map(|foreign_idx| {
-                foreign_topology.normal_objects().nth(foreign_idx).unwrap()
-            });
-
-            // Insert this foreign object at a random position, report where
-            let num_roots = disjoint_roots.len();
-            (Just(disjoint_roots), foreign_object, 0..num_roots).prop_map(
-                |(mut disjoint_roots, foreign_object, bad_root_idx)| {
-                    disjoint_roots.insert(bad_root_idx, foreign_object);
-                    (disjoint_roots, bad_root_idx)
-                },
-            )
-        })
+        // Pick a set of disjoint roots and a foreign object
+        (disjoint_roots(), foreign_normal_object()).prop_flat_map(
+            |(disjoint_roots, foreign_object)| {
+                // Insert the foreign object at a random position, report where
+                let num_roots = disjoint_roots.len();
+                (Just((disjoint_roots, foreign_object)), 0..num_roots).prop_map(
+                    |((mut disjoint_roots, foreign_object), bad_root_idx)| {
+                        disjoint_roots.insert(bad_root_idx, foreign_object);
+                        (disjoint_roots, bad_root_idx)
+                    },
+                )
+            },
+        )
     }
 
     proptest! {

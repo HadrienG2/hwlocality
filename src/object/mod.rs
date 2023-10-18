@@ -42,6 +42,8 @@ use num_enum::TryFromPrimitiveError;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::{
     ffi::{c_char, c_uint, CStr},
     fmt::{self, Debug, Display},
@@ -65,11 +67,11 @@ impl Topology {
         self.normal_objects().chain(self.virtual_objects())
     }
 
-    /// Full list of virtual bjects in the topology, ordered by type
-    pub fn virtual_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        Depth::VIRTUAL_DEPTHS
-            .iter()
-            .flat_map(|&depth| self.objects_at_depth(depth))
+    /// Pre-computed list of objects from the test instance
+    #[cfg(test)]
+    pub(crate) fn test_objects() -> &'static [&'static TopologyObject] {
+        static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
+        &OBJECTS.get_or_init(|| Self::test_instance().objects().collect())[..]
     }
 
     /// Full list of objects contains in the normal hierarchy of the topology,
@@ -77,6 +79,13 @@ impl Topology {
     pub fn normal_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
         NormalDepth::iter_range(NormalDepth::MIN, self.depth())
             .flat_map(|depth| self.objects_at_depth(depth))
+    }
+
+    /// Full list of virtual bjects in the topology, ordered by type
+    pub fn virtual_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
+        Depth::VIRTUAL_DEPTHS
+            .iter()
+            .flat_map(|&depth| self.objects_at_depth(depth))
     }
 
     /// Full list of memory objects in the topology, ordered by type
@@ -2247,4 +2256,15 @@ unsafe impl Sync for TopologyObject {}
 // SAFETY: TopologyObject is a repr(transparent) newtype of hwloc_obj
 unsafe impl TransparentNewtype for TopologyObject {
     type Inner = hwloc_obj;
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Pick a random object from the test instance
+    pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
+        prop::sample::select(Topology::test_objects())
+    }
 }

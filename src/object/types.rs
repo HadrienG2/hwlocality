@@ -478,7 +478,7 @@ impl PartialOrd for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::topology::Topology;
+    use crate::object::tests::test_object;
     use hwlocality_sys::{
         hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
     };
@@ -702,11 +702,7 @@ mod tests {
         }
 
         #[test]
-        fn type_order_matches_depth_order(idx1: usize, idx2: usize) {
-            let topology = Topology::test_instance();
-            let num_objects = topology.objects().count();
-            let obj1 = topology.objects().nth(idx1 % num_objects).unwrap();
-            let obj2 = topology.objects().nth(idx2 % num_objects).unwrap();
+        fn type_order_matches_depth_order([obj1, obj2] in [test_object(), test_object()]) {
             let ty1 = obj1.object_type();
             let ty2 = obj2.object_type();
             if let Some(type_order) = obj1.object_type().partial_cmp(&obj2.object_type()) {
