@@ -15,7 +15,7 @@ use bitflags::bitflags;
 use hwlocality_sys::{hwloc_topology_export_xml_flags_e, HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     borrow::Borrow,
     ffi::{c_char, c_uint, CStr, OsStr},

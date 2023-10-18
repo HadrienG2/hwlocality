@@ -20,11 +20,11 @@ use hwlocality_sys::{
     hwloc_topology_cpubind_support, hwloc_topology_discovery_support,
     hwloc_topology_membind_support, hwloc_topology_support,
 };
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 use std::{
     ffi::c_uchar,
     fmt::{self, Debug},
@@ -200,11 +200,11 @@ impl DiscoverySupport {
 impl Arbitrary for DiscoverySupport {
     type Parameters = ();
     type Strategy =
-        prop::strategy::Map<[crate::test_utils::AnyHwlocBool; 6], fn([c_uchar; 6]) -> Self>;
+        prop::strategy::Map<[crate::strategies::HwlocBool; 6], fn([c_uchar; 6]) -> Self>;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let b = crate::test_utils::any_hwloc_bool();
+        let b = crate::strategies::hwloc_bool();
         [b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b].prop_map(
             |([pu, numa, numa_memory, disallowed_pu, disallowed_numa, cpukind_efficiency])| {
                 Self(hwloc_topology_discovery_support {
@@ -326,11 +326,11 @@ impl CpuBindingSupport {
 impl Arbitrary for CpuBindingSupport {
     type Parameters = ();
     type Strategy =
-        prop::strategy::Map<[crate::test_utils::AnyHwlocBool; 11], fn([c_uchar; 11]) -> Self>;
+        prop::strategy::Map<[crate::strategies::HwlocBool; 11], fn([c_uchar; 11]) -> Self>;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let b = crate::test_utils::any_hwloc_bool();
+        let b = crate::strategies::hwloc_bool();
         [
             b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
             b.clone(), b.clone(), b.clone(), b.clone(), b
@@ -503,11 +503,11 @@ impl MemoryBindingSupport {
 impl Arbitrary for MemoryBindingSupport {
     type Parameters = ();
     type Strategy =
-        prop::strategy::Map<[crate::test_utils::AnyHwlocBool; 15], fn([c_uchar; 15]) -> Self>;
+        prop::strategy::Map<[crate::strategies::HwlocBool; 15], fn([c_uchar; 15]) -> Self>;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let b = crate::test_utils::any_hwloc_bool();
+        let b = crate::strategies::hwloc_bool();
         [
             b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
             b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
@@ -601,11 +601,11 @@ impl MiscSupport {
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for MiscSupport {
     type Parameters = ();
-    type Strategy = prop::strategy::Map<crate::test_utils::AnyHwlocBool, fn(c_uchar) -> Self>;
+    type Strategy = prop::strategy::Map<crate::strategies::HwlocBool, fn(c_uchar) -> Self>;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        crate::test_utils::any_hwloc_bool()
+        crate::strategies::hwloc_bool()
             .prop_map(|(imported_support)| Self(hwloc_topology_misc_support { imported_support }))
     }
 }
@@ -640,7 +640,7 @@ mod tests {
     use super::*;
     use crate::topology::Topology;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,
@@ -696,13 +696,13 @@ mod tests {
     );
 
     #[cfg(not(feature = "hwloc-2_3_0"))]
-    fn any_support_components(
+    fn support_components(
     ) -> impl Strategy<Value = (DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)> {
         any::<(DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)>()
     }
 
     #[cfg(feature = "hwloc-2_3_0")]
-    fn any_support_components() -> impl Strategy<
+    fn support_components() -> impl Strategy<
         Value = (
             DiscoverySupport,
             CpuBindingSupport,
@@ -720,7 +720,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn random(components in any_support_components()) {
+        fn random(components in support_components()) {
             #[cfg(not(feature = "hwloc-2_3_0"))]
             let (discovery, cpubind, membind) = components;
             #[cfg(feature = "hwloc-2_3_0")]

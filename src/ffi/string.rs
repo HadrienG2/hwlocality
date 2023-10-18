@@ -1,11 +1,11 @@
 //! A less error-prone [`CString`] alternative
 
 use crate::errors::NulError;
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 use std::{
     ffi::{c_char, c_void},
     fmt::{self, Debug, Display},
@@ -118,12 +118,12 @@ impl LibcString {
 impl Arbitrary for LibcString {
     type Parameters = ();
     type Strategy = prop::strategy::Perturb<
-        crate::test_utils::AnyString,
+        crate::strategies::AnyString,
         fn(String, prop::test_runner::TestRng) -> Self,
     >;
 
-    fn arbitrary_with((): ()) -> Self::Strategy {
-        crate::test_utils::any_string().prop_perturb(|s, mut rng| {
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        crate::strategies::any_string().prop_perturb(|s, mut rng| {
             let s = s
                 .chars()
                 .map(|c| {
@@ -213,9 +213,9 @@ unsafe impl Sync for LibcString {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::any_string;
+    use crate::strategies::any_string;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use std::ffi::CStr;
 
     macro_rules! check_new {

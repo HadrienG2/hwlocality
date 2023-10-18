@@ -16,7 +16,7 @@ use derive_more::From;
 use errno::Errno;
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     error::Error,
     ffi::{c_int, c_uint},
@@ -298,9 +298,9 @@ impl<'topology> From<&'topology TopologyObject> for ForeignObjectError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
     use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
     use std::{
         fmt::{self, Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},

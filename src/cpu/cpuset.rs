@@ -22,7 +22,7 @@ use crate::{
 };
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 #[cfg(feature = "hwloc-2_2_0")]
 use std::ffi::c_uint;
 use std::{fmt::Debug, iter::FusedIterator, ops::Deref, ptr};
@@ -533,11 +533,3 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_cpuset_t")]
     CpuSet
 );
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::impl_bitmap_newtype_tests;
-
-    impl_bitmap_newtype_tests!(CpuSet);
-}

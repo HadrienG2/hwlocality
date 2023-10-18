@@ -8,7 +8,7 @@ use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
 use crate::{cpu::cpuset::CpuSet, impl_bitmap_newtype, object::depth::Depth, topology::Topology};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::ops::Deref;
 
 /// # NodeSet-specific API
@@ -58,11 +58,3 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_nodeset_t")]
     NodeSet
 );
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::impl_bitmap_newtype_tests;
-
-    impl_bitmap_newtype_tests!(NodeSet);
-}

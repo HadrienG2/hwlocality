@@ -20,11 +20,11 @@
 //! This module helps you implement both of these strategies.
 
 use derive_more::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex};
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 #[cfg(doc)]
 use std::ops::{Range, RangeFrom, RangeInclusive};
 use std::{
@@ -32,7 +32,7 @@ use std::{
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},
-    fmt::Debug,
+    fmt::{self, Debug, Formatter},
     iter::{FusedIterator, Product, Sum},
     num::{ParseIntError, TryFromIntError},
     ops::{
@@ -94,7 +94,6 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
     Binary,
     Clone,
     Copy,
-    Debug,
     Default,
     Display,
     Eq,
@@ -2289,21 +2288,13 @@ where
     }
 }
 
-// PositiveInt is commonly used as an index in hwloc, and many index-based hwloc
-// APIs exhibit O(n) behavior depending on which index is passed as input.
-//
-// Therefore, we enforce that ints used in tests are "not too big" by having
-// proptest treat them like the size of a collection.
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for PositiveInt {
-    type Parameters = prop::collection::SizeRange;
+    type Parameters = ();
     type Strategy = prop::strategy::Map<std::ops::RangeInclusive<c_uint>, fn(c_uint) -> Self>;
 
-    fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
-        let to_inner = |x: usize| Self::try_from(x).unwrap_or(Self::MAX).0;
-        let start = to_inner(params.start());
-        let end = to_inner(params.end_incl());
-        (start..=end).prop_map(Self)
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        (Self::MIN.0..=Self::MAX.0).prop_map(Self)
     }
 }
 
@@ -2581,6 +2572,13 @@ where
 {
     fn bitxor_assign(&mut self, rhs: Rhs) {
         *self = *self ^ rhs
+    }
+}
+
+impl Debug for PositiveInt {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let s = format!("PositiveInt({})", self.0);
+        f.pad(&s)
     }
 }
 
@@ -3392,9 +3390,9 @@ impl Iterator for PositiveIntRangeFromIter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::any_string;
+    use crate::strategies::any_string;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::DefaultHasher,
@@ -4315,10 +4313,36 @@ mod tests {
                 },
                 wrapped_result,
             )?;
+        }
+    }
 
+    /// Generate suitable bounds for an int-int range test
+    ///
+    /// We can't test arbitrarily wide ranges, because the test could take
+    /// forever to run ;) And we should not give undue weight to empty ranges.
+    fn int_range_bounds() -> impl Strategy<Value = [PositiveInt; 2]> {
+        let size_range = prop::collection::SizeRange::default();
+        let max_size = isize::try_from(size_range.end_excl()).unwrap();
+        any::<PositiveInt>()
+            .prop_flat_map(move |start| {
+                let end_uint = prop_oneof![
+                    4 => start.0..start.saturating_add_signed(max_size).0,
+                    1 => 0..start.0
+                ];
+                (Just(start), end_uint)
+            })
+            .prop_map(|(start, end_uint)| {
+                [start, PositiveInt::const_try_from_c_uint(end_uint).unwrap()]
+            })
+    }
+
+    proptest! {
+        /// Test int ranges
+        #[test]
+        fn int_range([start, end] in int_range_bounds()) {
             // Check Range-like PositiveInt iterator
-            let actual = PositiveInt::iter_range(i1, i2);
-            let expected = (i1.0)..(i2.0);
+            let actual = PositiveInt::iter_range(start, end);
+            let expected = (start.0)..(end.0);
             prop_assert_eq!(actual.len(), expected.len());
             prop_assert_eq!(actual.size_hint(), expected.size_hint());
             prop_assert_eq!(actual.clone().count(), expected.len());
@@ -4340,8 +4364,8 @@ mod tests {
             )?;
 
             // Check RangeInclusive-like PositiveInt iterator
-            let actual = PositiveInt::iter_range_inclusive(i1, i2);
-            let expected = (i1.0)..=(i2.0);
+            let actual = PositiveInt::iter_range_inclusive(start, end);
+            let expected = (start.0)..=(end.0);
             prop_assert_eq!(actual.len(), expected.clone().count());
             prop_assert_eq!(actual.size_hint(), expected.size_hint());
             prop_assert_eq!(actual.clone().count(), expected.clone().count());
@@ -4362,10 +4386,28 @@ mod tests {
                 DoubleEndedIterator::next_back,
             )?;
         }
+    }
 
-        /// Test int-u32 binary operations
+    /// Generate an u32 that's biased towards smaller values
+    ///
+    /// Exponentiation and bitshift tests will only test the failing code path
+    /// if they are exercised with arbitrary u32s, so we must bias the RNG
+    /// towards generating mostly low u32s (smaller than the number of bits),
+    /// while still testing the higher exponent case from time to time.
+    fn exponent() -> impl Strategy<Value = u32> {
+        prop_oneof![
+            4 => 0..=PositiveInt::EFFECTIVE_BITS,
+            1 => any::<u32>(),
+        ]
+    }
+
+    proptest! {
+        /// Test exponentiation, bit shifting and bit rotation operations
         #[test]
-        fn int_u32(int: PositiveInt, rhs: u32) {
+        fn pow_shift_rotate(
+            int: PositiveInt,
+            rhs in exponent()
+        ) {
             // Elevation to an integer power
             let (expected_wrapped, expected_overflow) =
                 predict_overflowing_result(int, rhs, usize::overflowing_pow);
@@ -4386,74 +4428,58 @@ mod tests {
             }
 
             // Non-overflowing left shift
-            let test_left_shift = |rhs| {
-                test_overflowing(
-                    int,
-                    rhs,
-                    PositiveInt::checked_shl,
-                    PositiveInt::overflowing_shl,
-                    PositiveInt::wrapping_shl,
-                    [
-                        Box::new(|int, rhs| int << rhs),
-                        Box::new(|int, rhs| &int << rhs),
-                        Box::new(|int, rhs| int << &rhs),
-                        Box::new(|int, rhs| &int << &rhs),
-                        Box::new(|mut int, rhs| {
-                            int <<= rhs;
-                            int
-                        }),
-                        Box::new(|mut int, rhs| {
-                            int <<= &rhs;
-                            int
-                        }),
-                    ],
-                )
-            };
             let wrapped_shift = rhs % PositiveInt::EFFECTIVE_BITS;
             let expected_wrapped = PositiveInt((int.0 << wrapped_shift) & PositiveInt::MAX.0);
-            let (wrapped, overflow) = test_left_shift(wrapped_shift)?;
+            let expected_overflow = rhs >= PositiveInt::EFFECTIVE_BITS;
+            let (wrapped, overflow) = test_overflowing(
+                int,
+                rhs,
+                PositiveInt::checked_shl,
+                PositiveInt::overflowing_shl,
+                PositiveInt::wrapping_shl,
+                [
+                    Box::new(|int, rhs| int << rhs),
+                    Box::new(|int, rhs| &int << rhs),
+                    Box::new(|int, rhs| int << &rhs),
+                    Box::new(|int, rhs| &int << &rhs),
+                    Box::new(|mut int, rhs| {
+                        int <<= rhs;
+                        int
+                    }),
+                    Box::new(|mut int, rhs| {
+                        int <<= &rhs;
+                        int
+                    }),
+                ],
+            )?;
             prop_assert_eq!(wrapped, expected_wrapped);
-            prop_assert!(!overflow);
-
-            // Overflowing left shift
-            let overflown_shift = rhs.saturating_add(PositiveInt::EFFECTIVE_BITS);
-            let (wrapped, overflow) = test_left_shift(overflown_shift)?;
-            prop_assert_eq!(wrapped, expected_wrapped);
-            prop_assert!(overflow);
+            prop_assert_eq!(overflow, expected_overflow);
 
             // Non-overflowing right shift
-            let test_right_shift = |rhs| {
-                test_overflowing(
-                    int,
-                    rhs,
-                    PositiveInt::checked_shr,
-                    PositiveInt::overflowing_shr,
-                    PositiveInt::wrapping_shr,
-                    [
-                        Box::new(|int, rhs| int >> rhs),
-                        Box::new(|int, rhs| &int >> rhs),
-                        Box::new(|int, rhs| int >> &rhs),
-                        Box::new(|int, rhs| &int >> &rhs),
-                        Box::new(|mut int, rhs| {
-                            int >>= rhs;
-                            int
-                        }),
-                        Box::new(|mut int, rhs| {
-                            int >>= &rhs;
-                            int
-                        }),
-                    ],
-                )
-            };
             let expected_wrapped = PositiveInt(int.0 >> wrapped_shift);
-            let (wrapped, overflow) = test_right_shift(wrapped_shift)?;
+            let (wrapped, overflow) = test_overflowing(
+                int,
+                rhs,
+                PositiveInt::checked_shr,
+                PositiveInt::overflowing_shr,
+                PositiveInt::wrapping_shr,
+                [
+                    Box::new(|int, rhs| int >> rhs),
+                    Box::new(|int, rhs| &int >> rhs),
+                    Box::new(|int, rhs| int >> &rhs),
+                    Box::new(|int, rhs| &int >> &rhs),
+                    Box::new(|mut int, rhs| {
+                        int >>= rhs;
+                        int
+                    }),
+                    Box::new(|mut int, rhs| {
+                        int >>= &rhs;
+                        int
+                    }),
+                ],
+            )?;
             prop_assert_eq!(wrapped, expected_wrapped);
-            prop_assert!(!overflow);
-
-            // Overflowing right shift
-            let (wrapped, overflow) = test_right_shift(overflown_shift)?;
-            prop_assert_eq!(wrapped, expected_wrapped);
-            prop_assert!(overflow);
+            prop_assert_eq!(overflow, expected_overflow);
 
             // Rotate can be expressed in terms of shifts and binary ops
             prop_assert_eq!(
@@ -4966,16 +4992,27 @@ mod tests {
                 wrapped_result,
             )?;
         }
+    }
 
-        /// Test int-int-usize ternary operations
+    /// Generate an iteration step that isn't usually out of bounds, but can be
+    fn iter_step() -> impl Strategy<Value = usize> {
+        let max_normal_stride = prop::collection::SizeRange::default().end_excl();
+        prop_oneof![
+            4 => 0..max_normal_stride,
+            1 => any::<usize>()
+        ]
+    }
+
+    proptest! {
+        /// Test int ranges in a strided pattern
         #[test]
-        fn int_int_usize(i1: PositiveInt, i2: PositiveInt, step: PositiveInt) {
-            // Keep step in PositiveInt range to avoid always overflowing
-            let step = usize::from(step);
-
+        fn int_range_with_step(
+            [start, end] in int_range_bounds(),
+            step in iter_step()
+        ) {
             // Check Range-like PositiveInt iterator in strided pattern
-            let actual = PositiveInt::iter_range(i1, i2);
-            let expected = (i1.0)..(i2.0);
+            let actual = PositiveInt::iter_range(start, end);
+            let expected = (start.0)..(end.0);
             compare_iters_finite(
                 actual.clone(),
                 |i| i.nth(step),
@@ -4985,8 +5022,8 @@ mod tests {
             compare_iters_finite(actual, |i| i.nth_back(step), expected, |i| i.nth_back(step))?;
 
             // Check RangeInclusive-like PositiveInt iterator in strided pattern
-            let actual = PositiveInt::iter_range_inclusive(i1, i2);
-            let expected = (i1.0)..=(i2.0);
+            let actual = PositiveInt::iter_range_inclusive(start, end);
+            let expected = (start.0)..=(end.0);
             compare_iters_finite(
                 actual.clone(),
                 |i| i.nth(step),

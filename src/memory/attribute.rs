@@ -46,7 +46,7 @@ use hwlocality_sys::{
 use libc::{EBUSY, EINVAL, ENOENT};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     ffi::{c_int, c_uint, c_ulong, CStr},
     hash::Hash,

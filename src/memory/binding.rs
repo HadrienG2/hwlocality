@@ -32,7 +32,7 @@ use libc::{ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     borrow::{Borrow, BorrowMut},
     ffi::{c_int, c_void},

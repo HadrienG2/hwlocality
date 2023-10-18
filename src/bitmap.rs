@@ -62,11 +62,11 @@ use crate::{
     Sealed,
 };
 use hwlocality_sys::hwloc_bitmap_s;
-#[allow(unused)]
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
+#[allow(unused)]
+#[cfg(test)]
+use similar_asserts::assert_eq;
 #[cfg(doc)]
 use std::collections::BTreeSet;
 #[cfg(any(test, feature = "proptest"))]
@@ -76,7 +76,7 @@ use std::{
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},
-    fmt::{self, Debug, Display, Pointer},
+    fmt::{self, Debug, Display, Formatter, Pointer},
     hash::{self, Hash},
     iter::{FromIterator, FusedIterator},
     marker::PhantomData,
@@ -1175,15 +1175,20 @@ const SHOULD_NOT_FAIL: &str = "This operation has no known failure mode";
 
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for Bitmap {
-    type Parameters = <(HashSet<BitmapIndex>, bool) as Arbitrary>::Parameters;
-
+    type Parameters = ();
     type Strategy = prop::strategy::Map<
-        <(HashSet<BitmapIndex>, bool) as Arbitrary>::Strategy,
+        (
+            prop::collection::HashSetStrategy<crate::strategies::BitmapIndexStrategy>,
+            prop::bool::Any,
+        ),
         fn((HashSet<BitmapIndex>, bool)) -> Self,
     >;
 
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        <(HashSet<BitmapIndex>, bool)>::arbitrary_with(args).prop_map(|(set_indices, infinite)| {
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use crate::strategies::bitmap_index;
+        use prop::collection::SizeRange;
+        let index_set = prop::collection::hash_set(bitmap_index(), SizeRange::default());
+        (index_set, prop::bool::ANY).prop_map(|(set_indices, infinite)| {
             // Start with an arbitrary finite bitmap
             let mut result = set_indices.into_iter().collect::<Self>();
 
@@ -1359,7 +1364,7 @@ impl Clone for Bitmap {
 }
 
 impl Debug for Bitmap {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <Self as Display>::fmt(self, f)
     }
 }
@@ -1372,7 +1377,7 @@ impl Default for Bitmap {
 
 impl Display for Bitmap {
     #[doc(alias = "hwloc_bitmap_list_snprintf")]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         // SAFETY: - Bitmaps are trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - hwloc_bitmap_list_snprintf is snprintf-like
@@ -1428,7 +1433,7 @@ impl Hash for Bitmap {
         let last_significant_index = self
             .last_set()
             .or_else(|| self.last_unset())
-            .unwrap_or(PositiveInt::MIN);
+            .unwrap_or(BitmapIndex::MIN);
 
         // Iterate over the finite part of the bitmap
         for index in self
@@ -1562,7 +1567,7 @@ impl<B: Borrow<Self>> PartialOrd<B> for Bitmap {
 }
 
 impl Pointer for Bitmap {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
 }
@@ -1847,7 +1852,7 @@ impl<Target: OwnedBitmap> Borrow<Target> for BitmapRef<'_, Target> {
 impl<Target: OwnedBitmap> Copy for BitmapRef<'_, Target> {}
 
 impl<Target: OwnedBitmap + Debug> Debug for BitmapRef<'_, Target> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <Target as Debug>::fmt(self.as_ref(), f)
     }
 }
@@ -1861,7 +1866,7 @@ impl<Target: OwnedBitmap> Deref for BitmapRef<'_, Target> {
 }
 
 impl<Target: OwnedBitmap + Display> Display for BitmapRef<'_, Target> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <Target as Display>::fmt(self.as_ref(), f)
     }
 }
@@ -1953,7 +1958,7 @@ where
 }
 
 impl<Target> Pointer for BitmapRef<'_, Target> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
 }
@@ -2046,1078 +2051,1101 @@ macro_rules! impl_bitmap_newtype {
         $(#[$attr:meta])*
         $newtype:ident
     ) => {
-        $(#[$attr])*
-        #[derive(
-            derive_more::AsMut,
-            derive_more::AsRef,
-            Clone,
-            Default,
-            Eq,
-            derive_more::From,
-            derive_more::Into,
-            derive_more::IntoIterator,
-            derive_more::Not,
-            Ord,
-        )]
-        #[repr(transparent)]
-        pub struct $newtype($crate::bitmap::Bitmap);
-
-        impl $crate::bitmap::SpecializedBitmap for $newtype {
-            const BITMAP_KIND: $crate::bitmap::BitmapKind =
-                $crate::bitmap::BitmapKind::$newtype;
-
-            type Owned = Self;
-
-            fn to_owned(&self) -> Self {
-                self.clone()
-            }
-        }
-
-        impl $crate::bitmap::SpecializedBitmap for $crate::bitmap::BitmapRef<'_, $newtype> {
-            const BITMAP_KIND: $crate::bitmap::BitmapKind =
-                $crate::bitmap::BitmapKind::$newtype;
-
-            type Owned = $newtype;
-
-            fn to_owned(&self) -> $newtype {
-                self.clone_target()
-            }
-        }
-
-        /// # Re-export of the Bitmap API
-        ///
-        /// Only documentation headers are repeated here, you will find most of
-        /// the documentation attached to identically named `Bitmap` methods.
-        impl $newtype {
-            /// Wraps an owned nullable hwloc bitmap
-            ///
-            /// See [`Bitmap::from_owned_raw_mut`](crate::bitmap::Bitmap::from_owned_raw_mut).
-            #[allow(unused)]
-            pub(crate) unsafe fn from_owned_raw_mut(
-                bitmap: *mut hwlocality_sys::hwloc_bitmap_s
-            ) -> Option<Self> {
-                // SAFETY: Safety contract inherited from identical Bitmap method
-                unsafe {
-                    $crate::bitmap::Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
-                }
-            }
-
-            /// Wraps an owned hwloc bitmap
-            ///
-            /// See [`Bitmap::from_owned_nonnull`](crate::bitmap::Bitmap::from_owned_nonnull).
-            #[allow(unused)]
-            pub(crate) unsafe fn from_owned_nonnull(
-                bitmap: std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s>
-            ) -> Self {
-                // SAFETY: Safety contract inherited from identical Bitmap method
-                unsafe {
-                    Self::from($crate::bitmap::Bitmap::from_owned_nonnull(bitmap))
-                }
-            }
-
-            /// Wraps a borrowed nullable hwloc bitmap
-            ///
-            /// See [`Bitmap::borrow_from_raw`](crate::bitmap::Bitmap::borrow_from_raw).
-            #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw<'target>(
-                bitmap: *const hwlocality_sys::hwloc_bitmap_s
-            ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
-                // SAFETY: Safety contract inherited from identical Bitmap method
-                unsafe {
-                    $crate::bitmap::Bitmap::borrow_from_raw(bitmap)
-                        .map(|bitmap_ref| bitmap_ref.cast())
-                }
-            }
-
-            /// Wraps a borrowed nullable hwloc bitmap
-            ///
-            /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmap::Bitmap::borrow_from_raw_mut).
-            #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_raw_mut<'target>(
-                bitmap: *mut hwlocality_sys::hwloc_bitmap_s
-            ) -> Option<$crate::bitmap::BitmapRef<'target, Self>> {
-                // SAFETY: Safety contract inherited from identical Bitmap method
-                unsafe {
-                    $crate::bitmap::Bitmap::borrow_from_raw_mut(bitmap)
-                        .map(|bitmap_ref| bitmap_ref.cast())
-                }
-            }
-
-            /// Wraps a borrowed hwloc bitmap
-            ///
-            /// See [`Bitmap::borrow_from_nonnull`](crate::bitmap::Bitmap::borrow_from_nonnull).
-            #[allow(unused)]
-            pub(crate) unsafe fn borrow_from_nonnull<'target>(
-                bitmap: std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s>
-            ) -> $crate::bitmap::BitmapRef<'target, Self> {
-                // SAFETY: Safety contract inherited from identical Bitmap method
-                unsafe {
-                    $crate::bitmap::Bitmap::borrow_from_nonnull(bitmap).cast()
-                }
-            }
-
-            /// Contained bitmap pointer (for interaction with hwloc)
-            ///
-            /// See [`Bitmap::as_ptr`](crate::bitmap::Bitmap::as_ptr).
-            #[allow(unused)]
-            pub(crate) fn as_ptr(&self) -> *const hwlocality_sys::hwloc_bitmap_s {
-                self.0.as_ptr()
-            }
-
-            /// Contained mutable bitmap pointer (for interaction with hwloc)
-            ///
-            /// See [`Bitmap::as_mut_ptr`](crate::bitmap::Bitmap::as_mut_ptr).
-            #[allow(unused)]
-            pub(crate) fn as_mut_ptr(&mut self) -> *mut hwlocality_sys::hwloc_bitmap_s {
-                self.0.as_mut_ptr()
-            }
-
-            /// Create an empty bitmap
-            ///
-            /// See [`Bitmap::new`](crate::bitmap::Bitmap::new).
-            pub fn new() -> Self {
-                Self::from($crate::bitmap::Bitmap::new())
-            }
-
-            /// Create a full bitmap
-            ///
-            /// See [`Bitmap::full`](crate::bitmap::Bitmap::full).
-            pub fn full() -> Self {
-                Self::from($crate::bitmap::Bitmap::full())
-            }
-
-            /// Creates a new bitmap with the given range of indices set
-            ///
-            /// See [`Bitmap::from_range`](crate::bitmap::Bitmap::from_range).
-            pub fn from_range<Idx>(range: impl std::ops::RangeBounds<Idx>) -> Self
-            where
-                Idx: Copy + TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                Self::from($crate::bitmap::Bitmap::from_range(range))
-            }
-
-            /// Turn this bitmap into a copy of another bitmap
-            ///
-            /// See [`Bitmap::copy_from`](crate::bitmap::Bitmap::copy_from).
-            pub fn copy_from(&mut self, other: impl std::ops::Deref<Target = Self>) {
-                self.0.copy_from(&other.0)
-            }
-
-            /// Clear all indices
-            ///
-            /// See [`Bitmap::clear`](crate::bitmap::Bitmap::clear).
-            pub fn clear(&mut self) {
-                self.0.clear()
-            }
-
-            /// Set all indices
-            ///
-            /// See [`Bitmap::fill`](crate::bitmap::Bitmap::fill).
-            pub fn fill(&mut self) {
-                self.0.fill()
-            }
-
-            /// Clear all indices except for `idx`, which is set
-            ///
-            /// See [`Bitmap::set_only`](crate::bitmap::Bitmap::set_only).
-            pub fn set_only<Idx>(&mut self, idx: Idx)
-            where
-                Idx: TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.set_only(idx)
-            }
-
-            /// Set all indices except for `idx`, which is cleared
-            ///
-            /// See [`Bitmap::set_all_but`](crate::bitmap::Bitmap::set_all_but).
-            pub fn set_all_but<Idx>(&mut self, idx: Idx)
-            where
-                Idx: TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.set_all_but(idx)
-            }
-
-            /// Set index `idx`
-            ///
-            /// See [`Bitmap::set`](crate::bitmap::Bitmap::set).
-            pub fn set<Idx>(&mut self, idx: Idx)
-            where
-                Idx: TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.set(idx)
-            }
-
-            /// Set indices covered by `range`
-            ///
-            /// See [`Bitmap::set_range`](crate::bitmap::Bitmap::set_range).
-            pub fn set_range<Idx>(&mut self, range: impl std::ops::RangeBounds<Idx>)
-            where
-                Idx: Copy + TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.set_range(range)
-            }
-
-            /// Clear index `idx`
-            ///
-            /// See [`Bitmap::unset`](crate::bitmap::Bitmap::unset).
-            pub fn unset<Idx>(&mut self, idx: Idx)
-            where
-                Idx: TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.unset(idx)
-            }
-
-            /// Clear indices covered by `range`
-            ///
-            /// See [`Bitmap::unset_range`](crate::bitmap::Bitmap::unset_range).
-            pub fn unset_range<Idx>(&mut self, range: impl std::ops::RangeBounds<Idx>)
-            where
-                Idx: Copy + TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.unset_range(range)
-            }
-
-            /// Keep a single index among those set in the bitmap
-            ///
-            /// See [`Bitmap::singlify`](crate::bitmap::Bitmap::singlify).
-            pub fn singlify(&mut self) {
-                self.0.singlify()
-            }
-
-            /// Check if index `idx` is set
-            ///
-            /// See [`Bitmap::is_set`](crate::bitmap::Bitmap::is_set).
-            pub fn is_set<Idx>(&self, idx: Idx) -> bool
-            where
-                Idx: TryInto<$crate::bitmap::BitmapIndex>,
-                <Idx as TryInto<$crate::bitmap::BitmapIndex>>::Error: std::fmt::Debug,
-            {
-                self.0.is_set(idx)
-            }
-
-            /// Check if all indices are unset
-            ///
-            /// See [`Bitmap::is_empty`](crate::bitmap::Bitmap::is_empty).
-            pub fn is_empty(&self) -> bool {
-                self.0.is_empty()
-            }
-
-            /// Check if all indices are set
-            ///
-            /// See [`Bitmap::is_full`](crate::bitmap::Bitmap::is_full).
-            pub fn is_full(&self) -> bool {
-                self.0.is_full()
-            }
-
-            /// Check the first set index, if any
-            ///
-            /// See [`Bitmap::first_set`](crate::bitmap::Bitmap::first_set).
-            pub fn first_set(&self) -> Option<$crate::bitmap::BitmapIndex> {
-                self.0.first_set()
-            }
-
-            /// Iterate over set indices
-            ///
-            /// See [`Bitmap::iter_set`](crate::bitmap::Bitmap::iter_set).
-            pub fn iter_set(
-                &self
-            ) -> $crate::bitmap::Iter<&$crate::bitmap::Bitmap> {
-                self.0.iter_set()
-            }
-
-            /// Check the last set index, if any
-            ///
-            /// See [`Bitmap::last_set`](crate::bitmap::Bitmap::last_set).
-            pub fn last_set(&self) -> Option<$crate::bitmap::BitmapIndex> {
-                self.0.last_set()
-            }
-
-            /// The number of indices that are set in the bitmap
-            ///
-            /// See [`Bitmap::weight`](crate::bitmap::Bitmap::weight).
-            pub fn weight(&self) -> Option<usize> {
-                self.0.weight()
-            }
-
-            /// Check the first unset index, if any
-            ///
-            /// See [`Bitmap::first_unset`](crate::bitmap::Bitmap::first_unset).
-            pub fn first_unset(&self) -> Option<$crate::bitmap::BitmapIndex> {
-                self.0.first_unset()
-            }
-
-            /// Iterate over unset indices
-            ///
-            /// See [`Bitmap::iter_unset`](crate::bitmap::Bitmap::iter_unset).
-            pub fn iter_unset(
-                &self
-            ) -> $crate::bitmap::Iter<&$crate::bitmap::Bitmap> {
-                self.0.iter_unset()
-            }
-
-            /// Check the last unset index, if any
-            ///
-            /// See [`Bitmap::last_unset`](crate::bitmap::Bitmap::last_unset).
-            pub fn last_unset(&self) -> Option<$crate::bitmap::BitmapIndex> {
-                self.0.last_unset()
-            }
-
-            /// Optimized version of `*self = !self`
-            ///
-            /// See [`Bitmap::invert`](crate::bitmap::Bitmap::invert).
-            pub fn invert(&mut self) {
-                self.0.invert()
-            }
-
-            /// Truth that `self` and `rhs` have some set indices in common
-            ///
-            /// See [`Bitmap::intersects`](crate::bitmap::Bitmap::intersects).
-            pub fn intersects(&self, rhs: impl std::ops::Deref<Target = Self>) -> bool {
-                self.0.intersects(&rhs.0)
-            }
-
-            /// Truth that the indices set in `inner` are a subset of those set
-            /// in `self`
-            ///
-            /// See [`Bitmap::includes`](crate::bitmap::Bitmap::includes).
-            pub fn includes(&self, inner: impl std::ops::Deref<Target = Self>) -> bool {
-                self.0.includes(&inner.0)
-            }
-        }
-
-        #[cfg(any(test, feature = "proptest"))]
-        impl proptest::arbitrary::Arbitrary for $newtype {
-            type Parameters = <$crate::bitmap::Bitmap as proptest::arbitrary::Arbitrary>::Parameters;
-
-            type Strategy = proptest::strategy::Map<
-                <$crate::bitmap::Bitmap as proptest::arbitrary::Arbitrary>::Strategy,
-                fn($crate::bitmap::Bitmap) -> Self,
-            >;
-
-            fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-                use proptest::prelude::*;
-                <$crate::bitmap::Bitmap as Arbitrary>::arbitrary_with(args).prop_map(Self)
-            }
-        }
-
-        impl<'target> AsRef<$crate::bitmap::Bitmap> for $crate::bitmap::BitmapRef<'_, $newtype> {
-            fn as_ref(&self) -> &$crate::bitmap::Bitmap {
-                let newtype: &$newtype = self.as_ref();
-                newtype.as_ref()
-            }
-        }
-
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitAnd<B> for &$newtype {
-            type Output = $newtype;
-
-            fn bitand(self, rhs: B) -> $newtype {
-                $newtype((&self.0) & (&rhs.borrow().0))
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::BitAnd<B> for $newtype {
-            type Output = Self;
-
-            fn bitand(self, rhs: B) -> Self {
-                $newtype(self.0 & (&rhs.borrow().0))
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::BitAndAssign<B> for $newtype {
-            fn bitand_assign(&mut self, rhs: B) {
-                self.0 &= (&rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitOr<B> for &$newtype {
-            type Output = $newtype;
-
-            fn bitor(self, rhs: B) -> $newtype {
-                $newtype(&self.0 | &rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::BitOr<B> for $newtype {
-            type Output = Self;
-
-            fn bitor(self, rhs: B) -> Self {
-                $newtype(self.0 | &rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::BitOrAssign<B> for $newtype {
-            fn bitor_assign(&mut self, rhs: B) {
-                self.0 |= &rhs.borrow().0
-            }
-        }
-
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::BitXor<B> for &$newtype {
-            type Output = $newtype;
-
-            fn bitxor(self, rhs: B) -> $newtype {
-                $newtype(&self.0 ^ &rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::BitXor<B> for $newtype {
-            type Output = Self;
-
-            fn bitxor(self, rhs: B) -> Self {
-                $newtype(self.0 ^ &rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::BitXorAssign<B> for $newtype {
-            fn bitxor_assign(&mut self, rhs: B) {
-                self.0 ^= &rhs.borrow().0
-            }
-        }
-
-        // NOTE: This seemingly useless impl is needed in order to have impls of
-        //       IntoIterator<Item=BitmapIndex> for &BitmapRef<$newtype>
-        #[doc(hidden)]
-        impl std::borrow::Borrow<$crate::bitmap::Bitmap> for &$newtype {
-            fn borrow(&self) -> &$crate::bitmap::Bitmap {
-                self.as_ref()
-            }
-        }
-
-        impl<'target> std::borrow::Borrow<$crate::bitmap::Bitmap> for $newtype {
-            fn borrow(&self) -> &$crate::bitmap::Bitmap {
-                self.as_ref()
-            }
-        }
-
-        impl<'target> std::borrow::Borrow<$crate::bitmap::Bitmap> for $crate::bitmap::BitmapRef<'_, $newtype> {
-            fn borrow(&self) -> &$crate::bitmap::Bitmap {
-                self.as_ref()
-            }
-        }
-
-        impl<'target> std::borrow::BorrowMut<$crate::bitmap::Bitmap> for $newtype {
-            fn borrow_mut(&mut self) -> &mut $crate::bitmap::Bitmap {
-                self.as_mut()
-            }
-        }
-
-        impl std::fmt::Debug for $newtype {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let text = format!("{}({:?})", stringify!($newtype), &self.0);
-                f.pad(&text)
-            }
-        }
-
-        impl std::fmt::Display for $newtype {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let text = format!("{}({})", stringify!($newtype), &self.0);
-                f.pad(&text)
-            }
-        }
-
-        impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> Extend<BI> for $newtype {
-            fn extend<T: IntoIterator<Item = BI>>(&mut self, iter: T) {
-                self.0.extend(iter)
-            }
-        }
-
-        impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> From<BI> for $newtype {
-            fn from(value: BI) -> Self {
-                Self(value.into())
-            }
-        }
-
-        impl<'target> From<$crate::bitmap::BitmapRef<'target, $crate::bitmap::Bitmap>> for $crate::bitmap::BitmapRef<'target, $newtype> {
-            fn from(input: $crate::bitmap::BitmapRef<'target, $crate::bitmap::Bitmap>) -> Self {
-                input.cast()
-            }
-        }
-
-        impl<'target> From<$crate::bitmap::BitmapRef<'target, $newtype>> for $crate::bitmap::BitmapRef<'target, $crate::bitmap::Bitmap> {
-            fn from(input: $crate::bitmap::BitmapRef<'target, $newtype>) -> Self {
-                input.cast()
-            }
-        }
-
-        impl<BI: std::borrow::Borrow<$crate::bitmap::BitmapIndex>> FromIterator<BI> for $newtype {
-            fn from_iter<I: IntoIterator<Item = BI>>(iter: I) -> Self {
-                Self($crate::bitmap::Bitmap::from_iter(iter))
-            }
-        }
-
-        impl std::hash::Hash for $newtype {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                self.0.hash(state)
-            }
-        }
-
-        impl<'newtype> IntoIterator for &'newtype $newtype {
-            type Item = $crate::bitmap::BitmapIndex;
-            type IntoIter = $crate::bitmap::Iter<&'newtype $crate::bitmap::Bitmap>;
-
-            fn into_iter(self) -> Self::IntoIter {
-                (&self.0).into_iter()
-            }
-        }
-
-        impl std::ops::Not for &$newtype {
-            type Output = $newtype;
-
-            fn not(self) -> $newtype {
-                $newtype(!&self.0)
-            }
-        }
-
-        // SAFETY: $newtype is a repr(transparent) newtype of Bitmap, which is
-        //         itself a repr(transparent) newtype of RawBitmap.
-        unsafe impl $crate::bitmap::OwnedBitmap for $newtype {
-            unsafe fn inner(&self) -> std::ptr::NonNull<hwlocality_sys::hwloc_bitmap_s> {
-                // SAFETY: Safety proof inherited from `Bitmap`
-                unsafe { self.0.inner() }
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> PartialEq<B> for $newtype {
-            fn eq(&self, other: &B) -> bool {
-                self.0 == other.borrow().0
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> PartialOrd<B> for $newtype {
-            fn partial_cmp(&self, other: &B) -> Option<std::cmp::Ordering> {
-                self.0.partial_cmp(&other.borrow().0)
-            }
-        }
-
-        impl std::fmt::Pointer for $newtype {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                <$crate::bitmap::Bitmap as std::fmt::Pointer>::fmt(&self.0, f)
-            }
-        }
-
-        impl $crate::Sealed for $newtype {}
-
-        impl<B: std::borrow::Borrow<$newtype>> std::ops::Sub<B> for &$newtype {
-            type Output = $newtype;
-
-            fn sub(self, rhs: B) -> $newtype {
-                $newtype(&self.0 - &rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::Sub<B> for $newtype {
-            type Output = Self;
-
-            fn sub(self, rhs: B) -> Self {
-                $newtype(self.0 - &rhs.borrow().0)
-            }
-        }
-
-        impl<B: std::borrow::Borrow<Self>> std::ops::SubAssign<B> for $newtype {
-            fn sub_assign(&mut self, rhs: B) {
-                self.0 -= &rhs.borrow().0
-            }
-        }
+        impl_bitmap_newtype!(
+            $(#[$attr])*
+            { $newtype => bitmap_newtype }
+        );
     };
-}
-
-/// Generate the tests for a bitmap newtype
-#[macro_export]
-#[cfg(test)]
-#[doc(hidden)]
-macro_rules! impl_bitmap_newtype_tests {
-    ($newtype:ident) => {
-        impl_bitmap_newtype_tests!($newtype => bitmap_newtype);
-    };
-    ($newtype:ident => $mod_name:ident) => {
-        #[allow(
-            clippy::cognitive_complexity,
-            clippy::op_ref,
-            clippy::too_many_lines,
-            non_camel_case_name,
-            trivial_casts
-        )]
+    (
+        $(#[$attr:meta])*
+        { $newtype:ident => $mod_name:ident }
+    ) => {
+        #[allow(unused_imports)]
         mod $mod_name {
             use super::*;
             use $crate::{
                 bitmap::{
-                    tests::INFINITE_EXPLORE_ITERS, Bitmap, BitmapIndex,
-                    BitmapKind, BitmapRef, OwnedBitmap, OwnedSpecializedBitmap,
-                    SpecializedBitmap
+                    Bitmap, BitmapIndex, BitmapKind, BitmapRef, OwnedBitmap,
+                    Iter, SpecializedBitmap
                 },
-                ffi::int::PositiveInt,
             };
+            use derive_more::{AsMut, AsRef, From, Into, IntoIterator, Not};
+            use hwlocality_sys::hwloc_bitmap_s;
             #[allow(unused)]
-            use pretty_assertions::{assert_eq, assert_ne};
+            #[cfg(any(test, feature = "proptest"))]
             use proptest::prelude::*;
+            #[cfg(test)]
+            use similar_asserts::assert_eq;
             use std::{
                 borrow::{Borrow, BorrowMut},
-                collections::hash_map::RandomState,
-                error::Error,
-                fmt::{
-                    self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-                },
-                hash::{Hash, BuildHasher},
-                io::{self, Read},
-                mem::ManuallyDrop,
+                cmp::Ordering,
+                fmt::{self, Debug, Display, Formatter, Pointer},
+                hash::{Hash, Hasher},
                 ops::{
-                    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Deref, Drop,
-                    BitXorAssign, Not, RangeInclusive, Sub, SubAssign
+                    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Deref,
+                    BitXorAssign, Not, RangeBounds, Sub, SubAssign
                 },
-                panic::{UnwindSafe},
-                ptr::{self, NonNull}
+                ptr::NonNull
             };
-            use static_assertions::{assert_impl_all, assert_not_impl_any};
 
-            // Check that newtypes keep implementing all expected traits,
-            // in the interest of detecting future semver-breaking changes
-            assert_impl_all!($newtype:
-                AsMut<Bitmap>,
-                BitAnd<$newtype>, BitAnd<&'static $newtype>,
-                BitAnd<BitmapRef<'static, $newtype>>,
-                BitAnd<&'static BitmapRef<'static, $newtype>>,
-                BitAndAssign<$newtype>, BitAndAssign<&'static $newtype>,
-                BitAndAssign<BitmapRef<'static, $newtype>>,
-                BitAndAssign<&'static BitmapRef<'static, $newtype>>,
-                BitOr<$newtype>, BitOr<&'static $newtype>,
-                BitOr<BitmapRef<'static, $newtype>>,
-                BitOr<&'static BitmapRef<'static, $newtype>>,
-                BitOrAssign<$newtype>, BitOrAssign<&'static $newtype>,
-                BitOrAssign<BitmapRef<'static, $newtype>>,
-                BitOrAssign<&'static BitmapRef<'static, $newtype>>,
-                BitXor<$newtype>, BitXor<&'static $newtype>,
-                BitXor<BitmapRef<'static, $newtype>>,
-                BitXor<&'static BitmapRef<'static, $newtype>>,
-                BitXorAssign<$newtype>, BitXorAssign<&'static $newtype>,
-                BitXorAssign<BitmapRef<'static, $newtype>>,
-                BitXorAssign<&'static BitmapRef<'static, $newtype>>,
-                BorrowMut<Bitmap>, Clone, Debug, Default, Display, Eq,
-                Extend<BitmapIndex>, Extend<&'static BitmapIndex>,
-                From<Bitmap>, From<BitmapIndex>, From<&'static BitmapIndex>,
-                FromIterator<BitmapIndex>, FromIterator<&'static BitmapIndex>,
-                Hash, Into<Bitmap>, IntoIterator<Item=BitmapIndex>, Not, Ord,
-                OwnedSpecializedBitmap,
-                PartialEq<&'static $newtype>,
-                PartialEq<BitmapRef<'static, $newtype>>,
-                PartialEq<&'static BitmapRef<'static, $newtype>>,
-                PartialOrd<&'static $newtype>,
-                PartialOrd<BitmapRef<'static, $newtype>>,
-                PartialOrd<&'static BitmapRef<'static, $newtype>>,
-                Pointer, Sized,
-                Sub<$newtype>, Sub<&'static $newtype>,
-                Sub<BitmapRef<'static, $newtype>>,
-                Sub<&'static BitmapRef<'static, $newtype>>,
-                SubAssign<$newtype>, SubAssign<&'static $newtype>,
-                SubAssign<BitmapRef<'static, $newtype>>,
-                SubAssign<&'static BitmapRef<'static, $newtype>>,
-                Sync, Unpin, UnwindSafe
-            );
-            assert_not_impl_any!($newtype:
-                Binary, Copy, Deref, Error, LowerExp, LowerHex, Octal, Read,
-                UpperExp, UpperHex, fmt::Write, io::Write
-            );
-            assert_impl_all!(&$newtype:
-                BitAnd<$newtype>, BitAnd<&'static $newtype>,
-                BitAnd<BitmapRef<'static, $newtype>>,
-                BitAnd<&'static BitmapRef<'static, $newtype>>,
-                BitOr<$newtype>, BitOr<&'static $newtype>,
-                BitOr<BitmapRef<'static, $newtype>>,
-                BitOr<&'static BitmapRef<'static, $newtype>>,
-                BitXor<$newtype>, BitXor<&'static $newtype>,
-                BitXor<BitmapRef<'static, $newtype>>,
-                BitXor<&'static BitmapRef<'static, $newtype>>,
-                IntoIterator<Item=BitmapIndex>,
-                Not<Output=$newtype>,
-                Sub<$newtype>, Sub<&'static $newtype>,
-                Sub<BitmapRef<'static, $newtype>>,
-                Sub<&'static BitmapRef<'static, $newtype>>,
-            );
-            assert_impl_all!(BitmapRef<'static, $newtype>:
-                AsRef<$newtype>, AsRef<Bitmap>,
-                BitAnd<$newtype>, BitAnd<&'static $newtype>,
-                BitAnd<BitmapRef<'static, $newtype>>,
-                BitAnd<&'static BitmapRef<'static, $newtype>>,
-                BitOr<$newtype>, BitOr<&'static $newtype>,
-                BitOr<BitmapRef<'static, $newtype>>,
-                BitOr<&'static BitmapRef<'static, $newtype>>,
-                BitXor<$newtype>, BitXor<&'static $newtype>,
-                BitXor<BitmapRef<'static, $newtype>>,
-                BitXor<&'static BitmapRef<'static, $newtype>>,
-                Borrow<$newtype>, Borrow<Bitmap>, Copy, Debug,
-                Deref<Target=$newtype>, Display, Eq, From<&'static $newtype>,
-                Hash, Into<BitmapRef<'static, Bitmap>>,
-                IntoIterator<Item=BitmapIndex>, Not<Output=$newtype>, Ord,
-                PartialEq<&'static $newtype>,
-                PartialEq<BitmapRef<'static, $newtype>>,
-                PartialEq<&'static BitmapRef<'static, $newtype>>,
-                PartialOrd<&'static $newtype>,
-                PartialOrd<BitmapRef<'static, $newtype>>,
-                PartialOrd<&'static BitmapRef<'static, $newtype>>,
-                Pointer, Sized, SpecializedBitmap<Owned=$newtype>,
-                Sub<$newtype>, Sub<&'static $newtype>,
-                Sub<BitmapRef<'static, $newtype>>,
-                Sub<&'static BitmapRef<'static, $newtype>>,
-                Sync, Unpin, UnwindSafe
-            );
-            assert_not_impl_any!(BitmapRef<'_, $newtype>:
-                Binary, Default, Drop, Error, LowerExp, LowerHex, Octal, Read,
-                UpperExp, UpperHex, fmt::Write, io::Write
-            );
-            assert_impl_all!(&BitmapRef<'static, $newtype>:
-                BitAnd<$newtype>, BitAnd<&'static $newtype>,
-                BitAnd<BitmapRef<'static, $newtype>>,
-                BitAnd<&'static BitmapRef<'static, $newtype>>,
-                BitOr<$newtype>, BitOr<&'static $newtype>,
-                BitOr<BitmapRef<'static, $newtype>>,
-                BitOr<&'static BitmapRef<'static, $newtype>>,
-                BitXor<$newtype>, BitXor<&'static $newtype>,
-                BitXor<BitmapRef<'static, $newtype>>,
-                BitXor<&'static BitmapRef<'static, $newtype>>,
-                IntoIterator<Item=BitmapIndex>,
-                Not<Output=$newtype>,
-                Sub<$newtype>, Sub<&'static $newtype>,
-                Sub<BitmapRef<'static, $newtype>>,
-                Sub<&'static BitmapRef<'static, $newtype>>,
-            );
+            $(#[$attr])*
+            #[derive(
+                AsMut,
+                AsRef,
+                Clone,
+                Default,
+                Eq,
+                From,
+                Into,
+                IntoIterator,
+                Not,
+                Ord,
+            )]
+            #[repr(transparent)]
+            pub struct $newtype(Bitmap);
 
-            #[test]
-            fn static_checks() {
-                assert_eq!($newtype::BITMAP_KIND, BitmapKind::$newtype);
-                assert_eq!(
-                    BitmapRef::<'static, $newtype>::BITMAP_KIND,
-                    BitmapKind::$newtype
+            impl SpecializedBitmap for $newtype {
+                const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
+
+                type Owned = Self;
+
+                fn to_owned(&self) -> Self {
+                    self.clone()
+                }
+            }
+
+            impl SpecializedBitmap for BitmapRef<'_, $newtype> {
+                const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
+
+                type Owned = $newtype;
+
+                fn to_owned(&self) -> $newtype {
+                    self.clone_target()
+                }
+            }
+
+            /// # Re-export of the Bitmap API
+            ///
+            /// Only documentation headers are repeated here, you will find most of
+            /// the documentation attached to identically named `Bitmap` methods.
+            impl $newtype {
+                /// Wraps an owned nullable hwloc bitmap
+                ///
+                /// See [`Bitmap::from_owned_raw_mut`](crate::bitmap::Bitmap::from_owned_raw_mut).
+                #[allow(unused)]
+                pub(crate) unsafe fn from_owned_raw_mut(bitmap: *mut hwloc_bitmap_s) -> Option<Self> {
+                    // SAFETY: Safety contract inherited from identical Bitmap method
+                    unsafe {
+                        Bitmap::from_owned_raw_mut(bitmap).map(Self::from)
+                    }
+                }
+
+                /// Wraps an owned hwloc bitmap
+                ///
+                /// See [`Bitmap::from_owned_nonnull`](crate::bitmap::Bitmap::from_owned_nonnull).
+                #[allow(unused)]
+                pub(crate) unsafe fn from_owned_nonnull(bitmap: NonNull<hwloc_bitmap_s>) -> Self {
+                    // SAFETY: Safety contract inherited from identical Bitmap method
+                    unsafe {
+                        Self::from(Bitmap::from_owned_nonnull(bitmap))
+                    }
+                }
+
+                /// Wraps a borrowed nullable hwloc bitmap
+                ///
+                /// See [`Bitmap::borrow_from_raw`](crate::bitmap::Bitmap::borrow_from_raw).
+                #[allow(unused)]
+                pub(crate) unsafe fn borrow_from_raw<'target>(
+                    bitmap: *const hwloc_bitmap_s
+                ) -> Option<BitmapRef<'target, Self>> {
+                    // SAFETY: Safety contract inherited from identical Bitmap method
+                    unsafe {
+                        Bitmap::borrow_from_raw(bitmap).map(BitmapRef::cast)
+                    }
+                }
+
+                /// Wraps a borrowed nullable hwloc bitmap
+                ///
+                /// See [`Bitmap::borrow_from_raw_mut`](crate::bitmap::Bitmap::borrow_from_raw_mut).
+                #[allow(unused)]
+                pub(crate) unsafe fn borrow_from_raw_mut<'target>(
+                    bitmap: *mut hwloc_bitmap_s
+                ) -> Option<BitmapRef<'target, Self>> {
+                    // SAFETY: Safety contract inherited from identical Bitmap method
+                    unsafe {
+                        Bitmap::borrow_from_raw_mut(bitmap).map(BitmapRef::cast)
+                    }
+                }
+
+                /// Wraps a borrowed hwloc bitmap
+                ///
+                /// See [`Bitmap::borrow_from_nonnull`](crate::bitmap::Bitmap::borrow_from_nonnull).
+                #[allow(unused)]
+                pub(crate) unsafe fn borrow_from_nonnull<'target>(
+                    bitmap: NonNull<hwloc_bitmap_s>
+                ) -> BitmapRef<'target, Self> {
+                    // SAFETY: Safety contract inherited from identical Bitmap method
+                    unsafe {
+                        Bitmap::borrow_from_nonnull(bitmap).cast()
+                    }
+                }
+
+                /// Contained bitmap pointer (for interaction with hwloc)
+                ///
+                /// See [`Bitmap::as_ptr`](crate::bitmap::Bitmap::as_ptr).
+                #[allow(unused)]
+                pub(crate) fn as_ptr(&self) -> *const hwloc_bitmap_s {
+                    self.0.as_ptr()
+                }
+
+                /// Contained mutable bitmap pointer (for interaction with hwloc)
+                ///
+                /// See [`Bitmap::as_mut_ptr`](crate::bitmap::Bitmap::as_mut_ptr).
+                #[allow(unused)]
+                pub(crate) fn as_mut_ptr(&mut self) -> *mut hwloc_bitmap_s {
+                    self.0.as_mut_ptr()
+                }
+
+                /// Create an empty bitmap
+                ///
+                /// See [`Bitmap::new`](crate::bitmap::Bitmap::new).
+                pub fn new() -> Self {
+                    Self::from(Bitmap::new())
+                }
+
+                /// Create a full bitmap
+                ///
+                /// See [`Bitmap::full`](crate::bitmap::Bitmap::full).
+                pub fn full() -> Self {
+                    Self::from(Bitmap::full())
+                }
+
+                /// Creates a new bitmap with the given range of indices set
+                ///
+                /// See [`Bitmap::from_range`](crate::bitmap::Bitmap::from_range).
+                pub fn from_range<Idx>(range: impl RangeBounds<Idx>) -> Self
+                where
+                    Idx: Copy + TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    Self::from(Bitmap::from_range(range))
+                }
+
+                /// Turn this bitmap into a copy of another bitmap
+                ///
+                /// See [`Bitmap::copy_from`](crate::bitmap::Bitmap::copy_from).
+                pub fn copy_from(&mut self, other: impl Deref<Target = Self>) {
+                    self.0.copy_from(&other.0)
+                }
+
+                /// Clear all indices
+                ///
+                /// See [`Bitmap::clear`](crate::bitmap::Bitmap::clear).
+                pub fn clear(&mut self) {
+                    self.0.clear()
+                }
+
+                /// Set all indices
+                ///
+                /// See [`Bitmap::fill`](crate::bitmap::Bitmap::fill).
+                pub fn fill(&mut self) {
+                    self.0.fill()
+                }
+
+                /// Clear all indices except for `idx`, which is set
+                ///
+                /// See [`Bitmap::set_only`](crate::bitmap::Bitmap::set_only).
+                pub fn set_only<Idx>(&mut self, idx: Idx)
+                where
+                    Idx: TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.set_only(idx)
+                }
+
+                /// Set all indices except for `idx`, which is cleared
+                ///
+                /// See [`Bitmap::set_all_but`](crate::bitmap::Bitmap::set_all_but).
+                pub fn set_all_but<Idx>(&mut self, idx: Idx)
+                where
+                    Idx: TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.set_all_but(idx)
+                }
+
+                /// Set index `idx`
+                ///
+                /// See [`Bitmap::set`](crate::bitmap::Bitmap::set).
+                pub fn set<Idx>(&mut self, idx: Idx)
+                where
+                    Idx: TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.set(idx)
+                }
+
+                /// Set indices covered by `range`
+                ///
+                /// See [`Bitmap::set_range`](crate::bitmap::Bitmap::set_range).
+                pub fn set_range<Idx>(&mut self, range: impl RangeBounds<Idx>)
+                where
+                    Idx: Copy + TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.set_range(range)
+                }
+
+                /// Clear index `idx`
+                ///
+                /// See [`Bitmap::unset`](crate::bitmap::Bitmap::unset).
+                pub fn unset<Idx>(&mut self, idx: Idx)
+                where
+                    Idx: TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.unset(idx)
+                }
+
+                /// Clear indices covered by `range`
+                ///
+                /// See [`Bitmap::unset_range`](crate::bitmap::Bitmap::unset_range).
+                pub fn unset_range<Idx>(&mut self, range: impl RangeBounds<Idx>)
+                where
+                    Idx: Copy + TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.unset_range(range)
+                }
+
+                /// Keep a single index among those set in the bitmap
+                ///
+                /// See [`Bitmap::singlify`](crate::bitmap::Bitmap::singlify).
+                pub fn singlify(&mut self) {
+                    self.0.singlify()
+                }
+
+                /// Check if index `idx` is set
+                ///
+                /// See [`Bitmap::is_set`](crate::bitmap::Bitmap::is_set).
+                pub fn is_set<Idx>(&self, idx: Idx) -> bool
+                where
+                    Idx: TryInto<BitmapIndex>,
+                    <Idx as TryInto<BitmapIndex>>::Error: Debug,
+                {
+                    self.0.is_set(idx)
+                }
+
+                /// Check if all indices are unset
+                ///
+                /// See [`Bitmap::is_empty`](crate::bitmap::Bitmap::is_empty).
+                pub fn is_empty(&self) -> bool {
+                    self.0.is_empty()
+                }
+
+                /// Check if all indices are set
+                ///
+                /// See [`Bitmap::is_full`](crate::bitmap::Bitmap::is_full).
+                pub fn is_full(&self) -> bool {
+                    self.0.is_full()
+                }
+
+                /// Check the first set index, if any
+                ///
+                /// See [`Bitmap::first_set`](crate::bitmap::Bitmap::first_set).
+                pub fn first_set(&self) -> Option<BitmapIndex> {
+                    self.0.first_set()
+                }
+
+                /// Iterate over set indices
+                ///
+                /// See [`Bitmap::iter_set`](crate::bitmap::Bitmap::iter_set).
+                pub fn iter_set(&self) -> Iter<&Bitmap> {
+                    self.0.iter_set()
+                }
+
+                /// Check the last set index, if any
+                ///
+                /// See [`Bitmap::last_set`](crate::bitmap::Bitmap::last_set).
+                pub fn last_set(&self) -> Option<BitmapIndex> {
+                    self.0.last_set()
+                }
+
+                /// The number of indices that are set in the bitmap
+                ///
+                /// See [`Bitmap::weight`](crate::bitmap::Bitmap::weight).
+                pub fn weight(&self) -> Option<usize> {
+                    self.0.weight()
+                }
+
+                /// Check the first unset index, if any
+                ///
+                /// See [`Bitmap::first_unset`](crate::bitmap::Bitmap::first_unset).
+                pub fn first_unset(&self) -> Option<BitmapIndex> {
+                    self.0.first_unset()
+                }
+
+                /// Iterate over unset indices
+                ///
+                /// See [`Bitmap::iter_unset`](crate::bitmap::Bitmap::iter_unset).
+                pub fn iter_unset(&self) -> Iter<&Bitmap> {
+                    self.0.iter_unset()
+                }
+
+                /// Check the last unset index, if any
+                ///
+                /// See [`Bitmap::last_unset`](crate::bitmap::Bitmap::last_unset).
+                pub fn last_unset(&self) -> Option<BitmapIndex> {
+                    self.0.last_unset()
+                }
+
+                /// Optimized version of `*self = !self`
+                ///
+                /// See [`Bitmap::invert`](crate::bitmap::Bitmap::invert).
+                pub fn invert(&mut self) {
+                    self.0.invert()
+                }
+
+                /// Truth that `self` and `rhs` have some set indices in common
+                ///
+                /// See [`Bitmap::intersects`](crate::bitmap::Bitmap::intersects).
+                pub fn intersects(&self, rhs: impl Deref<Target = Self>) -> bool {
+                    self.0.intersects(&rhs.0)
+                }
+
+                /// Truth that the indices set in `inner` are a subset of those set
+                /// in `self`
+                ///
+                /// See [`Bitmap::includes`](crate::bitmap::Bitmap::includes).
+                pub fn includes(&self, inner: impl Deref<Target = Self>) -> bool {
+                    self.0.includes(&inner.0)
+                }
+            }
+
+            #[cfg(any(test, feature = "proptest"))]
+            impl Arbitrary for $newtype {
+                type Parameters = <Bitmap as Arbitrary>::Parameters;
+                type Strategy = prop::strategy::Map<
+                    <Bitmap as Arbitrary>::Strategy,
+                    fn(Bitmap) -> Self,
+                >;
+
+                fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+                    <Bitmap as Arbitrary>::arbitrary_with(args).prop_map(Self)
+                }
+            }
+
+            impl<'target> AsRef<Bitmap> for BitmapRef<'_, $newtype> {
+                fn as_ref(&self) -> &Bitmap {
+                    let newtype: &$newtype = self.as_ref();
+                    newtype.as_ref()
+                }
+            }
+
+            impl<B: Borrow<$newtype>> BitAnd<B> for &$newtype {
+                type Output = $newtype;
+
+                fn bitand(self, rhs: B) -> $newtype {
+                    $newtype((&self.0) & (&rhs.borrow().0))
+                }
+            }
+
+            impl<B: Borrow<Self>> BitAnd<B> for $newtype {
+                type Output = Self;
+
+                fn bitand(self, rhs: B) -> Self {
+                    $newtype(self.0 & (&rhs.borrow().0))
+                }
+            }
+
+            impl<B: Borrow<Self>> BitAndAssign<B> for $newtype {
+                fn bitand_assign(&mut self, rhs: B) {
+                    self.0 &= (&rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<$newtype>> BitOr<B> for &$newtype {
+                type Output = $newtype;
+
+                fn bitor(self, rhs: B) -> $newtype {
+                    $newtype(&self.0 | &rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<Self>> BitOr<B> for $newtype {
+                type Output = Self;
+
+                fn bitor(self, rhs: B) -> Self {
+                    $newtype(self.0 | &rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<Self>> BitOrAssign<B> for $newtype {
+                fn bitor_assign(&mut self, rhs: B) {
+                    self.0 |= &rhs.borrow().0
+                }
+            }
+
+            impl<B: Borrow<$newtype>> BitXor<B> for &$newtype {
+                type Output = $newtype;
+
+                fn bitxor(self, rhs: B) -> $newtype {
+                    $newtype(&self.0 ^ &rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<Self>> BitXor<B> for $newtype {
+                type Output = Self;
+
+                fn bitxor(self, rhs: B) -> Self {
+                    $newtype(self.0 ^ &rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<Self>> BitXorAssign<B> for $newtype {
+                fn bitxor_assign(&mut self, rhs: B) {
+                    self.0 ^= &rhs.borrow().0
+                }
+            }
+
+            // NOTE: This seemingly useless impl is needed in order to have impls of
+            //       IntoIterator<Item=BitmapIndex> for &BitmapRef<$newtype>
+            #[doc(hidden)]
+            impl Borrow<Bitmap> for &$newtype {
+                fn borrow(&self) -> &Bitmap {
+                    self.as_ref()
+                }
+            }
+
+            impl<'target> Borrow<Bitmap> for $newtype {
+                fn borrow(&self) -> &Bitmap {
+                    self.as_ref()
+                }
+            }
+
+            impl<'target> Borrow<Bitmap> for BitmapRef<'_, $newtype> {
+                fn borrow(&self) -> &Bitmap {
+                    self.as_ref()
+                }
+            }
+
+            impl<'target> BorrowMut<Bitmap> for $newtype {
+                fn borrow_mut(&mut self) -> &mut Bitmap {
+                    self.as_mut()
+                }
+            }
+
+            impl Debug for $newtype {
+                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                    let text = format!("{}({:?})", stringify!($newtype), &self.0);
+                    f.pad(&text)
+                }
+            }
+
+            impl Display for $newtype {
+                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                    let text = format!("{}({})", stringify!($newtype), &self.0);
+                    f.pad(&text)
+                }
+            }
+
+            impl<BI: Borrow<BitmapIndex>> Extend<BI> for $newtype {
+                fn extend<T: IntoIterator<Item = BI>>(&mut self, iter: T) {
+                    self.0.extend(iter)
+                }
+            }
+
+            impl<BI: Borrow<BitmapIndex>> From<BI> for $newtype {
+                fn from(value: BI) -> Self {
+                    Self(value.into())
+                }
+            }
+
+            impl<'target> From<BitmapRef<'target, Bitmap>> for BitmapRef<'target, $newtype> {
+                fn from(input: BitmapRef<'target, Bitmap>) -> Self {
+                    input.cast()
+                }
+            }
+
+            impl<'target> From<BitmapRef<'target, $newtype>> for BitmapRef<'target, Bitmap> {
+                fn from(input: BitmapRef<'target, $newtype>) -> Self {
+                    input.cast()
+                }
+            }
+
+            impl<BI: Borrow<BitmapIndex>> FromIterator<BI> for $newtype {
+                fn from_iter<I: IntoIterator<Item = BI>>(iter: I) -> Self {
+                    Self(Bitmap::from_iter(iter))
+                }
+            }
+
+            impl Hash for $newtype {
+                fn hash<H: Hasher>(&self, state: &mut H) {
+                    self.0.hash(state)
+                }
+            }
+
+            impl<'newtype> IntoIterator for &'newtype $newtype {
+                type Item = BitmapIndex;
+                type IntoIter = Iter<&'newtype Bitmap>;
+
+                fn into_iter(self) -> Self::IntoIter {
+                    (&self.0).into_iter()
+                }
+            }
+
+            impl Not for &$newtype {
+                type Output = $newtype;
+
+                fn not(self) -> $newtype {
+                    $newtype(!&self.0)
+                }
+            }
+
+            // SAFETY: $newtype is a repr(transparent) newtype of Bitmap, which is
+            //         itself a repr(transparent) newtype of RawBitmap.
+            unsafe impl OwnedBitmap for $newtype {
+                unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s> {
+                    // SAFETY: Safety proof inherited from `Bitmap`
+                    unsafe { self.0.inner() }
+                }
+            }
+
+            impl<B: Borrow<Self>> PartialEq<B> for $newtype {
+                fn eq(&self, other: &B) -> bool {
+                    self.0 == other.borrow().0
+                }
+            }
+
+            impl<B: Borrow<Self>> PartialOrd<B> for $newtype {
+                fn partial_cmp(&self, other: &B) -> Option<Ordering> {
+                    self.0.partial_cmp(&other.borrow().0)
+                }
+            }
+
+            impl Pointer for $newtype {
+                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                    <Bitmap as Pointer>::fmt(&self.0, f)
+                }
+            }
+
+            impl $crate::Sealed for $newtype {}
+
+            impl<B: Borrow<$newtype>> Sub<B> for &$newtype {
+                type Output = $newtype;
+
+                fn sub(self, rhs: B) -> $newtype {
+                    $newtype(&self.0 - &rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<Self>> Sub<B> for $newtype {
+                type Output = Self;
+
+                fn sub(self, rhs: B) -> Self {
+                    $newtype(self.0 - &rhs.borrow().0)
+                }
+            }
+
+            impl<B: Borrow<Self>> SubAssign<B> for $newtype {
+                fn sub_assign(&mut self, rhs: B) {
+                    self.0 -= &rhs.borrow().0
+                }
+            }
+
+            #[allow(
+                clippy::cognitive_complexity,
+                clippy::op_ref,
+                clippy::too_many_lines,
+                non_camel_case_name,
+                trivial_casts
+            )]
+            #[cfg(test)]
+            mod tests {
+                use super::*;
+                use $crate::{
+                    bitmap::{
+                        tests::{index_range, index_vec, INFINITE_EXPLORE_ITERS},
+                        OwnedSpecializedBitmap,
+                    },
+                    strategies::bitmap_index,
+                };
+                #[allow(unused)]
+                use similar_asserts::assert_eq;
+                use std::{
+                    collections::hash_map::RandomState,
+                    error::Error,
+                    fmt::{
+                        Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+                    },
+                    hash::BuildHasher,
+                    io::{self, Read},
+                    mem::ManuallyDrop,
+                    ops::Drop,
+                    panic::UnwindSafe,
+                    ptr,
+                };
+                use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+                // Check that newtypes keep implementing all expected traits,
+                // in the interest of detecting future semver-breaking changes
+                assert_impl_all!($newtype:
+                    AsMut<Bitmap>,
+                    BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                    BitAnd<BitmapRef<'static, $newtype>>,
+                    BitAnd<&'static BitmapRef<'static, $newtype>>,
+                    BitAndAssign<$newtype>, BitAndAssign<&'static $newtype>,
+                    BitAndAssign<BitmapRef<'static, $newtype>>,
+                    BitAndAssign<&'static BitmapRef<'static, $newtype>>,
+                    BitOr<$newtype>, BitOr<&'static $newtype>,
+                    BitOr<BitmapRef<'static, $newtype>>,
+                    BitOr<&'static BitmapRef<'static, $newtype>>,
+                    BitOrAssign<$newtype>, BitOrAssign<&'static $newtype>,
+                    BitOrAssign<BitmapRef<'static, $newtype>>,
+                    BitOrAssign<&'static BitmapRef<'static, $newtype>>,
+                    BitXor<$newtype>, BitXor<&'static $newtype>,
+                    BitXor<BitmapRef<'static, $newtype>>,
+                    BitXor<&'static BitmapRef<'static, $newtype>>,
+                    BitXorAssign<$newtype>, BitXorAssign<&'static $newtype>,
+                    BitXorAssign<BitmapRef<'static, $newtype>>,
+                    BitXorAssign<&'static BitmapRef<'static, $newtype>>,
+                    BorrowMut<Bitmap>, Clone, Debug, Default, Display, Eq,
+                    Extend<BitmapIndex>, Extend<&'static BitmapIndex>,
+                    From<Bitmap>, From<BitmapIndex>, From<&'static BitmapIndex>,
+                    FromIterator<BitmapIndex>, FromIterator<&'static BitmapIndex>,
+                    Hash, Into<Bitmap>, IntoIterator<Item=BitmapIndex>, Not, Ord,
+                    OwnedSpecializedBitmap,
+                    PartialEq<&'static $newtype>,
+                    PartialEq<BitmapRef<'static, $newtype>>,
+                    PartialEq<&'static BitmapRef<'static, $newtype>>,
+                    PartialOrd<&'static $newtype>,
+                    PartialOrd<BitmapRef<'static, $newtype>>,
+                    PartialOrd<&'static BitmapRef<'static, $newtype>>,
+                    Pointer, Sized,
+                    Sub<$newtype>, Sub<&'static $newtype>,
+                    Sub<BitmapRef<'static, $newtype>>,
+                    Sub<&'static BitmapRef<'static, $newtype>>,
+                    SubAssign<$newtype>, SubAssign<&'static $newtype>,
+                    SubAssign<BitmapRef<'static, $newtype>>,
+                    SubAssign<&'static BitmapRef<'static, $newtype>>,
+                    Sync, Unpin, UnwindSafe
                 );
-            }
+                assert_not_impl_any!($newtype:
+                    Binary, Copy, Deref, Error, LowerExp, LowerHex, Octal, Read,
+                    UpperExp, UpperHex, fmt::Write, io::Write
+                );
+                assert_impl_all!(&$newtype:
+                    BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                    BitAnd<BitmapRef<'static, $newtype>>,
+                    BitAnd<&'static BitmapRef<'static, $newtype>>,
+                    BitOr<$newtype>, BitOr<&'static $newtype>,
+                    BitOr<BitmapRef<'static, $newtype>>,
+                    BitOr<&'static BitmapRef<'static, $newtype>>,
+                    BitXor<$newtype>, BitXor<&'static $newtype>,
+                    BitXor<BitmapRef<'static, $newtype>>,
+                    BitXor<&'static BitmapRef<'static, $newtype>>,
+                    IntoIterator<Item=BitmapIndex>,
+                    Not<Output=$newtype>,
+                    Sub<$newtype>, Sub<&'static $newtype>,
+                    Sub<BitmapRef<'static, $newtype>>,
+                    Sub<&'static BitmapRef<'static, $newtype>>,
+                );
+                assert_impl_all!(BitmapRef<'static, $newtype>:
+                    AsRef<$newtype>, AsRef<Bitmap>,
+                    BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                    BitAnd<BitmapRef<'static, $newtype>>,
+                    BitAnd<&'static BitmapRef<'static, $newtype>>,
+                    BitOr<$newtype>, BitOr<&'static $newtype>,
+                    BitOr<BitmapRef<'static, $newtype>>,
+                    BitOr<&'static BitmapRef<'static, $newtype>>,
+                    BitXor<$newtype>, BitXor<&'static $newtype>,
+                    BitXor<BitmapRef<'static, $newtype>>,
+                    BitXor<&'static BitmapRef<'static, $newtype>>,
+                    Borrow<$newtype>, Borrow<Bitmap>, Copy, Debug,
+                    Deref<Target=$newtype>, Display, Eq, From<&'static $newtype>,
+                    Hash, Into<BitmapRef<'static, Bitmap>>,
+                    IntoIterator<Item=BitmapIndex>, Not<Output=$newtype>, Ord,
+                    PartialEq<&'static $newtype>,
+                    PartialEq<BitmapRef<'static, $newtype>>,
+                    PartialEq<&'static BitmapRef<'static, $newtype>>,
+                    PartialOrd<&'static $newtype>,
+                    PartialOrd<BitmapRef<'static, $newtype>>,
+                    PartialOrd<&'static BitmapRef<'static, $newtype>>,
+                    Pointer, Sized, SpecializedBitmap<Owned=$newtype>,
+                    Sub<$newtype>, Sub<&'static $newtype>,
+                    Sub<BitmapRef<'static, $newtype>>,
+                    Sub<&'static BitmapRef<'static, $newtype>>,
+                    Sync, Unpin, UnwindSafe
+                );
+                assert_not_impl_any!(BitmapRef<'_, $newtype>:
+                    Binary, Default, Drop, Error, LowerExp, LowerHex, Octal, Read,
+                    UpperExp, UpperHex, fmt::Write, io::Write
+                );
+                assert_impl_all!(&BitmapRef<'static, $newtype>:
+                    BitAnd<$newtype>, BitAnd<&'static $newtype>,
+                    BitAnd<BitmapRef<'static, $newtype>>,
+                    BitAnd<&'static BitmapRef<'static, $newtype>>,
+                    BitOr<$newtype>, BitOr<&'static $newtype>,
+                    BitOr<BitmapRef<'static, $newtype>>,
+                    BitOr<&'static BitmapRef<'static, $newtype>>,
+                    BitXor<$newtype>, BitXor<&'static $newtype>,
+                    BitXor<BitmapRef<'static, $newtype>>,
+                    BitXor<&'static BitmapRef<'static, $newtype>>,
+                    IntoIterator<Item=BitmapIndex>,
+                    Not<Output=$newtype>,
+                    Sub<$newtype>, Sub<&'static $newtype>,
+                    Sub<BitmapRef<'static, $newtype>>,
+                    Sub<&'static BitmapRef<'static, $newtype>>,
+                );
 
-            #[test]
-            fn nullary() {
-                assert_eq!($newtype::new(), $newtype(Bitmap::new()));
-                assert_eq!($newtype::full(), $newtype(Bitmap::full()));
-                assert_eq!($newtype::default(), $newtype(Bitmap::default()));
-
-                // SAFETY: All of the following are safe on null input
-                unsafe {
-                    assert_eq!($newtype::from_owned_raw_mut(ptr::null_mut()), None);
-                    assert_eq!($newtype::borrow_from_raw(ptr::null()), None);
-                    assert_eq!($newtype::borrow_from_raw_mut(ptr::null_mut()), None);
-                }
-            }
-
-            proptest! {
                 #[test]
-                fn from_idx(idx: PositiveInt) {
-                    prop_assert_eq!($newtype::from(idx), $newtype(Bitmap::from(idx)));
-                }
-
-                #[test]
-                fn from_range(range: RangeInclusive<PositiveInt>) {
-                    prop_assert_eq!(
-                        $newtype::from_range(range.clone()),
-                        $newtype(Bitmap::from_range(range))
+                fn static_checks() {
+                    assert_eq!($newtype::BITMAP_KIND, BitmapKind::$newtype);
+                    assert_eq!(
+                        BitmapRef::<'static, $newtype>::BITMAP_KIND,
+                        BitmapKind::$newtype
                     );
                 }
 
                 #[test]
-                fn from_iterator(v: Vec<PositiveInt>) {
-                    let new = v.iter().copied().collect::<$newtype>();
-                    let inner = v.into_iter().collect::<Bitmap>();
-                    prop_assert_eq!(new, $newtype(inner));
+                fn nullary() {
+                    assert_eq!($newtype::new(), $newtype(Bitmap::new()));
+                    assert_eq!($newtype::full(), $newtype(Bitmap::full()));
+                    assert_eq!($newtype::default(), $newtype(Bitmap::default()));
+
+                    // SAFETY: All of the following are safe on null input
+                    unsafe {
+                        assert_eq!($newtype::from_owned_raw_mut(ptr::null_mut()), None);
+                        assert_eq!($newtype::borrow_from_raw(ptr::null()), None);
+                        assert_eq!($newtype::borrow_from_raw_mut(ptr::null_mut()), None);
+                    }
                 }
 
-                #[test]
-                fn to_from_bitmap(bitmap: Bitmap) {
-                    let new = $newtype::from(bitmap.clone());
-                    prop_assert_eq!(&new.0, &bitmap);
-                    prop_assert_eq!(&Bitmap::from(new), &bitmap);
+                proptest! {
+                    #[test]
+                    fn from_idx(idx in bitmap_index()) {
+                        prop_assert_eq!($newtype::from(idx), $newtype(Bitmap::from(idx)));
+                    }
+
+                    #[test]
+                    fn from_range(range in index_range()) {
+                        prop_assert_eq!(
+                            $newtype::from_range(range.clone()),
+                            $newtype(Bitmap::from_range(range))
+                        );
+                    }
+
+                    #[test]
+                    fn from_iterator(v in index_vec()) {
+                        let new = v.iter().copied().collect::<$newtype>();
+                        let inner = v.into_iter().collect::<Bitmap>();
+                        prop_assert_eq!(new, $newtype(inner));
+                    }
+
+                    #[test]
+                    fn to_from_bitmap(bitmap: Bitmap) {
+                        let new = $newtype::from(bitmap.clone());
+                        prop_assert_eq!(&new.0, &bitmap);
+                        prop_assert_eq!(&Bitmap::from(new), &bitmap);
+                    }
                 }
-            }
 
-            fn test_newtype_ref(new: &$newtype, new_ref: BitmapRef<'_, $newtype>) -> Result<(), TestCaseError> {
-                let clone: $newtype = new_ref.clone_target();
-                prop_assert_eq!(clone, new);
+                fn test_newtype_ref(
+                    new: &$newtype,
+                    new_ref: BitmapRef<'_, $newtype>
+                ) -> Result<(), TestCaseError> {
+                    let clone: $newtype = new_ref.clone_target();
+                    prop_assert_eq!(clone, new);
 
-                prop_assert_eq!(
-                    <BitmapRef<'_, _> as AsRef<$newtype>>::as_ref(&new_ref).as_ptr(),
-                    new.as_ptr()
-                );
-                prop_assert_eq!(
-                    <BitmapRef<'_, _> as AsRef<Bitmap>>::as_ref(&new_ref).as_ptr(),
-                    new.as_ptr()
-                );
-                prop_assert_eq!(
-                    <BitmapRef<'_, _> as Borrow<$newtype>>::borrow(&new_ref).as_ptr(),
-                    new.as_ptr()
-                );
-                prop_assert_eq!(
-                    <BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&new_ref).as_ptr(),
-                    new.as_ptr()
-                );
-                prop_assert_eq!(
-                    <&BitmapRef<'_, _> as Borrow<$newtype>>::borrow(&&new_ref).as_ptr(),
-                    new.as_ptr()
-                );
-                prop_assert_eq!(
-                    <BitmapRef<'_, _> as Deref>::deref(&new_ref).as_ptr(),
-                    new.as_ptr()
-                );
-                let bitmap_ref = BitmapRef::<Bitmap>::from(new_ref);
-                prop_assert_eq!(bitmap_ref.as_ptr(), new_ref.as_ptr());
-                let new_ref2 = BitmapRef::<$newtype>::from(bitmap_ref);
-                prop_assert_eq!(new_ref2.as_ptr(), new_ref.as_ptr());
-
-                prop_assert_eq!(format!("{new:?}"), format!("{new_ref:?}"));
-                prop_assert_eq!(new.to_string(), new_ref.to_string());
-                let state = RandomState::new();
-                prop_assert_eq!(state.hash_one(new), state.hash_one(new_ref));
-                prop_assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
-
-                prop_assert!(new
-                    .iter_set()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq(new_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
-                prop_assert!(new
-                    .iter_set()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq((&new_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
-
-                prop_assert_eq!(!new, !new_ref);
-                prop_assert_eq!(!new, !&new_ref);
-                Ok(())
-            }
-
-            proptest! {
-                #[test]
-                fn unary(new: $newtype) {
-                    // Test unary newtype operations
-                    prop_assert_eq!(new.first_set(), new.0.first_set());
-                    prop_assert_eq!(new.last_set(), new.0.last_set());
-                    prop_assert_eq!(new.weight(), new.0.weight());
-                    prop_assert_eq!(new.first_unset(), new.0.first_unset());
-                    prop_assert_eq!(new.last_unset(), new.0.last_unset());
                     prop_assert_eq!(
-                        format!("{new:?}"),
-                        format!("{}({:?})", stringify!($newtype), new.0)
+                        <BitmapRef<'_, _> as AsRef<$newtype>>::as_ref(&new_ref).as_ptr(),
+                        new.as_ptr()
                     );
-                    prop_assert_eq!(format!("{:p}", new), format!("{:p}", new.0));
                     prop_assert_eq!(
-                        new.to_string(),
-                        format!("{}({})", stringify!($newtype), new.0)
+                        <BitmapRef<'_, _> as AsRef<Bitmap>>::as_ref(&new_ref).as_ptr(),
+                        new.as_ptr()
                     );
+                    prop_assert_eq!(
+                        <BitmapRef<'_, _> as Borrow<$newtype>>::borrow(&new_ref).as_ptr(),
+                        new.as_ptr()
+                    );
+                    prop_assert_eq!(
+                        <BitmapRef<'_, _> as Borrow<Bitmap>>::borrow(&new_ref).as_ptr(),
+                        new.as_ptr()
+                    );
+                    prop_assert_eq!(
+                        <&BitmapRef<'_, _> as Borrow<$newtype>>::borrow(&&new_ref).as_ptr(),
+                        new.as_ptr()
+                    );
+                    prop_assert_eq!(
+                        <BitmapRef<'_, _> as Deref>::deref(&new_ref).as_ptr(),
+                        new.as_ptr()
+                    );
+                    let bitmap_ref = BitmapRef::<Bitmap>::from(new_ref);
+                    prop_assert_eq!(bitmap_ref.as_ptr(), new_ref.as_ptr());
+                    let new_ref2 = BitmapRef::<$newtype>::from(bitmap_ref);
+                    prop_assert_eq!(new_ref2.as_ptr(), new_ref.as_ptr());
+
+                    prop_assert_eq!(format!("{new:?}"), format!("{new_ref:?}"));
+                    prop_assert_eq!(new.to_string(), new_ref.to_string());
                     let state = RandomState::new();
-                    prop_assert_eq!(state.hash_one(&new), state.hash_one(&new.0));
-                    // SAFETY: No mutation going on
-                    unsafe { prop_assert_eq!(new.inner(), new.0.inner()) };
-                    //
+                    prop_assert_eq!(state.hash_one(new), state.hash_one(new_ref));
+                    prop_assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
+
                     prop_assert!(new
                         .iter_set()
                         .take(INFINITE_EXPLORE_ITERS)
-                        .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                    prop_assert!((&new)
-                        .into_iter()
-                        .take(INFINITE_EXPLORE_ITERS)
-                        .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                        .eq(new_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
                     prop_assert!(new
-                        .clone()
-                        .into_iter()
+                        .iter_set()
                         .take(INFINITE_EXPLORE_ITERS)
-                        .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                    prop_assert!(new
-                        .iter_unset()
-                        .take(INFINITE_EXPLORE_ITERS)
-                        .eq(new.0.iter_unset().take(INFINITE_EXPLORE_ITERS)));
-                    //
-                    let mut buf = new.clone();
-                    buf.clear();
-                    prop_assert!(buf.is_empty());
-                    //
-                    buf.fill();
-                    prop_assert!(buf.is_full());
-                    //
-                    if new.weight().unwrap_or(usize::MAX) >= 1 {
+                        .eq((&new_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+
+                    prop_assert_eq!(!new, !new_ref);
+                    prop_assert_eq!(!new, !&new_ref);
+                    Ok(())
+                }
+
+                proptest! {
+                    #[test]
+                    fn unary(new: $newtype) {
+                        // Test unary newtype operations
+                        prop_assert_eq!(new.first_set(), new.0.first_set());
+                        prop_assert_eq!(new.last_set(), new.0.last_set());
+                        prop_assert_eq!(new.weight(), new.0.weight());
+                        prop_assert_eq!(new.first_unset(), new.0.first_unset());
+                        prop_assert_eq!(new.last_unset(), new.0.last_unset());
+                        prop_assert_eq!(
+                            format!("{new:?}"),
+                            format!("{}({:?})", stringify!($newtype), new.0)
+                        );
+                        prop_assert_eq!(format!("{:p}", new), format!("{:p}", new.0));
+                        prop_assert_eq!(
+                            new.to_string(),
+                            format!("{}({})", stringify!($newtype), new.0)
+                        );
+                        let state = RandomState::new();
+                        prop_assert_eq!(state.hash_one(&new), state.hash_one(&new.0));
+                        // SAFETY: No mutation going on
+                        unsafe { prop_assert_eq!(new.inner(), new.0.inner()) };
+                        //
+                        prop_assert!(new
+                            .iter_set()
+                            .take(INFINITE_EXPLORE_ITERS)
+                            .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                        prop_assert!((&new)
+                            .into_iter()
+                            .take(INFINITE_EXPLORE_ITERS)
+                            .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                        prop_assert!(new
+                            .clone()
+                            .into_iter()
+                            .take(INFINITE_EXPLORE_ITERS)
+                            .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                        prop_assert!(new
+                            .iter_unset()
+                            .take(INFINITE_EXPLORE_ITERS)
+                            .eq(new.0.iter_unset().take(INFINITE_EXPLORE_ITERS)));
+                        //
+                        let mut buf = new.clone();
+                        buf.clear();
+                        prop_assert!(buf.is_empty());
+                        //
+                        buf.fill();
+                        prop_assert!(buf.is_full());
+                        //
+                        if new.weight().unwrap_or(usize::MAX) >= 1 {
+                            buf.copy_from(&new);
+                            buf.singlify();
+                            prop_assert_eq!(buf.weight(), Some(1));
+                        }
+                        //
                         buf.copy_from(&new);
-                        buf.singlify();
-                        prop_assert_eq!(buf.weight(), Some(1));
+                        buf.invert();
+                        prop_assert_eq!(&buf, &$newtype(!&new.0));
+
+                        // Test AsRef-like conversions to Bitmap and BitmapRef
+                        prop_assert!(
+                            ptr::eq(
+                                <$newtype as AsRef<Bitmap>>::as_ref(&new),
+                                &new.0
+                            )
+                        );
+                        prop_assert!(
+                            ptr::eq(
+                                <$newtype as Borrow<Bitmap>>::borrow(&new),
+                                &new.0
+                            )
+                        );
+                        buf.copy_from(&new);
+                        prop_assert_eq!(
+                            <$newtype as AsMut<Bitmap>>::as_mut(&mut buf).as_ptr(),
+                            buf.0.as_ptr()
+                        );
+                        prop_assert_eq!(
+                            <$newtype as BorrowMut<Bitmap>>::borrow_mut(&mut buf).as_ptr(),
+                            buf.0.as_ptr()
+                        );
+
+                        // Test SpecializedBitmap operations
+                        prop_assert_eq!(&SpecializedBitmap::to_owned(&new), &new);
+                        prop_assert_eq!(&SpecializedBitmap::to_owned(&BitmapRef::from(&new)), &new);
+
+                        // Test low-level functions and BitmapRef<$newtype>
+                        test_newtype_ref(&&new, BitmapRef::from(&new))?;
+                        let new = ManuallyDrop::new(new);
+                        let new_const = new.as_ptr();
+                        let new_mut = new_const.cast_mut();
+                        let new_nonnull = NonNull::new(new_mut).unwrap();
+                        // SAFETY: We won't use this pointer to mutate
+                        prop_assert_eq!(unsafe { new.inner() }, new_nonnull);
+                        {
+                            // SAFETY: If it worked for the original newtype, it works here too,
+                            //         as long as we leave the original aside and refrain from
+                            //         dropping the newtype on either side.
+                            let new = unsafe { $newtype::from_owned_nonnull(new_nonnull) };
+                            prop_assert_eq!(new.as_ptr(), new_const);
+                            std::mem::forget(new);
+                        }
+                        {
+                            // SAFETY: If it worked for the original newtype, it works here too,
+                            //         as long as we leave the original aside and refrain from
+                            //         dropping the newtype on either side.
+                            let new = unsafe { $newtype::from_owned_raw_mut(new_nonnull.as_ptr()).unwrap() };
+                            prop_assert_eq!(new.as_ptr(), new_const);
+                            std::mem::forget(new);
+                        }
+                        let new = ManuallyDrop::into_inner(new);
+                        {
+                            // SAFETY: Safe as long as we don't invalidate the original
+                            let borrow = unsafe { $newtype::borrow_from_nonnull(new_nonnull) };
+                            prop_assert_eq!(borrow.as_ptr(), new_const);
+                            test_newtype_ref(&new, borrow)?;
+                        }
+                        {
+                            // SAFETY: Safe as long as we don't invalidate the original
+                            let borrow = unsafe { $newtype::borrow_from_raw(new.as_ptr()).unwrap() };
+                            prop_assert_eq!(borrow.as_ptr(), new_const);
+                            test_newtype_ref(&new, borrow)?;
+                        }
+                        let mut new = new;
+                        {
+                            // SAFETY: Safe as long as we don't invalidate the original
+                            let borrow = unsafe { $newtype::borrow_from_raw_mut(new.as_mut_ptr()).unwrap() };
+                            prop_assert_eq!(borrow.as_ptr(), new_const);
+                            test_newtype_ref(&new, borrow)?;
+                        }
                     }
-                    //
-                    buf.copy_from(&new);
-                    buf.invert();
-                    prop_assert_eq!(&buf, &$newtype(!&new.0));
 
-                    // Test AsRef-like conversions to Bitmap and BitmapRef
-                    prop_assert!(
-                        ptr::eq(
-                            <$newtype as AsRef<Bitmap>>::as_ref(&new),
-                            &new.0
-                        )
-                    );
-                    prop_assert!(
-                        ptr::eq(
-                            <$newtype as Borrow<Bitmap>>::borrow(&new),
-                            &new.0
-                        )
-                    );
-                    buf.copy_from(&new);
-                    prop_assert_eq!(
-                        <$newtype as AsMut<Bitmap>>::as_mut(&mut buf).as_ptr(),
-                        buf.0.as_ptr()
-                    );
-                    prop_assert_eq!(
-                        <$newtype as BorrowMut<Bitmap>>::borrow_mut(&mut buf).as_ptr(),
-                        buf.0.as_ptr()
-                    );
+                    #[test]
+                    fn op_idx(
+                        new: $newtype,
+                        idx in bitmap_index()
+                    ) {
+                        let mut buf = new.clone();
+                        buf.set_only(idx);
+                        prop_assert_eq!(&buf, &$newtype::from(idx));
+                        buf.set_all_but(idx);
+                        prop_assert_eq!(&buf, &!$newtype::from(idx));
 
-                    // Test SpecializedBitmap operations
-                    prop_assert_eq!(&SpecializedBitmap::to_owned(&new), &new);
-                    prop_assert_eq!(&SpecializedBitmap::to_owned(&BitmapRef::from(&new)), &new);
+                        buf.copy_from(&new);
+                        buf.set(idx);
+                        prop_assert!(buf.is_set(idx));
+                        let mut bitmap_buf = new.clone().0;
+                        bitmap_buf.set(idx);
+                        prop_assert_eq!(&buf, &$newtype::from(bitmap_buf.clone()));
 
-                    // Test low-level functions and BitmapRef<$newtype>
-                    test_newtype_ref(&&new, BitmapRef::from(&new))?;
-                    let new = ManuallyDrop::new(new);
-                    let new_const = new.as_ptr();
-                    let new_mut = new_const.cast_mut();
-                    let new_nonnull = NonNull::new(new_mut).unwrap();
-                    // SAFETY: We won't use this pointer to mutate
-                    prop_assert_eq!(unsafe { new.inner() }, new_nonnull);
-                    {
-                        // SAFETY: If it worked for the original newtype, it works here too,
-                        //         as long as we leave the original aside and refrain from
-                        //         dropping the newtype on either side.
-                        let new = unsafe { $newtype::from_owned_nonnull(new_nonnull) };
-                        prop_assert_eq!(new.as_ptr(), new_const);
-                        std::mem::forget(new);
+                        buf.copy_from(&new);
+                        buf.unset(idx);
+                        prop_assert!(!buf.is_set(idx));
+                        bitmap_buf.copy_from(&new.0);
+                        bitmap_buf.unset(idx);
+                        prop_assert_eq!(buf, $newtype::from(bitmap_buf.clone()));
                     }
-                    {
-                        // SAFETY: If it worked for the original newtype, it works here too,
-                        //         as long as we leave the original aside and refrain from
-                        //         dropping the newtype on either side.
-                        let new = unsafe { $newtype::from_owned_raw_mut(new_nonnull.as_ptr()).unwrap() };
-                        prop_assert_eq!(new.as_ptr(), new_const);
-                        std::mem::forget(new);
+
+                    #[test]
+                    fn op_range(
+                        new: $newtype,
+                        range in index_range()
+                    ) {
+                        let mut buf = new.clone();
+                        let mut bitmap_buf = new.0.clone();
+                        buf.set_range(range.clone());
+                        bitmap_buf.set_range(range.clone());
+                        prop_assert_eq!(&buf, &$newtype(bitmap_buf.clone()));
+
+                        buf.copy_from(&new);
+                        bitmap_buf.copy_from(&new.0);
+                        buf.unset_range(range.clone());
+                        bitmap_buf.unset_range(range);
+                        prop_assert_eq!(buf, $newtype::from(bitmap_buf));
                     }
-                    let new = ManuallyDrop::into_inner(new);
-                    {
-                        // SAFETY: Safe as long as we don't invalidate the original
-                        let borrow = unsafe { $newtype::borrow_from_nonnull(new_nonnull) };
-                        prop_assert_eq!(borrow.as_ptr(), new_const);
-                        test_newtype_ref(&new, borrow)?;
+
+                    #[test]
+                    fn op_iterator(
+                        mut new: $newtype,
+                        indices in index_vec()
+                    ) {
+                        let mut inner = new.0.clone();
+                        new.extend(indices.clone());
+                        inner.extend(indices);
+                        prop_assert_eq!(new, $newtype(inner));
                     }
-                    {
-                        // SAFETY: Safe as long as we don't invalidate the original
-                        let borrow = unsafe { $newtype::borrow_from_raw(new.as_ptr()).unwrap() };
-                        prop_assert_eq!(borrow.as_ptr(), new_const);
-                        test_newtype_ref(&new, borrow)?;
+
+                    #[test]
+                    fn binary([new1, new2]: [$newtype; 2]) {
+                        // Test binary newtype operations
+                        prop_assert_eq!(new1.intersects(&new2), new1.0.intersects(&new2.0));
+                        prop_assert_eq!(new1.includes(&new2), new1.0.includes(&new2.0));
+                        prop_assert_eq!(&new1 & &new2, $newtype(&new1.0 & &new2.0));
+                        prop_assert_eq!(&new1 | &new2, $newtype(&new1.0 | &new2.0));
+                        prop_assert_eq!(&new1 ^ &new2, $newtype(&new1.0 ^ &new2.0));
+                        prop_assert_eq!(&new1 - &new2, $newtype(&new1.0 - &new2.0));
+                        prop_assert_eq!(new1.clone() & &new2, $newtype(&new1.0 & &new2.0));
+                        prop_assert_eq!(new1.clone() | &new2, $newtype(&new1.0 | &new2.0));
+                        prop_assert_eq!(new1.clone() ^ &new2, $newtype(&new1.0 ^ &new2.0));
+                        prop_assert_eq!(new1.clone() - &new2, $newtype(&new1.0 - &new2.0));
+                        prop_assert_eq!(&new1 == &new2, &new1 == &new2);
+                        prop_assert_eq!(new1.partial_cmp(&new2), new1.0.partial_cmp(&new2.0));
+                        prop_assert_eq!(new1.cmp(&new2), new1.0.cmp(&new2.0));
+                        //
+                        let mut buf = new1.clone();
+                        buf.copy_from(&new2);
+                        prop_assert_eq!(&buf, &new2);
+                        //
+                        buf.copy_from(&new1);
+                        buf &= &new2;
+                        prop_assert_eq!(&buf, &(&new1 & &new2));
+                        buf.copy_from(&new1);
+                        buf |= &new2;
+                        prop_assert_eq!(&buf, &(&new1 | &new2));
+                        buf.copy_from(&new1);
+                        buf ^= &new2;
+                        prop_assert_eq!(&buf, &(&new1 ^ &new2));
+                        buf.copy_from(&new1);
+                        buf -= &new2;
+                        prop_assert_eq!(buf, &new1 - &new2);
+
+                        // Test binary BitmapRef operations
+                        let new1_ref = BitmapRef::from(&new1);
+                        prop_assert_eq!(new1_ref & &new2, &new1 & &new2);
+                        prop_assert_eq!(&new1_ref & &new2, &new1 & &new2);
+                        prop_assert_eq!(new1_ref | &new2, &new1 | &new2);
+                        prop_assert_eq!(&new1_ref | &new2, &new1 | &new2);
+                        prop_assert_eq!(new1_ref ^ &new2, &new1 ^ &new2);
+                        prop_assert_eq!(&new1_ref ^ &new2, &new1 ^ &new2);
+                        prop_assert_eq!(new1_ref - &new2, &new1 - &new2);
+                        prop_assert_eq!(&new1_ref - &new2, &new1 - &new2);
+                        prop_assert_eq!(new1_ref == &new2, &new1 == &new2);
+                        prop_assert_eq!(new1_ref.partial_cmp(&new2), new1.partial_cmp(&new2));
+                        prop_assert_eq!(new1_ref.cmp(&BitmapRef::from(&new2)), new1.cmp(&new2));
                     }
-                    let mut new = new;
-                    {
-                        // SAFETY: Safe as long as we don't invalidate the original
-                        let borrow = unsafe { $newtype::borrow_from_raw_mut(new.as_mut_ptr()).unwrap() };
-                        prop_assert_eq!(borrow.as_ptr(), new_const);
-                        test_newtype_ref(&new, borrow)?;
-                    }
-                }
-
-                #[test]
-                fn op_idx(new: $newtype, idx: PositiveInt) {
-                    let mut buf = new.clone();
-                    buf.set_only(idx);
-                    prop_assert_eq!(&buf, &$newtype::from(idx));
-                    buf.set_all_but(idx);
-                    prop_assert_eq!(&buf, &!$newtype::from(idx));
-
-                    buf.copy_from(&new);
-                    buf.set(idx);
-                    prop_assert!(buf.is_set(idx));
-                    let mut bitmap_buf = new.clone().0;
-                    bitmap_buf.set(idx);
-                    prop_assert_eq!(&buf, &$newtype::from(bitmap_buf.clone()));
-
-                    buf.copy_from(&new);
-                    buf.unset(idx);
-                    prop_assert!(!buf.is_set(idx));
-                    bitmap_buf.copy_from(&new.0);
-                    bitmap_buf.unset(idx);
-                    prop_assert_eq!(buf, $newtype::from(bitmap_buf.clone()));
-                }
-
-                #[test]
-                fn op_range(new: $newtype, range: RangeInclusive<PositiveInt>) {
-                    let mut buf = new.clone();
-                    let mut bitmap_buf = new.0.clone();
-                    buf.set_range(range.clone());
-                    bitmap_buf.set_range(range.clone());
-                    prop_assert_eq!(&buf, &$newtype(bitmap_buf.clone()));
-
-                    buf.copy_from(&new);
-                    bitmap_buf.copy_from(&new.0);
-                    buf.unset_range(range.clone());
-                    bitmap_buf.unset_range(range);
-                    prop_assert_eq!(buf, $newtype::from(bitmap_buf));
-                }
-
-                #[test]
-                fn op_iterator(mut new: $newtype, v: Vec<PositiveInt>) {
-                    let mut inner = new.0.clone();
-                    new.extend(v.clone());
-                    inner.extend(v);
-                    prop_assert_eq!(new, $newtype(inner));
-                }
-
-                #[test]
-                fn binary(new1: $newtype, new2: $newtype) {
-                    // Test binary newtype operations
-                    prop_assert_eq!(new1.intersects(&new2), new1.0.intersects(&new2.0));
-                    prop_assert_eq!(new1.includes(&new2), new1.0.includes(&new2.0));
-                    prop_assert_eq!(&new1 & &new2, $newtype(&new1.0 & &new2.0));
-                    prop_assert_eq!(&new1 | &new2, $newtype(&new1.0 | &new2.0));
-                    prop_assert_eq!(&new1 ^ &new2, $newtype(&new1.0 ^ &new2.0));
-                    prop_assert_eq!(&new1 - &new2, $newtype(&new1.0 - &new2.0));
-                    prop_assert_eq!(new1.clone() & &new2, $newtype(&new1.0 & &new2.0));
-                    prop_assert_eq!(new1.clone() | &new2, $newtype(&new1.0 | &new2.0));
-                    prop_assert_eq!(new1.clone() ^ &new2, $newtype(&new1.0 ^ &new2.0));
-                    prop_assert_eq!(new1.clone() - &new2, $newtype(&new1.0 - &new2.0));
-                    prop_assert_eq!(&new1 == &new2, &new1 == &new2);
-                    prop_assert_eq!(new1.partial_cmp(&new2), new1.0.partial_cmp(&new2.0));
-                    prop_assert_eq!(new1.cmp(&new2), new1.0.cmp(&new2.0));
-                    //
-                    let mut buf = new1.clone();
-                    buf.copy_from(&new2);
-                    prop_assert_eq!(&buf, &new2);
-                    //
-                    buf.copy_from(&new1);
-                    buf &= &new2;
-                    prop_assert_eq!(&buf, &(&new1 & &new2));
-                    buf.copy_from(&new1);
-                    buf |= &new2;
-                    prop_assert_eq!(&buf, &(&new1 | &new2));
-                    buf.copy_from(&new1);
-                    buf ^= &new2;
-                    prop_assert_eq!(&buf, &(&new1 ^ &new2));
-                    buf.copy_from(&new1);
-                    buf -= &new2;
-                    prop_assert_eq!(buf, &new1 - &new2);
-
-                    // Test binary BitmapRef operations
-                    let new1_ref = BitmapRef::from(&new1);
-                    prop_assert_eq!(new1_ref & &new2, &new1 & &new2);
-                    prop_assert_eq!(&new1_ref & &new2, &new1 & &new2);
-                    prop_assert_eq!(new1_ref | &new2, &new1 | &new2);
-                    prop_assert_eq!(&new1_ref | &new2, &new1 | &new2);
-                    prop_assert_eq!(new1_ref ^ &new2, &new1 ^ &new2);
-                    prop_assert_eq!(&new1_ref ^ &new2, &new1 ^ &new2);
-                    prop_assert_eq!(new1_ref - &new2, &new1 - &new2);
-                    prop_assert_eq!(&new1_ref - &new2, &new1 - &new2);
-                    prop_assert_eq!(new1_ref == &new2, &new1 == &new2);
-                    prop_assert_eq!(new1_ref.partial_cmp(&new2), new1.partial_cmp(&new2));
-                    prop_assert_eq!(new1_ref.cmp(&BitmapRef::from(&new2)), new1.cmp(&new2));
                 }
             }
         }
+
+        #[doc(inline)]
+        pub use $mod_name::$newtype;
     };
 }
 
@@ -3125,13 +3153,15 @@ macro_rules! impl_bitmap_newtype_tests {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::strategies::bitmap_index;
+    use proptest::sample::SizeRange;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use static_assertions::{
         assert_eq_align, assert_eq_size, assert_impl_all, assert_not_impl_any, assert_type_eq_all,
     };
     use std::{
-        collections::{hash_map::RandomState, HashSet},
+        collections::hash_map::RandomState,
         error::Error,
         ffi::c_ulonglong,
         fmt::{
@@ -3141,7 +3171,7 @@ pub(crate) mod tests {
         hash::{BuildHasher, Hash},
         io::{self, Read},
         mem::ManuallyDrop,
-        ops::{Deref, Drop, Range, RangeFrom, RangeInclusive},
+        ops::{Deref, Drop, RangeFrom, RangeInclusive},
         panic::UnwindSafe,
         ptr,
     };
@@ -3291,7 +3321,7 @@ pub(crate) mod tests {
     // Unfortunately, ranges of BitmapIndex cannot do everything that ranges of
     // built-in integer types can do due to some unstable integer traits, so
     // it's sometimes good to go back to usize.
-    fn range_inclusive_to_usize(range: &RangeInclusive<BitmapIndex>) -> RangeInclusive<usize> {
+    fn range_to_usize(range: &RangeInclusive<BitmapIndex>) -> RangeInclusive<usize> {
         usize::from(*range.start())..=usize::from(*range.end())
     }
 
@@ -3529,7 +3559,7 @@ pub(crate) mod tests {
     fn empty() -> Result<(), TestCaseError> {
         let empty = Bitmap::new();
         let mut empty2 = Bitmap::full();
-        empty2.unset_range::<PositiveInt>(..);
+        empty2.unset_range::<BitmapIndex>(..);
         let inverse = Bitmap::full();
 
         let test_empty = |empty: &Bitmap| {
@@ -3572,25 +3602,43 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    /// Generate a ranges of contiguous bitmap indices
+    pub(crate) fn index_range() -> impl Strategy<Value = RangeInclusive<BitmapIndex>> {
+        [bitmap_index(), bitmap_index()].prop_map(|[start, end]| start..=end)
+    }
+
+    /// Generate a set of possibly duplicate bitmap indices
+    pub(crate) fn index_vec() -> impl Strategy<Value = Vec<BitmapIndex>> {
+        prop::collection::vec(bitmap_index(), SizeRange::default())
+    }
+
+    /// Generate a vector of indices and the associated deduplicated set
+    fn index_vec_and_set() -> impl Strategy<Value = (Vec<BitmapIndex>, HashSet<BitmapIndex>)> {
+        index_vec().prop_map(|v| {
+            let s = v.iter().copied().collect::<HashSet<_>>();
+            (v, s)
+        })
+    }
+
     proptest! {
         #[test]
-        fn empty_extend(extra: HashSet<BitmapIndex>) {
+        fn empty_extend((extra, extra_set) in index_vec_and_set()) {
             let mut extended = Bitmap::new();
-            extended.extend(extra.iter().copied());
+            extended.extend(extra);
 
-            prop_assert_eq!(extended.weight(), Some(extra.len()));
-            for idx in extra {
+            prop_assert_eq!(extended.weight(), Some(extra_set.len()));
+            for idx in extra_set {
                 prop_assert!(extended.is_set(idx));
             }
         }
 
         #[test]
-        fn empty_op_index(index: BitmapIndex) {
+        fn empty_op_index(index in bitmap_index()) {
             test_indexing(&Bitmap::new(), index, false)?;
         }
 
         #[test]
-        fn empty_op_range(range: Range<BitmapIndex>) {
+        fn empty_op_range(range in index_range()) {
             let mut buf = Bitmap::new();
             buf.set_range(range.clone());
             prop_assert_eq!(&buf, &Bitmap::from_range(range.clone()));
@@ -3638,9 +3686,9 @@ pub(crate) mod tests {
     #[test]
     fn full() -> Result<(), TestCaseError> {
         let full = Bitmap::full();
-        let full2 = Bitmap::from_range::<PositiveInt>(..);
+        let full2 = Bitmap::from_range::<BitmapIndex>(..);
         let mut full3 = Bitmap::new();
-        full3.set_range::<PositiveInt>(..);
+        full3.set_range::<BitmapIndex>(..);
         let inverse = Bitmap::new();
 
         let test_full = |full: &Bitmap| {
@@ -3681,19 +3729,19 @@ pub(crate) mod tests {
 
     proptest! {
         #[test]
-        fn full_extend(extra: HashSet<BitmapIndex>) {
+        fn full_extend(extra in index_vec()) {
             let mut extended = Bitmap::full();
             extended.extend(extra.iter().copied());
             prop_assert!(extended.is_full());
         }
 
         #[test]
-        fn full_op_index(index: BitmapIndex) {
+        fn full_op_index(index in bitmap_index()) {
             test_indexing(&Bitmap::full(), index, true)?;
         }
 
         #[test]
-        fn full_op_range(range: Range<BitmapIndex>) {
+        fn full_op_range(range in index_range()) {
             let mut ranged_hole = Bitmap::from_range(range.clone());
             ranged_hole.invert();
 
@@ -3748,11 +3796,11 @@ pub(crate) mod tests {
 
         #[allow(clippy::redundant_clone)]
         #[test]
-        fn from_range(range: RangeInclusive<BitmapIndex>) {
+        fn from_range(range in index_range()) {
             let ranged_bitmap = Bitmap::from_range(range.clone());
 
             // Predict bitmap properties from range properties
-            let elems = (usize::from(*range.start())..=usize::from(*range.end()))
+            let elems = range_to_usize(&range)
                 .map(|idx| BitmapIndex::try_from(idx).unwrap())
                 .collect::<Vec<_>>();
             let first_unset = if elems.first() == Some(&BitmapIndex::MIN) {
@@ -3843,23 +3891,26 @@ pub(crate) mod tests {
         }
 
         #[test]
-        fn from_range_extend(range: RangeInclusive<BitmapIndex>, extra: HashSet<BitmapIndex>) {
+        fn from_range_extend(
+            range in index_range(),
+            (extra, extra_set) in index_vec_and_set()
+        ) {
             let mut extended = Bitmap::from_range(range.clone());
-            let mut indices = extra.clone();
             extended.extend(extra);
 
+            let mut predicted = extra_set;
             for idx in usize::from(*range.start())..=usize::from(*range.end()) {
-                indices.insert(idx.try_into().unwrap());
+                predicted.insert(idx.try_into().unwrap());
             }
 
-            prop_assert_eq!(extended.weight(), Some(indices.len()));
-            for idx in indices {
+            prop_assert_eq!(extended.weight(), Some(predicted.len()));
+            for idx in predicted {
                 prop_assert!(extended.is_set(idx));
             }
         }
 
         #[test]
-        fn from_range_op_index(range: RangeInclusive<BitmapIndex>, index: BitmapIndex) {
+        fn from_range_op_index(range in index_range(), index in bitmap_index()) {
             test_indexing(
                 &Bitmap::from_range(range.clone()),
                 index,
@@ -3869,11 +3920,10 @@ pub(crate) mod tests {
 
         #[test]
         fn from_range_op_range(
-            range: RangeInclusive<BitmapIndex>,
-            other_range: RangeInclusive<BitmapIndex>,
+            [range1, range2] in [index_range(), index_range()]
         ) {
-            let usized = range_inclusive_to_usize(&range);
-            let other_usized = range_inclusive_to_usize(&other_range);
+            let usized = range_to_usize(&range1);
+            let other_usized = range_to_usize(&range2);
 
             let num_indices = |range: &RangeInclusive<usize>| range.clone().count();
             let num_common_indices = if usized.is_empty() || other_usized.is_empty() {
@@ -3885,10 +3935,10 @@ pub(crate) mod tests {
                 )
             };
 
-            let ranged_bitmap = Bitmap::from_range(range);
+            let ranged_bitmap = Bitmap::from_range(range1);
 
             let mut buf = ranged_bitmap.clone();
-            buf.set_range(other_range.clone());
+            buf.set_range(range2.clone());
             prop_assert_eq!(
                 buf.weight().unwrap(),
                 num_indices(&usized) + num_indices(&other_usized) - num_common_indices
@@ -3898,7 +3948,7 @@ pub(crate) mod tests {
             }
 
             buf.copy_from(&ranged_bitmap);
-            buf.unset_range(other_range);
+            buf.unset_range(range2);
             prop_assert_eq!(
                 buf.weight().unwrap(),
                 num_indices(&usized) - num_common_indices
@@ -3910,9 +3960,12 @@ pub(crate) mod tests {
 
         #[allow(clippy::similar_names)]
         #[test]
-        fn from_range_op_bitmap(range: RangeInclusive<BitmapIndex>, other: Bitmap) {
+        fn from_range_op_bitmap(
+            range in index_range(),
+            other: Bitmap
+        ) {
             let ranged_bitmap = Bitmap::from_range(range.clone());
-            let usized = range_inclusive_to_usize(&range);
+            let usized = range_to_usize(&range);
 
             prop_assert_eq!(
                 ranged_bitmap.includes(&other),
@@ -3992,10 +4045,10 @@ pub(crate) mod tests {
         }
 
         #[test]
-        fn from_iterator(indices: HashSet<BitmapIndex>) {
+        fn from_iterator((indices, indices_set) in index_vec_and_set()) {
             let bitmap = indices.iter().copied().collect::<Bitmap>();
-            prop_assert_eq!(bitmap.weight(), Some(indices.len()));
-            for idx in indices {
+            prop_assert_eq!(bitmap.weight(), Some(indices_set.len()));
+            for idx in indices_set {
                 prop_assert!(bitmap.is_set(idx));
             }
         }
@@ -4203,9 +4256,12 @@ pub(crate) mod tests {
         }
 
         #[test]
-        fn arbitrary_extend(bitmap: Bitmap, extra: HashSet<BitmapIndex>) {
+        fn arbitrary_extend(
+            bitmap: Bitmap,
+            (extra, extra_set) in index_vec_and_set()
+        ) {
             let mut extended = bitmap.clone();
-            extended.extend(extra.iter().copied());
+            extended.extend(extra);
 
             if let Some(bitmap_weight) = bitmap.weight() {
                 let extra_weight = extended
@@ -4213,22 +4269,28 @@ pub(crate) mod tests {
                     .unwrap()
                     .checked_sub(bitmap_weight)
                     .expect("Extending a bitmap shouldn't reduce the weight");
-                prop_assert!(extra_weight <= extra.len());
+                prop_assert!(extra_weight <= extra_set.len());
             }
 
-            for idx in extra {
+            for idx in extra_set {
                 prop_assert!(extended.is_set(idx));
             }
         }
 
         #[test]
-        fn arbitrary_op_index(bitmap: Bitmap, index: BitmapIndex) {
+        fn arbitrary_op_index(
+            bitmap: Bitmap,
+            index in bitmap_index()
+        ) {
             test_indexing(&bitmap, index, bitmap.is_set(index))?;
         }
 
         #[test]
-        fn arbitrary_op_range(bitmap: Bitmap, range: Range<BitmapIndex>) {
-            let range_usize = usize::from(range.start)..usize::from(range.end);
+        fn arbitrary_op_range(
+            bitmap: Bitmap,
+            range in index_range()
+        ) {
+            let range_usize = range_to_usize(&range);
             let range_len = range_usize.clone().count();
 
             let mut buf = bitmap.clone();
@@ -4262,7 +4324,7 @@ pub(crate) mod tests {
 
         #[allow(clippy::similar_names)]
         #[test]
-        fn arbitrary_op_bitmap(bitmap: Bitmap, other: Bitmap) {
+        fn arbitrary_op_bitmap([bitmap, other]: [Bitmap; 2]) {
             let (finite, infinite) = split_infinite_bitmap(bitmap.clone());
             let (other_finite, other_infinite) = split_infinite_bitmap(other.clone());
 

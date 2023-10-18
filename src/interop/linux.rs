@@ -10,7 +10,7 @@ use crate::{
 };
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{ops::Deref, path::Path};
 
 // This file is rustdoc-visible so we must provide a substitute for
@@ -195,7 +195,7 @@ mod tests {
     use super::*;
     use crate::object::types::ObjectType;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
 
     #[test]
     fn read_path_as_cpumask() {

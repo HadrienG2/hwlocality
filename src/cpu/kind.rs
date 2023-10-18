@@ -26,7 +26,7 @@ use hwlocality_sys::hwloc_info_s;
 use libc::{EINVAL, ENOENT, EXDEV};
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     ffi::{c_int, c_uint},
     iter::FusedIterator,

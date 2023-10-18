@@ -35,7 +35,7 @@ use hwlocality_sys::{
 use libc::EINVAL;
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::{
     convert::TryInto,
     fmt::{self, Pointer},
@@ -216,6 +216,7 @@ impl Topology {
         });
         match result {
             Ok(_) => true,
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
@@ -962,9 +963,9 @@ mod tests {
     use super::*;
     use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
     use bitflags::Flags;
-    #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
     use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::{BTreeMap, BTreeSet},

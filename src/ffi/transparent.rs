@@ -29,7 +29,7 @@
 
 #[allow(unused)]
 #[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+use similar_asserts::assert_eq;
 use std::ptr::NonNull;
 
 /// Type that is a `repr(transparent)` wrapper around another type
@@ -216,7 +216,7 @@ mod tests {
     use crate::info::TextualInfo;
     use hwlocality_sys::hwloc_info_s;
     #[allow(unused)]
-    use pretty_assertions::{assert_eq, assert_ne};
+    use similar_asserts::assert_eq;
     use std::ptr;
 
     #[test]
