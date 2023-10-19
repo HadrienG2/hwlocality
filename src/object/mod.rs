@@ -2299,10 +2299,9 @@ pub(crate) mod tests {
         let normal_keys = key_set(&normal_objects);
 
         let virtual_objects = checked_object_set(topology.virtual_objects());
-        assert!(virtual_objects.values().all(|obj| {
-            let ty = obj.object_type();
-            ty.is_memory() || ty.is_io() || ty == ObjectType::Misc
-        }));
+        assert!(virtual_objects
+            .values()
+            .all(|obj| !obj.object_type().is_normal()));
         let virtual_keys = key_set(&virtual_objects);
 
         assert_eq!(keys, &normal_keys | &virtual_keys);
