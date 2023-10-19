@@ -2262,9 +2262,72 @@ unsafe impl TransparentNewtype for TopologyObject {
 pub(crate) mod tests {
     use super::*;
     use proptest::prelude::*;
+    use similar_asserts::assert_eq;
+    use std::collections::{HashMap, HashSet};
 
     /// Pick a random object from the test instance
     pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
         prop::sample::select(Topology::test_objects())
+    }
+
+    /// Check that the various object lists match their definitions
+    #[test]
+    fn object_lists() {
+        let topology = Topology::test_instance();
+
+        fn checked_object_set<'a>(
+            it: impl Iterator<Item = &'a TopologyObject>,
+        ) -> HashMap<u64, &'a TopologyObject> {
+            let mut set = HashMap::new();
+            for obj in it {
+                assert!(
+                    set.insert(obj.global_persistent_index(), obj).is_none(),
+                    "global_persistent_index should be unique across the topology"
+                );
+            }
+            set
+        }
+        let key_set = |map: &HashMap<u64, _>| -> HashSet<u64> { map.keys().copied().collect() };
+
+        let objects = checked_object_set(topology.objects());
+        let keys = key_set(&objects);
+
+        let normal_objects = checked_object_set(topology.normal_objects());
+        assert!(normal_objects
+            .values()
+            .all(|obj| obj.object_type().is_normal()));
+        let normal_keys = key_set(&normal_objects);
+
+        let virtual_objects = checked_object_set(topology.virtual_objects());
+        assert!(virtual_objects.values().all(|obj| {
+            let ty = obj.object_type();
+            ty.is_memory() || ty.is_io() || ty == ObjectType::Misc
+        }));
+        let virtual_keys = key_set(&virtual_objects);
+
+        assert_eq!(keys, &normal_keys | &virtual_keys);
+        assert_eq!(normal_keys, &keys - &virtual_keys);
+        assert_eq!(virtual_keys, &keys - &normal_keys);
+
+        let memory_objects = checked_object_set(topology.memory_objects());
+        assert!(memory_objects
+            .values()
+            .all(|obj| obj.object_type().is_memory()));
+        let memory_keys = key_set(&memory_objects);
+
+        let io_objects = checked_object_set(topology.io_objects());
+        assert!(io_objects.values().all(|obj| obj.object_type().is_io()));
+        let io_keys = key_set(&io_objects);
+
+        let misc_objects = checked_object_set(topology.objects_with_type(ObjectType::Misc));
+        assert!(misc_objects
+            .values()
+            .all(|obj| obj.object_type() == ObjectType::Misc));
+        let misc_keys = key_set(&misc_objects);
+
+        assert_eq!(virtual_keys, &(&memory_keys | &io_keys) | &misc_keys);
+        assert_eq!(memory_keys, &(&virtual_keys - &io_keys) - &misc_keys);
+        assert_eq!(io_keys, &(&virtual_keys - &memory_keys) - &misc_keys);
+        assert_eq!(misc_keys, &(&virtual_keys - &memory_keys) - &io_keys);
     }
 }
