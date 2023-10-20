@@ -359,6 +359,9 @@ impl Topology {
     /// the corresponding type such as [`ObjectType::L1ICache`], except that it
     /// may also return a unified cache when looking for an instruction cache.
     ///
+    /// Please note that following hardware nomenclature, hardware cache levels
+    /// start at 1 (L1 cache), not 0.
+    ///
     /// If `cache_type` is `None`, it is ignored and multiple levels may match.
     /// The function returns either the depth of a uniquely matching level or
     /// Err([`TypeToDepthError::Multiple`]).
@@ -2382,7 +2385,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn depth_type_conversions() -> Result<(), TestCaseError> {
+    fn depth_for_type() -> Result<(), TestCaseError> {
         let topology = Topology::test_instance();
 
         // Probe the type -> depths mapping for all types using type_at_depth
