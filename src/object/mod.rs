@@ -406,39 +406,41 @@ impl Topology {
         for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
-            for obj in self.objects_at_depth(depth).take(1) {
-                // Is this a cache?
-                if let Some(ObjectAttributes::Cache(cache)) = obj.attributes() {
-                    // Check cache level
-                    if cache.depth() != cache_level {
+            let obj = self
+                .objects_at_depth(depth)
+                .next()
+                .expect("valid depths should contain objects");
+
+            // Is this a cache?
+            if let Some(ObjectAttributes::Cache(cache)) = obj.attributes() {
+                // Check cache level
+                if cache.depth() != cache_level {
+                    continue;
+                }
+
+                // Check cache type if instructed to do so
+                if let Some(cache_type) = cache_type {
+                    if cache.cache_type() == cache_type || cache.cache_type() == CacheType::Unified
+                    {
+                        // If both cache type + level are specified, then
+                        // multiple matches cannot occur: stop here.
+                        return Ok(depth.into());
+                    } else {
                         continue;
                     }
-
-                    // Check cache type if instructed to do so
-                    if let Some(cache_type) = cache_type {
-                        if cache.cache_type() == cache_type
-                            || cache.cache_type() == CacheType::Unified
-                        {
-                            // If both cache type + level are specified, then
-                            // multiple matches cannot occur: stop here.
-                            return Ok(depth.into());
-                        } else {
-                            continue;
+                } else {
+                    // Without a cache type check, multiple matches may
+                    // occur, so we need to check all other depths.
+                    match result {
+                        Err(TypeToDepthError::Nonexistent) => result = Ok(depth.into()),
+                        Ok(_) => {
+                            return Err(TypeToDepthError::Multiple);
                         }
-                    } else {
-                        // Without a cache type check, multiple matches may
-                        // occur, so we need to check all other depths.
-                        match result {
-                            Err(TypeToDepthError::Nonexistent) => result = Ok(depth.into()),
-                            Ok(_) => {
-                                return Err(TypeToDepthError::Multiple);
-                            }
-                            Err(TypeToDepthError::Multiple) => {
-                                unreachable!("Setting this value triggers a loop break")
-                            }
-                            Err(TypeToDepthError::Unexpected(_)) => {
-                                unreachable!("This value is never set")
-                            }
+                        Err(TypeToDepthError::Multiple) => {
+                            unreachable!("setting this value triggers a loop break")
+                        }
+                        Err(TypeToDepthError::Unexpected(_)) => {
+                            unreachable!("this value is never set")
                         }
                     }
                 }
@@ -2450,5 +2452,111 @@ pub(crate) mod tests {
             assert_eq!(topology.depth_or_below_for_type(ty), Ok(below));
         }
         Ok(())
+    }
+
+    /// Kinds of caches present on the system, ordered by depth
+    fn cache_kinds() -> &'static [CacheKind] {
+        static KINDS: OnceLock<Box<[CacheKind]>> = OnceLock::new();
+        &KINDS.get_or_init(|| {
+            let topology = Topology::test_instance();
+            NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+                .filter_map(|depth| {
+                    let obj = topology.objects_at_depth(depth).next()?;
+                    let Some(ObjectAttributes::Cache(attr)) = obj.attributes() else {
+                        return None;
+                    };
+                    Some(CacheKind {
+                        depth,
+                        level: attr.depth(),
+                        ty: attr.cache_type(),
+                    })
+                })
+                .collect()
+        })[..]
+    }
+    //
+    /// Data about a single cache level
+    struct CacheKind {
+        depth: NormalDepth,
+        level: NonZeroUsize,
+        ty: CacheType,
+    }
+
+    /// Parameters for [`Topology::depth_for_cache()`], random but with a bias
+    /// towards generating valid inputs more often
+    fn depth_for_cache_params() -> impl Strategy<Value = (usize, Option<CacheType>)> {
+        // Probe the system's cache configuration
+        let cache_kinds = cache_kinds();
+
+        // If no cache was detected, all parameters are equally (in)valid
+        if cache_kinds.is_empty() {
+            return (any::<usize>(), any::<Option<CacheType>>()).boxed();
+        }
+
+        // Otherwise, find the valid cache levels and the last valid one...
+        let cache_levels = cache_kinds
+            .iter()
+            .map(|kind| usize::from(kind.level))
+            .collect::<HashSet<_>>();
+        let last_level = cache_levels.iter().copied().max().unwrap();
+
+        // ...and find the valid and invalid cache types too
+        let valid_cache_types = cache_kinds
+            .iter()
+            .map(|kind| Some(kind.ty))
+            .collect::<HashSet<_>>();
+        let invalid_cache_types = enum_iterator::all::<CacheType>()
+            .map(Some)
+            .filter(|ty| !valid_cache_types.contains(ty))
+            .collect::<Vec<_>>();
+
+        // Use this to build valid strategies that cover the full possible range
+        // of inputs with a bias towards valid inputs
+        fn to_vec<T>(hs: HashSet<T>) -> Vec<T> {
+            hs.into_iter().collect()
+        }
+        let level = prop_oneof![
+            1 => Just(0),
+            3 => prop::sample::select(to_vec(cache_levels)),
+            1 => (last_level+1)..
+        ];
+        let ty = if invalid_cache_types.is_empty() {
+            prop::sample::select(to_vec(valid_cache_types)).boxed()
+        } else {
+            prop_oneof![
+                4 => prop::sample::select(to_vec(valid_cache_types)),
+                1 => prop::sample::select(invalid_cache_types),
+            ]
+            .boxed()
+        };
+        (level, ty).boxed()
+    }
+
+    proptest! {
+        #[test]
+        fn depth_for_cache((cache_level, cache_type) in depth_for_cache_params()) {
+            let matches = cache_kinds()
+                .iter()
+                .filter(|kind| {
+                    let level_ok = usize::from(kind.level) == cache_level;
+                    let type_ok = cache_type.map_or(true, |ty| {
+                        kind.ty == ty || kind.ty == CacheType::Unified
+                    });
+                    level_ok && type_ok
+                })
+                .map(|kind| Depth::from(kind.depth))
+                .collect::<Vec<_>>();
+
+            let topology = Topology::test_instance();
+            match topology.depth_for_cache(cache_level, cache_type) {
+                Ok(depth) => assert_eq!(matches, &[depth]),
+                Err(TypeToDepthError::Nonexistent) => assert!(matches.is_empty()),
+                Err(TypeToDepthError::Multiple) => {
+                    assert!(cache_type.is_none());
+                    assert!(matches.len() >= 2);
+                },
+                Err(TypeToDepthError::Unexpected(e)) => panic!("got unexpected error {e}"),
+            }
+        }
     }
 }

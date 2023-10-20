@@ -1334,9 +1334,9 @@ mod tests {
 
     /// Pick a random normal object from the foreign test instance
     fn foreign_normal_object() -> impl Strategy<Value = &'static TopologyObject> {
-        static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
+        static FOREIGNERS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
         let objects =
-            OBJECTS.get_or_init(|| Topology::foreign_instance().normal_objects().collect());
+            FOREIGNERS.get_or_init(|| Topology::foreign_instance().normal_objects().collect());
         prop::sample::select(&objects[..])
     }
 

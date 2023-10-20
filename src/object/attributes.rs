@@ -1227,13 +1227,10 @@ mod tests {
 
     /// Pick a random CPU cache type
     fn cpu_cache_type() -> impl Strategy<Value = ObjectType> {
-        static CACHE_TYPES: OnceLock<Box<[ObjectType]>> = OnceLock::new();
-        let cache_types = CACHE_TYPES.get_or_init(|| {
-            enum_iterator::all::<ObjectType>()
-                .filter(|ty| ty.is_cpu_cache())
-                .collect()
-        });
-        prop::sample::select(&cache_types[..])
+        let cache_types = enum_iterator::all::<ObjectType>()
+            .filter(|ty| ty.is_cpu_cache())
+            .collect::<Vec<_>>();
+        prop::sample::select(cache_types)
     }
 
     proptest! {
