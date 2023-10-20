@@ -2349,11 +2349,11 @@ pub(crate) mod tests {
         assert_eq!(misc_keys, &(&virtual_keys - &memory_keys) - &io_keys);
     }
 
+    /// Check that reported topology depth matches hwloc rule that PUs are the
+    /// deepest kind of normal object
     #[test]
     fn depth() {
         let topology = Topology::test_instance();
-
-        // PUs are the deepest normal object
         assert_eq!(
             topology.depth(),
             topology
@@ -2364,6 +2364,7 @@ pub(crate) mod tests {
         );
     }
 
+    /// Check that memory parent depth reporting is correct
     #[test]
     fn memory_parents_depth() {
         let topology = Topology::test_instance();
@@ -2386,6 +2387,7 @@ pub(crate) mod tests {
         }
     }
 
+    /// Check that type -> depth translation is correct
     #[test]
     fn depth_for_type() -> Result<(), TestCaseError> {
         let topology = Topology::test_instance();
@@ -2453,6 +2455,8 @@ pub(crate) mod tests {
         }
         Ok(())
     }
+
+    // --- Check that cache search is correct ---
 
     /// Kinds of caches present on the system, ordered by depth
     fn cache_kinds() -> &'static [CacheKind] {
@@ -2533,6 +2537,7 @@ pub(crate) mod tests {
     }
 
     proptest! {
+        /// Check that cache search is correct
         #[test]
         fn depth_for_cache((cache_level, cache_type) in depth_for_cache_params()) {
             let matches = cache_kinds()
