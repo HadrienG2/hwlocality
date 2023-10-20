@@ -228,16 +228,17 @@ impl Topology {
     /// function returns the depth of the first present object typically found
     /// inside `object_type`.
     ///
-    /// This function is only meaningful for normal object types. If a memory,
-    /// I/O or Misc object type is given, the corresponding virtual depth is
-    /// always returned.
+    /// This function is only meaningful for normal object types. Passing in a
+    /// memory, I/O or Misc object type will result in a panic.
     ///
     /// # Errors
     ///
-    /// - [`TypeToDepthError::Nonexistent`] if no object typically found inside
-    ///   `object_type` is present.
-    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths (can happen when `object_type` is [`Group`]).
+    /// [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
+    /// depths (can happen when `object_type` is [`Group`]).
+    ///
+    /// # Panics
+    ///
+    /// If `object_type` is not a normal object type.
     ///
     /// # Examples
     ///
@@ -260,27 +261,26 @@ impl Topology {
         &self,
         object_type: ObjectType,
     ) -> Result<Depth, TypeToDepthError> {
+        // Virtual object type special case
         assert!(
             object_type.is_normal(),
-            "This is only meaningful for normal objects"
+            "this function only makes sense for normal object types"
         );
+
+        // Normal object type case
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(TypeToDepthError::Nonexistent) => {
-                let pu_depth = self
-                    .depth_for_type(ObjectType::PU)
-                    .expect("PU objects should be present")
-                    .assume_normal();
-                for depth in NormalDepth::iter_range(NormalDepth::MIN, pu_depth).rev() {
-                    if self
-                        .type_at_depth(depth)
-                        .expect("Depths above PU depth should exist")
-                        < object_type
-                    {
-                        return Ok((depth + 1).into());
-                    }
-                }
-                Err(TypeToDepthError::Nonexistent)
+                let first_depth_above = NormalDepth::iter_range(NormalDepth::ZERO, self.depth())
+                    // Can't use binary search due to group objects
+                    .rfind(|&depth| {
+                        self.type_at_depth(depth)
+                            .expect("only valid depths are being iterated over")
+                            < object_type
+                    })
+                    .expect("shouldn't fail since PUs are always present and at the bottom");
+                // First depth above + 1 is first depth below
+                Ok(Depth::from(first_depth_above + 1))
             }
             other_err => other_err,
         }
@@ -292,16 +292,17 @@ impl Topology {
     /// function returns the depth of the first present object typically
     /// containing `object_type`.
     ///
-    /// This function is only meaningful for normal object types. If a memory,
-    /// I/O or Misc object type is given, the corresponding virtual depth is
-    /// always returned.
+    /// This function is only meaningful for normal object types. Passing in a
+    /// memory, I/O or Misc object type will result in a panic.
     ///
     /// # Errors
     ///
-    /// - [`TypeToDepthError::Nonexistent`] if no object typically containing
-    ///   `object_type` is present.
-    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths (can happen when `object_type` is [`Group`]).
+    /// [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
+    /// depths (can happen when `object_type` is [`Group`]).
+    ///
+    /// # Panics
+    ///
+    /// If `object_type` is not a normal object type.
     ///
     /// # Examples
     ///
@@ -324,23 +325,26 @@ impl Topology {
         &self,
         object_type: ObjectType,
     ) -> Result<Depth, TypeToDepthError> {
+        // Virtual object type special case
         assert!(
             object_type.is_normal(),
-            "This is only meaningful for normal objects"
+            "this function only makes sense for normal object types"
         );
+
+        // Normal object type case
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(TypeToDepthError::Nonexistent) => {
-                for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()).rev() {
-                    if self
-                        .type_at_depth(depth)
-                        .expect("Depths above bottom depth should exist")
-                        > object_type
-                    {
-                        return Ok((depth - 1).into());
-                    }
-                }
-                Err(TypeToDepthError::Nonexistent)
+                let first_depth_below = NormalDepth::iter_range(NormalDepth::ZERO, self.depth())
+                    // Can't use binary search due to group objects
+                    .find(|&depth| {
+                        self.type_at_depth(depth)
+                            .expect("only valid depths are being iterated over")
+                            > object_type
+                    })
+                    .expect("shouldn't fail since Machine is always present and at the top");
+                // First depth below - 1 is first depth above
+                Ok(Depth::from(first_depth_below - 1))
             }
             other_err => other_err,
         }
@@ -2270,6 +2274,7 @@ unsafe impl TransparentNewtype for TopologyObject {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::tests::assert_panics;
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
     use std::collections::{HashMap, HashSet};
@@ -2337,5 +2342,110 @@ pub(crate) mod tests {
         assert_eq!(memory_keys, &(&virtual_keys - &io_keys) - &misc_keys);
         assert_eq!(io_keys, &(&virtual_keys - &memory_keys) - &misc_keys);
         assert_eq!(misc_keys, &(&virtual_keys - &memory_keys) - &io_keys);
+    }
+
+    #[test]
+    fn depth() {
+        let topology = Topology::test_instance();
+
+        // PUs are the deepest normal object
+        assert_eq!(
+            topology.depth(),
+            topology
+                .depth_for_type(ObjectType::PU)
+                .unwrap()
+                .assume_normal()
+                + 1
+        );
+    }
+
+    #[test]
+    fn memory_parents_depth() {
+        let topology = Topology::test_instance();
+
+        let depths_with_memory_parents =
+            NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+                .filter(|&depth| {
+                    topology
+                        .objects_at_depth(depth)
+                        .any(|obj| obj.memory_arity() > 0)
+                })
+                .collect::<Vec<_>>();
+
+        match topology.memory_parents_depth() {
+            Ok(memory_parents_depth) => {
+                assert_eq!(depths_with_memory_parents, vec![memory_parents_depth])
+            }
+            Err(TypeToDepthError::Multiple) => assert!(depths_with_memory_parents.len() > 1),
+            Err(_) => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn depth_type_conversions() -> Result<(), TestCaseError> {
+        let topology = Topology::test_instance();
+
+        // Probe the type -> depths mapping for all types using type_at_depth
+        let mut type_to_depths = HashMap::<ObjectType, Vec<Depth>>::new();
+        for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+            .map(Depth::from)
+            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+        {
+            let ty = topology.type_at_depth(depth).unwrap();
+            type_to_depths.entry(ty).or_default().push(depth);
+        }
+
+        // Check that depth_for_type-like methods produce expected results for
+        // all types + also check depth_or_(above|below) for present types
+        let mut absent_normal_types = Vec::new();
+        #[allow(clippy::option_if_let_else)]
+        for ty in enum_iterator::all::<ObjectType>() {
+            if let Some(depths) = type_to_depths.get(&ty) {
+                let expected = if depths.len() == 1 {
+                    Ok(depths[0])
+                } else {
+                    Err(TypeToDepthError::Multiple)
+                };
+                assert_eq!(topology.depth_for_type(ty), expected);
+                if ty.is_normal() {
+                    assert_eq!(topology.depth_or_above_for_type(ty), expected);
+                    assert_eq!(topology.depth_or_below_for_type(ty), expected);
+                } else {
+                    assert_panics(|| topology.depth_or_above_for_type(ty))?;
+                    assert_panics(|| topology.depth_or_below_for_type(ty))?;
+                }
+            } else {
+                assert_eq!(
+                    topology.depth_for_type(ty),
+                    Err(TypeToDepthError::Nonexistent)
+                );
+                if ty.is_normal() {
+                    absent_normal_types.push(ty);
+                }
+            }
+        }
+
+        // Enumerate present types in depth order, use that to check that
+        // depth_or_(above|below) works for nonexistent types.
+        let normal_types_by_depth = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+            .map(|depth| topology.type_at_depth(depth).unwrap())
+            .collect::<Vec<_>>();
+        let above_below = absent_normal_types
+            .iter()
+            .map(|ty| {
+                let below_idx = normal_types_by_depth
+                    .iter()
+                    .position(|probe| probe > ty)
+                    .unwrap();
+                let above_idx = below_idx - 1;
+                let to_depth = |us| Depth::try_from(us).unwrap();
+                (to_depth(above_idx), to_depth(below_idx))
+            })
+            .collect::<Vec<_>>();
+        for (ty, (above, below)) in absent_normal_types.into_iter().zip(above_below) {
+            assert_eq!(topology.depth_or_above_for_type(ty), Ok(above));
+            assert_eq!(topology.depth_or_below_for_type(ty), Ok(below));
+        }
+        Ok(())
     }
 }
