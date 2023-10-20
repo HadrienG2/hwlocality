@@ -3390,7 +3390,7 @@ impl Iterator for PositiveIntRangeFromIter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::strategies::any_string;
+    use crate::{strategies::any_string, tests::assert_panics};
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
@@ -3563,15 +3563,6 @@ mod tests {
 
     /// Maximum number of exploratory iterations to run for infinite iterators
     const INFINITE_ITERS: usize = 10;
-
-    /// Assert that calling some code panics
-    #[track_caller]
-    fn assert_panics<R: Debug>(f: impl FnOnce() -> R + UnwindSafe) -> Result<(), TestCaseError> {
-        Ok(prop_assert!(
-            std::panic::catch_unwind(f).is_err(),
-            "Operation should have panicked, but didn't"
-        ))
-    }
 
     /// Assert that calling some code panics in debug builds and does not do so
     /// in release builds

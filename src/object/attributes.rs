@@ -1048,6 +1048,7 @@ mod tests {
     use crate::{
         ffi::transparent::AsInner,
         object::{depth::NormalDepth, TopologyObject},
+        tests::assert_panics,
         topology::Topology,
     };
     use proptest::sample::Selector;
@@ -2239,10 +2240,5 @@ mod tests {
             },
             PhantomData,
         )
-    }
-
-    #[track_caller]
-    fn assert_panics<R>(op: impl UnwindSafe + FnOnce() -> R) -> Result<(), TestCaseError> {
-        Ok(prop_assert!(std::panic::catch_unwind(op).is_err()))
     }
 }

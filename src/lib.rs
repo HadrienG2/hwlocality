@@ -329,10 +329,23 @@ macro_rules! impl_arbitrary_for_bitflags {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
+    use std::{fmt::Debug, panic::UnwindSafe};
+
+    /// Assert that performing some action results in a panic
+    #[track_caller]
+    pub(crate) fn assert_panics<R: Debug>(
+        f: impl FnOnce() -> R + UnwindSafe,
+    ) -> Result<(), TestCaseError> {
+        Ok(prop_assert!(
+            std::panic::catch_unwind(f).is_err(),
+            "Operation should have panicked, but didn't"
+        ))
+    }
 
     #[test]
     fn get_api_version() {
