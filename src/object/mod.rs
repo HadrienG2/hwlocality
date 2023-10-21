@@ -134,7 +134,7 @@ impl Topology {
     ///     depth,
     ///     topology.depth_for_type(ObjectType::PU)?.assume_normal() + 1
     /// );
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_depth")]
     pub fn depth(&self) -> NormalDepth {
@@ -165,7 +165,7 @@ impl Topology {
     ///                 .count();
     ///     assert!(num_memory_objects > 0);
     /// }
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// [`Package`]: ObjectType::Package
@@ -202,7 +202,7 @@ impl Topology {
     /// assert_eq!(machine_depth.assume_normal(), 0);
     /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// [`depth_or_below_for_type()`]: Self::depth_or_below_for_type()
@@ -251,7 +251,7 @@ impl Topology {
     ///
     /// assert!(machine_depth.assume_normal() < package_or_below.assume_normal());
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// [`Group`]: ObjectType::Group
@@ -315,7 +315,7 @@ impl Topology {
     ///
     /// assert!(core_or_above.assume_normal() < pu_depth.assume_normal());
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// [`Group`]: ObjectType::Group
@@ -379,7 +379,7 @@ impl Topology {
     /// # let topology = hwlocality::Topology::test_instance();
     /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
     /// assert!(l1d_depth.is_ok());
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// [`depth_for_type()`]: Self::depth_for_type()
@@ -455,7 +455,7 @@ impl Topology {
     /// # let topology = hwlocality::Topology::test_instance();
     /// let numa_type = topology.type_at_depth(Depth::NUMANode);
     /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_get_depth_type")]
     pub fn type_at_depth<DepthLike>(&self, depth: DepthLike) -> Option<ObjectType>
@@ -517,7 +517,7 @@ impl Topology {
     /// let num_root_children = topology.num_objects_at_depth(1);
     /// assert!(num_root_children > 0);
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_get_nbobjs_by_depth")]
     pub fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
@@ -555,7 +555,7 @@ impl Topology {
     /// # use hwlocality::object::{depth::Depth, types::ObjectType};
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
-    /// use anyhow::Context;
+    /// use eyre::eyre;
     ///
     /// let root = topology.root_object();
     ///
@@ -565,12 +565,16 @@ impl Topology {
     ///     assert_eq!(node.normal_arity(), 0);
     ///     assert_eq!(node.memory_arity(), 0);
     ///     let num_nodes =
-    ///         node.nodeset().context("A NUMANode should have a NodeSet")?
-    ///             .weight().context("A NUMANode's NodeSet should be finite")?;
+    ///         node.nodeset()
+    ///             .ok_or_else(|| eyre!("a NUMANode should have a NodeSet"))?
+    ///             .weight()
+    ///             .ok_or_else(|| {
+    ///                 eyre!("a NUMANode's NodeSet should be finite")
+    ///             })?;
     ///     assert_eq!(num_nodes, 1);
     /// }
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_get_obj_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_by_depth")]
@@ -650,7 +654,7 @@ impl Topology {
     /// assert!(root.nodeset().is_some());
     ///
     /// println!("{root:#}");
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_get_root_obj")]
     pub fn root_object(&self) -> &TopologyObject {
@@ -667,7 +671,7 @@ impl Topology {
     /// # use hwlocality::object::types::ObjectType;
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
-    /// use anyhow::Context;
+    /// use eyre::eyre;
     ///
     /// let root = topology.root_object();
     ///
@@ -676,12 +680,17 @@ impl Topology {
     ///     assert!(pu.is_in_subtree(root));
     ///     assert_eq!(pu.normal_arity(), 0);
     ///     let num_cpus =
-    ///         pu.cpuset().context("A PU should have a CpuSet")?
-    ///           .weight().context("A PU's CpuSet should be finite")?;
+    ///         pu
+    ///             .cpuset()
+    ///             .ok_or_else(|| eyre!("a PU should have a CpuSet"))?
+    ///             .weight()
+    ///             .ok_or_else(|| {
+    ///                 eyre!("a PU's CpuSet should be finite")
+    ///             })?;
     ///     assert_eq!(num_cpus, 1);
     /// }
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_get_obj_by_type")]
     #[doc(alias = "hwloc_get_nbobjs_by_type")]
@@ -1886,7 +1895,7 @@ impl TopologyObject {
     ///     "Visible CPUs attached to the root object: {:?}",
     ///     topology.root_object().cpuset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_obj::cpuset")]
     pub fn cpuset(&self) -> Option<BitmapRef<'_, CpuSet>> {
@@ -1941,7 +1950,7 @@ impl TopologyObject {
     ///     "Overall CPUs attached to the root object: {:?}",
     ///     topology.root_object().complete_cpuset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     ///
     /// [`cpuset()`]: Self::cpuset()
@@ -1988,7 +1997,7 @@ impl TopologyObject {
     ///     "Visible NUMA nodes attached to the root object: {:?}",
     ///     topology.root_object().nodeset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_obj::nodeset")]
     pub fn nodeset(&self) -> Option<BitmapRef<'_, NodeSet>> {
@@ -2019,7 +2028,7 @@ impl TopologyObject {
     ///     "Overall NUMA nodes attached to the root object: {:?}",
     ///     topology.root_object().complete_nodeset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     ///
     /// [`nodeset()`]: Self::nodeset()
@@ -2218,7 +2227,7 @@ impl Debug for TopologyObject {
     /// # use hwlocality::Topology;
     /// # let topology = Topology::test_instance();
     /// println!("Root object: {:#?}", topology.root_object());
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_obj_attr_snprintf")]
     #[doc(alias = "hwloc_obj_type_snprintf")]
@@ -2240,7 +2249,7 @@ impl Display for TopologyObject {
     /// # use hwlocality::Topology;
     /// # let topology = Topology::test_instance();
     /// println!("Root object: {}", topology.root_object());
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, false)

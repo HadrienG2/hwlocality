@@ -1,4 +1,4 @@
-use anyhow::Context;
+use eyre::eyre;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     object::{types::ObjectType, TopologyObject},
@@ -8,7 +8,7 @@ use sysinfo::SystemExt;
 
 /// Example which binds an arbitrary process (in this example this very same one)
 /// to the last processing unit (core or hyperthread).
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
     let Some(support) = topology.feature_support().cpu_binding() else {
@@ -41,10 +41,10 @@ fn main() -> anyhow::Result<()> {
     // Grab last PU and extract its CpuSet
     let cpuset = last_pu(&topology)?
         .cpuset()
-        .context("PU objects should have a CpuSet")?;
+        .ok_or_else(|| eyre!("PU objects should have a CpuSet"))?;
 
     // Query the current cpu binding, and location if supported
-    let print_binding_location = |situation: &str| -> anyhow::Result<()> {
+    let print_binding_location = |situation: &str| -> eyre::Result<()> {
         println!(
             "Cpu Binding {situation}: {:?}",
             topology.process_cpu_binding(pid, CpuBindingFlags::empty())?
@@ -71,11 +71,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Find the last PU
-fn last_pu(topology: &Topology) -> anyhow::Result<&TopologyObject> {
+fn last_pu(topology: &Topology) -> eyre::Result<&TopologyObject> {
     topology
         .objects_with_type(ObjectType::PU)
         .next_back()
-        .context("System should have at least once PU")
+        .ok_or_else(|| eyre!("system should have at least one PU"))
 }
 
 /// Query the current process' PID

@@ -11,7 +11,7 @@ use hwlocality::{
 use sysinfo::{ProcessRefreshKind, RefreshKind, System, SystemExt};
 
 /// Example which displays process CPU bindings
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     // Create topology and check feature support
     let topology = Topology::builder()
         .with_flags(BuildFlags::INCLUDE_DISALLOWED)?

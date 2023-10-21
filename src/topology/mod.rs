@@ -127,7 +127,7 @@ impl Topology {
     /// ```
     /// # use hwlocality::Topology;
     /// let topology = Topology::new()?;
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[allow(clippy::missing_errors_doc)]
     pub fn new() -> Result<Self, RawHwlocError> {
@@ -181,7 +181,7 @@ impl Topology {
     /// let flags = BuildFlags::INCLUDE_DISALLOWED;
     /// let topology = Topology::builder().with_flags(flags)?.build()?;
     /// assert_eq!(topology.build_flags(), flags);
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_init")]
     pub fn builder() -> TopologyBuilder {
@@ -206,7 +206,7 @@ impl Topology {
     /// ```
     /// # use hwlocality::Topology;
     /// assert!(Topology::new()?.is_abi_compatible());
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_abi_check")]
     pub fn is_abi_compatible(&self) -> bool {
@@ -233,7 +233,7 @@ impl Topology {
     /// ```
     /// # use hwlocality::topology::{Topology, builder::BuildFlags};
     /// assert_eq!(Topology::new()?.build_flags(), BuildFlags::empty());
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_flags")]
     pub fn build_flags(&self) -> BuildFlags {
@@ -256,7 +256,7 @@ impl Topology {
     /// ```
     /// # use hwlocality::Topology;
     /// assert!(Topology::new()?.is_this_system());
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_is_thissystem")]
     pub fn is_this_system(&self) -> bool {
@@ -297,7 +297,7 @@ impl Topology {
     /// ```
     /// # let topology = hwlocality::Topology::test_instance();
     /// println!("{:?}", topology.feature_support());
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_support")]
     pub fn feature_support(&self) -> &FeatureSupport {
@@ -325,7 +325,7 @@ impl Topology {
     ///     FeatureSupport::discovery,
     ///     DiscoverySupport::pu_count
     /// ));
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     pub fn supports<Group>(
         &self,
@@ -359,7 +359,7 @@ impl Topology {
     ///     topology.type_filter(ObjectType::Group)?,
     ///     TypeFilter::KeepStructure
     /// );
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_get_type_filter")]
@@ -698,7 +698,7 @@ impl Topology {
     /// # use hwlocality::Topology;
     /// # let topology = Topology::test_instance();
     /// println!("Visible CPUs in this topology: {}", topology.cpuset());
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_cpuset")]
     pub fn cpuset(&self) -> BitmapRef<'_, CpuSet> {
@@ -725,7 +725,7 @@ impl Topology {
     ///     "Overall CPUs in this topology: {}",
     ///     topology.complete_cpuset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_cpuset")]
     pub fn complete_cpuset(&self) -> BitmapRef<'_, CpuSet> {
@@ -757,7 +757,7 @@ impl Topology {
     ///     "Allowed CPUs in this topology: {}",
     ///     topology.allowed_cpuset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_cpuset")]
     pub fn allowed_cpuset(&self) -> BitmapRef<'_, CpuSet> {
@@ -781,7 +781,7 @@ impl Topology {
     /// # use hwlocality::Topology;
     /// # let topology = Topology::test_instance();
     /// println!("Visible NUMA nodes in this topology: {}", topology.nodeset());
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_topology_nodeset")]
     pub fn nodeset(&self) -> BitmapRef<'_, NodeSet> {
@@ -808,7 +808,7 @@ impl Topology {
     ///     "Overall NUMA nodes in this topology: {}",
     ///     topology.complete_nodeset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_complete_nodeset")]
     pub fn complete_nodeset(&self) -> BitmapRef<'_, NodeSet> {
@@ -840,7 +840,7 @@ impl Topology {
     ///     "Allowed NUMA nodes in this topology: {}",
     ///     topology.allowed_nodeset()
     /// );
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok::<_, eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_get_allowed_nodeset")]
     pub fn allowed_nodeset(&self) -> BitmapRef<'_, NodeSet> {

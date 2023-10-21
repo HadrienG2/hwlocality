@@ -1,4 +1,4 @@
-use anyhow::Context;
+use eyre::eyre;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     object::types::ObjectType,
@@ -15,7 +15,7 @@ use hwlocality::{
 /// Thread 0: Binding went from 0-1 to 0
 /// Thread 1: Binding went from 0-1 to 1
 /// ```
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
     if !topology.supports(FeatureSupport::discovery, DiscoverySupport::pu_count) {
@@ -41,7 +41,7 @@ fn main() -> anyhow::Result<()> {
     std::thread::scope(|scope| {
         for (idx, core) in cores.into_iter().enumerate() {
             let topology = &topology;
-            scope.spawn(move || -> anyhow::Result<()> {
+            scope.spawn(move || -> eyre::Result<()> {
                 // Get the current thread id and lock the topology to use.
                 let tid = get_thread_id();
 
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
                 // load the cpuset for the given core index.
                 let mut bind_to = core
                     .cpuset()
-                    .context("CPU cores should have CpuSets")?
+                    .ok_or_else(|| eyre!("CPU cores should have CpuSets"))?
                     .clone_target();
 
                 // Get only one logical processor (in case the core is SMT/hyper-threaded).

@@ -141,11 +141,12 @@ impl Topology {
     ///
     #[cfg_attr(target_os = "linux", doc = "```rust")]
     #[cfg_attr(not(target_os = "linux"), doc = "```rust,ignore")]
-    /// # use anyhow::Context;
     /// # use hwlocality::{topology::Topology, object::types::ObjectType};
     /// #
     /// # let topology = Topology::test_instance();
     /// #
+    /// use eyre::eyre;
+    ///
     /// // Read cpuset of first core via Linux sysfs
     /// let core_set = topology
     ///     .read_path_as_cpumask("/sys/devices/system/cpu/cpu0/topology/core_cpus")?;
@@ -156,12 +157,12 @@ impl Topology {
     ///     topology
     ///         .objects_with_type(ObjectType::Core)
     ///         .next()
-    ///         .context("System should have at least one core")?
+    ///         .ok_or_else(|| eyre!("Linux systesm should have CPU cores"))?
     ///         .cpuset()
-    ///         .context("Cores should have cpusets")?
+    ///         .ok_or_else(|| eyre!("CPU cores should have cpusets"))?
     /// );
     /// #
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// [`ContainsNul`]: PathError::ContainsNul
