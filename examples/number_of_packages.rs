@@ -4,7 +4,7 @@ use hwlocality::{
 };
 
 /// Prints the number of packages.
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let topology = Topology::new()?;
 
     match topology.depth_for_type(ObjectType::Package) {

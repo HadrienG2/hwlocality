@@ -1,4 +1,4 @@
-use anyhow::Context;
+use eyre::eyre;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     object::{types::ObjectType, TopologyObject},
@@ -19,7 +19,7 @@ use hwlocality::{
 /// Cpu Binding after explicit binding: 1
 /// Cpu Location after explicit binding: 1
 /// ```
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
     let Some(support) = topology.feature_support().cpu_binding() else {
@@ -38,10 +38,10 @@ fn main() -> anyhow::Result<()> {
     // Find the last core on the system and extract its CpuSet
     let cpuset = last_core(&topology)?
         .cpuset()
-        .context("Cores should have CPUsets")?;
+        .ok_or_else(|| eyre!("CPU cores should have CPUsets"))?;
 
     // Query the current cpu binding, and location if supported
-    let print_binding_location = |situation: &str| -> anyhow::Result<()> {
+    let print_binding_location = |situation: &str| -> eyre::Result<()> {
         println!(
             "Cpu Binding {situation}: {:?}",
             topology.cpu_binding(CpuBindingFlags::ASSUME_SINGLE_THREAD)?
@@ -69,10 +69,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Find the last core on the system
-fn last_core(topology: &Topology) -> anyhow::Result<&TopologyObject> {
+fn last_core(topology: &Topology) -> eyre::Result<&TopologyObject> {
     let core_depth = topology.depth_or_below_for_type(ObjectType::Core)?;
     let mut all_cores = topology.objects_at_depth(core_depth);
     all_cores
         .next_back()
-        .context("At least one Core or PU should be present")
+        .ok_or_else(|| eyre!("at least one Core or PU should be present"))
 }

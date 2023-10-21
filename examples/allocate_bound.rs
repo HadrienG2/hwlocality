@@ -1,4 +1,4 @@
-use anyhow::Context;
+use eyre::eyre;
 use hwlocality::{
     memory::binding::{MemoryBindingFlags, MemoryBindingPolicy},
     object::{depth::Depth, TopologyObject},
@@ -6,7 +6,7 @@ use hwlocality::{
 };
 
 /// Allocate 4 MiB of memory that is bound to the last NUMA node on the system
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     // Create topology and check feature support
     let topology = Topology::new()?;
     let Some(support) = topology.feature_support().memory_binding() else {
@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
     // Find the last NUMA node on the system and
     let nodeset = last_node(&topology)?
         .nodeset()
-        .context("NUMA nodes should have nodesets")?;
+        .ok_or_else(|| eyre!("NUMA nodes should have nodesets"))?;
 
     // Allocate memory that is bound to this NUMA node, binding ourselves to
     // it if necessary.
@@ -41,9 +41,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Find the last NUMA node one the system
-fn last_node(topology: &Topology) -> anyhow::Result<&TopologyObject> {
+fn last_node(topology: &Topology) -> eyre::Result<&TopologyObject> {
     let mut all_nodes = topology.objects_at_depth(Depth::NUMANode);
     all_nodes
         .next_back()
-        .context("At least one NUMA node should be present")
+        .ok_or_else(|| eyre!("at least one NUMA node should be present"))
 }

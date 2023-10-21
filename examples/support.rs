@@ -4,7 +4,7 @@ use hwlocality::{
 };
 
 /// Example on how to check for specific topology support of a feature.
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let topology = Topology::new()?;
 
     // Check if processes can be bound to cpusets

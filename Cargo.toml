@@ -182,11 +182,11 @@ enum-iterator = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
 
 [dev-dependencies]
-# Used to simplify examples and test error reporting
-anyhow = { version = "1.0", features = ["backtrace"] }
-
 # Used to exhaustively test enum variants and for random testing
 enum-iterator.workspace = true
+
+# Used to simplify examples and test error reporting
+eyre = "0.6"
 
 # Used to ease debugging of string tests
 similar-asserts = "1.5"

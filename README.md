@@ -78,7 +78,7 @@ and prints out a short description of every CPU and cache object known to hwloc:
 ```rust
 use hwlocality::{object::depth::NormalDepth, Topology};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let topology = Topology::new()?;
 
     for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()) {

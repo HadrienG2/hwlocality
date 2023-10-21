@@ -90,7 +90,7 @@ impl TopologyBuilder {
     /// let flags = BuildFlags::INCLUDE_DISALLOWED;
     /// let topology = TopologyBuilder::new().with_flags(flags)?.build()?;
     /// assert_eq!(topology.build_flags(), flags);
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     pub fn new() -> Self {
         let mut topology: *mut hwloc_topology = std::ptr::null_mut();
@@ -114,7 +114,7 @@ impl TopologyBuilder {
     /// let flags = BuildFlags::INCLUDE_DISALLOWED;
     /// let topology = Topology::builder().with_flags(flags)?.build()?;
     /// assert_eq!(topology.build_flags(), flags);
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_load")]
@@ -449,7 +449,7 @@ impl TopologyBuilder {
     /// let topology = Topology::builder()
     ///                         .with_flags(BuildFlags::ASSUME_THIS_SYSTEM)?
     ///                         .build()?;
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     #[doc(alias = "hwloc_topology_set_flags")]
     pub fn with_flags(

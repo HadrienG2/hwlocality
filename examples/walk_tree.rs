@@ -1,7 +1,7 @@
 use hwlocality::{object::TopologyObject, Topology};
 
 /// Walk the topologylogy in a tree-style and print it.
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let topology = Topology::new()?;
 
     println!("*** Topology tree");
@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_children(obj: &TopologyObject, depth: usize) -> anyhow::Result<()> {
+fn print_children(obj: &TopologyObject, depth: usize) -> eyre::Result<()> {
     for _ in 0..depth {
         print!(" ");
     }

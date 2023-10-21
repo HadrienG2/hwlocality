@@ -1,4 +1,4 @@
-use anyhow::Context;
+use eyre::eyre;
 use hwlocality::{
     object::{attributes::ObjectAttributes, types::ObjectType},
     Topology,
@@ -6,14 +6,14 @@ use hwlocality::{
 
 /// Compute the amount of cache that the first logical processor
 /// has above it.
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let topology = Topology::new()?;
 
     // Walk caches on an individual PU
     let first_pu = topology
         .objects_with_type(ObjectType::PU)
         .next()
-        .context("At least one PU should be present")?;
+        .ok_or_else(|| eyre!("at least one PU should be present"))?;
     let (levels, size) = first_pu
         .ancestors()
         .filter_map(|ancestor| {
@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
     // Compute aggregate statistics on all available CPU caches
     let stats = topology
         .cpu_cache_stats()
-        .context("CPU cache state unavailable")?;
+        .ok_or_else(|| eyre!("failed to probe CPU caches"))?;
     println!(
         "*** System-wide minimal data cache sizes per level: {:?}",
         stats.smallest_data_cache_sizes()

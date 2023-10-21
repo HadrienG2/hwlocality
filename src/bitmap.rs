@@ -108,7 +108,6 @@ pub type BitmapIndex = PositiveInt;
 /// with:
 ///
 /// ```
-/// # use anyhow::Context;
 /// # use hwlocality::{
 /// #     cpu::{binding::CpuBindingFlags, cpuset::CpuSet},
 /// #     object::{types::ObjectType},
@@ -136,7 +135,7 @@ pub type BitmapIndex = PositiveInt;
 ///     topology.bind_cpu(&set, CpuBindingFlags::THREAD)?;
 /// }
 /// #
-/// # Ok::<(), anyhow::Error>(())
+/// # Ok::<(), eyre::Report>(())
 /// ```
 ///
 /// # Panics

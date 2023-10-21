@@ -29,12 +29,13 @@ impl Topology {
     /// # Examples
     ///
     /// ```
-    /// # use anyhow::Context;
-    /// #
     /// # let topology = hwlocality::Topology::test_instance();
     /// #
-    /// let stats = topology.cpu_cache_stats()
-    ///                     .context("CPU cache sizes are not known")?;
+    /// use eyre::eyre;
+    ///
+    /// let stats = topology
+    ///     .cpu_cache_stats()
+    ///     .ok_or_else(|| eyre!("CPU cache sizes are not known"))?;
     ///
     /// println!(
     ///     "Minimal data cache sizes: {:?}",
@@ -61,7 +62,7 @@ impl Topology {
     ///     assert!(smallest_per_thread <= smallest);
     ///     assert!(smallest <= total);
     /// }
-    /// # Ok::<(), anyhow::Error>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     pub fn cpu_cache_stats(&self) -> Option<CpuCacheStats> {
         CpuCacheStats::new(self)
