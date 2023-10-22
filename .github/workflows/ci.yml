@@ -128,7 +128,7 @@ jobs:
         with:
           package: hwlocality-sys # TODO: Extend once hwlocality is released
           feature-group: default-features
-          feature: ${{ matrix.features }}
+          features: ${{ matrix.features }}
           rust-toolchain: manual
 
 
