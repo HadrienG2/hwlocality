@@ -123,12 +123,24 @@ jobs:
       - name: Build docs
         run: cargo doc ${{ env.JOB_FLAGS }}
 
-      - name: Check semver
+      - name: Check semver (with extra features)
         uses: obi1kenobi/cargo-semver-checks-action@v2
+        if: matrix.features != '""'
         with:
           package: hwlocality-sys # TODO: Extend once hwlocality is released
           feature-group: default-features
           features: ${{ matrix.features }}
+          rust-toolchain: manual
+
+      # FIXME: Remove + simplify above if/when cargo semver-checks ends up
+      #        accepting "" as valid features
+      #        https://github.com/obi1kenobi/cargo-semver-checks/issues/565
+      - name: Check semver (w/o extra features)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        if: matrix.features == '""'
+        with:
+          package: hwlocality-sys # TODO: Extend once hwlocality is released
+          feature-group: default-features
           rust-toolchain: manual
 
 
