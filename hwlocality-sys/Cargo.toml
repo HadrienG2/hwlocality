@@ -22,6 +22,8 @@ hwloc-2_4_0 = ["hwloc-2_3_0"]
 hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
 bundled = ["dep:autotools", "dep:cmake"]
+# This feature does nothing in -sys and is only here for CI convenience
+proptest = []
 
 [target.'cfg(windows)'.dependencies]
 # Used for OS typedefs
