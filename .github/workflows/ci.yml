@@ -79,19 +79,19 @@ jobs:
           - ubuntu-latest
           - windows-latest
         features:
-          - ''
-          - '--features=hwloc-2_0_4'
-          - '--features=hwloc-2_1_0'
-          - '--features=hwloc-2_2_0'
-          - '--features=hwloc-2_3_0'
-          - '--features=hwloc-2_4_0'
-          - '--features=hwloc-2_5_0'
-          - '--features=hwloc-2_8_0'
-          - '--features=hwloc-latest,bundled'
-          - '--features=hwloc-latest,proptest'
+          - '""'
+          - 'hwloc-2_0_4'
+          - 'hwloc-2_1_0'
+          - 'hwloc-2_2_0'
+          - 'hwloc-2_3_0'
+          - 'hwloc-2_4_0'
+          - 'hwloc-2_5_0'
+          - 'hwloc-2_8_0'
+          - 'hwloc-latest,bundled'
+          - 'hwloc-latest,proptest'
 
     env:
-      JOB_FLAGS: '--workspace ${{ matrix.features }}'
+      JOB_FLAGS: '--workspace --features=${{ matrix.features }}'
 
     steps:
       - name: Checkout sources
@@ -122,6 +122,26 @@ jobs:
 
       - name: Build docs
         run: cargo doc ${{ env.JOB_FLAGS }}
+
+      - name: Check semver (with extra features)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        if: matrix.features != '""'
+        with:
+          package: hwlocality-sys # TODO: Extend once hwlocality is released
+          feature-group: default-features
+          features: ${{ matrix.features }}
+          rust-toolchain: manual
+
+      # FIXME: Remove + simplify above if/when cargo semver-checks ends up
+      #        accepting "" as valid features
+      #        https://github.com/obi1kenobi/cargo-semver-checks/issues/565
+      - name: Check semver (w/o extra features)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        if: matrix.features == '""'
+        with:
+          package: hwlocality-sys # TODO: Extend once hwlocality is released
+          feature-group: default-features
+          rust-toolchain: manual
 
 
   # Run the tests and examples on all supported OSes and Rust versions (main CI)
@@ -154,16 +174,19 @@ jobs:
           - stable
           - $MINIMAL_RUST
         features:
-          - ''
-          - '--features=hwloc-2_0_4'
-          - '--features=hwloc-2_1_0'
-          - '--features=hwloc-2_2_0'
-          - '--features=hwloc-2_3_0'
-          - '--features=hwloc-2_4_0'
-          - '--features=hwloc-2_5_0'
-          - '--features=hwloc-2_8_0'
-          - '--features=hwloc-latest,bundled'
-          - '--features=hwloc-latest,proptest'
+          - '""'
+          - 'hwloc-2_0_4'
+          - 'hwloc-2_1_0'
+          - 'hwloc-2_2_0'
+          - 'hwloc-2_3_0'
+          - 'hwloc-2_4_0'
+          - 'hwloc-2_5_0'
+          - 'hwloc-2_8_0'
+          - 'hwloc-latest,bundled'
+          - 'hwloc-latest,proptest'
+
+    env:
+      FEATURES_FLAG: '--features=${{ matrix.features }}'
 
     steps:
       - name: Checkout sources
@@ -190,7 +213,7 @@ jobs:
         if: contains(matrix.features, 'bundled') == false
 
       - name: Run unit and doc tests
-        run: cargo test --workspace ${{ matrix.features }}
+        run: cargo test --workspace ${{ env.FEATURES_FLAG }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
@@ -198,7 +221,7 @@ jobs:
           crate: cargo-examples
 
       - name: Run all examples
-        run: cargo examples ${{ matrix.features }}
+        run: cargo examples ${{ env.FEATURES_FLAG }}
 
 
   # Run the tests and examples on all supported OSes and Rust versions,
@@ -409,16 +432,19 @@ jobs:
           - nightly
           - $MINIMAL_RUST  # Can be broken by deps
         features:
-          - ''
-          - '--features=hwloc-2_0_4'
-          - '--features=hwloc-2_1_0'
-          - '--features=hwloc-2_2_0'
-          - '--features=hwloc-2_3_0'
-          - '--features=hwloc-2_4_0'
-          - '--features=hwloc-2_5_0'
-          - '--features=hwloc-2_8_0'
-          - '--features=hwloc-latest,bundled'
-          - '--features=hwloc-latest,proptest'
+          - '""'
+          - 'hwloc-2_0_4'
+          - 'hwloc-2_1_0'
+          - 'hwloc-2_2_0'
+          - 'hwloc-2_3_0'
+          - 'hwloc-2_4_0'
+          - 'hwloc-2_5_0'
+          - 'hwloc-2_8_0'
+          - 'hwloc-latest,bundled'
+          - 'hwloc-latest,proptest'
+
+    env:
+      FEATURES_FLAG: '--features=${{ matrix.features }}'
 
     steps:
       - name: Checkout sources
@@ -445,10 +471,10 @@ jobs:
         if: contains(matrix.features, 'bundled') == false
 
       - name: Run basic tests (debug build)
-        run: cargo test --workspace ${{ matrix.features }}
+        run: cargo test --workspace ${{ env.FEATURES_FLAG }}
 
       - name: Run basic tests (release build)
-        run: cargo test --workspace --release ${{ matrix.features }}
+        run: cargo test --workspace --release ${{ env.FEATURES_FLAG }}
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
@@ -456,7 +482,7 @@ jobs:
           crate: cargo-examples
 
       - name: Run all examples (debug build)
-        run: cargo examples ${{ matrix.features }}
+        run: cargo examples ${{ env.FEATURES_FLAG }}
 
       - name: Run all examples (release build)
-        run: cargo examples ${{ matrix.features }} -- --release
+        run: cargo examples ${{ env.FEATURES_FLAG }} -- --release
