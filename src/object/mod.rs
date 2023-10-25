@@ -474,14 +474,6 @@ impl Topology {
     {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(self_: &Topology, depth: Depth) -> Option<ObjectType> {
-            // There cannot be any normal object at a depth below the topology depth
-            if let Depth::Normal(depth) = depth {
-                if depth >= self_.depth() {
-                    return None;
-                }
-            }
-
-            // Otherwise, ask hwloc
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - By construction, Depth only exposes values that map into
@@ -654,10 +646,8 @@ impl Topology {
     ///
     /// assert_eq!(root.object_type(), ObjectType::Machine);
     ///
-    /// assert_eq!(root.depth(), Depth::from(NormalDepth::MIN));
+    /// assert_eq!(root.depth(), NormalDepth::MIN);
     /// assert!(root.parent().is_none());
-    /// assert_eq!(root.logical_index(), 0);
-    /// assert_ne!(root.normal_arity(), 0);
     ///
     /// assert!(root.cpuset().is_some());
     /// assert!(root.nodeset().is_some());
@@ -749,7 +739,9 @@ impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> Iterator
     type Item = &'topology TopologyObject;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        let next = self.inner.next()?;
+        self.size -= 1;
+        Some(next)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -765,7 +757,9 @@ impl<'topology, Inner: DoubleEndedIterator<Item = &'topology TopologyObject>> Do
     for ObjectsWithType<Inner>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.next_back()
+        let next = self.inner.next_back()?;
+        self.size -= 1;
+        Some(next)
     }
 }
 //
@@ -1499,7 +1493,7 @@ impl TopologyObject {
     /// - `self` and `other` do not belong to the same topology, and thus have
     ///   no shared ancestor.
     #[doc(alias = "hwloc_get_common_ancestor_obj")]
-    pub fn common_ancestor(&self, other: &Self) -> Option<&Self> {
+    pub fn first_common_ancestor(&self, other: &Self) -> Option<&Self> {
         // Handle degenerate case
         if ptr::eq(self, other) {
             return self.parent();
@@ -1612,11 +1606,12 @@ impl TopologyObject {
     /// Find the smallest non-I/O ancestor object. This object (normal or
     /// memory) may then be used for binding because it has CPU and node sets
     /// and because its locality is the same as this object.
+    ///
+    /// This operation will fail if and only if the object is the root of the
+    /// topology.
     #[doc(alias = "hwloc_get_non_io_ancestor_obj")]
-    pub fn non_io_ancestor(&self) -> &Self {
-        self.ancestors()
-            .find(|obj| obj.cpuset().is_some())
-            .expect("Per hwloc documentation, there has to be one non-I/O ancestor")
+    pub fn first_non_io_ancestor(&self) -> Option<&Self> {
+        self.ancestors().find(|obj| obj.cpuset().is_some())
     }
 }
 
@@ -1740,14 +1735,14 @@ impl TopologyObject {
     //       If you do, please submit an issue to the repository!
 
     /// Truth that this object is symmetric, which means all normal children and
-    /// their children have identical subtrees
+    /// their children have identically shaped subtrees
     ///
     /// Memory, I/O and Misc children are ignored.
     ///
     /// If this is true of the root object, then the topology may be [exported
     /// as a synthetic string](Topology::export_synthetic()).
     #[doc(alias = "hwloc_obj::symmetric_subtree")]
-    pub fn symmetric_subtree(&self) -> bool {
+    pub fn is_symmetric_subtree(&self) -> bool {
         self.0.symmetric_subtree != 0
     }
 
@@ -2060,7 +2055,7 @@ impl TopologyObject {
     /// exist, although sane users should not leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
-        if self.0.children.is_null() {
+        if self.0.infos.is_null() {
             assert_eq!(
                 self.0.infos_count, 0,
                 "Got null infos pointer with nonzero info count"
@@ -2276,6 +2271,7 @@ unsafe impl TransparentNewtype for TopologyObject {
     type Inner = hwloc_obj;
 }
 
+#[allow(clippy::cognitive_complexity)]
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -2352,7 +2348,7 @@ pub(crate) mod tests {
     /// Check that reported topology depth matches hwloc rule that PUs are the
     /// deepest kind of normal object
     #[test]
-    fn depth() {
+    fn topology_depth() {
         let topology = Topology::test_instance();
         assert_eq!(
             topology.depth(),
@@ -2387,20 +2383,32 @@ pub(crate) mod tests {
         }
     }
 
+    /// List of valid depths in the topology
+    fn valid_depths() -> impl Iterator<Item = Depth> {
+        let topology = Topology::test_instance();
+        NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+            .map(Depth::from)
+            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+    }
+
+    /// Check the mapping from types to depths
+    fn type_to_depths() -> HashMap<ObjectType, Vec<Depth>> {
+        let topology = Topology::test_instance();
+        let mut result = HashMap::<ObjectType, Vec<Depth>>::new();
+        for depth in valid_depths() {
+            let ty = topology.type_at_depth(depth).unwrap();
+            result.entry(ty).or_default().push(depth);
+        }
+        result
+    }
+
     /// Check that type -> depth translation is correct
     #[test]
     fn depth_for_type() -> Result<(), TestCaseError> {
         let topology = Topology::test_instance();
 
         // Probe the type -> depths mapping for all types using type_at_depth
-        let mut type_to_depths = HashMap::<ObjectType, Vec<Depth>>::new();
-        for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
-            .map(Depth::from)
-            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
-        {
-            let ty = topology.type_at_depth(depth).unwrap();
-            type_to_depths.entry(ty).or_default().push(depth);
-        }
+        let type_to_depths = type_to_depths();
 
         // Check that depth_for_type-like methods produce expected results for
         // all types + also check depth_or_(above|below) for present types
@@ -2456,6 +2464,241 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    /// Stuff that should be true of any object we examine
+    fn check_any_object(obj: &TopologyObject) {
+        let topology = Topology::test_instance();
+
+        if let Depth::Normal(depth) = obj.depth() {
+            assert_eq!(obj.ancestors().count(), depth);
+        }
+
+        let siblings_len = obj.parent().map_or(1, |parent| {
+            let ty = obj.object_type();
+            if ty.is_normal() {
+                parent.normal_arity()
+            } else if ty.is_memory() {
+                parent.memory_arity()
+            } else if ty.is_io() {
+                parent.io_arity()
+            } else {
+                assert_eq!(ty, ObjectType::Misc);
+                parent.misc_arity()
+            }
+        });
+        let cousins_len = topology.num_objects_at_depth(obj.depth());
+
+        fn num_neighbors(
+            obj: &TopologyObject,
+            next_neighbor: fn(&TopologyObject) -> Option<&TopologyObject>,
+        ) -> usize {
+            std::iter::successors(Some(obj), |obj| next_neighbor(obj)).count() - 1
+        }
+        assert_eq!(
+            num_neighbors(obj, TopologyObject::prev_cousin),
+            obj.logical_index()
+        );
+        assert_eq!(
+            num_neighbors(obj, TopologyObject::next_cousin),
+            cousins_len - obj.logical_index() - 1
+        );
+        assert_eq!(
+            num_neighbors(obj, TopologyObject::prev_sibling),
+            obj.sibling_rank()
+        );
+        assert_eq!(
+            num_neighbors(obj, TopologyObject::next_sibling),
+            siblings_len - obj.sibling_rank() - 1
+        );
+
+        assert_eq!(obj.normal_arity(), obj.normal_children().count());
+        assert_eq!(obj.memory_arity(), obj.memory_children().count());
+        assert_eq!(obj.io_arity(), obj.io_children().count());
+        assert_eq!(obj.misc_arity(), obj.misc_children().count());
+        assert_eq!(
+            obj.all_children().count(),
+            obj.normal_arity() + obj.memory_arity() + obj.io_arity() + obj.misc_arity()
+        );
+
+        for normal_child in obj.normal_children() {
+            assert!(normal_child.object_type().is_normal());
+        }
+        for memory_child in obj.memory_children() {
+            assert!(memory_child.object_type().is_memory());
+        }
+        for io_child in obj.io_children() {
+            assert!(io_child.object_type().is_io());
+        }
+        for misc_child in obj.misc_children() {
+            assert_eq!(misc_child.object_type(), ObjectType::Misc);
+        }
+
+        let has_sets = obj.object_type().is_normal() || obj.object_type().is_memory();
+        assert_eq!(obj.cpuset().is_some(), has_sets);
+        assert_eq!(obj.complete_cpuset().is_some(), has_sets);
+        if let (Some(complete), Some(normal)) = (obj.complete_cpuset(), obj.cpuset()) {
+            assert!(complete.includes(normal));
+            assert!(obj.is_inside_cpuset(complete));
+            assert!(obj.covers_cpuset(normal));
+        }
+
+        assert_eq!(obj.nodeset().is_some(), has_sets);
+        assert_eq!(obj.complete_nodeset().is_some(), has_sets);
+        if let (Some(complete), Some(normal)) = (obj.complete_nodeset(), obj.nodeset()) {
+            assert!(complete.includes(normal));
+        }
+
+        for info in obj.infos() {
+            if let Ok(name) = info.name().to_str() {
+                assert_eq!(
+                    obj.info(name),
+                    obj.infos()
+                        .iter()
+                        .find(|other_info| other_info.name() == info.name())
+                        .map(TextualInfo::value)
+                );
+            }
+        }
+        assert_eq!(
+            obj.info("Please don't add an info named like this just to make the test fail ;)"),
+            None
+        );
+    }
+
+    /// [`check_any_object()`] on any object reachable from the main object list
+    #[test]
+    fn check_objects() {
+        let topology = Topology::test_instance();
+        for obj in topology.objects() {
+            check_any_object(obj);
+        }
+    }
+
+    /// Check the root object
+    ///
+    /// It's the top of the topology, so we know a lot about it.
+    #[test]
+    fn root_object() {
+        let topology = Topology::test_instance();
+
+        let root = topology.root_object();
+
+        check_any_object(root);
+
+        assert_eq!(topology.objects_with_type(ObjectType::Machine).count(), 1);
+        assert_eq!(root.object_type(), ObjectType::Machine);
+        assert!(root.attributes().is_none());
+
+        assert_eq!(root.depth(), NormalDepth::MIN);
+        assert!(root.parent().is_none());
+        assert_eq!(root.ancestors().count(), 0);
+        assert!(root.first_shared_cache().is_none());
+        assert!(root.first_non_io_ancestor().is_none());
+
+        assert_eq!(root.logical_index(), 0);
+        assert!(root.next_cousin().is_none());
+        assert!(root.prev_cousin().is_none());
+        assert_eq!(root.sibling_rank(), 0);
+        assert!(root.next_sibling().is_none());
+        assert!(root.prev_sibling().is_none());
+
+        assert_ne!(root.normal_arity(), 0);
+
+        assert_eq!(root.cpuset(), Some(topology.cpuset()));
+        assert!(root.is_inside_cpuset(topology.cpuset()));
+        assert!(root.covers_cpuset(topology.cpuset()));
+        assert_eq!(root.complete_cpuset(), Some(topology.complete_cpuset()));
+        assert_eq!(root.nodeset(), Some(topology.nodeset()));
+        assert_eq!(root.complete_nodeset(), Some(topology.complete_nodeset()));
+
+        for depth in valid_depths() {
+            assert!(root.ancestor_at_depth(depth).is_none());
+        }
+
+        for ty in type_to_depths().into_keys() {
+            assert!(root.first_ancestor_with_type(ty).is_none());
+        }
+
+        for obj in topology.objects() {
+            assert!(root.first_common_ancestor(obj).is_none());
+            assert!(!root.is_in_subtree(obj));
+            assert_eq!(obj.is_in_subtree(root), !ptr::eq(obj, root));
+        }
+    }
+
+    /// Check the PU objects
+    ///
+    /// They're the leaves of the normal topology, so we know a lot about them.
+    #[test]
+    fn processing_units() {
+        let topology = Topology::test_instance();
+
+        assert_eq!(
+            topology.objects_with_type(ObjectType::PU).count(),
+            topology.cpuset().weight().unwrap()
+        );
+
+        for (idx, pu) in topology.objects_with_type(ObjectType::PU).enumerate() {
+            check_any_object(pu);
+
+            assert_eq!(pu.object_type(), ObjectType::PU);
+            assert!(pu.attributes().is_none());
+
+            assert_eq!(pu.depth(), topology.depth() - 1);
+            assert_eq!(pu.logical_index(), idx);
+
+            assert_eq!(pu.normal_arity(), 0);
+            assert!(pu.is_symmetric_subtree());
+
+            assert_eq!(pu.cpuset().unwrap().weight().unwrap(), 1);
+            assert_eq!(pu.nodeset().unwrap().weight().unwrap(), 1);
+        }
+    }
+
+    /// Check that [`Topology::objects_with_type()`] is correct
+    #[test]
+    fn objects_with_type() {
+        let topology = Topology::test_instance();
+
+        let type_to_depths = type_to_depths();
+
+        for ty in enum_iterator::all::<ObjectType>() {
+            // Does it only expose objects of the right type?
+            for obj in topology.objects_with_type(ty) {
+                assert_eq!(obj.object_type(), ty);
+            }
+
+            // Does it expose every object of the right type?
+            let num_objects = type_to_depths.get(&ty).map_or(0, |depths| {
+                depths
+                    .iter()
+                    .map(|depth| topology.objects_at_depth(*depth).count())
+                    .sum::<usize>()
+            });
+            assert_eq!(topology.objects_with_type(ty).count(), num_objects);
+
+            // Does the custom iterator logic work as expected ?
+            let mut iter = topology.objects_with_type(ty);
+            fn check_size_hint<'a>(
+                iter: &(impl DoubleEndedIterator<Item = &'a TopologyObject> + ExactSizeIterator),
+            ) {
+                assert_eq!(iter.size_hint(), (iter.len(), Some(iter.len())));
+            }
+            assert_eq!(iter.len(), num_objects);
+            check_size_hint(&iter);
+            iter.next();
+            assert_eq!(iter.len(), num_objects.saturating_sub(1));
+            check_size_hint(&iter);
+            iter = topology.objects_with_type(ty);
+            match (iter.next_back(), topology.objects_with_type(ty).last()) {
+                (Some(obj1), Some(obj2)) if ptr::eq(obj1, obj2) => {}
+                (None, None) => {}
+                other => panic!("next_back doesn't match last: {other:?}"),
+            }
+            assert_eq!(iter.len(), num_objects.saturating_sub(1));
+            check_size_hint(&iter);
+        }
+    }
+
     // --- Check that cache search is correct ---
 
     /// Kinds of caches present on the system, ordered by depth
@@ -2508,6 +2751,7 @@ pub(crate) mod tests {
         let valid_cache_types = cache_kinds
             .iter()
             .map(|kind| Some(kind.ty))
+            .chain(std::iter::once(None))
             .collect::<HashSet<_>>();
         let invalid_cache_types = enum_iterator::all::<CacheType>()
             .map(Some)
@@ -2562,6 +2806,106 @@ pub(crate) mod tests {
                 },
                 Err(TypeToDepthError::Unexpected(e)) => panic!("got unexpected error {e}"),
             }
+        }
+    }
+
+    // --- Test operations with a depth parameter ---
+
+    /// Test [`Topology::type_at_depth()`] at a certain depth
+    fn check_type_at_depth<DepthLike>(depth: DepthLike)
+    where
+        DepthLike: TryInto<Depth> + Copy,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+        let result = topology.type_at_depth(depth);
+        let depth: Result<Depth, _> = depth.try_into();
+        match depth {
+            Ok(Depth::Normal(depth)) => {
+                if depth < topology.depth() {
+                    let ty = result.unwrap();
+                    #[allow(clippy::option_if_let_else)]
+                    if let Ok(expected) = topology.depth_for_type(ty) {
+                        assert_eq!(depth, expected);
+                    } else {
+                        assert_eq!(ty, ObjectType::Group);
+                    }
+                } else {
+                    assert_eq!(result, None);
+                }
+            }
+            Ok(Depth::NUMANode) => assert_eq!(result, Some(ObjectType::NUMANode)),
+            Ok(Depth::Bridge) => assert_eq!(result, Some(ObjectType::Bridge)),
+            Ok(Depth::PCIDevice) => assert_eq!(result, Some(ObjectType::PCIDevice)),
+            Ok(Depth::OSDevice) => assert_eq!(result, Some(ObjectType::OSDevice)),
+            Ok(Depth::Misc) => assert_eq!(result, Some(ObjectType::Misc)),
+            #[cfg(feature = "hwloc-2_1_0")]
+            Ok(Depth::MemCache) => assert_eq!(result, Some(ObjectType::MemCache)),
+            Err(_) => assert_eq!(result, None),
+        }
+    }
+
+    /// Test [`Topology::num_objects_at_depth()`] at a certain depth
+    fn check_num_objects_at_depth<DepthLike>(depth: DepthLike)
+    where
+        DepthLike: TryInto<Depth> + Copy,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+        assert_eq!(
+            topology.num_objects_at_depth(depth),
+            topology.objects_at_depth(depth).count()
+        );
+    }
+
+    /// Test [`Topology::objects_at_depth()`] at a certain depth
+    fn check_objects_at_depth<DepthLike>(depth: DepthLike)
+    where
+        DepthLike: TryInto<Depth> + Copy + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+
+        let Some(ty) = topology.type_at_depth(depth) else {
+            assert_eq!(topology.objects_at_depth(depth).count(), 0);
+            return;
+        };
+
+        for obj in topology.objects_at_depth(depth) {
+            check_any_object(obj);
+            assert_eq!(obj.depth(), depth);
+            assert_eq!(obj.object_type(), ty);
+            if let Ok(Depth::Normal(depth)) = depth.try_into() {
+                assert_eq!(obj.ancestors().count(), depth);
+            }
+        }
+    }
+
+    /// Exhaustively probe all valid depths
+    #[test]
+    fn operations_at_valid_depth() {
+        for depth in valid_depths() {
+            check_type_at_depth(depth);
+            check_num_objects_at_depth(depth);
+            check_objects_at_depth(depth);
+        }
+    }
+
+    proptest! {
+        // Stochastically probe some invalid depths too
+        #[test]
+        fn operations_at_any_hwloc_depth(depth: Depth) {
+            check_type_at_depth(depth);
+            check_num_objects_at_depth(depth);
+            check_objects_at_depth(depth);
+        }
+        //
+        #[test]
+        fn operations_at_any_usize_depth(depth: usize) {
+            check_type_at_depth(depth);
+            check_num_objects_at_depth(depth);
+            check_objects_at_depth(depth);
         }
     }
 }
