@@ -74,6 +74,13 @@ impl Topology {
         &OBJECTS.get_or_init(|| Self::test_instance().objects().collect())[..]
     }
 
+    /// Like [`Topology::test_objects()`], but for the foreign instance
+    #[cfg(test)]
+    pub(crate) fn foreign_objects() -> &'static [&'static TopologyObject] {
+        static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
+        &OBJECTS.get_or_init(|| Self::foreign_instance().objects().collect())[..]
+    }
+
     /// Full list of objects contains in the normal hierarchy of the topology,
     /// ordered by increasing depth
     pub fn normal_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
@@ -805,8 +812,8 @@ impl Topology {
     /// This functionality is specific to the Rust bindings.
     pub fn pus_from_cpuset<'result>(
         &'result self,
-        cpuset: impl Deref<Target = CpuSet> + 'result,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
+        cpuset: impl Deref<Target = CpuSet> + Clone + 'result,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::PU)
             .filter_map(move |(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
     }
@@ -838,8 +845,8 @@ impl Topology {
     /// This functionality is specific to the Rust bindings.
     pub fn nodes_from_nodeset<'result>(
         &'result self,
-        nodeset: impl Deref<Target = NodeSet> + 'result,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
+        nodeset: impl Deref<Target = NodeSet> + Clone + 'result,
+    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
         self.objs_and_os_indices(ObjectType::NUMANode)
             .filter_map(move |(node, os_index)| nodeset.is_set(os_index).then_some(node))
     }
@@ -1737,7 +1744,8 @@ impl TopologyObject {
     /// Truth that this object is symmetric, which means all normal children and
     /// their children have identically shaped subtrees
     ///
-    /// Memory, I/O and Misc children are ignored.
+    /// Memory, I/O and Misc children are ignored when evaluating this property,
+    /// and it is false for all of these object types.
     ///
     /// If this is true of the root object, then the topology may be [exported
     /// as a synthetic string](Topology::export_synthetic()).
@@ -2280,7 +2288,16 @@ pub(crate) mod tests {
     use similar_asserts::assert_eq;
     use std::collections::{HashMap, HashSet};
 
-    /// Pick a random object from the test instance
+    /// Pick a random object, mostly from the test instance but sometimes from
+    /// the foreign instance as well
+    pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
+        prop_oneof![
+            4 => test_object(),
+            1 => prop::sample::select(Topology::foreign_objects())
+        ]
+    }
+
+    /// Pick a random object, from the test instance only
     pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
         prop::sample::select(Topology::test_objects())
     }
@@ -2472,6 +2489,8 @@ pub(crate) mod tests {
             assert_eq!(obj.ancestors().count(), depth);
         }
 
+        assert!(obj.parent().is_some() || obj.object_type() == ObjectType::Machine);
+
         let siblings_len = obj.parent().map_or(1, |parent| {
             let ty = obj.object_type();
             if ty.is_normal() {
@@ -2489,7 +2508,7 @@ pub(crate) mod tests {
 
         fn num_neighbors(
             obj: &TopologyObject,
-            next_neighbor: fn(&TopologyObject) -> Option<&TopologyObject>,
+            mut next_neighbor: impl FnMut(&TopologyObject) -> Option<&TopologyObject>,
         ) -> usize {
             std::iter::successors(Some(obj), |obj| next_neighbor(obj)).count() - 1
         }
@@ -2589,8 +2608,6 @@ pub(crate) mod tests {
         assert!(root.attributes().is_none());
 
         assert_eq!(root.depth(), NormalDepth::MIN);
-        assert!(root.parent().is_none());
-        assert_eq!(root.ancestors().count(), 0);
         assert!(root.first_shared_cache().is_none());
         assert!(root.first_non_io_ancestor().is_none());
 
@@ -2645,12 +2662,46 @@ pub(crate) mod tests {
 
             assert_eq!(pu.depth(), topology.depth() - 1);
             assert_eq!(pu.logical_index(), idx);
+            assert!(pu.first_non_io_ancestor().is_some());
 
             assert_eq!(pu.normal_arity(), 0);
             assert!(pu.is_symmetric_subtree());
 
             assert_eq!(pu.cpuset().unwrap().weight().unwrap(), 1);
             assert_eq!(pu.nodeset().unwrap().weight().unwrap(), 1);
+        }
+    }
+
+    /// Check the NUMA node objects
+    ///
+    /// They're the leaves of the memory hierarchy, so we know a lot about them
+    #[test]
+    fn numa_nodes() {
+        let topology = Topology::test_instance();
+
+        assert_eq!(
+            topology.objects_with_type(ObjectType::NUMANode).count(),
+            topology.nodeset().weight().unwrap()
+        );
+
+        for (idx, numa) in topology.objects_with_type(ObjectType::NUMANode).enumerate() {
+            check_any_object(numa);
+
+            assert_eq!(numa.object_type(), ObjectType::NUMANode);
+            assert!(matches!(
+                numa.attributes(),
+                Some(ObjectAttributes::NUMANode(_))
+            ));
+
+            assert_eq!(numa.depth(), Depth::NUMANode);
+            assert_eq!(numa.logical_index(), idx);
+            assert!(numa.first_non_io_ancestor().is_some());
+
+            assert_eq!(numa.normal_arity(), 0);
+            assert!(!numa.is_symmetric_subtree());
+            assert_eq!(numa.memory_arity(), 0);
+
+            assert_eq!(numa.nodeset().unwrap().weight().unwrap(), 1);
         }
     }
 
@@ -2696,6 +2747,28 @@ pub(crate) mod tests {
             }
             assert_eq!(iter.len(), num_objects.saturating_sub(1));
             check_size_hint(&iter);
+        }
+    }
+
+    proptest! {
+        /// Test that [`Topology::objects_closest_to()`] works as expected
+        #[test]
+        fn objects_closest_to(obj in any_object()) {
+            // TODO: Roughtly, I want this test to work as follows:
+            //
+            //       - Start by checking for foreign objects & missing cpusets
+            //       - Iterate over the object's cousins and build a
+            //         BTreeMap<usize, HashMap<u64, &TopologyObject>>> where the
+            //         BTreeMap is keyed by how many levels up the common
+            //         ancestor is and the HashMap is keyed by GP index.
+            //       - Iterate over BTreeMap entries (and thus, increasingly
+            //         higher ancestors) while iterating over objects_closest_to
+            //       - Make sure objects_closest_to visits all cousins at the
+            //         current ancestor depth exactly once (remove them from the
+            //         hashmap when seen, and check the hashmap is empty at the
+            //         end) before moving to the next higher ancestor depth
+            //       - Make sure objects_closest_to stops yielding elements once
+            //         all ancestors have been visited.
         }
     }
 
@@ -2906,6 +2979,125 @@ pub(crate) mod tests {
             check_type_at_depth(depth);
             check_num_objects_at_depth(depth);
             check_objects_at_depth(depth);
+        }
+    }
+
+    // --- Querying stuff by OS index ---
+
+    /// Build an OS index -> [`TopologyObject`] mapping for some [`ObjectType`]
+    ///
+    /// Only call this for object types which are guaranteed to have a unique OS
+    /// index, namely PUs and NUMA nodes.
+    fn os_index_to_object(ty: ObjectType) -> HashMap<usize, &'static TopologyObject> {
+        let topology = Topology::test_instance();
+        let mut map = HashMap::new();
+        for pu in topology.objects_with_type(ty) {
+            assert!(map.insert(pu.os_index().unwrap(), pu).is_none());
+        }
+        map
+    }
+
+    /// Check one of the `Topology::xyz_with_os_index` functions
+    fn check_object_with_os_index(
+        method: impl FnOnce(&Topology, usize) -> Option<&TopologyObject>,
+        os_index: usize,
+        expected: &HashMap<usize, &TopologyObject>,
+    ) {
+        let topology = Topology::test_instance();
+        match (method(topology, os_index), expected.get(&os_index)) {
+            (Some(obj1), Some(obj2)) if ptr::eq(obj1, *obj2) => {}
+            (None, None) => {}
+            other => panic!("unequected pu_with_os_index result vs expectation: {other:?}"),
+        }
+    }
+
+    /// OS index -> PU mapping
+    fn os_index_to_pu() -> &'static HashMap<usize, &'static TopologyObject> {
+        static MAP: OnceLock<HashMap<usize, &'static TopologyObject>> = OnceLock::new();
+        MAP.get_or_init(|| os_index_to_object(ObjectType::PU))
+    }
+
+    /// Test [`Topology::pu_with_os_index()`]
+    fn check_pu_with_os_index(os_index: usize) {
+        check_object_with_os_index(Topology::pu_with_os_index, os_index, os_index_to_pu());
+    }
+
+    /// Exhaustive check for all valid PU OS indices
+    #[test]
+    fn valid_pu_with_os_index() {
+        for os_index in os_index_to_pu().keys() {
+            check_pu_with_os_index(*os_index);
+        }
+    }
+
+    proptest! {
+        /// Stochastic test for possibly-nonexistent PU OS indices
+        fn any_pu_with_os_index(os_index: usize) {
+            check_pu_with_os_index(os_index)
+        }
+    }
+
+    /// OS index -> NUMA node mapping
+    fn os_index_to_node() -> &'static HashMap<usize, &'static TopologyObject> {
+        static MAP: OnceLock<HashMap<usize, &'static TopologyObject>> = OnceLock::new();
+        MAP.get_or_init(|| os_index_to_object(ObjectType::NUMANode))
+    }
+
+    /// Test [`Topology::pu_with_os_index()`]
+    fn check_node_with_os_index(os_index: usize) {
+        check_object_with_os_index(Topology::node_with_os_index, os_index, os_index_to_node());
+    }
+
+    /// Exhaustive check for all valid NUMA node OS indices
+    #[test]
+    fn valid_node_with_os_index() {
+        for os_index in os_index_to_node().keys() {
+            check_node_with_os_index(*os_index);
+        }
+    }
+
+    proptest! {
+        /// Stochastic test for possibly-nonexistent NUMA node OS indices
+        fn any_node_with_os_index(os_index: usize) {
+            check_node_with_os_index(os_index)
+        }
+    }
+
+    // --- Querying stuff by cpuset/nodeset ---
+
+    proptest! {
+        /// Test [`Topology::pus_from_cpuset()`]
+        #[test]
+        fn pus_from_cpuset(cpuset: CpuSet) {
+            let mut expected = os_index_to_pu().clone();
+            expected.retain(|_idx, pu| {
+                cpuset.includes(pu.cpuset().unwrap())
+            });
+
+            let topology = Topology::test_instance();
+            let actual = topology.pus_from_cpuset(&cpuset);
+
+            assert_eq!(actual.clone().count(), expected.len());
+            for pu in actual {
+                assert!(expected.contains_key(&pu.os_index().unwrap()));
+            }
+        }
+
+        /// Test [`Topology::nodes_from_nodeset()`]
+        #[test]
+        fn nodes_from_nodeset(nodeset: NodeSet) {
+            let mut expected = os_index_to_node().clone();
+            expected.retain(|_idx, node| {
+                nodeset.includes(node.nodeset().unwrap())
+            });
+
+            let topology = Topology::test_instance();
+            let actual = topology.nodes_from_nodeset(&nodeset);
+
+            assert_eq!(actual.clone().count(), expected.len());
+            for node in actual {
+                assert!(expected.contains_key(&node.os_index().unwrap()));
+            }
         }
     }
 }
