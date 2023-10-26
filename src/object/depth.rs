@@ -272,6 +272,8 @@ pub enum TypeToDepthError {
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::assert_panics;
+
     use super::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
@@ -351,7 +353,7 @@ mod tests {
                 prop_assert_eq!(depth.to_string(), format!("<{depth:?}>"));
                 prop_assert!(NormalDepth::try_from(depth).is_err());
                 prop_assert!(usize::try_from(depth).is_err());
-                prop_assert!(std::panic::catch_unwind(|| depth.assume_normal()).is_err());
+                assert_panics(|| depth.assume_normal())?;
                 prop_assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
             }
         }

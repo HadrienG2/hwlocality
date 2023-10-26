@@ -1640,7 +1640,7 @@ pub(crate) mod tests {
             let result = builder.with_io_type_filter(filter);
             if filter == TypeFilter::KeepStructure {
                 prop_assert!(matches!(
-                    dbg!(result),
+                    result,
                     Err(HybridError::Rust(TypeFilterError::StructureIrrelevant))
                 ));
             } else {

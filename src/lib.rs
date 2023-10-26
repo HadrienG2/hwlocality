@@ -341,6 +341,26 @@ pub(crate) mod tests {
     pub(crate) fn assert_panics<R: Debug>(
         f: impl FnOnce() -> R + UnwindSafe,
     ) -> Result<(), TestCaseError> {
+        /// Set a temporary panic hook that does nothing to suppress backtraces
+        struct EmptyPanicHook;
+        //
+        impl EmptyPanicHook {
+            /// Set up empty panic hook
+            fn new() -> Self {
+                std::panic::set_hook(Box::new(|_| {}));
+                Self
+            }
+        }
+        //
+        impl Drop for EmptyPanicHook {
+            fn drop(&mut self) {
+                std::mem::drop(std::panic::take_hook());
+            }
+        }
+        //
+        let _hook = EmptyPanicHook::new();
+
+        // Run the function that should panic
         Ok(prop_assert!(
             std::panic::catch_unwind(f).is_err(),
             "Operation should have panicked, but didn't"
