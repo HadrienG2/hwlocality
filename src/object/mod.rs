@@ -3319,7 +3319,7 @@ pub(crate) mod tests {
                     prop_assert!(obj.is_none());
                     prop_assert!(matches!(
                         &result,
-                        Err(MissingTypeCpuSetError(ty2)) if *ty2 == ty
+                        Err(e) if *e == MissingTypeCpuSetError::from(ty)
                     ));
                     return Ok(());
                 }
