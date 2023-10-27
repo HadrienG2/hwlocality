@@ -334,35 +334,29 @@ pub(crate) mod tests {
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
-    use std::{fmt::Debug, panic::UnwindSafe};
+    use std::{
+        cell::Cell,
+        fmt::Debug,
+        panic::{PanicInfo, UnwindSafe},
+        sync::OnceLock,
+        thread_local,
+    };
 
     /// Assert that performing some action results in a panic
     #[track_caller]
     pub(crate) fn assert_panics<R: Debug>(
         f: impl FnOnce() -> R + UnwindSafe,
     ) -> Result<(), TestCaseError> {
-        /// Set a temporary panic hook that does nothing to suppress backtraces
-        struct EmptyPanicHook;
-        //
-        impl EmptyPanicHook {
-            /// Set up empty panic hook
-            fn new() -> Self {
-                std::panic::set_hook(Box::new(|_| {}));
-                Self
-            }
-        }
-        //
-        impl Drop for EmptyPanicHook {
-            fn drop(&mut self) {
-                std::mem::drop(std::panic::take_hook());
-            }
-        }
-        //
-        let _hook = EmptyPanicHook::new();
+        // Run the function that should panic, while catching panics and
+        // silencing the normal chatty panic hook
+        let unwind_res = {
+            let _guard = SilentPanicGuard::new();
+            std::panic::catch_unwind(f)
+        };
 
-        // Run the function that should panic
+        // Make sure that the function did indeed panic
         Ok(prop_assert!(
-            std::panic::catch_unwind(f).is_err(),
+            unwind_res.is_err(),
             "Operation should have panicked, but didn't"
         ))
     }
@@ -397,5 +391,57 @@ pub(crate) mod tests {
             version_range.start,
             version_range.end
         )
+    }
+
+    /// This RAII guard silences the normal panic hook and is used when the
+    /// unit test expects panics to occur and normal panic side-effects like
+    /// spamming backtraces on stdio are not desired.
+    struct SilentPanicGuard;
+    //
+    /// Panic hook as understood by [`std::panic()`]
+    type PanicHook = Box<dyn Fn(&PanicInfo<'_>) + Sync + Send + 'static>;
+    //
+    /// Original panic hook before the first [`SilentPanicGuard::new()`] call
+    static NORMAL_HOOK: OnceLock<PanicHook> = OnceLock::new();
+    //
+    thread_local! {
+        /// Number of active [`SilentPanicGuard`] in the current thread. If
+        /// this is greater than one, panics will be silenced.
+        static SILENCE_DEPTH: Cell<usize> = Cell::new(0);
+    }
+    //
+    impl SilentPanicGuard {
+        /// Set up empty panic hook
+        fn new() -> Self {
+            // On first call, back up the current panic hook and install our
+            // own in its place. Hopefully no racey hook manipulation will
+            // occur inbetween these two events... To fully avoid this race,
+            // need https://github.com/rust-lang/rust/issues/92649 .
+            NORMAL_HOOK.get_or_init(|| {
+                let current_hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(Self::hook));
+                current_hook
+            });
+
+            // Disable the panic hook for this thread
+            SILENCE_DEPTH.set(SILENCE_DEPTH.get() + 1);
+            Self
+        }
+
+        /// Panic hook that forwards to the normal panic hook if there are
+        /// no active `SilentPanicGuards` in this thread
+        fn hook(info: &PanicInfo<'_>) {
+            if SILENCE_DEPTH.get() == 0 {
+                (NORMAL_HOOK.get().unwrap())(info)
+            }
+        }
+    }
+    //
+    impl Drop for SilentPanicGuard {
+        fn drop(&mut self) {
+            // Take note that a [`SilentPanicGuard`] is gone, resume panic
+            // if this was the last of them
+            SILENCE_DEPTH.set(SILENCE_DEPTH.get() - 1);
+        }
     }
 }
