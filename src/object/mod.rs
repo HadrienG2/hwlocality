@@ -979,8 +979,8 @@ impl Topology {
     /// the first NUMA node.
     ///
     /// The first object is indexed relative to the topology's root Machine
-    /// object and searched amongst its children. An interesting consequence is
-    /// that the root Machine object cannot be found using this search method.
+    /// object and searched amongst its children. As a consequence, the root
+    /// Machine object cannot be found using this method.
     ///
     /// This search may only be applied to object types that have a cpuset
     /// (normal and memory objects).
