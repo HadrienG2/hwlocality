@@ -978,29 +978,55 @@ impl Topology {
     /// this will return the third core object below the second package below
     /// the first NUMA node.
     ///
+    /// The first object is indexed relative to the topology's root Machine
+    /// object and searched amongst its children. An interesting consequence is
+    /// that the root Machine object cannot be found using this search method.
+    ///
     /// This search may only be applied to object types that have a cpuset
     /// (normal and memory objects).
     ///
     /// # Errors
     ///
-    /// - [`MissingCpuSetError`] if one of the specified object types does not
-    ///   have a cpuset.
+    /// - [`MissingTypeCpuSetError`] if one of the specified object types does
+    ///   not have a cpuset.
     #[doc(alias = "hwloc_get_obj_below_array_by_type")]
     #[doc(alias = "hwloc_get_obj_below_by_type")]
     pub fn object_by_type_index_path(
         &self,
         path: &[(ObjectType, usize)],
-    ) -> Result<Option<&TopologyObject>, MissingCpuSetError> {
-        let mut obj = self.root_object();
+    ) -> Result<Option<&TopologyObject>, MissingTypeCpuSetError> {
+        // Make sure the path only includes object types with cpusets
+        if let Some(&(bad_ty, _idx)) = path
+            .iter()
+            .find(|(ty, _idx)| !(ty.is_normal() || ty.is_memory()))
+        {
+            return Err(MissingTypeCpuSetError(bad_ty));
+        }
+
+        // Then perform the actual search
+        let mut subroot = self.root_object();
         for &(ty, idx) in path {
-            let cpuset = obj.cpuset().ok_or_else(|| MissingCpuSetError::from(obj))?;
-            if let Some(next_obj) = self.objects_inside_cpuset_with_type(cpuset, ty).nth(idx) {
-                obj = next_obj;
+            // We checked the presence of a subroot cpuset in the beginning
+            let cpuset = subroot
+                .cpuset()
+                .expect("subroot should have a cpuset per above check");
+
+            // Define what it means to be a child
+            let is_child =
+                |obj: &&TopologyObject| obj.ancestors().any(|ancestor| ptr::eq(ancestor, subroot));
+
+            // Look up child efficienty using cpuset
+            if let Some(next_obj) = self
+                .objects_inside_cpuset_with_type(cpuset, ty)
+                .nth(idx)
+                .filter(is_child)
+            {
+                subroot = next_obj;
             } else {
                 return Ok(None);
             }
         }
-        Ok(Some(obj))
+        Ok(Some(subroot))
     }
 
     /// Find an object of a different type with the same locality
@@ -1098,7 +1124,7 @@ pub enum ClosestObjectsError {
 
     /// Target object does not have a cpuset and this search requires one
     #[error(transparent)]
-    MissingCpuSet(#[from] MissingCpuSetError),
+    MissingCpuSet(#[from] MissingObjCpuSetError),
 }
 
 /// Error returned when a search algorithm that requires a cpuset is applied to
@@ -1118,11 +1144,22 @@ pub enum ClosestObjectsError {
 #[allow(missing_copy_implementations)]
 #[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
 #[error("object #{0} doesn't have a cpuset but we need one for this search")]
-pub struct MissingCpuSetError(TopologyObjectID);
+pub struct MissingObjCpuSetError(TopologyObjectID);
 //
-impl<'topology> From<&'topology TopologyObject> for MissingCpuSetError {
+impl<'topology> From<&'topology TopologyObject> for MissingObjCpuSetError {
     fn from(object: &'topology TopologyObject) -> Self {
         Self(object.global_persistent_index())
+    }
+}
+
+/// Variant of [`MissingObjCpuSetError`] that applies to types, not objects
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[error("objects of type {0} don't cpusets but we need them for this search")]
+pub struct MissingTypeCpuSetError(ObjectType);
+//
+impl<'topology> From<ObjectType> for MissingTypeCpuSetError {
+    fn from(ty: ObjectType) -> Self {
+        Self(ty)
     }
 }
 
@@ -2780,7 +2817,7 @@ pub(crate) mod tests {
                 return Ok(prop_assert!(matches!(
                     result,
                     Err(ClosestObjectsError::MissingCpuSet(e))
-                        if e == MissingCpuSetError::from(obj)
+                        if e == MissingObjCpuSetError::from(obj)
                 )));
             }
 
@@ -3161,6 +3198,138 @@ pub(crate) mod tests {
             prop_assert_eq!(actual.clone().count(), expected.len());
             for node in actual {
                 prop_assert!(expected.contains_key(&node.os_index().unwrap()));
+            }
+        }
+    }
+
+    // --- Querying objects by type-index path ---
+
+    /// Generate an object that has a cpuset
+    fn object_with_cpuset() -> impl Strategy<Value = &'static TopologyObject> + Clone {
+        let objects_with_cpusets = Topology::test_objects()
+            .iter()
+            .copied()
+            .filter(|obj| obj.cpuset().is_some())
+            .collect::<Vec<_>>();
+        prop::sample::select(objects_with_cpusets)
+    }
+
+    /// Generate type-index paths that are mostly valid, but will occasionally
+    /// be disordered or invalid, tell what the expected result is if the path
+    /// is valid and None otherwise
+    fn type_index_path(
+    ) -> impl Strategy<Value = (Vec<(ObjectType, usize)>, Option<&'static TopologyObject>)> {
+        // First, have a strategy for generating correct paths
+        let topology = Topology::test_instance();
+        let valid_path = object_with_cpuset()
+            .prop_filter("Machine can't be found using by type_index_path", |obj| {
+                obj.object_type() != ObjectType::Machine
+            })
+            .prop_flat_map(move |obj| {
+                // Start by generating a valid object ancestor path, excluding the
+                // topology's root object
+                let mut full_ancestor_path = obj.ancestors().collect::<Vec<_>>();
+                full_ancestor_path.pop();
+                full_ancestor_path.reverse();
+                let num_ancestors = full_ancestor_path.len();
+
+                // Extract a subsequence of it
+                prop::sample::subsequence(full_ancestor_path, 0..=num_ancestors).prop_map(
+                    move |mut obj_path| {
+                        // Append the object at the end to make it a full path
+                        obj_path.push(obj);
+
+                        // Convert the path to type -> index form
+                        let mut last_parent = topology.root_object();
+                        let type_index_path = obj_path
+                            .into_iter()
+                            .map(|obj| {
+                                let ty = obj.object_type();
+                                let index = topology
+                                    .objects_inside_cpuset_with_type(
+                                        last_parent.cpuset().unwrap(),
+                                        ty,
+                                    )
+                                    .position(|candidate| ptr::eq(candidate, obj))
+                                    .unwrap();
+                                last_parent = obj;
+                                (ty, index)
+                            })
+                            .collect::<Vec<_>>();
+                        (type_index_path, Some(obj))
+                    },
+                )
+            });
+
+        // Order matters, so a path in the wrong order is not a valid path
+        let disordered_path = valid_path.clone().prop_flat_map(|(path, obj)| {
+            let ordered_path = path.clone();
+            Just(path).prop_shuffle().prop_map(move |shuffled_path| {
+                let disordered = shuffled_path != ordered_path;
+                (shuffled_path, (!disordered).then(|| obj.unwrap()))
+            })
+        });
+
+        // Random paths are most likely wrong, but could be right sometimes
+        let random_path = any::<Vec<(ObjectType, usize)>>().prop_map(move |path| {
+            // The root must not appear in the path
+            if path.first().map(|(ty, _)| ty) == Some(&ObjectType::Machine) {
+                return (path, None);
+            }
+
+            // Otherwise, we can search
+            let mut last_parent = topology.root_object();
+            for &(ty, idx) in &path {
+                let is_child = |obj: &&TopologyObject| {
+                    obj.ancestors()
+                        .any(|ancestor| ptr::eq(ancestor, last_parent))
+                };
+                if let Some(obj) = topology
+                    .objects_inside_cpuset_with_type(last_parent.cpuset().unwrap(), ty)
+                    .nth(idx)
+                    .filter(is_child)
+                {
+                    last_parent = obj;
+                } else {
+                    return (path, None);
+                }
+            }
+            (path, Some(last_parent))
+        });
+
+        // Put it all together, biased towards the valid case
+        prop_oneof![
+            3 => valid_path,
+            1 => disordered_path,
+            1 => random_path,
+        ]
+    }
+
+    proptest! {
+        /// Test for [`Topology::object_by_type_index_path()`]
+        #[test]
+        fn object_by_type_index_path((path, obj) in type_index_path()) {
+            // Perform the query
+            let topology = Topology::test_instance();
+            let result = topology.object_by_type_index_path(&path);
+
+            // Check error handling for lack of cpuset
+            for (ty, _) in path {
+                if !(ty.is_normal() || ty.is_memory()) {
+                    prop_assert!(obj.is_none());
+                    prop_assert!(matches!(
+                        &result,
+                        Err(MissingTypeCpuSetError(ty2)) if *ty2 == ty
+                    ));
+                    return Ok(());
+                }
+            }
+
+            // Check normal search path
+            match (result.unwrap(), obj) {
+                (Some(actual), Some(expected)) => prop_assert!(ptr::eq(actual, expected)),
+                (None, None) => {}
+                other => prop_assert!(false, "result/expectation mismatch: {other:?}"),
             }
         }
     }
