@@ -423,15 +423,15 @@ pub(crate) mod tests {
                 current_hook
             });
 
-            // Disable the panic hook for this thread
-            SILENCE_DEPTH.set(SILENCE_DEPTH.get() + 1);
+            // Disable the standard panic hook for this thread
+            SILENCE_DEPTH.with(|depth| depth.set(depth.get() + 1));
             Self
         }
 
         /// Panic hook that forwards to the normal panic hook if there are
         /// no active `SilentPanicGuards` in this thread
         fn hook(info: &PanicInfo<'_>) {
-            if SILENCE_DEPTH.get() == 0 {
+            if SILENCE_DEPTH.with(Cell::get) == 0 {
                 (NORMAL_HOOK.get().unwrap())(info)
             }
         }
@@ -439,9 +439,9 @@ pub(crate) mod tests {
     //
     impl Drop for SilentPanicGuard {
         fn drop(&mut self) {
-            // Take note that a [`SilentPanicGuard`] is gone, resume panic
-            // if this was the last of them
-            SILENCE_DEPTH.set(SILENCE_DEPTH.get() - 1);
+            // Take note that a [`SilentPanicGuard`] is gone, re-enable the
+            // standard panic hook if this was the last of them in this thread
+            SILENCE_DEPTH.with(|depth| depth.set(depth.get() - 1));
         }
     }
 }
