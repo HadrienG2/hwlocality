@@ -5,13 +5,13 @@
 # - Two times a month, a scheduled job makes sure that the code remains
 #   compatible and lint-free on upcoming Rust toolchains (beta and nightly).
 
+name: Continuous Integration
+
 on:
   push:
   pull_request:
   schedule:
-    - cron: '0 0 5,19 * *'
-
-name: Continuous Integration
+    - cron: '0 0 6/15 * *'
 
 # Cancel existing jobs on new pushes to the same branch
 concurrency:
@@ -20,9 +20,10 @@ concurrency:
 
 env:
   RUSTFLAGS: '-D warnings'
+  RUSTDOCFLAGS: -D warnings
+  MINIMAL_RUST: '1.71.0'  # Minimal Supported Rust Version
   HWLOC_VERSION: '2.9.3'
   HWLOC_VERSION_SHORT: '2.9'  # Used in URL to official tarball/binaries
-  MINIMAL_RUST: '1.71.0'  # Minimal supported Rust version
   CARGO_NET_GIT_FETCH_WITH_CLI: false  # Workaround that can go once we bump
                                        # MINIMAL_RUST to 1.72+ in the future.
                                        # https://github.com/dtolnay/rust-toolchain/pull/94
@@ -30,32 +31,34 @@ env:
 jobs:
   # Formatter output doesn't depend on cargo features, and only needs to be
   # tested on the latest supported release of each CI run.
+  #
+  # We don't care about warnings on the minimum supported Rust version, only
+  # about building and running correctly.
   format:
-      # Only run on "pull_request" event for external PRs. This is to avoid
-      # duplicate builds for PRs created from internal branches.
-      if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
 
-      runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
 
-      steps:
-        - name: Checkout sources
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
 
-        - name: Set up stable toolchain
-          if: github.event_name != 'schedule'
-          uses: actions-rust-lang/setup-rust-toolchain@v1
-          with:
-            components: rustfmt
+      - name: Set up stable toolchain
+        if: github.event_name != 'schedule'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
 
-        - name: Set up nightly toolchain
-          if: github.event_name == 'schedule'
-          uses: actions-rust-lang/setup-rust-toolchain@v1
-          with:
-            toolchain: nightly
-            components: rustfmt
+      - name: Set up nightly toolchain
+        if: github.event_name == 'schedule'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
 
-        - name: Check format
-          run: cargo fmt --all -- --check
+      - name: Check format
+        run: cargo fmt --all --check
 
 
   # Clippy and rustc lints depend on cfg(), of which we currently use "feature"
@@ -64,11 +67,9 @@ jobs:
   # Linux and Windows.
   #
   # We don't care about warnings on the minimum supported Rust version, only
-  # about building and running correctly, so we can get away with only testing
-  # on the latest rustc release.
+  # about building and running correctly.
   lints:
-    # Only run on "pull_request" event for external PRs. This is to avoid
-    # duplicate builds for PRs created from internal branches.
+    # Don't run CI twice when a PR is created from a branch internal to the repo
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
 
     runs-on: ${{ matrix.os }}
@@ -146,8 +147,8 @@ jobs:
   #        hwloc versions (which would force people to needlessly up their hwloc
   #        version requirements if they want to follow the doc examples).
   test-contrib-debug:
-    # Only run on "pull_request" event for external PRs. This is to avoid
-    # duplicate builds for PRs created from internal branches.
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    # Don't run in scheduled jobs, that's what test-scheduled is for
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
 
     runs-on: ${{ matrix.os }}
@@ -200,7 +201,7 @@ jobs:
         uses: ./.github/actions/system-information
         if: contains(matrix.features, 'bundled') == false
 
-      - name: Run unit and doc tests
+      - name: Run tests
         run: cargo test --workspace ${{ env.FEATURES_FLAG }}
 
       - name: Install cargo-examples
@@ -226,8 +227,8 @@ jobs:
   # goal here is to run as many tests as possible, and running on the latest
   # hwloc release (for all supported compilers and OSes) gives us that.
   test-contrib-release:
-    # Only run on "pull_request" event for external PRs. This is to avoid
-    # duplicate builds for PRs created from internal branches.
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    # Don't run in scheduled jobs, that's what test-scheduled is for
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
 
     runs-on: ${{ matrix.os }}
@@ -284,9 +285,8 @@ jobs:
   #   in the bindings is fine)
   #
   # Also, as a cargo-careful constraint we can only test nightly.
-  test-contrib-careful:
-    # Only run on "pull_request" event for external PRs. This is to avoid
-    # duplicate builds for PRs created from internal branches.
+  test-careful:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
 
     runs-on: ${{ matrix.os }}
@@ -346,9 +346,9 @@ jobs:
   # one with the most features to test, as no hwloc release has removed
   # significant features so far. However, we must test both linux and windows as
   # they each have os-specific code.
-  coverage:
-    # Only run on "pull_request" event for external PRs. This is to avoid
-    # duplicate builds for PRs created from internal branches.
+  test-coverage:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    # Don't run in scheduled jobs, coverage doesn't change on its own
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
 
     runs-on: ${{ matrix.os }}
@@ -418,7 +418,7 @@ jobs:
         rust:
           - beta
           - nightly
-          - $MINIMAL_RUST  # Can be broken by deps
+          - $MINIMAL_RUST  # Compatibility can be broken by deps updates
         features:
           - '""'
           - 'hwloc-2_0_4'
@@ -458,19 +458,19 @@ jobs:
         uses: ./.github/actions/system-information
         if: contains(matrix.features, 'bundled') == false
 
-      - name: Run basic tests (debug build)
-        run: cargo test --workspace ${{ env.FEATURES_FLAG }}
-
-      - name: Run basic tests (release build)
-        run: cargo test --workspace --release ${{ env.FEATURES_FLAG }}
-
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2
         with:
           crate: cargo-examples
+
+      - name: Run basic tests (debug build)
+        run: cargo test --workspace ${{ env.FEATURES_FLAG }}
 
       - name: Run all examples (debug build)
         run: cargo examples ${{ env.FEATURES_FLAG }}
 
       - name: Run all examples (release build)
         run: cargo examples ${{ env.FEATURES_FLAG }} -- --release
+
+      - name: Run basic tests (release build)
+        run: cargo test --workspace --release ${{ env.FEATURES_FLAG }}
