@@ -987,20 +987,20 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`MissingTypeCpuSetError`] if one of the specified object types does
-    ///   not have a cpuset.
+    /// - [`ParameterError`] if one of the specified object types does not have
+    ///   a cpuset.
     #[doc(alias = "hwloc_get_obj_below_array_by_type")]
     #[doc(alias = "hwloc_get_obj_below_by_type")]
     pub fn object_by_type_index_path(
         &self,
         path: &[(ObjectType, usize)],
-    ) -> Result<Option<&TopologyObject>, MissingTypeCpuSetError> {
+    ) -> Result<Option<&TopologyObject>, ParameterError<ObjectType>> {
         // Make sure the path only includes object types with cpusets
         if let Some(&(bad_ty, _idx)) = path
             .iter()
             .find(|(ty, _idx)| !(ty.is_normal() || ty.is_memory()))
         {
-            return Err(MissingTypeCpuSetError(bad_ty));
+            return Err(ParameterError::from(bad_ty));
         }
 
         // Then perform the actual search
@@ -1149,17 +1149,6 @@ pub struct MissingObjCpuSetError(TopologyObjectID);
 impl<'topology> From<&'topology TopologyObject> for MissingObjCpuSetError {
     fn from(object: &'topology TopologyObject) -> Self {
         Self(object.global_persistent_index())
-    }
-}
-
-/// Variant of [`MissingObjCpuSetError`] that applies to types, not objects
-#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
-#[error("objects of type {0} don't cpusets but we need them for this search")]
-pub struct MissingTypeCpuSetError(ObjectType);
-//
-impl<'topology> From<ObjectType> for MissingTypeCpuSetError {
-    fn from(ty: ObjectType) -> Self {
-        Self(ty)
     }
 }
 
@@ -3319,7 +3308,7 @@ pub(crate) mod tests {
                     prop_assert!(obj.is_none());
                     prop_assert!(matches!(
                         &result,
-                        Err(e) if *e == MissingTypeCpuSetError::from(ty)
+                        Err(e) if *e == ParameterError::from(ty)
                     ));
                     return Ok(());
                 }
