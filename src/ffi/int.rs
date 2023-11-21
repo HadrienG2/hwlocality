@@ -3699,7 +3699,7 @@ mod tests {
             prop_assert_eq!(usize::from(int), usize::try_from(int.0).unwrap());
 
             // Faillible conversions to all primitive integer types
-            #[allow(clippy::useless_conversion)]
+            #[allow(clippy::unnecessary_fallible_conversions, clippy::useless_conversion)]
             {
                 prop_assert_eq!(i8::try_from(int).ok(), i8::try_from(int.0).ok());
                 prop_assert_eq!(u8::try_from(int).ok(), u8::try_from(int.0).ok());
