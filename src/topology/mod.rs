@@ -653,7 +653,7 @@ fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
     let weight = cpuset
         .weight()
         .expect("Topology objects should not have infinite cpusets");
-    let depth = obj.depth().assume_normal();
+    let depth = obj.depth().expect_normal();
     (weight > 0).then_some((obj, cpuset, weight, depth))
 }
 
@@ -1085,7 +1085,7 @@ mod tests {
         let exhaustive_ordered_roots =
             overlapping_exhaustive_ordered_roots.prop_map(|mut roots| {
                 // Sort roots by increasing depth, so parents go before children
-                roots.sort_unstable_by_key(|root| root.depth().assume_normal());
+                roots.sort_unstable_by_key(|root| root.depth().expect_normal());
 
                 // Iterate from parent to children, keeping track of which CPUs
                 // we already covered and using this to eliminate duplicates.
@@ -1142,7 +1142,7 @@ mod tests {
         let mut output = Vec::new();
         for _ in PositiveInt::iter_range(PositiveInt::MIN, max_depth) {
             for obj in input.drain(..) {
-                if obj.normal_arity() > 0 && obj.depth().assume_normal() < max_depth {
+                if obj.normal_arity() > 0 && obj.depth().expect_normal() < max_depth {
                     output.extend(obj.normal_children())
                 } else {
                     output.push(obj);

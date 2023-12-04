@@ -2091,7 +2091,7 @@ mod tests {
             cache: &TopologyObject,
         ) -> Result<(NormalDepth, CacheAttributes), TestCaseError> {
             let res = if let Some(ObjectAttributes::Cache(attr)) = cache.attributes() {
-                (cache.depth().assume_normal(), *attr)
+                (cache.depth().expect_normal(), *attr)
             } else {
                 prop_assert!(false, "Not a CPU cache");
                 unreachable!()
@@ -2122,7 +2122,7 @@ mod tests {
             group: &TopologyObject,
         ) -> Result<(NormalDepth, GroupAttributes), TestCaseError> {
             let res = if let Some(ObjectAttributes::Group(attr)) = group.attributes() {
-                (group.depth().assume_normal(), *attr)
+                (group.depth().expect_normal(), *attr)
             } else {
                 prop_assert!(false, "Not a group");
                 unreachable!()

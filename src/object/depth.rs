@@ -83,8 +83,9 @@ pub enum Depth {
 }
 //
 impl Depth {
-    /// Assert that this should be a normal object depth
-    pub fn assume_normal(self) -> NormalDepth {
+    /// Assert that this should be a normal object depth, panicking if it turns
+    /// out not to be the case.
+    pub fn expect_normal(self) -> NormalDepth {
         NormalDepth::try_from(self).expect("Not a normal object depth")
     }
 
@@ -347,13 +348,13 @@ mod tests {
                 prop_assert_eq!(depth.to_string(), normal.to_string());
                 prop_assert_eq!(NormalDepth::try_from(depth), Ok(normal));
                 prop_assert_eq!(usize::try_from(depth).unwrap(), normal);
-                prop_assert_eq!(depth.assume_normal(), normal);
+                prop_assert_eq!(depth.expect_normal(), normal);
                 prop_assert!(depth.to_raw() >= 0);
             } else {
                 prop_assert_eq!(depth.to_string(), format!("<{depth:?}>"));
                 prop_assert!(NormalDepth::try_from(depth).is_err());
                 prop_assert!(usize::try_from(depth).is_err());
-                assert_panics(|| depth.assume_normal())?;
+                assert_panics(|| depth.expect_normal())?;
                 prop_assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
             }
         }

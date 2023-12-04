@@ -139,7 +139,7 @@ impl Topology {
     /// assert!(depth >= 2, "Machine and PU are always present");
     /// assert_eq!(
     ///     depth,
-    ///     topology.depth_for_type(ObjectType::PU)?.assume_normal() + 1
+    ///     topology.depth_for_type(ObjectType::PU)?.expect_normal() + 1
     /// );
     /// # Ok::<(), eyre::Report>(())
     /// ```
@@ -182,7 +182,7 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         Depth::from_raw(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
-            .map(Depth::assume_normal)
+            .map(Depth::expect_normal)
     }
 
     /// Depth for the given [`ObjectType`]
@@ -206,8 +206,8 @@ impl Topology {
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     ///
-    /// assert_eq!(machine_depth.assume_normal(), 0);
-    /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
+    /// assert_eq!(machine_depth.expect_normal(), 0);
+    /// assert!(machine_depth.expect_normal() < pu_depth.expect_normal());
     /// #
     /// # Ok::<(), eyre::Report>(())
     /// ```
@@ -257,7 +257,7 @@ impl Topology {
     /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
     /// let package_or_below = topology.depth_or_below_for_type(ObjectType::Package)?;
     ///
-    /// assert!(machine_depth.assume_normal() < package_or_below.assume_normal());
+    /// assert!(machine_depth.expect_normal() < package_or_below.expect_normal());
     /// #
     /// # Ok::<(), eyre::Report>(())
     /// ```
@@ -321,7 +321,7 @@ impl Topology {
     /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
     /// let core_or_above = topology.depth_or_below_for_type(ObjectType::Core)?;
     ///
-    /// assert!(core_or_above.assume_normal() < pu_depth.assume_normal());
+    /// assert!(core_or_above.expect_normal() < pu_depth.expect_normal());
     /// #
     /// # Ok::<(), eyre::Report>(())
     /// ```
@@ -2383,7 +2383,7 @@ pub(crate) mod tests {
             topology
                 .depth_for_type(ObjectType::PU)
                 .unwrap()
-                .assume_normal()
+                .expect_normal()
                 + 1
         );
     }

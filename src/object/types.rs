@@ -714,8 +714,8 @@ mod tests {
                     prop_assert_eq!(
                         type_order,
                         obj1.depth()
-                            .assume_normal()
-                            .cmp(&obj2.depth().assume_normal())
+                            .expect_normal()
+                            .cmp(&obj2.depth().expect_normal())
                     )
                 }
             }
