@@ -108,8 +108,7 @@ impl Depth {
     ];
 
     /// List of I/O object virtual depths
-    pub const IO_DEPTHS: &'static [Self] =
-        &[Self::Bridge, Self::PCIDevice, Self::OSDevice, Self::Misc];
+    pub const IO_DEPTHS: &'static [Self] = &[Self::Bridge, Self::PCIDevice, Self::OSDevice];
 
     /// Decode depth results from hwloc
     pub(crate) fn from_raw(value: hwloc_get_type_depth_e) -> Result<Self, TypeToDepthError> {
