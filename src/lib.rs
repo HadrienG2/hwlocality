@@ -92,7 +92,6 @@
     clippy::implicit_hasher,
     clippy::imprecise_flops,
     clippy::index_refutable_slice,
-    clippy::inline_always,
     clippy::invalid_upcast_comparisons,
     clippy::iter_on_empty_collections,
     clippy::iter_on_single_items,
