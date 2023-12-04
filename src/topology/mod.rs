@@ -667,7 +667,7 @@ type ObjSetWeightDepth<'a> = (
 
 /// Truth that an iterator of cpusets contains overlapping sets
 ///
-/// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` items.
+/// `sets` can yield `&'_ CpuSet` or `BitmapRef<'_, CpuSet>`.
 fn sets_overlap(mut sets: impl Iterator<Item = impl Deref<Target = CpuSet>>) -> bool {
     sets.try_fold(CpuSet::new(), |mut acc, set| {
         let set: &CpuSet = &set;

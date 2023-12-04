@@ -195,7 +195,7 @@ impl Topology {
 
     /// Query information about the CPU kind that contains CPUs listed in `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// # Errors
     ///
@@ -257,10 +257,10 @@ impl Topology {
 impl TopologyEditor<'_> {
     /// Register a kind of CPU in the topology.
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
-    ///
     /// Mark the PUs listed in `cpuset` as being of the same kind with respect
     /// to the given attributes.
+    ///
+    /// `cpuset` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// `forced_efficiency` should be `None` if unknown. Otherwise it is an
     /// abstracted efficiency value to enforce the ranking of all kinds if all

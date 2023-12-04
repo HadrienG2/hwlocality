@@ -128,7 +128,7 @@ impl Topology {
     ///
     /// This is the depth of [`ObjectType::PU`] plus one. NUMA nodes, I/O and
     /// Misc objects are ignored when computing the depth of the tree (they are
-    /// placed on special levels).
+    /// placed at special depths).
     ///
     /// # Examples
     ///
@@ -458,11 +458,7 @@ impl Topology {
 
     /// Type of objects at the given `depth`, if any
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// # Examples
     ///
@@ -508,11 +504,7 @@ impl Topology {
 
     /// Number of objects at the given `depth`
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// # Examples
     ///
@@ -551,11 +543,7 @@ impl Topology {
 
     /// [`TopologyObject`]s at the given `depth`
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// # Examples
     ///
@@ -805,7 +793,7 @@ impl Topology {
 
     /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `cpuset` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Requires [`DiscoverySupport::pu_count()`].
     ///
@@ -838,7 +826,7 @@ impl Topology {
     /// Get the objects of type [`ObjectType::NUMANode`] covered by the
     /// specified nodeset
     ///
-    /// Accepts both `&'_ NodeSet` and `BitmapRef<'_, NodeSet>` operands.
+    /// `nodeset` can be a `&'_ NodeSet` or a `BitmapRef<'_, NodeSet>`.
     ///
     /// Requires [`DiscoverySupport::numa_count()`].
     ///
@@ -1468,11 +1456,7 @@ impl TopologyObject {
 
     /// Search for an ancestor at a certain depth
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// Will return `None` if the requested depth is deeper than the depth of
     /// the current object.
@@ -1783,7 +1767,7 @@ impl TopologyObject {
 
     /// Get the child covering at least the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// This function will always return `None` if the given set is empty or
     /// this topology object doesn't have a cpuset (I/O or Misc objects), as
@@ -1944,7 +1928,7 @@ impl TopologyObject {
 
     /// Truth that this object is inside of the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects are considered to be inside `set` if they have a non-empty
     /// cpuset which verifies `set.includes(object_cpuset)`.
@@ -1957,7 +1941,7 @@ impl TopologyObject {
 
     /// Truth that this object covers the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects are considered to cover `set` if it is non-empty and the object
     /// has a cpuset which verifies `object_cpuset.includes(set)`.

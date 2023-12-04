@@ -20,7 +20,7 @@ use std::ops::Deref;
 impl NodeSet {
     /// Convert a CPU set into a NUMA node set
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `cpuset` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// For each PU included in the input `cpuset`, set the corresponding local
     /// NUMA node(s) in the output nodeset.
