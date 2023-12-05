@@ -984,10 +984,7 @@ impl Topology {
         path: &[(ObjectType, usize)],
     ) -> Result<Option<&TopologyObject>, ParameterError<ObjectType>> {
         // Make sure the path only includes object types with cpusets
-        if let Some(&(bad_ty, _idx)) = path
-            .iter()
-            .find(|(ty, _idx)| !(ty.is_normal() || ty.is_memory()))
-        {
+        if let Some(&(bad_ty, _idx)) = path.iter().find(|(ty, _idx)| !ty.has_sets()) {
             return Err(ParameterError::from(bad_ty));
         }
 
@@ -2564,7 +2561,7 @@ pub(crate) mod tests {
             prop_assert_eq!(misc_child.object_type(), ObjectType::Misc);
         }
 
-        let has_sets = obj.object_type().is_normal() || obj.object_type().is_memory();
+        let has_sets = obj.object_type().has_sets();
         prop_assert_eq!(obj.cpuset().is_some(), has_sets);
         prop_assert_eq!(obj.complete_cpuset().is_some(), has_sets);
         if let (Some(complete), Some(normal)) = (obj.complete_cpuset(), obj.cpuset()) {
@@ -3288,7 +3285,7 @@ pub(crate) mod tests {
 
             // Check error handling for lack of cpuset
             for (ty, _) in path {
-                if !(ty.is_normal() || ty.is_memory()) {
+                if !ty.has_sets() {
                     prop_assert!(obj.is_none());
                     prop_assert!(matches!(
                         &result,
