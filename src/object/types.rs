@@ -11,6 +11,8 @@
 use crate::errors;
 #[cfg(doc)]
 use crate::{
+    cpu::cpuset::CpuSet,
+    memory::nodeset::NodeSet,
     object::{depth::Depth, TopologyObject},
     topology::{
         builder::{TopologyBuilder, TypeFilter},
