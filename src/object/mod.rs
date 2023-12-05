@@ -1051,6 +1051,8 @@ impl Topology {
     /// # Errors
     ///
     /// - [`ForeignSource`] if `src` does not belong to this topology.
+    /// - [`IncompatibleTypes`] if `src` is a normal/memory object and `ty` is
+    ///   an I/O or Misc object type, or vice versa.
     /// - [`StringContainsNul`] if `subtype` or `name_prefix` contains NUL chars.
     ///
     /// [`ForeignSource`]: LocalObjectError::ForeignSource
@@ -1066,6 +1068,10 @@ impl Topology {
     ) -> Result<Option<&TopologyObject>, LocalObjectError> {
         if !self.contains(src) {
             return Err(src.into());
+        }
+        let src_ty = src.object_type();
+        if src_ty.has_sets() ^ ty.has_sets() {
+            return Err(LocalObjectError::IncompatibleTypes(src_ty, ty));
         }
         let subtype = subtype.map(LibcString::new).transpose()?;
         let name_prefix = name_prefix.map(LibcString::new).transpose()?;
@@ -1144,6 +1150,11 @@ pub enum LocalObjectError {
     /// Target object does not belong to this topology
     #[error(transparent)]
     ForeignSource(#[from] ForeignObjectError),
+
+    /// Source object is a normal/memory object and target type is an I/O or
+    /// Misc type, or vice-versa
+    #[error("source object type {0} and destination object type {1} are incompatible")]
+    IncompatibleTypes(ObjectType, ObjectType),
 
     /// Subtype or name prefix string contains a NUL char
     #[error("local object query string can't contain NUL chars")]
@@ -2306,6 +2317,9 @@ pub(crate) mod tests {
     }
 
     /// Pick a random object, from the test instance only
+    ///
+    /// Any `Topology` method which takes an `&TopologyObject` as input should
+    /// be tested against `any_object()`, not `test_object()`.
     pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
         prop::sample::select(Topology::test_objects())
     }
@@ -3300,6 +3314,165 @@ pub(crate) mod tests {
                 (Some(actual), Some(expected)) => prop_assert!(ptr::eq(actual, expected)),
                 (None, None) => {}
                 other => prop_assert!(false, "result/expectation mismatch: {other:?}"),
+            }
+        }
+    }
+
+    // --- Finding more objects with the same locality ---
+
+    #[cfg(feature = "hwloc-2_5_0")]
+    mod object_with_same_locality {
+        use super::*;
+
+        /// Lists of subtypes and names in the test topology
+        fn subtypes_and_name_prefixes() -> (HashSet<&'static str>, HashSet<String>) {
+            fn object_strings(
+                mut get_string: impl FnMut(&TopologyObject) -> Option<&CStr>,
+            ) -> HashSet<&'static str> {
+                Topology::test_objects()
+                    .iter()
+                    .filter_map(|obj| get_string(obj))
+                    .flat_map(CStr::to_str)
+                    .collect()
+            }
+            let subtypes = object_strings(TopologyObject::subtype);
+            let names = object_strings(TopologyObject::name);
+            let name_prefixes = names
+                .into_iter()
+                .flat_map(|name| {
+                    (1..=name.chars().count())
+                        .map(|num_chars| name.chars().take(num_chars).collect::<String>())
+                })
+                .chain(std::iter::once(String::new()))
+                .collect();
+            (subtypes, name_prefixes)
+        }
+
+        /// Generate a subtype and name prefix input for
+        /// [`Topology::object_with_same_locality()`]
+        fn subtype_and_name_prefix() -> impl Strategy<Value = (Option<String>, Option<String>)> {
+            let (subtypes, name_prefixes) = subtypes_and_name_prefixes();
+            let subtypes = subtypes.into_iter().collect::<Vec<&'static str>>();
+            let name_prefixes = name_prefixes.into_iter().collect::<Vec<String>>();
+            let subtype = prop_oneof![
+                3 => prop::sample::select(subtypes).prop_map(|s| Some(s.to_owned())),
+                1 => any::<String>().prop_map(Some),
+                1 => Just(None),
+            ];
+            let name_prefix = prop_oneof![
+                3 => prop::sample::select(name_prefixes).prop_map(Some),
+                1 => any::<String>().prop_map(Some),
+                1 => Just(None),
+            ];
+            (subtype, name_prefix)
+        }
+
+        proptest! {
+            /// Test for [`Topology::object_with_same_locality()`]
+            #[test]
+            fn object_with_same_locality(
+                src in any_object(),
+                ty: ObjectType,
+                (subtype, name_prefix) in subtype_and_name_prefix(),
+            ) {
+                // Start by running the method
+                let topology = Topology::test_instance();
+                let result = topology.object_with_same_locality(
+                    src,
+                    ty,
+                    subtype.as_deref(),
+                    name_prefix.as_deref(),
+                );
+
+                // Foreign objects should be reported as an error
+                if !topology.contains(src) {
+                    prop_assert!(matches!(result, Err(e) if e == LocalObjectError::from(src)));
+                    return Ok(());
+                }
+
+                // Converting between normal/memory object types and I/O types
+                // or Misc is not allowed
+                let src_ty = src.object_type();
+                if src_ty.has_sets() ^ ty.has_sets() {
+                    prop_assert!(matches!(
+                        result,
+                        Err(LocalObjectError::IncompatibleTypes(src, dst)) if src == src_ty && dst == ty
+                    ));
+                    return Ok(());
+                }
+
+                // NUL in input strings should be reported as an error
+                for s in subtype.as_ref().into_iter().chain(name_prefix.as_ref()) {
+                    if s.chars().any(|c| c == '\0') {
+                        prop_assert!(matches!(result, Err(LocalObjectError::StringContainsNul)));
+                        return Ok(());
+                    }
+                }
+
+                // These are the only two error conditions, otherwise the search
+                // can fail but will always return an Option.
+                match result.unwrap() {
+                    Some(dst) => {
+                        // Successful search should match all criteria
+                        prop_assert!(topology.contains(dst));
+                        prop_assert_eq!(dst.object_type(), ty);
+                        if let Some(expected_subtype) = subtype {
+                            prop_assert_eq!(dst.subtype().unwrap().to_str().unwrap(), expected_subtype);
+                        }
+                        if let Some(expected_prefix) = name_prefix {
+                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(&expected_prefix));
+                        }
+                        if ty.has_sets() {
+                            prop_assert_eq!(dst.cpuset(), src.cpuset());
+                            prop_assert_eq!(dst.nodeset(), src.nodeset());
+                        } else if ty.is_io() {
+                            // FIXME: Check if dst is below same PCI parent as
+                            //        src, without walking across bridges.
+                            unimplemented!()
+                        }
+                    }
+                    None => {
+                        // Search can fail only if no object in the topology
+                        // matches all search criteria
+                        assert!(
+                            Topology::test_objects().iter().all(|obj| {
+                                if obj.object_type() != ty {
+                                    return true;
+                                }
+                                if let Some(req_subtype) = subtype.as_ref() {
+                                    if let Some(obj_subtype) = obj.subtype().and_then(|cs| cs.to_str().ok()) {
+                                        if req_subtype != obj_subtype {
+                                            return true;
+                                        }
+                                    } else {
+                                        return true;
+                                    }
+                                }
+                                if let Some(name_prefix) = name_prefix.as_ref() {
+                                    if let Some(name) = obj.name().and_then(|cs| cs.to_str().ok()) {
+                                        if !name.starts_with(&*name_prefix) {
+                                            return true;
+                                        }
+                                    } else {
+                                        return true;
+                                    }
+                                }
+                                if ty.has_sets() {
+                                    (obj.cpuset() != src.cpuset()) || (obj.nodeset() != src.nodeset())
+                                } else if ty.is_io() {
+                                    // FIXME: Make sure dst is not below the
+                                    //        same PCI parent as src, without
+                                    //        walking across bridges.
+                                    unimplemented!()
+                                } else {
+                                    // Criteria for Misc object matching aren't
+                                    // specified by the hwloc docs
+                                    true
+                                }
+                            })
+                        );
+                    }
+                }
             }
         }
     }
