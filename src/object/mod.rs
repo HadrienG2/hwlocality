@@ -3450,7 +3450,7 @@ pub(crate) mod tests {
                                 }
                                 if let Some(name_prefix) = name_prefix.as_ref() {
                                     if let Some(name) = obj.name().and_then(|cs| cs.to_str().ok()) {
-                                        if !name.starts_with(&*name_prefix) {
+                                        if !name.starts_with(name_prefix) {
                                             return true;
                                         }
                                     } else {
