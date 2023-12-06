@@ -3634,10 +3634,15 @@ pub(crate) mod tests {
     /// Generate a PCI device address that is usually valid, but may not be
     fn pci_address() -> impl Strategy<Value = PCIAddress> {
         let valid_pci_addresses = pci_devices_by_address().keys().copied().collect::<Vec<_>>();
-        prop_oneof![
-            4 => prop::sample::select(valid_pci_addresses),
-            1 => any::<PCIAddress>(),
-        ]
+        if valid_pci_addresses.is_empty() {
+            any::<PCIAddress>().boxed()
+        } else {
+            prop_oneof![
+                4 => prop::sample::select(valid_pci_addresses),
+                1 => any::<PCIAddress>(),
+            ]
+            .boxed()
+        }
     }
 
     proptest! {
@@ -3698,11 +3703,9 @@ pub(crate) mod tests {
                 out.push(c);
             }
         }
-        prop_oneof![
-            // Actually a PCI address, with or without the domain part
-            2 => prop::sample::select(valid_str_addresses),
+        let random_string = prop_oneof![
             // Same skeleton as a full address, but unlikely to be an address
-            1 => any::<[char; 10]>().prop_map(|chars| {
+            any::<[char; 10]>().prop_map(|chars| {
                 let mut out = String::with_capacity(13);
                 for &c in &chars[..4] {
                     out.push(c);
@@ -3712,14 +3715,25 @@ pub(crate) mod tests {
                 out
             }),
             // Same skeleton as a short address, but unlikely to be an address
-            1 => any::<[char; 6]>().prop_map(|chars| {
+            any::<[char; 6]>().prop_map(|chars| {
                 let mut out = String::with_capacity(8);
                 push_short_addr(&mut out, &chars[..]);
                 out
             }),
             // Random textual junk
-            1 => any_string(),
-        ]
+            any_string(),
+        ];
+        if valid_str_addresses.is_empty() {
+            random_string.boxed()
+        } else {
+            prop_oneof![
+                // Actually a PCI address, with or without the domain part
+                2 => prop::sample::select(valid_str_addresses),
+                // Random string that may or may not look like a PCI address
+                3 => random_string,
+            ]
+            .boxed()
+        }
     }
 
     proptest! {
