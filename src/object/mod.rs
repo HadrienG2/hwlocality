@@ -2382,6 +2382,28 @@ pub(crate) mod tests {
         assert_eq!(memory_keys, &(&virtual_keys - &io_keys) - &misc_keys);
         assert_eq!(io_keys, &(&virtual_keys - &memory_keys) - &misc_keys);
         assert_eq!(misc_keys, &(&virtual_keys - &memory_keys) - &io_keys);
+
+        fn compare_object_sets<'a>(
+            result: impl Iterator<Item = &'a TopologyObject>,
+            reference: impl Iterator<Item = &'a TopologyObject>,
+        ) {
+            assert_eq!(
+                checked_object_set(result).keys().collect::<HashSet<_>>(),
+                checked_object_set(reference).keys().collect::<HashSet<_>>()
+            );
+        }
+        compare_object_sets(
+            topology.pci_devices(),
+            topology.objects_with_type(ObjectType::PCIDevice),
+        );
+        compare_object_sets(
+            topology.os_devices(),
+            topology.objects_with_type(ObjectType::OSDevice),
+        );
+        compare_object_sets(
+            topology.bridges(),
+            topology.objects_with_type(ObjectType::Bridge),
+        );
     }
 
     /// Check that reported topology depth matches hwloc rule that PUs are the
