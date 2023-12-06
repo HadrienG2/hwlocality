@@ -1056,6 +1056,7 @@ impl Topology {
     /// - [`StringContainsNul`] if `subtype` or `name_prefix` contains NUL chars.
     ///
     /// [`ForeignSource`]: LocalObjectError::ForeignSource
+    /// [`IncompatibleTypes`]: LocalObjectError::IncompatibleTypes
     /// [`StringContainsNul`]: LocalObjectError::StringContainsNul
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_get_obj_with_same_locality")]
