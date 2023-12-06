@@ -3323,6 +3323,7 @@ pub(crate) mod tests {
     #[cfg(feature = "hwloc-2_5_0")]
     mod object_with_same_locality {
         use super::*;
+        use crate::strategies::any_string;
 
         /// Lists of subtypes and names in the test topology
         fn subtypes_and_name_prefixes() -> (HashSet<&'static str>, HashSet<String>) {
@@ -3356,12 +3357,12 @@ pub(crate) mod tests {
             let name_prefixes = name_prefixes.into_iter().collect::<Vec<String>>();
             let subtype = prop_oneof![
                 3 => prop::sample::select(subtypes).prop_map(|s| Some(s.to_owned())),
-                1 => any::<String>().prop_map(Some),
+                1 => any_string().prop_map(Some),
                 1 => Just(None),
             ];
             let name_prefix = prop_oneof![
                 3 => prop::sample::select(name_prefixes).prop_map(Some),
-                1 => any::<String>().prop_map(Some),
+                1 => any_string().prop_map(Some),
                 1 => Just(None),
             ];
             (subtype, name_prefix)
@@ -3377,36 +3378,18 @@ pub(crate) mod tests {
             ) {
                 // Start by running the method
                 let topology = Topology::test_instance();
+                let subtype = subtype.as_deref();
+                let name_prefix = name_prefix.as_deref();
                 let result = topology.object_with_same_locality(
                     src,
                     ty,
-                    subtype.as_deref(),
-                    name_prefix.as_deref(),
+                    subtype,
+                    name_prefix,
                 );
 
-                // Foreign objects should be reported as an error
-                if !topology.contains(src) {
-                    prop_assert!(matches!(result, Err(e) if e == LocalObjectError::from(src)));
+                // Handle error cases
+                if handle_error_cases(src, ty, subtype, name_prefix, &result)? {
                     return Ok(());
-                }
-
-                // Converting between normal/memory object types and I/O types
-                // or Misc is not allowed
-                let src_ty = src.object_type();
-                if src_ty.has_sets() ^ ty.has_sets() {
-                    prop_assert!(matches!(
-                        result,
-                        Err(LocalObjectError::IncompatibleTypes(src, dst)) if src == src_ty && dst == ty
-                    ));
-                    return Ok(());
-                }
-
-                // NUL in input strings should be reported as an error
-                for s in subtype.as_ref().into_iter().chain(name_prefix.as_ref()) {
-                    if s.chars().any(|c| c == '\0') {
-                        prop_assert!(matches!(result, Err(LocalObjectError::StringContainsNul)));
-                        return Ok(());
-                    }
                 }
 
                 // These are the only two error conditions, otherwise the search
@@ -3420,60 +3403,127 @@ pub(crate) mod tests {
                             prop_assert_eq!(dst.subtype().unwrap().to_str().unwrap(), expected_subtype);
                         }
                         if let Some(expected_prefix) = name_prefix {
-                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(&expected_prefix));
+                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(expected_prefix));
                         }
                         if ty.has_sets() {
                             prop_assert_eq!(dst.cpuset(), src.cpuset());
                             prop_assert_eq!(dst.nodeset(), src.nodeset());
-                        } else if ty.is_io() {
-                            // FIXME: Check if dst is below same PCI parent as
-                            //        src, without walking across bridges.
-                            unimplemented!()
+                        } else if is_supported_io_type(ty) {
+                            prop_assert!(is_io_local(src, dst)?);
                         }
                     }
                     None => {
                         // Search can fail only if no object in the topology
-                        // matches all search criteria
-                        assert!(
-                            Topology::test_objects().iter().all(|obj| {
-                                if obj.object_type() != ty {
-                                    return true;
-                                }
-                                if let Some(req_subtype) = subtype.as_ref() {
-                                    if let Some(obj_subtype) = obj.subtype().and_then(|cs| cs.to_str().ok()) {
-                                        if req_subtype != obj_subtype {
-                                            return true;
-                                        }
-                                    } else {
-                                        return true;
+                        // would match all search criteria
+                        'search: for obj in Topology::test_objects() {
+                            if obj.object_type() != ty {
+                                continue 'search;
+                            }
+                            if let Some(req_subtype) = subtype {
+                                if let Some(obj_subtype) = obj.subtype().and_then(|cs| cs.to_str().ok()) {
+                                    if req_subtype != obj_subtype {
+                                        continue 'search;
                                     }
-                                }
-                                if let Some(name_prefix) = name_prefix.as_ref() {
-                                    if let Some(name) = obj.name().and_then(|cs| cs.to_str().ok()) {
-                                        if !name.starts_with(name_prefix) {
-                                            return true;
-                                        }
-                                    } else {
-                                        return true;
-                                    }
-                                }
-                                if ty.has_sets() {
-                                    (obj.cpuset() != src.cpuset()) || (obj.nodeset() != src.nodeset())
-                                } else if ty.is_io() {
-                                    // FIXME: Make sure dst is not below the
-                                    //        same PCI parent as src, without
-                                    //        walking across bridges.
-                                    unimplemented!()
                                 } else {
-                                    // Criteria for Misc object matching aren't
-                                    // specified by the hwloc docs
-                                    true
+                                    continue 'search;
                                 }
-                            })
-                        );
+                            }
+                            if let Some(name_prefix) = name_prefix {
+                                if let Some(name) = obj.name().and_then(|cs| cs.to_str().ok()) {
+                                    if !name.starts_with(name_prefix) {
+                                        continue 'search;
+                                    }
+                                } else {
+                                    continue 'search;
+                                }
+                            }
+                            if ty.has_sets() {
+                                prop_assert!((obj.cpuset() != src.cpuset()) || (obj.nodeset() != src.nodeset()));
+                            } else if is_supported_io_type(ty) {
+                                prop_assert!(!is_io_local(src, obj)?);
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        /// Handle error cases of [`Topology::object_with_same_locality()`],
+        /// return truth that an error case was handled
+        fn handle_error_cases(
+            src: &TopologyObject,
+            ty: ObjectType,
+            subtype: Option<&str>,
+            name_prefix: Option<&str>,
+            result: &Result<Option<&TopologyObject>, LocalObjectError>,
+        ) -> Result<bool, TestCaseError> {
+            // Foreign objects should be reported as an error
+            let topology = Topology::test_instance();
+            if !topology.contains(src) {
+                prop_assert!(matches!(result, Err(e) if e == &LocalObjectError::from(src)));
+                return Ok(true);
+            }
+
+            // Converting between normal/memory object types and I/O types
+            // or Misc is not allowed
+            let src_ty = src.object_type();
+            if src_ty.has_sets() ^ ty.has_sets() {
+                prop_assert!(matches!(
+                    result,
+                    Err(LocalObjectError::IncompatibleTypes(src, dst)) if *src == src_ty && *dst == ty
+                ));
+                return Ok(true);
+            }
+
+            // NUL in input strings should be reported as an error
+            for s in subtype.as_ref().into_iter().chain(name_prefix.as_ref()) {
+                if s.chars().any(|c| c == '\0') {
+                    prop_assert!(
+                        matches!(result, Err(e) if e == &LocalObjectError::from(NulError))
+                    );
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        /// Supported I/O object types for
+        /// [`Topology::object_with_same_locality()`]
+        fn is_supported_io_type(ty: ObjectType) -> bool {
+            ty == ObjectType::PCIDevice || ty == ObjectType::OSDevice
+        }
+
+        /// Truth that `dst` is another I/O object below the same PCI bridge as
+        /// `src`
+        fn is_io_local(src: &TopologyObject, dst: &TopologyObject) -> Result<bool, TestCaseError> {
+            // First, both src and dst must be OS or PCI devices
+            if !(is_supported_io_type(src.object_type())
+                && dst.object_type() == ObjectType::OSDevice)
+            {
+                return Ok(false);
+            }
+
+            // Find the first PCI parent within src + its ancestor chain
+            let expected_parent = std::iter::once(src)
+                .chain(src.ancestors())
+                .take_while(|obj| is_supported_io_type(obj.object_type()))
+                .find(|obj| obj.object_type() == ObjectType::PCIDevice)
+                .expect("Should always succeed for PCI and OS devices");
+
+            // dst may be either that PCI parent...
+            if ptr::eq(dst, expected_parent) {
+                return Ok(true);
+            }
+
+            // ...or an OS device below the same parent
+            if ptr::eq(
+                dst.parent().expect("OS devices should have a parent"),
+                expected_parent,
+            ) {
+                prop_assert_eq!(dst.object_type(), ObjectType::OSDevice);
+                return Ok(true);
+            }
+            Ok(false)
         }
     }
 }
