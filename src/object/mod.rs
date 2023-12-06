@@ -3530,8 +3530,13 @@ pub(crate) mod tests {
             let expected_parent = std::iter::once(src)
                 .chain(src.ancestors())
                 .take_while(|obj| is_supported_io_type(obj.object_type()))
-                .find(|obj| obj.object_type() == ObjectType::PCIDevice)
-                .expect("Should always succeed for PCI and OS devices");
+                .find(|obj| obj.object_type() == ObjectType::PCIDevice);
+
+            // If we can't find the PCI parent, it means PCI detection fails on
+            // this system and thus this search cannot succeed
+            let Some(expected_parent) = expected_parent else {
+                return Ok(false);
+            };
 
             // dst may be either that PCI parent...
             if ptr::eq(dst, expected_parent) {
