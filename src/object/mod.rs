@@ -1465,7 +1465,7 @@ impl TopologyObject {
     }
 
     /// Chain of parent objects up to the topology root
-    pub fn ancestors(&self) -> impl ExactSizeIterator<Item = &Self> + Clone + FusedIterator {
+    pub fn ancestors(&self) -> impl FusedIterator<Item = &Self> + Clone {
         Ancestors(self)
     }
 
@@ -1666,8 +1666,6 @@ impl<'object> Iterator for Ancestors<'object> {
         (depth_res.unwrap_or(0), depth_res.ok())
     }
 }
-//
-impl ExactSizeIterator for Ancestors<'_> {}
 //
 impl FusedIterator for Ancestors<'_> {}
 
