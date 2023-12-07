@@ -3378,16 +3378,25 @@ pub(crate) mod tests {
             let (subtypes, name_prefixes) = subtypes_and_name_prefixes();
             let subtypes = subtypes.into_iter().collect::<Vec<&'static str>>();
             let name_prefixes = name_prefixes.into_iter().collect::<Vec<String>>();
-            let subtype = prop_oneof![
-                3 => prop::sample::select(subtypes).prop_map(|s| Some(s.to_owned())),
-                1 => any_string().prop_map(Some),
-                1 => Just(None),
-            ];
-            let name_prefix = prop_oneof![
-                3 => prop::sample::select(name_prefixes).prop_map(Some),
-                1 => any_string().prop_map(Some),
-                1 => Just(None),
-            ];
+            let random_string = prop_oneof![any_string().prop_map(Some), Just(None),];
+            let subtype = if subtypes.is_empty() {
+                random_string.clone().boxed()
+            } else {
+                prop_oneof![
+                    3 => prop::sample::select(subtypes).prop_map(|s| Some(s.to_owned())),
+                    2 => random_string.clone(),
+                ]
+                .boxed()
+            };
+            let name_prefix = if name_prefixes.is_empty() {
+                random_string.boxed()
+            } else {
+                prop_oneof![
+                    3 => prop::sample::select(name_prefixes).prop_map(Some),
+                    2 => random_string,
+                ]
+                .boxed()
+            };
             (subtype, name_prefix)
         }
 
