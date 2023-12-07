@@ -107,6 +107,7 @@ impl LibcString {
     ///
     /// Unlike with regular [`CString`], it is safe to pass this string to a C
     /// API that may later free it using `free()`.
+    #[cfg(any(test, feature = "hwloc-2_3_0"))]
     pub(crate) fn into_raw(self) -> *mut c_char {
         let ptr = self.0.as_ptr().cast::<c_char>();
         std::mem::forget(self);
