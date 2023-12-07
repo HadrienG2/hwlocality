@@ -3528,7 +3528,8 @@ pub(crate) mod tests {
         /// `src`
         fn is_io_local(src: &TopologyObject, dst: &TopologyObject) -> Result<bool, TestCaseError> {
             // First, both src and dst must be OS or PCI devices
-            if !(is_supported_io_type(src.object_type()) && is_supported_io_type(dst)) {
+            if !(is_supported_io_type(src.object_type()) && is_supported_io_type(dst.object_type()))
+            {
                 return Ok(false);
             }
 
