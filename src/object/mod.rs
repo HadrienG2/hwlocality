@@ -2533,14 +2533,96 @@ pub(crate) mod tests {
 
     /// Stuff that should be true of any object we examine
     fn check_any_object(obj: &TopologyObject) -> Result<(), TestCaseError> {
-        let topology = Topology::test_instance();
+        check_sets(obj)?;
+        check_parent(obj)?;
+        check_first_shared_cache(obj)?;
+        check_cousins_and_siblings(obj)?;
+        check_children(obj)?;
+        check_infos(obj)?;
+        Ok(())
+    }
 
-        if let Depth::Normal(depth) = obj.depth() {
-            prop_assert_eq!(obj.ancestors().count(), depth);
+    /// Check that an object's cpusets and nodesets have the expected properties
+    fn check_sets(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        let has_sets = obj.object_type().has_sets();
+
+        prop_assert_eq!(obj.cpuset().is_some(), has_sets);
+        prop_assert_eq!(obj.complete_cpuset().is_some(), has_sets);
+        if let (Some(complete), Some(normal)) = (obj.complete_cpuset(), obj.cpuset()) {
+            prop_assert!(complete.includes(normal));
+            prop_assert!(obj.is_inside_cpuset(complete));
+            prop_assert!(obj.covers_cpuset(normal));
         }
 
-        prop_assert!(obj.parent().is_some() || obj.object_type() == ObjectType::Machine);
+        prop_assert_eq!(obj.nodeset().is_some(), has_sets);
+        prop_assert_eq!(obj.complete_nodeset().is_some(), has_sets);
+        if let (Some(complete), Some(normal)) = (obj.complete_nodeset(), obj.nodeset()) {
+            prop_assert!(complete.includes(normal));
+        }
 
+        Ok(())
+    }
+
+    /// Check that an object's parent has the expected properties
+    fn check_parent(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        let Some(parent) = obj.parent() else {
+            prop_assert_eq!(obj.object_type(), ObjectType::Machine);
+            return Ok(());
+        };
+
+        let first_ancestor = obj.ancestors().next().unwrap();
+        prop_assert!(ptr::eq(parent, first_ancestor));
+
+        if let (Depth::Normal(parent_depth), Depth::Normal(obj_depth)) =
+            (parent.depth(), obj.depth())
+        {
+            prop_assert!(parent_depth < obj_depth);
+        }
+
+        if obj.object_type().has_sets() {
+            prop_assert!(parent.object_type().has_sets());
+            prop_assert!(parent.cpuset().unwrap().includes(obj.cpuset().unwrap()));
+            prop_assert!(parent.nodeset().unwrap().includes(obj.nodeset().unwrap()));
+            prop_assert!(parent
+                .complete_cpuset()
+                .unwrap()
+                .includes(obj.complete_cpuset().unwrap()));
+            prop_assert!(parent
+                .complete_nodeset()
+                .unwrap()
+                .includes(obj.complete_nodeset().unwrap()));
+        }
+
+        Ok(())
+    }
+
+    /// Check that [`TopologyObject::first_shared_cache()`] works as expected
+    fn check_first_shared_cache(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        // Call the function to begin with
+        let result = obj.first_shared_cache();
+
+        // Should not yield result on objects without cpusets
+        if obj.cpuset().is_none() {
+            prop_assert!(result.is_none());
+            return Ok(());
+        }
+
+        // Otherwise, should yield first cache parent that has multiple normal
+        // children below it
+        let expected = obj
+            .ancestors()
+            .skip_while(|ancestor| ancestor.normal_arity() == 1)
+            .find(|ancestor| ancestor.object_type().is_cpu_data_cache());
+        if let (Some(result), Some(expected)) = (result, expected) {
+            prop_assert!(ptr::eq(result, expected));
+        } else {
+            prop_assert!(result.is_none() && expected.is_none());
+        }
+        Ok(())
+    }
+
+    /// Check that an object's cousin and siblings have the expected properties
+    fn check_cousins_and_siblings(obj: &TopologyObject) -> Result<(), TestCaseError> {
         let siblings_len = if let Some(parent) = obj.parent() {
             let ty = obj.object_type();
             if ty.is_normal() {
@@ -2556,31 +2638,67 @@ pub(crate) mod tests {
         } else {
             1
         };
+        let topology = Topology::test_instance();
         let cousins_len = topology.num_objects_at_depth(obj.depth());
 
-        fn num_neighbors(
-            obj: &TopologyObject,
-            mut next_neighbor: impl FnMut(&TopologyObject) -> Option<&TopologyObject>,
-        ) -> usize {
-            std::iter::successors(Some(obj), |obj| next_neighbor(obj)).count() - 1
+        if let Some(prev_cousin) = obj.prev_cousin() {
+            check_cousin(obj, prev_cousin)?;
+            prop_assert_eq!(prev_cousin.logical_index(), obj.logical_index() - 1);
+            prop_assert!(ptr::eq(prev_cousin.next_cousin().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.logical_index(), 0);
         }
-        prop_assert_eq!(
-            num_neighbors(obj, TopologyObject::prev_cousin),
-            obj.logical_index()
-        );
-        prop_assert_eq!(
-            num_neighbors(obj, TopologyObject::next_cousin),
-            cousins_len - obj.logical_index() - 1
-        );
-        prop_assert_eq!(
-            num_neighbors(obj, TopologyObject::prev_sibling),
-            obj.sibling_rank()
-        );
-        prop_assert_eq!(
-            num_neighbors(obj, TopologyObject::next_sibling),
-            siblings_len - obj.sibling_rank() - 1
-        );
+        if let Some(next_cousin) = obj.next_cousin() {
+            check_cousin(obj, next_cousin)?;
+            prop_assert_eq!(next_cousin.logical_index(), obj.logical_index() + 1);
+            prop_assert!(ptr::eq(next_cousin.prev_cousin().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.logical_index(), cousins_len - 1);
+        }
 
+        if let Some(prev_sibling) = obj.prev_sibling() {
+            check_sibling(obj, prev_sibling)?;
+            prop_assert_eq!(prev_sibling.sibling_rank(), obj.sibling_rank() - 1);
+            prop_assert!(ptr::eq(prev_sibling.next_sibling().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.sibling_rank(), 0);
+        }
+        if let Some(next_sibling) = obj.next_sibling() {
+            check_sibling(obj, next_sibling)?;
+            prop_assert_eq!(next_sibling.sibling_rank(), obj.sibling_rank() + 1);
+            prop_assert!(ptr::eq(next_sibling.prev_sibling().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.sibling_rank(), siblings_len - 1);
+        }
+
+        Ok(())
+    }
+
+    /// Check that an object's cousin has the expected properties
+    fn check_cousin(obj: &TopologyObject, cousin: &TopologyObject) -> Result<(), TestCaseError> {
+        prop_assert_eq!(cousin.object_type(), obj.object_type());
+        prop_assert_eq!(cousin.depth(), obj.depth());
+        if obj.object_type().has_sets() {
+            prop_assert!(!obj.cpuset().unwrap().intersects(cousin.cpuset().unwrap()));
+            prop_assert!(!obj
+                .complete_cpuset()
+                .unwrap()
+                .intersects(cousin.complete_cpuset().unwrap()));
+        }
+        Ok(())
+    }
+
+    /// Check that an object's sibling has the expected properties
+    ///
+    /// This does not re-check the properties checked by `check_cousin()`, since
+    /// the sibling of some object must be the cousin of another object.
+    fn check_sibling(obj: &TopologyObject, sibling: &TopologyObject) -> Result<(), TestCaseError> {
+        prop_assert_eq!(sibling.0.parent, obj.0.parent);
+        Ok(())
+    }
+
+    /// Check that an object's children has the expected properties
+    fn check_children(obj: &TopologyObject) -> Result<(), TestCaseError> {
         prop_assert_eq!(obj.normal_arity(), obj.normal_children().count());
         prop_assert_eq!(obj.memory_arity(), obj.memory_children().count());
         prop_assert_eq!(obj.io_arity(), obj.io_children().count());
@@ -2590,34 +2708,30 @@ pub(crate) mod tests {
             obj.normal_arity() + obj.memory_arity() + obj.io_arity() + obj.misc_arity()
         );
 
-        for normal_child in obj.normal_children() {
+        // NOTE: Most parent-child relations are checked when checking the
+        //       parent, since that's agnostic to the kind of child we deal with
+        for (idx, normal_child) in obj.normal_children().enumerate() {
+            prop_assert_eq!(normal_child.sibling_rank(), idx);
             prop_assert!(normal_child.object_type().is_normal());
         }
-        for memory_child in obj.memory_children() {
+        for (idx, memory_child) in obj.memory_children().enumerate() {
+            prop_assert_eq!(memory_child.sibling_rank(), idx);
             prop_assert!(memory_child.object_type().is_memory());
         }
-        for io_child in obj.io_children() {
+        for (idx, io_child) in obj.io_children().enumerate() {
+            prop_assert_eq!(io_child.sibling_rank(), idx);
             prop_assert!(io_child.object_type().is_io());
         }
-        for misc_child in obj.misc_children() {
+        for (idx, misc_child) in obj.misc_children().enumerate() {
+            prop_assert_eq!(misc_child.sibling_rank(), idx);
             prop_assert_eq!(misc_child.object_type(), ObjectType::Misc);
         }
 
-        let has_sets = obj.object_type().has_sets();
-        prop_assert_eq!(obj.cpuset().is_some(), has_sets);
-        prop_assert_eq!(obj.complete_cpuset().is_some(), has_sets);
-        if let (Some(complete), Some(normal)) = (obj.complete_cpuset(), obj.cpuset()) {
-            prop_assert!(complete.includes(normal));
-            prop_assert!(obj.is_inside_cpuset(complete));
-            prop_assert!(obj.covers_cpuset(normal));
-        }
+        Ok(())
+    }
 
-        prop_assert_eq!(obj.nodeset().is_some(), has_sets);
-        prop_assert_eq!(obj.complete_nodeset().is_some(), has_sets);
-        if let (Some(complete), Some(normal)) = (obj.complete_nodeset(), obj.nodeset()) {
-            prop_assert!(complete.includes(normal));
-        }
-
+    /// Check that an object's info metadata matches expectations
+    fn check_infos(obj: &TopologyObject) -> Result<(), TestCaseError> {
         for info in obj.infos() {
             if let Ok(name) = info.name().to_str() {
                 prop_assert_eq!(
@@ -2629,10 +2743,7 @@ pub(crate) mod tests {
                 );
             }
         }
-        prop_assert_eq!(
-            obj.info("Please don't add an info named like this just to make the test fail ;)"),
-            None
-        );
+        // NOTE: Looking up invalid info names is tested elsewhere
         Ok(())
     }
 
@@ -2807,6 +2918,9 @@ pub(crate) mod tests {
         }
     }
 
+    // Tests that should only be run on a subset of objects because the property
+    // of interest can only be evaluated by traversing the whole topology or a
+    // major subset thereof.
     proptest! {
         /// Test that [`Topology::objects_closest_to()`] works as expected
         #[test]
@@ -3853,7 +3967,7 @@ pub(crate) mod tests {
         }
     }
 
-    // --- Find common ancestor to two objects ---
+    // --- Properties of pairs of objects ---
 
     proptest! {
         /// Test for [`TopologyObject::first_common_ancestor()`]
