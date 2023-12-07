@@ -2873,6 +2873,44 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    /// Check that [`TopologyObject::is_symmetric_subtree()`] is correct
+    #[test]
+    fn is_symmetric_subtree() {
+        // Iterate over topology objects from children to parent: by the time we
+        // reach a parent, we know that we can trust the is_symmetric_subtree of
+        // its direct (and transitive) normal children.
+        let topology = Topology::test_instance();
+        for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).rev() {
+            'objs: for obj in topology.objects_at_depth(depth) {
+                // An object is a symmetric subtree if it has no children...
+                let Some(first_child) = obj.normal_children().next() else {
+                    assert!(obj.is_symmetric_subtree());
+                    continue 'objs;
+                };
+
+                // ...or if its children all have the following properties:
+                let should_be_symmetric = obj.normal_children().all(|child| {
+                    // - They are symmetric subtree themselves
+                    child.is_symmetric_subtree()
+
+                    // - All of their topologically meaningful properties are
+                    //   identical (and thus equal to that of first child)
+                    && child.object_type() == first_child.object_type()
+                    && child.subtype() == first_child.subtype()
+                    && child.attributes() == first_child.attributes()
+                    && child.depth() == first_child.depth()
+                    && child.normal_arity() == first_child.normal_arity()
+                });
+                assert_eq!(obj.is_symmetric_subtree(), should_be_symmetric);
+            }
+        }
+
+        // Only normal objects can be symmetric
+        assert!(topology
+            .virtual_objects()
+            .all(|obj| !obj.is_symmetric_subtree()));
+    }
+
     /// Check that [`Topology::objects_with_type()`] is correct
     #[test]
     fn objects_with_type() {
