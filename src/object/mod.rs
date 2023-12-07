@@ -27,15 +27,19 @@ use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
-    errors::{self, ForeignObjectError, HybridError, NulError, ParameterError},
+    errors::{ForeignObjectError, ParameterError},
     ffi::{
         self, int,
-        string::LibcString,
         transparent::{AsNewtype, TransparentNewtype},
     },
     info::TextualInfo,
     memory::nodeset::NodeSet,
     topology::Topology,
+};
+#[cfg(feature = "hwloc-2_3_0")]
+use crate::{
+    errors::{self, HybridError, NulError},
+    ffi::string::LibcString,
 };
 use hwlocality_sys::{hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
 use num_enum::TryFromPrimitiveError;
