@@ -1556,8 +1556,9 @@ impl TopologyObject {
         let (virtual_ancestors_1, parent1) = collect_virtual_ancestors(self);
         let (virtual_ancestors_2, parent2) = collect_virtual_ancestors(other);
 
-        // Make sure there is no common ancestor at some virtual depth
-        // (can't avoid O(N²) alg here as virtual depths cannot be compared)
+        // Make sure there is no common ancestor at some virtual depth (can't
+        // avoid O(N²) alg here as virtual depths cannot be compared and global
+        // persistent indices may be redundant across different topologies)
         for ancestor1 in virtual_ancestors_1 {
             for ancestor2 in &virtual_ancestors_2 {
                 if ptr::eq(ancestor1, *ancestor2) {
@@ -3850,6 +3851,47 @@ pub(crate) mod tests {
                 prop_assert!(matches!(result, Ok(None)));
             } else {
                 prop_assert!(matches!(result, Err(e) if e == ParameterError::from(addr)));
+            }
+        }
+    }
+
+    // --- Find common ancestor to two objects ---
+
+    proptest! {
+        /// Test for [`TopologyObject::first_common_ancestor()`]
+        #[test]
+        fn first_common_ancestor(obj in test_object(), other in any_object()) {
+            // Check result
+            let result = obj.first_common_ancestor(other);
+
+            // The topology root has no ancestor
+            if obj.object_type() == ObjectType::Machine || other.object_type() == ObjectType::Machine
+            {
+                prop_assert!(result.is_none());
+                return Ok(());
+            }
+
+            // Objects from two different topologies have no common ancestor
+            let topology = Topology::test_instance();
+            if !topology.contains(other) {
+                prop_assert!(result.is_none());
+                return Ok(());
+            }
+
+            // Otherwise, there should be a common ancestor
+            let common_ancestor = result.unwrap();
+
+            // Check if it is indeed the first common ancestor
+            fn prev_ancestor_candidate<'obj>(
+                obj: &'obj TopologyObject,
+                common_ancestor: &TopologyObject,
+            ) -> Option<&'obj TopologyObject> {
+                obj.ancestors().take_while(|&ancestor| !ptr::eq(ancestor, common_ancestor)).last()
+            }
+            let obj_ancestor = prev_ancestor_candidate(obj, common_ancestor);
+            let other_ancestor = prev_ancestor_candidate(other, common_ancestor);
+            if let (Some(obj_ancestor), Some(other_ancestor)) = (obj_ancestor, other_ancestor) {
+                prop_assert!(!ptr::eq(obj_ancestor, other_ancestor));
             }
         }
     }
