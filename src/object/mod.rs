@@ -3539,8 +3539,7 @@ pub(crate) mod tests {
             // may be something else if PCI device detection is disabled)
             let expected_parent = std::iter::once(src)
                 .chain(src.ancestors())
-                .skip_while(|obj| obj.object_type() == ObjectType::OSDevice)
-                .next()
+                .find(|obj| obj.object_type() != ObjectType::OSDevice)
                 .expect("OS devices should have a parent (at least Machine)");
 
             // dst may be either that PCI parent...
