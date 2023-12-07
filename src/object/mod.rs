@@ -1205,6 +1205,7 @@ impl Topology {
     ) -> Option<&TopologyObject> {
         self.pci_devices().find(|obj| {
             let Some(ObjectAttributes::PCIDevice(pci)) = obj.attributes() else {
+                #[cfg(not(tarpaulin_include))]
                 unreachable!("All PCI devices should have PCI attributes")
             };
             pci.domain() == domain
@@ -1367,6 +1368,7 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
+    #[cfg(feature = "hwloc-2_3_0")]
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
         self.0.subtype = LibcString::new(subtype)?.into_raw();
         Ok(())
@@ -2135,6 +2137,7 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `name` or `value` contains NUL chars.
+    #[cfg(feature = "hwloc-2_3_0")]
     #[doc(alias = "hwloc_obj_add_info")]
     pub fn add_info(&mut self, name: &str, value: &str) -> Result<(), HybridError<NulError>> {
         let name = LibcString::new(name)?;
