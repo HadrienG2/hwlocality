@@ -2990,6 +2990,34 @@ pub(crate) mod tests {
 
     // --- Test operations with a depth parameter ---
 
+    /// Depths that are mostly valid, but may be invalid too
+    fn any_hwloc_depth() -> impl Strategy<Value = Depth> {
+        let valid_depths = valid_depths().collect::<Vec<_>>();
+        prop_oneof![
+            4 => prop::sample::select(valid_depths),
+            1 => any::<Depth>()
+        ]
+    }
+
+    /// Like `any_depth()` but restricted to normal depths
+    fn any_normal_depth() -> impl Strategy<Value = NormalDepth> {
+        let topology = Topology::test_instance();
+        let normal_depths =
+            NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).collect::<Vec<_>>();
+        prop_oneof![
+            4 => prop::sample::select(normal_depths),
+            1 => any::<NormalDepth>()
+        ]
+    }
+
+    /// Like `any_depth()` but covers full `usize` range
+    fn any_usize_depth() -> impl Strategy<Value = usize> {
+        prop_oneof![
+            4 => any_normal_depth().prop_map(usize::from),
+            1 => any::<usize>(),
+        ]
+    }
+
     /// Test [`Topology::type_at_depth()`] at a certain depth
     fn check_type_at_depth<DepthLike>(depth: DepthLike) -> Result<(), TestCaseError>
     where
@@ -3064,31 +3092,69 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    /// Exhaustively probe all valid depths
-    #[test]
-    fn operations_at_valid_depth() -> Result<(), TestCaseError> {
-        for depth in valid_depths() {
-            check_type_at_depth(depth)?;
-            check_num_objects_at_depth(depth)?;
-            check_objects_at_depth(depth)?;
-        }
-        Ok(())
-    }
-
     proptest! {
-        // Stochastically probe some invalid depths too
+        // Test above operations at valid and invalid depths
         #[test]
-        fn operations_at_any_hwloc_depth(depth: Depth) {
+        fn operations_at_any_hwloc_depth(depth in any_hwloc_depth()) {
             check_type_at_depth(depth)?;
             check_num_objects_at_depth(depth)?;
             check_objects_at_depth(depth)?;
         }
         //
         #[test]
-        fn operations_at_any_usize_depth(depth: usize) {
+        fn operations_at_any_normal_depth(depth in any_normal_depth()) {
             check_type_at_depth(depth)?;
             check_num_objects_at_depth(depth)?;
             check_objects_at_depth(depth)?;
+        }
+        //
+        #[test]
+        fn operations_at_any_usize_depth(depth in any_usize_depth()) {
+            check_type_at_depth(depth)?;
+            check_num_objects_at_depth(depth)?;
+            check_objects_at_depth(depth)?;
+        }
+    }
+
+    /// Test [`TopologyObject::ancestor_at_depth()`] for a certain
+    /// [`TopologyObject`] and at a certain desired parent depth
+    fn check_ancestor_at_depth<DepthLike>(
+        obj: &TopologyObject,
+        depth: DepthLike,
+    ) -> Result<(), TestCaseError>
+    where
+        DepthLike: TryInto<Depth> + Copy + Debug + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let actual = obj.ancestor_at_depth(depth);
+        let expected = obj.ancestors().find(|obj| obj.depth() == depth);
+        if let (Some(actual), Some(expected)) = (actual, expected) {
+            prop_assert!(ptr::eq(actual, expected));
+        } else {
+            prop_assert!(actual.is_none() && expected.is_none());
+        }
+        Ok(())
+    }
+
+    proptest! {
+        // Probe ancestors by depth at valid and invalid depths
+        #[test]
+        fn ancestor_at_hwloc_depth(obj in test_object(),
+                                   depth in any_hwloc_depth()) {
+            check_ancestor_at_depth(obj, depth)?;
+        }
+        //
+        #[test]
+        fn ancestor_at_normal_depth(obj in test_object(),
+                                    depth in any_normal_depth()) {
+            check_ancestor_at_depth(obj, depth)?;
+        }
+        //
+        #[test]
+        fn ancestor_at_usize_depth(obj in test_object(),
+                                   depth in any_usize_depth()) {
+            check_ancestor_at_depth(obj, depth)?;
         }
     }
 
