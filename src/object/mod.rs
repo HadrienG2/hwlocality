@@ -3526,17 +3526,13 @@ pub(crate) mod tests {
                 return Ok(false);
             }
 
-            // Find the first PCI parent within src + its ancestor chain
+            // Find the first non-OS-device ancestor (normally a PCI device, but
+            // may be something else if PCI device detection is disabled)
             let expected_parent = std::iter::once(src)
                 .chain(src.ancestors())
-                .take_while(|obj| is_supported_io_type(obj.object_type()))
-                .find(|obj| obj.object_type() == ObjectType::PCIDevice);
-
-            // If we can't find the PCI parent, it means PCI detection fails on
-            // this system and thus this search cannot succeed
-            let Some(expected_parent) = expected_parent else {
-                return Ok(false);
-            };
+                .skip_while(|obj| obj.object_type() == ObjectType::OSDevice)
+                .next()
+                .expect("OS devices should have a parent (at least Machine)");
 
             // dst may be either that PCI parent...
             if ptr::eq(dst, expected_parent) {
