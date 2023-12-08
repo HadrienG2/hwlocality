@@ -2898,6 +2898,54 @@ mod tests {
             .all(|obj| !obj.is_symmetric_subtree()));
     }
 
+    /// Check that [`TopologyObject::total_memory()`] is correct
+    #[test]
+    fn total_memory() {
+        // We'll compute the expected total amount of memory below each NUMA
+        // node through a bottom-up tree reduction from NUMA nodes up
+        let topology = Topology::test_instance();
+        let mut expected_total_memory = HashMap::new();
+        let mut curr_objects = HashMap::new();
+        let mut next_objects = HashMap::new();
+
+        // Seed tree reduction by counting local memory inside of each NUMA node
+        for numa in topology.objects_with_type(ObjectType::NUMANode) {
+            let Some(ObjectAttributes::NUMANode(attrs)) = numa.attributes() else {
+                unreachable!()
+            };
+            let gp_index = numa.global_persistent_index();
+            let local_memory = attrs.local_memory().map_or(0, u64::from);
+            assert!(expected_total_memory
+                .insert(gp_index, local_memory)
+                .is_none());
+            assert!(curr_objects.insert(gp_index, numa).is_none());
+        }
+
+        // Compute expected total_memory value through tree reduction
+        while !curr_objects.is_empty() {
+            for (gp_index, obj) in curr_objects.drain() {
+                let obj_memory = expected_total_memory[&gp_index];
+                if let Some(parent) = obj.parent() {
+                    let parent_gp_index = parent.global_persistent_index();
+                    *expected_total_memory.entry(parent_gp_index).or_default() += obj_memory;
+                    next_objects.insert(parent_gp_index, parent);
+                }
+            }
+            std::mem::swap(&mut curr_objects, &mut next_objects);
+        }
+
+        // At this point we should have built an accurate map of how much memory
+        // lies in NUMA nodes below each object, use it to check every object.
+        for obj in topology.objects() {
+            assert_eq!(
+                obj.total_memory(),
+                expected_total_memory
+                    .remove(&obj.global_persistent_index())
+                    .unwrap_or(0)
+            );
+        }
+    }
+
     /// Check that [`Topology::objects_with_type()`] is correct
     #[test]
     fn objects_with_type() {
