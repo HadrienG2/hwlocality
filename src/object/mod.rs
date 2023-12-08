@@ -2309,7 +2309,8 @@ unsafe impl TransparentNewtype for TopologyObject {
 mod tests {
     use super::*;
     use crate::{
-        strategies::{any_object, any_string, test_object},
+        bitmap::OwnedSpecializedBitmap,
+        strategies::{any_object, any_string, set_with_reference, test_object},
         tests::assert_panics,
     };
     use proptest::prelude::*;
@@ -3382,10 +3383,17 @@ mod tests {
 
     // --- Querying stuff by cpuset/nodeset ---
 
+    /// Shorthand for using topology-wide sets as a reference
+    fn set_with_topology_reference<Set: OwnedSpecializedBitmap>(
+        set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
+    ) -> impl Strategy<Value = Set> {
+        set_with_reference(set(Topology::test_instance()).as_ref())
+    }
+
     proptest! {
         /// Test [`Topology::pus_from_cpuset()`]
         #[test]
-        fn pus_from_cpuset(cpuset: CpuSet) {
+        fn pus_from_cpuset(cpuset in set_with_topology_reference(Topology::cpuset)) {
             let mut expected = os_index_to_pu().clone();
             expected.retain(|_idx, pu| {
                 cpuset.includes(pu.cpuset().unwrap())
@@ -3402,7 +3410,7 @@ mod tests {
 
         /// Test [`Topology::nodes_from_nodeset()`]
         #[test]
-        fn nodes_from_nodeset(nodeset: NodeSet) {
+        fn nodes_from_nodeset(nodeset in set_with_topology_reference(Topology::nodeset)) {
             let mut expected = os_index_to_node().clone();
             expected.retain(|_idx, node| {
                 nodeset.includes(node.nodeset().unwrap())
@@ -3414,6 +3422,30 @@ mod tests {
             prop_assert_eq!(actual.clone().count(), expected.len());
             for node in actual {
                 prop_assert!(expected.contains_key(&node.os_index().unwrap()));
+            }
+        }
+    }
+
+    /// Pick an object with a cpuset and a related cpuset
+    fn object_and_related_cpuset() -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
+        let topology = Topology::test_instance();
+        let objects_with_cpuset = topology
+            .objects()
+            .filter(|obj| obj.object_type().has_sets())
+            .collect::<Vec<_>>();
+        prop::sample::select(objects_with_cpuset)
+            .prop_flat_map(|obj| (Just(obj), set_with_reference(&obj.cpuset().unwrap())))
+    }
+
+    proptest! {
+        /// Test [`TopologyObject::normal_child_covering_cpuset()`]
+        #[test]
+        fn normal_child_covering_cpuset((obj, set) in object_and_related_cpuset()) {
+            let result = obj.normal_child_covering_cpuset(&set);
+            if let Some(result) = result {
+                prop_assert!(result.covers_cpuset(&set));
+            } else {
+                prop_assert!(obj.normal_children().all(|obj| !obj.covers_cpuset(&set)));
             }
         }
     }
