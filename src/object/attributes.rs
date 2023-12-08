@@ -923,12 +923,12 @@ impl DownstreamPCIAttributes {
         self.0.domain
     }
 
-    /// PCI secondary bus
+    /// PCI secondary bus (= lowest downstream bus number)
     pub fn secondary_bus(&self) -> u8 {
         self.0.secondary_bus
     }
 
-    /// PCI subordinate bus
+    /// PCI subordinate bus (= highest downstream bus number)
     pub fn subordinate_bus(&self) -> u8 {
         self.0.subordinate_bus
     }

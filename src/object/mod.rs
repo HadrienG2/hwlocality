@@ -2315,7 +2315,10 @@ mod tests {
     };
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
-    use std::collections::{BTreeMap, HashMap, HashSet};
+    use std::{
+        collections::{BTreeMap, HashMap, HashSet},
+        ops::RangeInclusive,
+    };
 
     /// Check that the various object lists match their definitions
     #[test]
@@ -4068,6 +4071,70 @@ mod tests {
             } else {
                 prop_assert!(matches!(result, Err(e) if e == ParameterError::from(addr)));
             }
+        }
+    }
+
+    // --- Truth that an object is a bridge covering a certain PCI bus ---
+
+    /// Generate queries that have a reasonable chance of returning `true`
+    fn bridge_coverage() -> impl Strategy<Value = (&'static TopologyObject, PCIDomain, u8)> {
+        #[derive(Clone, Debug)]
+        struct BridgeCoverage {
+            bridge: &'static TopologyObject,
+            domain: PCIDomain,
+            bus_id_range: RangeInclusive<u8>,
+        }
+        let topology = Topology::test_instance();
+        let bridge_coverages = topology
+            .objects_with_type(ObjectType::Bridge)
+            .filter_map(|bridge| {
+                let Some(ObjectAttributes::Bridge(attrs)) = bridge.attributes() else {
+                    unreachable!()
+                };
+                let Some(DownstreamAttributes::PCI(pci)) = attrs.downstream_attributes() else {
+                    return None;
+                };
+                Some(BridgeCoverage {
+                    bridge,
+                    domain: pci.domain(),
+                    bus_id_range: pci.secondary_bus()..=pci.subordinate_bus(),
+                })
+            })
+            .collect::<Vec<_>>();
+        prop::sample::select(bridge_coverages).prop_flat_map(|bridge_coverage| {
+            let obj = prop_oneof![
+                3 => Just(bridge_coverage.bridge),
+                2 => any_object()
+            ];
+            let domain = prop_oneof![
+                3 => Just(bridge_coverage.domain),
+                2 => any::<PCIDomain>()
+            ];
+            let bus_id = prop_oneof![
+                3 => bridge_coverage.bus_id_range,
+                2 => any::<u8>()
+            ];
+            (obj, domain, bus_id)
+        })
+    }
+
+    proptest! {
+        /// Test [`TopologyObject::is_bridge_covering_pci_bus()`]
+        #[test]
+        fn is_bridge_covering_pci_bus((obj, domain, bus_id) in bridge_coverage()) {
+            let result = obj.is_bridge_covering_pci_bus(domain, bus_id);
+            let Some(ObjectAttributes::Bridge(attrs)) = obj.attributes() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            let Some(DownstreamAttributes::PCI(pci)) = attrs.downstream_attributes() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            prop_assert_eq!(
+                result,
+                domain == pci.domain() && bus_id >= pci.secondary_bus() && bus_id <= pci.subordinate_bus()
+            );
         }
     }
 
