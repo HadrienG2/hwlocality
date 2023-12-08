@@ -4101,21 +4101,27 @@ mod tests {
                 })
             })
             .collect::<Vec<_>>();
-        prop::sample::select(bridge_coverages).prop_flat_map(|bridge_coverage| {
-            let obj = prop_oneof![
-                3 => Just(bridge_coverage.bridge),
-                2 => any_object()
-            ];
-            let domain = prop_oneof![
-                3 => Just(bridge_coverage.domain),
-                2 => any::<PCIDomain>()
-            ];
-            let bus_id = prop_oneof![
-                3 => bridge_coverage.bus_id_range,
-                2 => any::<u8>()
-            ];
-            (obj, domain, bus_id)
-        })
+        if bridge_coverages.is_empty() {
+            (any_object(), any::<PCIDomain>(), any::<u8>()).boxed()
+        } else {
+            prop::sample::select(bridge_coverages)
+                .prop_flat_map(|bridge_coverage| {
+                    let obj = prop_oneof![
+                        3 => Just(bridge_coverage.bridge),
+                        2 => any_object()
+                    ];
+                    let domain = prop_oneof![
+                        3 => Just(bridge_coverage.domain),
+                        2 => any::<PCIDomain>()
+                    ];
+                    let bus_id = prop_oneof![
+                        3 => bridge_coverage.bus_id_range,
+                        2 => any::<u8>()
+                    ];
+                    (obj, domain, bus_id)
+                })
+                .boxed()
+        }
     }
 
     proptest! {

@@ -102,6 +102,7 @@ pub(crate) type BitmapIndexStrategy = Map<Range<usize>, fn(usize) -> BitmapIndex
 
 /// Pick a random object, mostly from [`Topology::test_instance()`] but
 /// sometimes from [`Topology::foreign_instance()`] as well
+#[cfg(test)]
 pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
     prop_oneof![
         4 => test_object(),
@@ -114,6 +115,7 @@ pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
 /// Any method which takes an [`&TopologyObject`] as input should be robust to
 /// receiving inputs from foreign topologies, so unless there is a good reason
 /// to do otherwise you should prefer [`any_object()`] over [`test_object()`].
+#[cfg(test)]
 pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
     prop::sample::select(Topology::test_objects())
 }
