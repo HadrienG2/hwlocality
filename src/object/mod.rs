@@ -3492,15 +3492,24 @@ mod tests {
         }
 
         // For objects with cpusets, the reference cpuset is their cpuset
-        let with_cpuset = prop::sample::select(with_cpuset)
-            .prop_flat_map(|obj| (Just(obj), set_with_reference(&obj.cpuset().unwrap())));
+        let with_cpuset = (!with_cpuset.is_empty()).then(|| {
+            prop::sample::select(with_cpuset)
+                .prop_flat_map(|obj| (Just(obj), set_with_reference(&obj.cpuset().unwrap())))
+        });
 
         // For objects without cpusets, the reference is the topology cpuset
-        let without_cpuset = prop::sample::select(without_cpuset)
-            .prop_flat_map(move |obj| (Just(obj), set_with_reference(&topology.cpuset())));
+        let without_cpuset = (!without_cpuset.is_empty()).then(|| {
+            prop::sample::select(without_cpuset)
+                .prop_flat_map(move |obj| (Just(obj), set_with_reference(&topology.cpuset())))
+        });
 
         // We pick from either list with equal probability
-        prop_oneof![with_cpuset, without_cpuset]
+        match (with_cpuset, without_cpuset) {
+            (Some(with), Some(without)) => prop_oneof![with, without].boxed(),
+            (Some(with), None) => with.boxed(),
+            (None, Some(without)) => without.boxed(),
+            (None, None) => unreachable!(),
+        }
     }
 
     proptest! {

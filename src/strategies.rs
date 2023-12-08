@@ -3,9 +3,13 @@
 //! Every proptest [`Strategy`] which cannot be handled by an [`Arbitrary`] impl
 //! or a function that is only used by a single module is centralized here.
 
-use crate::bitmap::{Bitmap, BitmapIndex, SpecializedBitmap};
+use crate::bitmap::BitmapIndex;
 #[cfg(test)]
-use crate::{object::TopologyObject, topology::Topology};
+use crate::{
+    bitmap::{Bitmap, SpecializedBitmap},
+    object::TopologyObject,
+    topology::Topology,
+};
 use enum_iterator::Sequence;
 use proptest::{
     collection::SizeRange,
