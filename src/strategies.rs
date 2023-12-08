@@ -3,11 +3,9 @@
 //! Every proptest [`Strategy`] which cannot be handled by an [`Arbitrary`] impl
 //! or a function that is only used by a single module is centralized here.
 
-use crate::{
-    bitmap::{Bitmap, BitmapIndex, SpecializedBitmap},
-    object::TopologyObject,
-    topology::Topology,
-};
+use crate::bitmap::{Bitmap, BitmapIndex, SpecializedBitmap};
+#[cfg(test)]
+use crate::{object::TopologyObject, topology::Topology};
 use enum_iterator::Sequence;
 use proptest::{
     collection::SizeRange,
@@ -133,6 +131,7 @@ pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
 /// - Equal (everything inside, nothing outside)
 /// - Superset (everything inside, some outside)
 /// - Everything (everything inside, everything outside)
+#[cfg(test)]
 pub(crate) fn set_with_reference<Set: SpecializedBitmap>(
     ref_set: &Set,
 ) -> impl Strategy<Value = Set::Owned> {
