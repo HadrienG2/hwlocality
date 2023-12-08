@@ -2306,29 +2306,15 @@ unsafe impl TransparentNewtype for TopologyObject {
 
 #[allow(clippy::cognitive_complexity)]
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    use crate::{strategies::any_string, tests::assert_panics};
+    use crate::{
+        strategies::{any_object, any_string, test_object},
+        tests::assert_panics,
+    };
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
     use std::collections::{BTreeMap, HashMap, HashSet};
-
-    /// Pick a random object, mostly from the test instance but sometimes from
-    /// the foreign instance as well
-    pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
-        prop_oneof![
-            4 => test_object(),
-            1 => prop::sample::select(Topology::foreign_objects())
-        ]
-    }
-
-    /// Pick a random object, from the test instance only
-    ///
-    /// Any `Topology` method which takes an `&TopologyObject` as input should
-    /// be tested against `any_object()`, not `test_object()`.
-    pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
-        prop::sample::select(Topology::test_objects())
-    }
 
     /// Check that the various object lists match their definitions
     #[test]

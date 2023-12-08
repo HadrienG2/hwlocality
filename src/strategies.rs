@@ -3,7 +3,7 @@
 //! Every proptest [`Strategy`] which cannot be handled by an [`Arbitrary`] impl
 //! or a function that is only used by a single module is centralized here.
 
-use crate::bitmap::BitmapIndex;
+use crate::{bitmap::BitmapIndex, object::TopologyObject, topology::Topology};
 use enum_iterator::Sequence;
 use proptest::{
     collection::SizeRange,
@@ -95,3 +95,21 @@ pub(crate) fn bitmap_index() -> BitmapIndexStrategy {
 
 /// Strategy emitted by [`bitmap_index()`]
 pub(crate) type BitmapIndexStrategy = Map<Range<usize>, fn(usize) -> BitmapIndex>;
+
+/// Pick a random object, mostly from [`Topology::test_instance()`] but
+/// sometimes from [`Topology::foreign_instance()`] as well
+pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
+    prop_oneof![
+        4 => test_object(),
+        1 => prop::sample::select(Topology::foreign_objects())
+    ]
+}
+
+/// Pick a random object, from the test instance only
+///
+/// Any method which takes an [`&TopologyObject`] as input should be robust to
+/// receiving inputs from foreign topologies, so unless there is a good reason
+/// to do otherwise you should prefer [`any_object()`] over [`test_object()`].
+pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
+    prop::sample::select(Topology::test_objects())
+}

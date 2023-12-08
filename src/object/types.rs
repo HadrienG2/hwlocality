@@ -489,7 +489,7 @@ impl PartialOrd for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::tests::test_object;
+    use crate::strategies::test_object;
     use hwlocality_sys::{
         hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
     };

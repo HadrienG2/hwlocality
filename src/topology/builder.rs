@@ -1090,9 +1090,7 @@ pub(crate) mod tests {
     //       time of writing, an hwloc maintainer confirmed it's correct:
     //       https://github.com/open-mpi/hwloc/issues/622#issuecomment-1753130738
     #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn default_type_filter(
-        object_type: ObjectType,
-    ) -> Result<TypeFilter, TestCaseError> {
+    fn default_type_filter(object_type: ObjectType) -> Result<TypeFilter, TestCaseError> {
         let res = match object_type {
             ObjectType::Group => TypeFilter::KeepStructure,
             ObjectType::Misc => TypeFilter::KeepNone,
