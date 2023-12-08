@@ -3477,27 +3477,71 @@ mod tests {
         }
     }
 
-    /// Pick an object with a cpuset and a related cpuset
+    /// Pick an object and a related cpuset
     fn object_and_related_cpuset() -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
+        // Separate objects with and without cpusets
         let topology = Topology::test_instance();
-        let objects_with_cpuset = topology
-            .objects()
-            .filter(|obj| obj.object_type().has_sets())
-            .collect::<Vec<_>>();
-        prop::sample::select(objects_with_cpuset)
-            .prop_flat_map(|obj| (Just(obj), set_with_reference(&obj.cpuset().unwrap())))
+        let mut with_cpuset = Vec::new();
+        let mut without_cpuset = Vec::new();
+        for obj in topology.objects() {
+            if obj.object_type().has_sets() {
+                with_cpuset.push(obj);
+            } else {
+                without_cpuset.push(obj);
+            }
+        }
+
+        // For objects with cpusets, the reference cpuset is their cpuset
+        let with_cpuset = prop::sample::select(with_cpuset)
+            .prop_flat_map(|obj| (Just(obj), set_with_reference(&obj.cpuset().unwrap())));
+
+        // For objects without cpusets, the reference is the topology cpuset
+        let without_cpuset = prop::sample::select(without_cpuset)
+            .prop_flat_map(move |obj| (Just(obj), set_with_reference(&topology.cpuset())));
+
+        // We pick from either list with equal probability
+        prop_oneof![with_cpuset, without_cpuset]
     }
 
     proptest! {
         /// Test [`TopologyObject::normal_child_covering_cpuset()`]
         #[test]
         fn normal_child_covering_cpuset((obj, set) in object_and_related_cpuset()) {
-            let result = obj.normal_child_covering_cpuset(&set);
-            if let Some(result) = result {
+            if let Some(result) = obj.normal_child_covering_cpuset(&set) {
                 prop_assert!(result.covers_cpuset(&set));
             } else {
                 prop_assert!(obj.normal_children().all(|obj| !obj.covers_cpuset(&set)));
             }
+        }
+
+        /// Test [`TopologyObject::is_inside_cpuset()`]
+        #[test]
+        fn is_inside_cpuset((obj, set) in object_and_related_cpuset()) {
+            let result = obj.is_inside_cpuset(&set);
+            let Some(obj_set) = obj.cpuset() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            if obj_set.is_empty() {
+                prop_assert!(!result);
+                return Ok(());
+            }
+            prop_assert_eq!(result, set.includes(obj_set));
+        }
+
+        /// Test [`TopologyObject::covers_cpuset()`]
+        #[test]
+        fn covers_cpuset((obj, set) in object_and_related_cpuset()) {
+            let result = obj.covers_cpuset(&set);
+            let Some(obj_set) = obj.cpuset() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            if set.is_empty() {
+                prop_assert!(!result);
+                return Ok(());
+            }
+            prop_assert_eq!(result, obj_set.includes(&set));
         }
     }
 
