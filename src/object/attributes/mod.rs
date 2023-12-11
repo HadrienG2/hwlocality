@@ -112,7 +112,7 @@ mod tests {
         },
         topology::Topology,
     };
-    use proptest::sample::Selector;
+    use proptest::{prelude::*, sample::Selector};
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
