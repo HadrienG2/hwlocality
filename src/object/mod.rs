@@ -3492,16 +3492,19 @@ mod tests {
         }
 
         // For objects with cpusets, the reference cpuset is their cpuset
-        let with_cpuset = (!with_cpuset.is_empty()).then(|| {
-            prop::sample::select(with_cpuset)
-                .prop_flat_map(|obj| (Just(obj), set_with_reference(&obj.cpuset().unwrap())))
-        });
+        fn with_reference(
+            objects: Vec<&'static TopologyObject>,
+            ref_cpuset: impl Fn(&TopologyObject) -> BitmapRef<'_, CpuSet>,
+        ) -> Option<impl Strategy<Value = (&'static TopologyObject, CpuSet)>> {
+            (!objects.is_empty()).then(move || {
+                prop::sample::select(objects)
+                    .prop_flat_map(move |obj| (Just(obj), set_with_reference(&ref_cpuset(obj))))
+            })
+        }
+        let with_cpuset = with_reference(with_cpuset, |obj| obj.cpuset().unwrap());
 
         // For objects without cpusets, the reference is the topology cpuset
-        let without_cpuset = (!without_cpuset.is_empty()).then(|| {
-            prop::sample::select(without_cpuset)
-                .prop_flat_map(move |obj| (Just(obj), set_with_reference(&topology.cpuset())))
-        });
+        let without_cpuset = with_reference(without_cpuset, |_obj| topology.cpuset());
 
         // We pick from either list with equal probability
         match (with_cpuset, without_cpuset) {
