@@ -1850,6 +1850,7 @@ impl TopologyObject {
             return false;
         };
         let Some(DownstreamAttributes::PCI(pci)) = bridge.downstream_attributes() else {
+            // Cannot happen on current hwloc, but may happen someday
             return false;
         };
         pci.domain() == domain && pci.secondary_bus() <= bus_id && pci.subordinate_bus() >= bus_id
@@ -2119,6 +2120,8 @@ impl TopologyObject {
     pub fn info(&self, key: &str) -> Option<&CStr> {
         self.infos().iter().find_map(|info| {
             let Ok(info_name) = info.name().to_str() else {
+                // hwloc does not currently emit invalid Unicode, but it might
+                // someday if a malicious C program tampered with the topology
                 return None;
             };
             (info_name == key).then_some(info.value())
