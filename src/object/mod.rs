@@ -2317,6 +2317,7 @@ mod tests {
     use similar_asserts::assert_eq;
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
+        ffi::CString,
         ops::RangeInclusive,
     };
 
@@ -2529,6 +2530,7 @@ mod tests {
         check_cousins_and_siblings(obj)?;
         check_children(obj)?;
         check_infos(obj)?;
+        check_displays(obj)?;
         Ok(())
     }
 
@@ -2734,6 +2736,29 @@ mod tests {
             }
         }
         // NOTE: Looking up invalid info names is tested elsewhere
+        Ok(())
+    }
+
+    /// Check that an object's displays match expectations
+    fn check_displays(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        // Render all supported display flavors
+        let display = format!("{obj}");
+        let display_alternate = format!("{obj:#}");
+        let debug = format!("{obj:?}");
+        let debug_alternate = format!("{obj:#?}");
+
+        // Non-alternate displays should fit in a single line
+        for non_alternate in [&display, &debug] {
+            prop_assert!(!non_alternate.chars().any(|c| c == '\n'));
+        }
+
+        // Debug output should be longer than or identical to Display output
+        prop_assert!(debug.len() >= display.len());
+        prop_assert!(debug_alternate.len() >= display_alternate.len());
+
+        // Alternate displays should be longer than or identical to the norm
+        prop_assert!(debug_alternate.len() >= debug.len());
+        prop_assert!(display_alternate.len() >= display.len());
         Ok(())
     }
 
@@ -4196,6 +4221,28 @@ mod tests {
             prop_assert_eq!(
                 result,
                 domain == pci.domain() && bus_id >= pci.secondary_bus() && bus_id <= pci.subordinate_bus()
+            );
+        }
+    }
+
+    // --- Looking up textual object info by random string ---
+
+    proptest! {
+        /// Test [`TopologyObject::info()`] against a random key
+        ///
+        /// Correct keys are checked in another test.
+        #[test]
+        fn info(obj in any_object(), key in any_string()) {
+            let result = obj.info(&key);
+            let Ok(ckey) = CString::new(key.clone()) else {
+                assert_eq!(result, None);
+                return Ok(());
+            };
+            assert_eq!(
+                obj.info(&key),
+                obj.infos().iter().find_map(|info|{
+                    (info.name() == ckey.as_c_str()).then_some(info.value())
+                })
             );
         }
     }
