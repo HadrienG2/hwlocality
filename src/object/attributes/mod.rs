@@ -19,8 +19,6 @@ mod pci;
 use crate::object::TopologyObject;
 use crate::{ffi::transparent::AsNewtype, object::types::ObjectType};
 use hwlocality_sys::hwloc_obj_attr_u;
-#[cfg(any(test, feature = "proptest"))]
-use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
