@@ -1,4 +1,4 @@
-//! Queries against the hierarchy of objects: levels, depths and types
+//! Queries against the depth- and type-based hierarchy of objects
 
 use super::{
     attributes::ObjectAttributes,

@@ -68,47 +68,51 @@ impl Topology {
     }
 }
 
-#[allow(clippy::cognitive_complexity)]
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::object::ObjectType;
     use similar_asserts::assert_eq;
     use std::collections::{HashMap, HashSet};
+
+    /// Key objects by their global persistent ID and check for ID uniqueness
+    pub(crate) fn checked_object_set<'a>(
+        it: impl Iterator<Item = &'a TopologyObject>,
+    ) -> HashMap<u64, &'a TopologyObject> {
+        let mut set = HashMap::new();
+        for obj in it {
+            assert!(
+                set.insert(obj.global_persistent_index(), obj).is_none(),
+                "global_persistent_index should be unique across the topology"
+            );
+        }
+        set
+    }
+
+    /// Extract the keys from the output of [`checked_object_set()`]
+    pub(crate) fn object_ids_from_set(map: &HashMap<u64, &'static TopologyObject>) -> HashSet<u64> {
+        map.keys().copied().collect()
+    }
 
     /// Check that the various object lists match their definitions
     #[test]
     fn object_lists() {
         let topology = Topology::test_instance();
 
-        fn checked_object_set<'a>(
-            it: impl Iterator<Item = &'a TopologyObject>,
-        ) -> HashMap<u64, &'a TopologyObject> {
-            let mut set = HashMap::new();
-            for obj in it {
-                assert!(
-                    set.insert(obj.global_persistent_index(), obj).is_none(),
-                    "global_persistent_index should be unique across the topology"
-                );
-            }
-            set
-        }
-        let key_set = |map: &HashMap<u64, _>| -> HashSet<u64> { map.keys().copied().collect() };
-
         let objects = checked_object_set(topology.objects());
-        let keys = key_set(&objects);
+        let keys = object_ids_from_set(&objects);
 
         let normal_objects = checked_object_set(topology.normal_objects());
         assert!(normal_objects
             .values()
             .all(|obj| obj.object_type().is_normal()));
-        let normal_keys = key_set(&normal_objects);
+        let normal_keys = object_ids_from_set(&normal_objects);
 
         let virtual_objects = checked_object_set(topology.virtual_objects());
         assert!(virtual_objects
             .values()
             .all(|obj| !obj.object_type().is_normal()));
-        let virtual_keys = key_set(&virtual_objects);
+        let virtual_keys = object_ids_from_set(&virtual_objects);
 
         assert_eq!(keys, &normal_keys | &virtual_keys);
         assert_eq!(normal_keys, &keys - &virtual_keys);
@@ -118,43 +122,21 @@ mod tests {
         assert!(memory_objects
             .values()
             .all(|obj| obj.object_type().is_memory()));
-        let memory_keys = key_set(&memory_objects);
+        let memory_keys = object_ids_from_set(&memory_objects);
 
         let io_objects = checked_object_set(topology.io_objects());
         assert!(io_objects.values().all(|obj| obj.object_type().is_io()));
-        let io_keys = key_set(&io_objects);
+        let io_keys = object_ids_from_set(&io_objects);
 
         let misc_objects = checked_object_set(topology.objects_with_type(ObjectType::Misc));
         assert!(misc_objects
             .values()
             .all(|obj| obj.object_type() == ObjectType::Misc));
-        let misc_keys = key_set(&misc_objects);
+        let misc_keys = object_ids_from_set(&misc_objects);
 
         assert_eq!(virtual_keys, &(&memory_keys | &io_keys) | &misc_keys);
         assert_eq!(memory_keys, &(&virtual_keys - &io_keys) - &misc_keys);
         assert_eq!(io_keys, &(&virtual_keys - &memory_keys) - &misc_keys);
         assert_eq!(misc_keys, &(&virtual_keys - &memory_keys) - &io_keys);
-
-        fn compare_object_sets<'a>(
-            result: impl Iterator<Item = &'a TopologyObject>,
-            reference: impl Iterator<Item = &'a TopologyObject>,
-        ) {
-            assert_eq!(
-                checked_object_set(result).keys().collect::<HashSet<_>>(),
-                checked_object_set(reference).keys().collect::<HashSet<_>>()
-            );
-        }
-        compare_object_sets(
-            topology.pci_devices(),
-            topology.objects_with_type(ObjectType::PCIDevice),
-        );
-        compare_object_sets(
-            topology.os_devices(),
-            topology.objects_with_type(ObjectType::OSDevice),
-        );
-        compare_object_sets(
-            topology.bridges(),
-            topology.objects_with_type(ObjectType::Bridge),
-        );
     }
 }
