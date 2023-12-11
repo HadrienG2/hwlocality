@@ -1,4 +1,4 @@
-//! Full list of objects contained within the topology
+//! Full lists of objects contained within the topology
 
 use super::{
     depth::{Depth, NormalDepth},
@@ -12,7 +12,7 @@ use std::iter::FusedIterator;
 #[cfg(test)]
 use std::sync::OnceLock;
 
-/// # Full object list
+/// # Full object lists
 ///
 /// For some use cases, especially testing, it is convenient to have a full list
 /// of all objects contained within a topology. These methods provide just that.

@@ -16,7 +16,7 @@ pub mod attributes;
 pub mod depth;
 pub mod distance;
 mod hierarchy;
-mod list;
+mod lists;
 pub mod search;
 pub mod types;
 

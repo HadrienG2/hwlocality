@@ -114,7 +114,7 @@ mod tests {
     use super::*;
     use crate::{
         object::{
-            list::tests::{checked_object_set, object_ids_from_set},
+            lists::tests::{checked_object_set, object_ids_from_set},
             types::ObjectType,
         },
         strategies::any_string,
