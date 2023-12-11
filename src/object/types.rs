@@ -11,6 +11,8 @@
 use crate::errors;
 #[cfg(doc)]
 use crate::{
+    cpu::cpuset::CpuSet,
+    memory::nodeset::NodeSet,
     object::{depth::Depth, TopologyObject},
     topology::{
         builder::{TopologyBuilder, TypeFilter},
@@ -423,6 +425,15 @@ impl ObjectType {
         unsafe { self.type_predicate("hwloc_obj_type_is_io", hwlocality_sys::hwloc_obj_type_is_io) }
     }
 
+    /// Truth that objects of this type have a [`CpuSet`] and a [`NodeSet`]
+    ///
+    /// Bear in mind that even though memory objects have a cpuset, that cpuset
+    /// can be empty for CPU-less NUMA nodes. This is why memory objects should
+    /// be referred to by nodeset rather than by cpuset whenever possible.
+    pub fn has_sets(self) -> bool {
+        self.is_normal() || self.is_memory()
+    }
+
     /// Convert to the internal representation used by hwloc
     ///
     /// Used to avoid Into/From type inference ambiguities.
@@ -478,7 +489,7 @@ impl PartialOrd for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::tests::test_object;
+    use crate::strategies::test_object;
     use hwlocality_sys::{
         hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
     };
@@ -574,18 +585,21 @@ mod tests {
             fn check_normal(ty: ObjectType) -> Result<(), TestCaseError> {
                 check_any_type(ty)?;
                 prop_assert!(ty.is_normal());
+                prop_assert!(ty.has_sets());
                 prop_assert_eq!(ty.is_leaf(), ty == ObjectType::PU);
                 Ok(())
             }
             fn check_memory(ty: ObjectType) -> Result<(), TestCaseError> {
                 check_any_type(ty)?;
                 prop_assert!(ty.is_memory());
+                prop_assert!(ty.has_sets());
                 prop_assert_eq!(ty.is_leaf(), ty == ObjectType::NUMANode);
                 Ok(())
             }
             fn check_io(ty: ObjectType) -> Result<(), TestCaseError> {
                 check_any_type(ty)?;
                 prop_assert!(ty.is_io());
+                prop_assert!(!ty.has_sets());
                 prop_assert!(!ty.is_leaf());
                 Ok(())
             }
@@ -614,6 +628,7 @@ mod tests {
                 ObjectType::Bridge | ObjectType::PCIDevice | ObjectType::OSDevice => check_io(ty)?,
                 ObjectType::Misc => {
                     check_any_type(ty)?;
+                    prop_assert!(!ty.has_sets());
                     prop_assert!(!ty.is_leaf());
                 }
                 #[cfg(feature = "hwloc-2_1_0")]
@@ -714,8 +729,8 @@ mod tests {
                     prop_assert_eq!(
                         type_order,
                         obj1.depth()
-                            .assume_normal()
-                            .cmp(&obj2.depth().assume_normal())
+                            .expect_normal()
+                            .cmp(&obj2.depth().expect_normal())
                     )
                 }
             }

@@ -53,8 +53,6 @@ use thiserror::Error;
 impl Topology {
     /// Binds the current process or thread on given CPUs
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
-    ///
     /// Some operating systems only support binding threads or processes to a
     /// single [`PU`]. Others allow binding to larger sets such as entire
     /// [`Core`]s or [`Package`]s or even random sets of individual [`PU`]s. In
@@ -62,6 +60,8 @@ impl Topology {
     /// these PU, then migrate it to another [`PU`], etc. It is often useful to
     /// call [`singlify()`] on the target CPU set before passing it to the
     /// binding method to avoid these expensive migrations.
+    ///
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// To unbind, just call the binding method with either a full cpuset or a
     /// cpuset equal to the system cpuset.

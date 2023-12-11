@@ -653,7 +653,7 @@ fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
     let weight = cpuset
         .weight()
         .expect("Topology objects should not have infinite cpusets");
-    let depth = obj.depth().assume_normal();
+    let depth = obj.depth().expect_normal();
     (weight > 0).then_some((obj, cpuset, weight, depth))
 }
 
@@ -667,7 +667,7 @@ type ObjSetWeightDepth<'a> = (
 
 /// Truth that an iterator of cpusets contains overlapping sets
 ///
-/// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` items.
+/// `sets` can yield `&'_ CpuSet` or `BitmapRef<'_, CpuSet>`.
 fn sets_overlap(mut sets: impl Iterator<Item = impl Deref<Target = CpuSet>>) -> bool {
     sets.try_fold(CpuSet::new(), |mut acc, set| {
         let set: &CpuSet = &set;
@@ -1085,7 +1085,7 @@ mod tests {
         let exhaustive_ordered_roots =
             overlapping_exhaustive_ordered_roots.prop_map(|mut roots| {
                 // Sort roots by increasing depth, so parents go before children
-                roots.sort_unstable_by_key(|root| root.depth().assume_normal());
+                roots.sort_unstable_by_key(|root| root.depth().expect_normal());
 
                 // Iterate from parent to children, keeping track of which CPUs
                 // we already covered and using this to eliminate duplicates.
@@ -1142,7 +1142,7 @@ mod tests {
         let mut output = Vec::new();
         for _ in PositiveInt::iter_range(PositiveInt::MIN, max_depth) {
             for obj in input.drain(..) {
-                if obj.normal_arity() > 0 && obj.depth().assume_normal() < max_depth {
+                if obj.normal_arity() > 0 && obj.depth().expect_normal() < max_depth {
                     output.extend(obj.normal_children())
                 } else {
                     output.push(obj);
@@ -1334,9 +1334,9 @@ mod tests {
 
     /// Pick a random normal object from the foreign test instance
     fn foreign_normal_object() -> impl Strategy<Value = &'static TopologyObject> {
-        static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
+        static FOREIGNERS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
         let objects =
-            OBJECTS.get_or_init(|| Topology::foreign_instance().normal_objects().collect());
+            FOREIGNERS.get_or_init(|| Topology::foreign_instance().normal_objects().collect());
         prop::sample::select(&objects[..])
     }
 

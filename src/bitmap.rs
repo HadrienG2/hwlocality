@@ -1177,7 +1177,12 @@ impl Arbitrary for Bitmap {
     type Parameters = ();
     type Strategy = prop::strategy::Map<
         (
-            prop::collection::HashSetStrategy<crate::strategies::BitmapIndexStrategy>,
+            prop::strategy::TupleUnion<(
+                prop::strategy::WA<
+                    prop::collection::HashSetStrategy<crate::strategies::BitmapIndexStrategy>,
+                >,
+                prop::strategy::WA<Just<HashSet<BitmapIndex>>>,
+            )>,
             prop::bool::Any,
         ),
         fn((HashSet<BitmapIndex>, bool)) -> Self,
@@ -1186,15 +1191,19 @@ impl Arbitrary for Bitmap {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         use crate::strategies::bitmap_index;
         use prop::collection::SizeRange;
-        let index_set = prop::collection::hash_set(bitmap_index(), SizeRange::default());
-        (index_set, prop::bool::ANY).prop_map(|(set_indices, infinite)| {
+        let index_set = prop_oneof![
+            4 => prop::collection::hash_set(bitmap_index(), SizeRange::default()),
+            // Bias towards generating more empty/full bitmaps, there are an
+            // edge case of many algorithms
+            1 => Just(HashSet::new()),
+        ];
+        (index_set, prop::bool::ANY).prop_map(|(set_indices, invert)| {
             // Start with an arbitrary finite bitmap
             let mut result = set_indices.into_iter().collect::<Self>();
 
-            // Decide by coin flip to extend infinitely on the right or not
-            if infinite {
-                let last = result.last_set().unwrap_or(BitmapIndex::MIN);
-                result.set_range(last..);
+            // Decide by coin flip to invert it (which will make it infinite)
+            if invert {
+                result.invert();
             }
 
             result

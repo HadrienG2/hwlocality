@@ -4,19 +4,53 @@
 #![cfg_attr(docsrs, doc(cfg_hide(doc)))]
 // Last allow-by-default lint review performed as of Rust 1.72
 #![deny(
+    // * warn = Fine in debug experiments but not ready to merge
+    // * deny = Likely wrong, must ack this is what you meant with allow()
     clippy::as_ptr_cast_mut,
+    clippy::borrow_as_ptr,
+    clippy::cast_ptr_alignment,
+    clippy::empty_line_after_doc_comments,
+    clippy::empty_line_after_outer_attr,
+    clippy::expl_impl_clone_on_copy,
+    clippy::iter_not_returning_iterator,
+    clippy::large_stack_arrays,
+    clippy::fallible_impl_from,
+    clippy::match_same_arms,
+    clippy::mismatching_type_param_order,
+    clippy::negative_feature_names,
+    clippy::no_mangle_with_rust_abi,
+    clippy::path_buf_push_overwrite,
+    clippy::significant_drop_in_scrutinee,
+    clippy::suspicious_operation_groupings,
+    clippy::tests_outside_test_module,
+    clippy::trailing_empty_array,
+    clippy::transmute_ptr_to_ptr,
+    clippy::unsafe_derive_deserialize,
+    clippy::zero_sized_map_values,
+    rustdoc::invalid_codeblock_attributes,
+    rustdoc::invalid_html_tags,
+    rustdoc::invalid_rust_codeblocks,
+    rustdoc::unescaped_backticks,
+    invalid_reference_casting,
+    missing_abi,
+    pointer_structural_match,
+    rust_2018_compatibility,
+    rust_2021_compatibility,
+    unsafe_op_in_unsafe_fn
+)]
+#![warn(
     clippy::as_underscore,
     clippy::assertions_on_result_states,
+    //
     clippy::bool_to_int_with_if,
-    clippy::borrow_as_ptr,
     clippy::branches_sharing_code,
+    //
     clippy::cargo_common_metadata,
     clippy::case_sensitive_file_extension_comparisons,
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
-    clippy::cast_ptr_alignment,
     clippy::cast_sign_loss,
     clippy::checked_conversions,
     clippy::clear_with_drain,
@@ -25,24 +59,23 @@
     clippy::cognitive_complexity,
     clippy::collection_is_never_read,
     clippy::create_dir,
+    //
+    clippy::dbg_macro,
     clippy::debug_assert_with_mut_call,
-    clippy::decimal_literal_representation,
     clippy::derive_partial_eq_without_eq,
     clippy::doc_link_with_quotes,
     clippy::doc_markdown,
+    //
     clippy::empty_drop,
     clippy::empty_enum,
-    clippy::empty_line_after_doc_comments,
-    clippy::empty_line_after_outer_attr,
     clippy::empty_structs_with_brackets,
     clippy::enum_glob_use,
     clippy::equatable_if_let,
     clippy::exit,
-    clippy::expl_impl_clone_on_copy,
     clippy::explicit_deref_methods,
     clippy::explicit_into_iter_loop,
     clippy::explicit_iter_loop,
-    clippy::fallible_impl_from,
+    //
     clippy::filter_map_next,
     clippy::flat_map_option,
     clippy::float_cmp,
@@ -50,22 +83,23 @@
     clippy::fn_to_numeric_cast_any,
     clippy::format_push_string,
     clippy::from_iter_instead_of_collect,
+    //
     clippy::get_unwrap,
+    //
     clippy::if_not_else,
     clippy::if_then_some_else_none,
     clippy::implicit_clone,
     clippy::implicit_hasher,
     clippy::imprecise_flops,
     clippy::index_refutable_slice,
-    clippy::inline_always,
     clippy::invalid_upcast_comparisons,
-    clippy::iter_not_returning_iterator,
     clippy::iter_on_empty_collections,
     clippy::iter_on_single_items,
+    //
     clippy::large_digit_groups,
-    clippy::large_stack_arrays,
     clippy::large_types_passed_by_value,
     clippy::linkedlist,
+    //
     clippy::macro_use_imports,
     clippy::manual_assert,
     clippy::manual_clamp,
@@ -76,9 +110,7 @@
     clippy::many_single_char_names,
     clippy::map_unwrap_or,
     clippy::match_bool,
-    clippy::match_same_arms,
     clippy::match_wildcard_for_single_variants,
-    clippy::mismatching_type_param_order,
     clippy::missing_assert_message,
     clippy::missing_docs_in_private_items,
     clippy::missing_errors_doc,
@@ -87,23 +119,25 @@
     clippy::mut_mut,
     clippy::mutex_atomic,
     clippy::mutex_integer,
+    //
     clippy::naive_bytecount,
     clippy::needless_collect,
     clippy::needless_continue,
     clippy::needless_for_each,
-    clippy::negative_feature_names,
-    clippy::no_mangle_with_rust_abi,
     clippy::non_send_fields_in_send_ty,
     clippy::nonstandard_macro_braces,
+    //
     clippy::option_if_let_else,
     clippy::option_option,
+    //
     clippy::or_fun_call,
     clippy::partial_pub_fields,
-    clippy::path_buf_push_overwrite,
+    clippy::print_stderr,
     clippy::print_stdout,
     clippy::ptr_as_ptr,
     clippy::ptr_cast_constness,
     clippy::pub_without_shorthand,
+    //
     clippy::range_minus_one,
     clippy::range_plus_one,
     clippy::rc_buffer,
@@ -114,11 +148,11 @@
     clippy::ref_option_ref,
     clippy::ref_patterns,
     clippy::rest_pat_in_fully_bound_structs,
+    //
     clippy::same_functions_in_if_condition,
     clippy::self_named_module_files,
     clippy::semicolon_inside_block,
     clippy::semicolon_outside_block,
-    clippy::significant_drop_in_scrutinee,
     clippy::similar_names,
     clippy::single_match_else,
     clippy::str_to_string,
@@ -126,16 +160,14 @@
     clippy::string_lit_as_bytes,
     clippy::string_to_string,
     clippy::suboptimal_flops,
-    clippy::suspicious_operation_groupings,
-    clippy::tests_outside_test_module,
+    //
     clippy::todo,
     clippy::too_many_lines,
-    clippy::trailing_empty_array,
-    clippy::transmute_ptr_to_ptr,
     clippy::trivial_regex,
     clippy::trivially_copy_pass_by_ref,
     clippy::try_err,
     clippy::type_repetition_in_bounds,
+    //
     clippy::undocumented_unsafe_blocks,
     clippy::unicode_not_nfc,
     clippy::unimplemented,
@@ -148,56 +180,42 @@
     clippy::unneeded_field_pattern,
     clippy::unnested_or_patterns,
     clippy::unreadable_literal,
-    clippy::unsafe_derive_deserialize,
     clippy::unused_async,
     clippy::unused_peekable,
     clippy::unused_rounding,
     clippy::unwrap_used,
+    clippy::use_debug,
     clippy::use_self,
     clippy::used_underscore_binding,
     clippy::useless_let_if_seq,
+    //
     clippy::verbose_bit_mask,
     clippy::verbose_file_reads,
+    //
     clippy::wildcard_dependencies,
     clippy::wildcard_enum_match_arm,
     clippy::wildcard_imports,
-    clippy::zero_sized_map_values,
-    invalid_reference_casting,
+    //
+    rustdoc::bare_urls,
+    rustdoc::missing_crate_level_docs,
+    //
+    future_incompatible,
+    keyword_idents,
+    let_underscore,
     macro_use_extern_crate,
-    missing_abi,
+    meta_variable_misuse,
     missing_copy_implementations,
     missing_debug_implementations,
     missing_docs,
     non_ascii_idents,
-    pointer_structural_match,
-    rust_2018_compatibility,
-    rust_2021_compatibility,
-    rustdoc::bare_urls,
-    rustdoc::broken_intra_doc_links,
-    rustdoc::invalid_codeblock_attributes,
-    rustdoc::invalid_html_tags,
-    rustdoc::invalid_rust_codeblocks,
-    rustdoc::missing_crate_level_docs,
-    rustdoc::private_intra_doc_links,
-    rustdoc::unescaped_backticks,
-    trivial_casts,
-    trivial_numeric_casts,
-    unreachable_pub,
-    unsafe_op_in_unsafe_fn,
-    variant_size_differences
-)]
-#![warn(
-    clippy::dbg_macro,
-    clippy::print_stderr,
-    clippy::use_debug,
-    future_incompatible,
-    keyword_idents,
-    let_underscore,
-    meta_variable_misuse,
     nonstandard_style,
     noop_method_call,
     rust_2018_idioms,
-    unused
+    trivial_casts,
+    trivial_numeric_casts,
+    unused,
+    unreachable_pub,
+    variant_size_differences
 )]
 
 pub mod bitmap;
@@ -310,10 +328,37 @@ macro_rules! impl_arbitrary_for_bitflags {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
+    use std::{
+        cell::Cell,
+        fmt::Debug,
+        panic::{PanicInfo, UnwindSafe},
+        sync::OnceLock,
+        thread_local,
+    };
+
+    /// Assert that performing some action results in a panic
+    #[track_caller]
+    pub(crate) fn assert_panics<R: Debug>(
+        f: impl FnOnce() -> R + UnwindSafe,
+    ) -> Result<(), TestCaseError> {
+        // Run the function that should panic, while catching panics and
+        // silencing the normal chatty panic hook
+        let unwind_res = {
+            let _guard = SilentPanicGuard::new();
+            std::panic::catch_unwind(f)
+        };
+
+        // Make sure that the function did indeed panic
+        Ok(prop_assert!(
+            unwind_res.is_err(),
+            "Operation should have panicked, but didn't"
+        ))
+    }
 
     #[test]
     fn get_api_version() {
@@ -345,5 +390,57 @@ mod tests {
             version_range.start,
             version_range.end
         )
+    }
+
+    /// This RAII guard silences the normal panic hook and is used when the
+    /// unit test expects panics to occur and normal panic side-effects like
+    /// spamming backtraces on stdio are not desired.
+    struct SilentPanicGuard;
+    //
+    /// Panic hook as understood by [`std::panic()`]
+    type PanicHook = Box<dyn Fn(&PanicInfo<'_>) + Sync + Send + 'static>;
+    //
+    /// Original panic hook before the first [`SilentPanicGuard::new()`] call
+    static NORMAL_HOOK: OnceLock<PanicHook> = OnceLock::new();
+    //
+    thread_local! {
+        /// Number of active [`SilentPanicGuard`] in the current thread. If
+        /// this is greater than one, panics will be silenced.
+        static SILENCE_DEPTH: Cell<usize> = Cell::new(0);
+    }
+    //
+    impl SilentPanicGuard {
+        /// Set up empty panic hook
+        fn new() -> Self {
+            // On first call, back up the current panic hook and install our
+            // own in its place. Hopefully no racey hook manipulation will
+            // occur inbetween these two events... To fully avoid this race,
+            // need https://github.com/rust-lang/rust/issues/92649 .
+            NORMAL_HOOK.get_or_init(|| {
+                let current_hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(Self::hook));
+                current_hook
+            });
+
+            // Disable the standard panic hook for this thread
+            SILENCE_DEPTH.with(|depth| depth.set(depth.get() + 1));
+            Self
+        }
+
+        /// Panic hook that forwards to the normal panic hook if there are
+        /// no active `SilentPanicGuards` in this thread
+        fn hook(info: &PanicInfo<'_>) {
+            if SILENCE_DEPTH.with(Cell::get) == 0 {
+                (NORMAL_HOOK.get().unwrap())(info)
+            }
+        }
+    }
+    //
+    impl Drop for SilentPanicGuard {
+        fn drop(&mut self) {
+            // Take note that a [`SilentPanicGuard`] is gone, re-enable the
+            // standard panic hook if this was the last of them in this thread
+            SILENCE_DEPTH.with(|depth| depth.set(depth.get() - 1));
+        }
     }
 }

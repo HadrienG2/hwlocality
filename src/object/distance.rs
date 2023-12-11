@@ -90,15 +90,12 @@ impl Topology {
         }
     }
 
-    /// Retrieve distance matrices for object at a specific depth in the topology
+    /// Retrieve distance matrices for objects at a specific depth in the
+    /// topology (if any)
     ///
     /// Identical to [`distances()`] with the additional `depth` filter.
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
@@ -666,15 +663,12 @@ impl TopologyEditor<'_> {
     }
 
     /// Remove distance matrices for objects at a specific depth in the topology
+    /// (if any)
     ///
     /// Identical to [`remove_all_distances()`], but only applies to one level
     /// of the topology.
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
     #[allow(clippy::missing_errors_doc)]

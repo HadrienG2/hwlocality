@@ -62,7 +62,7 @@ impl Topology {
 
     /// Get the largest objects exactly covering the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set).
@@ -140,12 +140,8 @@ impl Topology {
     ///
     /// Accepted operand types are as follows:
     ///
-    /// - `set` can be either of type `&'_ CpuSet` or `BitmapRef<'_, CpuSet>`
-    /// - `depth` can be of type [`Depth`], [`NormalDepth`] or [`usize`]. Use
-    ///   the former two for type-safety (they are guaranteed to be in range as
-    ///   a type invariant) or the latter for convenience (it is more tightly
-    ///   integrated with Rust's built-in integer support, for example it
-    ///   supports integer literals).
+    /// - `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`
+    /// - `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`]
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
@@ -175,13 +171,13 @@ impl Topology {
 
     /// Logical index among the objects included in CPU set `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
-    ///
     /// Consult all objects in the same level as `obj` and inside CPU set `set`
     /// in the logical order, and return the index of `obj` within them. If
     /// `set` covers the entire topology, this is the logical index of `obj`.
     /// Otherwise, this is similar to a logical index within the part of the
     /// topology defined by CPU set `set`.
+    ///
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, `None` will always be
@@ -203,7 +199,7 @@ impl Topology {
 
     /// Get objects included in the given cpuset `set` with a certain type
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set). Therefore, an empty iterator will
@@ -224,8 +220,6 @@ impl Topology {
 
     /// First largest object included in the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
-    ///
     /// Returns the first object that is included in `set` and whose parent is
     /// not, in descending depth and children iteration order.
     ///
@@ -239,6 +233,8 @@ impl Topology {
     /// this `Topology`, the work may be more efficiently done by
     /// `largest_cpuset_partition()`, which only needs to walk the topology
     /// tree once.
+    ///
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects with empty CPU sets are ignored (otherwise they would be
     /// considered included in any given set).
@@ -341,7 +337,7 @@ pub struct CoarsestPartitionError {
 impl Topology {
     /// Get the lowest object covering at least the given cpuset `set`, if any
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// No object is considered to cover the empty cpuset, therefore such a
     /// request will always return None, as if a set going outside of the root
@@ -371,7 +367,7 @@ impl Topology {
 
     /// Get the first data (or unified) cache covering the given cpuset
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     #[doc(alias = "hwloc_get_cache_covering_cpuset")]
     pub fn first_cache_covering_cpuset(
         &self,
@@ -394,12 +390,8 @@ impl Topology {
     ///
     /// Accepted operand types are as follows:
     ///
-    /// - `set` can be either of type `&'_ CpuSet` or `BitmapRef<'_, CpuSet>`
-    /// - `depth` can be of type [`Depth`], [`NormalDepth`] or [`usize`]. Use
-    ///   the former two for type-safety (they are guaranteed to be in range as
-    ///   a type invariant) or the latter for convenience (it is more tightly
-    ///   integrated with Rust's built-in integer support, for example it
-    ///   supports integer literals).
+    /// - `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`
+    /// - `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`]
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). An empty iterator will always be
@@ -427,7 +419,7 @@ impl Topology {
 
     /// Get objects covering the given cpuset `set` with a certain type
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects are not considered to cover the empty CPU set (otherwise a list
     /// of all objects would be returned). An empty iterator will always be
@@ -491,7 +483,7 @@ impl CpuSet {
 
     /// Convert a NUMA node set into a CPU set
     ///
-    /// Accepts both `&'_ NodeSet` and `BitmapRef<'_, NodeSet>` operands.
+    /// `nodeset` can be a `&'_ NodeSet` or a `BitmapRef<'_, NodeSet>`.
     ///
     /// For each NUMA node included in the input `nodeset`, set the
     /// corresponding local PUs in the output cpuset.

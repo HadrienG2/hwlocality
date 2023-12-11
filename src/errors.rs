@@ -298,6 +298,7 @@ impl<'topology> From<&'topology TopologyObject> for ForeignObjectError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::assert_panics;
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
@@ -308,7 +309,7 @@ mod tests {
         io::{self, Read},
         num::{NonZeroU32, NonZeroUsize},
         ops::Deref,
-        panic::{self, UnwindSafe},
+        panic::UnwindSafe,
         ptr,
     };
 
@@ -480,29 +481,27 @@ mod tests {
             let _errno_guard = ErrnoGuard::new(start_errno);
             let api = "abc";
 
-            // Run the function
-            let unwind_result = panic::catch_unwind(|| {
+            // Prepare to call the function
+            let call = || {
                 let res = super::call_hwloc_int_normal(api, || {
                     errno::set_errno(new_errno);
                     output
                 });
                 prop_assert_eq!(errno::errno(), start_errno);
                 Ok(res)
-            });
+            };
 
             // Interpret results
             match output {
-                bad if bad < -1 => {
-                    unwind_result.expect_err("Should panic on -1");
-                }
+                bad if bad < -1 => assert_panics(call)?,
                 -1 => prop_assert_eq!(
-                    unwind_result.unwrap()?,
+                    call()?,
                     Err(RawHwlocError {
                         api,
                         errno: Some(new_errno)
                     })
                 ),
-                positive => prop_assert_eq!(unwind_result.unwrap()?, Ok(u32::try_from(positive).unwrap())),
+                positive => prop_assert_eq!(call()?, Ok(u32::try_from(positive).unwrap())),
             }
         }
 
@@ -616,30 +615,28 @@ mod tests {
             let _errno_guard = ErrnoGuard::new(start_errno);
             let api = "rst";
 
-            // Run the function
-            let unwind_result = panic::catch_unwind(|| {
+            // Prepare to call the function
+            let call = || {
                 let res = super::call_hwloc_bool(api, || {
                     errno::set_errno(new_errno);
                     output
                 });
                 prop_assert_eq!(errno::errno(), start_errno);
                 Ok(res)
-            });
+            };
 
             // Interpret outcome
             match output {
                 -1 => prop_assert_eq!(
-                    unwind_result.unwrap()?,
+                    call()?,
                     Err(RawHwlocError {
                         api,
                         errno: Some(new_errno)
                     })
                 ),
-                0 => prop_assert_eq!(unwind_result.unwrap()?, Ok(false)),
-                1 => prop_assert_eq!(unwind_result.unwrap()?, Ok(true)),
-                _ => {
-                    unwind_result.expect_err("Should panic on non-bool output");
-                }
+                0 => prop_assert_eq!(call()?, Ok(false)),
+                1 => prop_assert_eq!(call()?, Ok(true)),
+                _ => assert_panics(call)?,
             }
         }
 

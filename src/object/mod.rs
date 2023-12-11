@@ -15,1225 +15,44 @@
 pub mod attributes;
 pub mod depth;
 pub mod distance;
+mod hierarchy;
+mod lists;
+pub mod search;
 pub mod types;
 
 use self::{
     attributes::{DownstreamAttributes, ObjectAttributes, PCIDomain},
-    depth::{Depth, NormalDepth, TypeToDepthError},
-    types::{CacheType, ObjectType},
+    depth::{Depth, NormalDepth},
+    types::ObjectType,
 };
 #[cfg(doc)]
-use crate::topology::{builder::BuildFlags, support::DiscoverySupport};
+use crate::topology::{builder::BuildFlags, support::DiscoverySupport, Topology};
 use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
-    errors::{self, ForeignObjectError, HybridError, NulError, ParameterError},
     ffi::{
         self, int,
-        string::LibcString,
         transparent::{AsNewtype, TransparentNewtype},
     },
     info::TextualInfo,
     memory::nodeset::NodeSet,
-    topology::Topology,
 };
-use hwlocality_sys::{hwloc_obj, hwloc_obj_type_t, HWLOC_UNKNOWN_INDEX};
-use num_enum::TryFromPrimitiveError;
+#[cfg(feature = "hwloc-2_3_0")]
+use crate::{
+    errors::{self, HybridError, NulError},
+    ffi::string::LibcString,
+};
+use hwlocality_sys::{hwloc_obj, HWLOC_UNKNOWN_INDEX};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-#[cfg(test)]
-use std::sync::OnceLock;
 use std::{
-    ffi::{c_char, c_uint, CStr},
+    ffi::{c_char, CStr},
     fmt::{self, Debug, Display},
     iter::FusedIterator,
-    num::NonZeroUsize,
     ops::Deref,
     ptr,
 };
-use thiserror::Error;
-
-/// # Full object list
-///
-/// For some use cases, especially testing, it is convenient to have a full list
-/// of all objects contained within a topology. There methods provide just that.
-///
-/// This functionality is unique to the Rust hwloc bindings
-impl Topology {
-    /// Full list of objects in the topology, first normal objects ordered by
-    /// increasing depth then virtual objects ordered by type
-    pub fn objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        self.normal_objects().chain(self.virtual_objects())
-    }
-
-    /// Pre-computed list of objects from the test instance
-    #[cfg(test)]
-    pub(crate) fn test_objects() -> &'static [&'static TopologyObject] {
-        static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
-        &OBJECTS.get_or_init(|| Self::test_instance().objects().collect())[..]
-    }
-
-    /// Full list of objects contains in the normal hierarchy of the topology,
-    /// ordered by increasing depth
-    pub fn normal_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        NormalDepth::iter_range(NormalDepth::MIN, self.depth())
-            .flat_map(|depth| self.objects_at_depth(depth))
-    }
-
-    /// Full list of virtual bjects in the topology, ordered by type
-    pub fn virtual_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        Depth::VIRTUAL_DEPTHS
-            .iter()
-            .flat_map(|&depth| self.objects_at_depth(depth))
-    }
-
-    /// Full list of memory objects in the topology, ordered by type
-    pub fn memory_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        Depth::MEMORY_DEPTHS
-            .iter()
-            .flat_map(|&depth| self.objects_at_depth(depth))
-    }
-
-    /// Full list of I/O objects in the topology, ordered by type
-    pub fn io_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        Depth::IO_DEPTHS
-            .iter()
-            .flat_map(|&depth| self.objects_at_depth(depth))
-    }
-}
-
-/// # Object levels, depths and types
-///
-/// Be sure to see read through the
-/// [Terms and Definitions](https://hwloc.readthedocs.io/en/v2.9/termsanddefs.html)
-/// section of the upstream hwloc documentation to avoid any confusion about
-/// depths, child/sibling/cousin relationships, and see an example of an
-/// asymmetric topology where one package has fewer caches than its peers.
-//
-// --- Implementation details ---
-//
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
-// Also includes https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html,
-// which had to be reimplemented because it's static.
-impl Topology {
-    /// Depth of the hierarchical tree of objects
-    ///
-    /// This is the depth of [`ObjectType::PU`] plus one. NUMA nodes, I/O and
-    /// Misc objects are ignored when computing the depth of the tree (they are
-    /// placed on special levels).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::{object::types::ObjectType, Topology};
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// let depth = topology.depth();
-    /// assert!(depth >= 2, "Machine and PU are always present");
-    /// assert_eq!(
-    ///     depth,
-    ///     topology.depth_for_type(ObjectType::PU)?.assume_normal() + 1
-    /// );
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_topology_get_depth")]
-    pub fn depth(&self) -> NormalDepth {
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        NormalDepth::try_from_c_int(unsafe {
-            hwlocality_sys::hwloc_topology_get_depth(self.as_ptr())
-        })
-        .expect("Got unexpected depth from hwloc_topology_get_depth")
-    }
-
-    /// Depth of normal parents where memory objects are attached
-    ///
-    /// # Errors
-    ///
-    /// - [`TypeToDepthError::Multiple`] if memory objects are attached at multiple
-    ///   depths, e.g. some to [`Package`]s and some to [`Group`]s
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::TopologyObject;
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// if let Ok(depth) = topology.memory_parents_depth() {
-    ///     let num_memory_objects =
-    ///         topology.objects_at_depth(depth)
-    ///                 .flat_map(TopologyObject::memory_children)
-    ///                 .count();
-    ///     assert!(num_memory_objects > 0);
-    /// }
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    ///
-    /// [`Package`]: ObjectType::Package
-    /// [`Group`]: ObjectType::Group
-    #[doc(alias = "hwloc_get_memory_parents_depth")]
-    pub fn memory_parents_depth(&self) -> Result<NormalDepth, TypeToDepthError> {
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        Depth::from_raw(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
-            .map(Depth::assume_normal)
-    }
-
-    /// Depth for the given [`ObjectType`]
-    ///
-    /// # Errors
-    ///
-    /// - [`TypeToDepthError::Nonexistent`] if no object of this type is present or
-    ///   if the OS doesn't provide this kind of information. If a similar type
-    ///   is acceptable, consider using [`depth_or_below_for_type()`] or
-    ///   [`depth_or_above_for_type()`] instead.
-    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths (can happen when `object_type` is [`Group`]).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::types::ObjectType;
-    /// #
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
-    /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
-    ///
-    /// assert_eq!(machine_depth.assume_normal(), 0);
-    /// assert!(machine_depth.assume_normal() < pu_depth.assume_normal());
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    ///
-    /// [`depth_or_below_for_type()`]: Self::depth_or_below_for_type()
-    /// [`depth_or_above_for_type()`]: Self::depth_or_above_for_type()
-    /// [`Group`]: ObjectType::Group
-    #[doc(alias = "hwloc_get_type_depth")]
-    pub fn depth_for_type(&self, object_type: ObjectType) -> Result<Depth, TypeToDepthError> {
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - By construction, ObjectType only exposes values that map into
-        //           hwloc_obj_type_t values understood by the configured version
-        //           of hwloc, and build.rs checks that the active version of
-        //           hwloc is not older than that, so into() may only generate
-        //           valid hwloc_obj_type_t values for current hwloc
-        Depth::from_raw(unsafe {
-            hwlocality_sys::hwloc_get_type_depth(self.as_ptr(), object_type.into())
-        })
-    }
-
-    /// Depth for the given [`ObjectType`] or below
-    ///
-    /// If no object of this type is present on the underlying architecture, the
-    /// function returns the depth of the first present object typically found
-    /// inside `object_type`.
-    ///
-    /// This function is only meaningful for normal object types. If a memory,
-    /// I/O or Misc object type is given, the corresponding virtual depth is
-    /// always returned.
-    ///
-    /// # Errors
-    ///
-    /// - [`TypeToDepthError::Nonexistent`] if no object typically found inside
-    ///   `object_type` is present.
-    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths (can happen when `object_type` is [`Group`]).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::{object::types::ObjectType};
-    /// #
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// let machine_depth = topology.depth_for_type(ObjectType::Machine)?;
-    /// let package_or_below = topology.depth_or_below_for_type(ObjectType::Package)?;
-    ///
-    /// assert!(machine_depth.assume_normal() < package_or_below.assume_normal());
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    ///
-    /// [`Group`]: ObjectType::Group
-    #[doc(alias = "hwloc_get_type_or_below_depth")]
-    pub fn depth_or_below_for_type(
-        &self,
-        object_type: ObjectType,
-    ) -> Result<Depth, TypeToDepthError> {
-        assert!(
-            object_type.is_normal(),
-            "This is only meaningful for normal objects"
-        );
-        match self.depth_for_type(object_type) {
-            Ok(d) => Ok(d),
-            Err(TypeToDepthError::Nonexistent) => {
-                let pu_depth = self
-                    .depth_for_type(ObjectType::PU)
-                    .expect("PU objects should be present")
-                    .assume_normal();
-                for depth in NormalDepth::iter_range(NormalDepth::MIN, pu_depth).rev() {
-                    if self
-                        .type_at_depth(depth)
-                        .expect("Depths above PU depth should exist")
-                        < object_type
-                    {
-                        return Ok((depth + 1).into());
-                    }
-                }
-                Err(TypeToDepthError::Nonexistent)
-            }
-            other_err => other_err,
-        }
-    }
-
-    /// Depth for the given [`ObjectType`] or above
-    ///
-    /// If no object of this type is present on the underlying architecture, the
-    /// function returns the depth of the first present object typically
-    /// containing `object_type`.
-    ///
-    /// This function is only meaningful for normal object types. If a memory,
-    /// I/O or Misc object type is given, the corresponding virtual depth is
-    /// always returned.
-    ///
-    /// # Errors
-    ///
-    /// - [`TypeToDepthError::Nonexistent`] if no object typically containing
-    ///   `object_type` is present.
-    /// - [`TypeToDepthError::Multiple`] if objects of this type exist at multiple
-    ///   depths (can happen when `object_type` is [`Group`]).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::types::ObjectType;
-    /// #
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// let pu_depth = topology.depth_for_type(ObjectType::PU)?;
-    /// let core_or_above = topology.depth_or_below_for_type(ObjectType::Core)?;
-    ///
-    /// assert!(core_or_above.assume_normal() < pu_depth.assume_normal());
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    ///
-    /// [`Group`]: ObjectType::Group
-    #[doc(alias = "hwloc_get_type_or_above_depth")]
-    pub fn depth_or_above_for_type(
-        &self,
-        object_type: ObjectType,
-    ) -> Result<Depth, TypeToDepthError> {
-        assert!(
-            object_type.is_normal(),
-            "This is only meaningful for normal objects"
-        );
-        match self.depth_for_type(object_type) {
-            Ok(d) => Ok(d),
-            Err(TypeToDepthError::Nonexistent) => {
-                for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()).rev() {
-                    if self
-                        .type_at_depth(depth)
-                        .expect("Depths above bottom depth should exist")
-                        > object_type
-                    {
-                        return Ok((depth - 1).into());
-                    }
-                }
-                Err(TypeToDepthError::Nonexistent)
-            }
-            other_err => other_err,
-        }
-    }
-
-    /// Depth for the given cache type and level
-    ///
-    /// Returns the depth of the topology level that contains cache objects whose
-    /// attributes match `cache_level` and `cache_type`.
-    ///
-    /// This function is similar to calling [`depth_for_type()`] with
-    /// the corresponding type such as [`ObjectType::L1ICache`], except that it
-    /// may also return a unified cache when looking for an instruction cache.
-    ///
-    /// If `cache_type` is `None`, it is ignored and multiple levels may match.
-    /// The function returns either the depth of a uniquely matching level or
-    /// Err([`TypeToDepthError::Multiple`]).
-    ///
-    /// If `cache_type` is Some([`CacheType::Unified`]), the depth of the unique
-    /// matching unified cache level (if any) is returned.
-    ///
-    /// If `cache_type` is Some([`CacheType::Data`]) or
-    /// Some([`CacheType::Instruction`]), either a matching cache or a
-    /// unified cache is returned.
-    ///
-    /// # Errors
-    ///
-    /// - [`TypeToDepthError::Nonexistent`] if no cache level matches
-    /// - [`TypeToDepthError::Multiple`] if multiple cache depths match (this can only
-    ///   happen if `cache_type` is `None`).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::types::CacheType;
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// let l1d_depth = topology.depth_for_cache(1, Some(CacheType::Data));
-    /// assert!(l1d_depth.is_ok());
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    ///
-    /// [`depth_for_type()`]: Self::depth_for_type()
-    #[doc(alias = "hwloc_get_cache_type_depth")]
-    pub fn depth_for_cache(
-        &self,
-        cache_level: usize,
-        cache_type: Option<CacheType>,
-    ) -> Result<Depth, TypeToDepthError> {
-        // There is no cache level 0, it starts at L1
-        let Some(cache_level) = NonZeroUsize::new(cache_level) else {
-            return Err(TypeToDepthError::Nonexistent);
-        };
-
-        // Otherwise, need to actually look it up
-        let mut result = Err(TypeToDepthError::Nonexistent);
-        for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
-            // Cache level and type are homogeneous across a depth level so we
-            // only need to look at one object
-            for obj in self.objects_at_depth(depth).take(1) {
-                // Is this a cache?
-                if let Some(ObjectAttributes::Cache(cache)) = obj.attributes() {
-                    // Check cache level
-                    if cache.depth() != cache_level {
-                        continue;
-                    }
-
-                    // Check cache type if instructed to do so
-                    if let Some(cache_type) = cache_type {
-                        if cache.cache_type() == cache_type
-                            || cache.cache_type() == CacheType::Unified
-                        {
-                            // If both cache type + level are specified, then
-                            // multiple matches cannot occur: stop here.
-                            return Ok(depth.into());
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        // Without a cache type check, multiple matches may
-                        // occur, so we need to check all other depths.
-                        match result {
-                            Err(TypeToDepthError::Nonexistent) => result = Ok(depth.into()),
-                            Ok(_) => {
-                                return Err(TypeToDepthError::Multiple);
-                            }
-                            Err(TypeToDepthError::Multiple) => {
-                                unreachable!("Setting this value triggers a loop break")
-                            }
-                            Err(TypeToDepthError::Unexpected(_)) => {
-                                unreachable!("This value is never set")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        result
-    }
-
-    /// Type of objects at the given `depth`, if any
-    ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::{depth::Depth, types::ObjectType};
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// let numa_type = topology.type_at_depth(Depth::NUMANode);
-    /// assert_eq!(numa_type, Some(ObjectType::NUMANode));
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_get_depth_type")]
-    pub fn type_at_depth<DepthLike>(&self, depth: DepthLike) -> Option<ObjectType>
-    where
-        DepthLike: TryInto<Depth>,
-        <DepthLike as TryInto<Depth>>::Error: Debug,
-    {
-        /// Polymorphized version of this function (avoids generics code bloat)
-        fn polymorphized(self_: &Topology, depth: Depth) -> Option<ObjectType> {
-            // There cannot be any normal object at a depth below the topology depth
-            if let Depth::Normal(depth) = depth {
-                if depth >= self_.depth() {
-                    return None;
-                }
-            }
-
-            // Otherwise, ask hwloc
-            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-            //         - hwloc ops are trusted not to modify *const parameters
-            //         - By construction, Depth only exposes values that map into
-            //           hwloc_get_depth_type_e values understood by the configured
-            //           version of hwloc, and build.rs checks that the active
-            //           version of hwloc is not older than that, so into() may only
-            //           generate valid hwloc_get_depth_type_e values for current hwloc
-            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.to_raw()) }
-                .try_into()
-            {
-                Ok(depth) => Some(depth),
-                Err(TryFromPrimitiveError {
-                    number: hwloc_obj_type_t::MAX,
-                }) => None,
-                Err(unknown) => {
-                    unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
-                }
-            }
-        }
-
-        // There cannot be any object at a depth below the hwloc-supported max
-        let depth = depth.try_into().ok()?;
-        polymorphized(self, depth)
-    }
-
-    /// Number of objects at the given `depth`
-    ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// let num_roots = topology.num_objects_at_depth(0);
-    /// assert_eq!(num_roots, 1);
-    ///
-    /// let num_root_children = topology.num_objects_at_depth(1);
-    /// assert!(num_root_children > 0);
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_get_nbobjs_by_depth")]
-    pub fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
-    where
-        DepthLike: TryInto<Depth>,
-        <DepthLike as TryInto<Depth>>::Error: Debug,
-    {
-        // There cannot be any object at a depth below the hwloc-supported max
-        let Ok(depth) = depth.try_into() else {
-            return 0;
-        };
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - By construction, Depth only exposes values that map into
-        //           hwloc_get_depth_type_e values understood by the configured
-        //           version of hwloc, and build.rs checks that the active
-        //           version of hwloc is not older than that, so into() may only
-        //           generate valid hwloc_get_depth_type_e values for current hwloc
-        int::expect_usize(unsafe {
-            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.to_raw())
-        })
-    }
-
-    /// [`TopologyObject`]s at the given `depth`
-    ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::{depth::Depth, types::ObjectType};
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// use eyre::eyre;
-    ///
-    /// let root = topology.root_object();
-    ///
-    /// for node in topology.objects_at_depth(Depth::NUMANode) {
-    ///     assert_eq!(node.object_type(), ObjectType::NUMANode);
-    ///     assert!(node.is_in_subtree(root));
-    ///     assert_eq!(node.normal_arity(), 0);
-    ///     assert_eq!(node.memory_arity(), 0);
-    ///     let num_nodes =
-    ///         node.nodeset()
-    ///             .ok_or_else(|| eyre!("a NUMANode should have a NodeSet"))?
-    ///             .weight()
-    ///             .ok_or_else(|| {
-    ///                 eyre!("a NUMANode's NodeSet should be finite")
-    ///             })?;
-    ///     assert_eq!(num_nodes, 1);
-    /// }
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_get_obj_by_depth")]
-    #[doc(alias = "hwloc_get_next_obj_by_depth")]
-    pub fn objects_at_depth<DepthLike>(
-        &self,
-        depth: DepthLike,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
-    where
-        DepthLike: TryInto<Depth>,
-        <DepthLike as TryInto<Depth>>::Error: Debug,
-    {
-        /// Polymorphized version of this function (avoids generics code bloat)
-        fn polymorphized(
-            self_: &Topology,
-            depth: Depth,
-        ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
-        {
-            let size = self_.num_objects_at_depth(depth);
-            let depth = depth.to_raw();
-            (0..size).map(move |idx| {
-                let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
-                let ptr =
-                    // SAFETY: - Topology is trusted to contain a valid ptr
-                    //           (type invariant)
-                    //         - hwloc ops are trusted not to modify *const
-                    //           parameters
-                    //         - By construction, Depth only exposes values that
-                    //           map into hwloc_get_depth_type_e values
-                    //           understood by the configured version of hwloc,
-                    //           and build.rs checks that the active version of
-                    //           hwloc is not older than that, so into() may
-                    //           only generate valid hwloc_get_depth_type_e
-                    //           values for current hwloc
-                    //         - idx is in bounds by construction
-                    unsafe { hwlocality_sys::hwloc_get_obj_by_depth(self_.as_ptr(), depth, idx) };
-                assert!(
-                    !ptr.is_null(),
-                    "Got null pointer from hwloc_get_obj_by_depth"
-                );
-                // SAFETY: If hwloc_get_obj_by_depth returns a non-null pointer,
-                //         it's assumed to be successful and thus that the
-                //         output pointer and its target are valid
-                unsafe { (&*ptr).as_newtype() }
-            })
-        }
-
-        // This little hack works because hwloc topologies never get anywhere
-        // close the maximum possible depth, which is c_int::MAX, so there will
-        // never be any object at that depth. We need it because impl Trait
-        // needs homogeneous return types.
-        let depth = depth.try_into().unwrap_or(Depth::Normal(NormalDepth::MAX));
-        polymorphized(self, depth)
-    }
-
-    /// [`TopologyObject`] at the root of the topology
-    ///
-    /// Its type is [`ObjectType::Machine`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::{
-    /// #     depth::{Depth, NormalDepth},
-    /// #     types::ObjectType
-    /// # };
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// let root = topology.root_object();
-    ///
-    /// assert_eq!(root.object_type(), ObjectType::Machine);
-    ///
-    /// assert_eq!(root.depth(), Depth::from(NormalDepth::MIN));
-    /// assert!(root.parent().is_none());
-    /// assert_eq!(root.logical_index(), 0);
-    /// assert_ne!(root.normal_arity(), 0);
-    ///
-    /// assert!(root.cpuset().is_some());
-    /// assert!(root.nodeset().is_some());
-    ///
-    /// println!("{root:#}");
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_get_root_obj")]
-    pub fn root_object(&self) -> &TopologyObject {
-        self.objects_at_depth(NormalDepth::MIN)
-            .next()
-            .expect("Root object should exist")
-    }
-
-    /// [`TopologyObject`]s with the given [`ObjectType`]
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use hwlocality::object::types::ObjectType;
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// use eyre::eyre;
-    ///
-    /// let root = topology.root_object();
-    ///
-    /// for pu in topology.objects_with_type(ObjectType::PU) {
-    ///     assert_eq!(pu.object_type(), ObjectType::PU);
-    ///     assert!(pu.is_in_subtree(root));
-    ///     assert_eq!(pu.normal_arity(), 0);
-    ///     let num_cpus =
-    ///         pu
-    ///             .cpuset()
-    ///             .ok_or_else(|| eyre!("a PU should have a CpuSet"))?
-    ///             .weight()
-    ///             .ok_or_else(|| {
-    ///                 eyre!("a PU's CpuSet should be finite")
-    ///             })?;
-    ///     assert_eq!(num_cpus, 1);
-    /// }
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_get_obj_by_type")]
-    #[doc(alias = "hwloc_get_nbobjs_by_type")]
-    #[doc(alias = "hwloc_get_next_obj_by_type")]
-    pub fn objects_with_type(
-        &self,
-        object_type: ObjectType,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
-    {
-        let type_depth = self.depth_for_type(object_type);
-        let depth_iter = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
-            .map(Depth::from)
-            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
-            .filter(move |&depth| {
-                type_depth.map_or_else(
-                    |_| self.type_at_depth(depth).expect("Depth should exist") == object_type,
-                    |type_depth| depth == type_depth,
-                )
-            });
-        let size = depth_iter
-            .clone()
-            .map(move |depth| self.num_objects_at_depth(depth))
-            .sum();
-        ObjectsWithType {
-            size,
-            inner: depth_iter.flat_map(move |depth| self.objects_at_depth(depth)),
-        }
-    }
-}
-
-/// Iterator emitted by [`TopologyObject::objects_with_type()`]
-///
-/// Needed because iterator combinator chains don't implement all desired
-/// [`Iterator`] subtraits.
-#[derive(Copy, Clone)]
-struct ObjectsWithType<Inner> {
-    /// Number of items that this iterator will yield
-    size: usize,
-
-    /// Inner iterator
-    inner: Inner,
-}
-//
-impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> Iterator
-    for ObjectsWithType<Inner>
-{
-    type Item = &'topology TopologyObject;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.size, Some(self.size))
-    }
-
-    fn count(self) -> usize {
-        self.size
-    }
-}
-//
-impl<'topology, Inner: DoubleEndedIterator<Item = &'topology TopologyObject>> DoubleEndedIterator
-    for ObjectsWithType<Inner>
-{
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.next_back()
-    }
-}
-//
-impl<'topology, Inner: Iterator<Item = &'topology TopologyObject>> ExactSizeIterator
-    for ObjectsWithType<Inner>
-{
-}
-//
-impl<'topology, Inner: FusedIterator<Item = &'topology TopologyObject>> FusedIterator
-    for ObjectsWithType<Inner>
-{
-}
-
-/// # Finding other objects
-//
-// --- Implementation details ---
-//
-// This is inspired by the upstream functionality described at
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
-// but the code had to be ported to Rust because it's inline
-impl Topology {
-    /// Get the object of type [`ObjectType::PU`] with the specified OS index
-    ///
-    /// If you want to convert an entire CPU set into the PU objects it
-    /// contains, using [`pus_from_cpuset()`] will be more efficient than
-    /// repeatedly calling this function with every OS index from the [`CpuSet`].
-    ///
-    /// Requires [`DiscoverySupport::pu_count()`].
-    ///
-    /// [`pus_from_cpuset()`]: Self::pus_from_cpuset()
-    #[doc(alias = "hwloc_get_pu_obj_by_os_index")]
-    pub fn pu_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
-        self.objs_and_os_indices(ObjectType::PU)
-            .find_map(|(pu, pu_os_index)| (pu_os_index == os_index).then_some(pu))
-    }
-
-    /// Get the objects of type [`ObjectType::PU`] covered by the specified cpuset
-    ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
-    ///
-    /// Requires [`DiscoverySupport::pu_count()`].
-    ///
-    /// This functionality is specific to the Rust bindings.
-    pub fn pus_from_cpuset<'result>(
-        &'result self,
-        cpuset: impl Deref<Target = CpuSet> + 'result,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objs_and_os_indices(ObjectType::PU)
-            .filter_map(move |(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
-    }
-
-    /// Get the object of type [`NUMANode`] with the specified OS index
-    ///
-    /// If you want to convert an entire [`NodeSet` into the [`NUMANode`]
-    /// objects it contains, using [`nodes_from_nodeset()`] will be more
-    /// efficient than repeatedly calling this function with every OS index from
-    /// the [`NodeSet`].
-    ///
-    /// Requires [`DiscoverySupport::numa_count()`].
-    ///
-    /// [`nodes_from_nodeset()`]: Self::nodes_from_nodeset()
-    /// [`NUMANode`]: ObjectType::NUMANode
-    #[doc(alias = "hwloc_get_numanode_obj_by_os_index")]
-    pub fn node_with_os_index(&self, os_index: usize) -> Option<&TopologyObject> {
-        self.objs_and_os_indices(ObjectType::NUMANode)
-            .find_map(|(node, node_os_index)| (node_os_index == os_index).then_some(node))
-    }
-
-    /// Get the objects of type [`ObjectType::NUMANode`] covered by the
-    /// specified nodeset
-    ///
-    /// Accepts both `&'_ NodeSet` and `BitmapRef<'_, NodeSet>` operands.
-    ///
-    /// Requires [`DiscoverySupport::numa_count()`].
-    ///
-    /// This functionality is specific to the Rust bindings.
-    pub fn nodes_from_nodeset<'result>(
-        &'result self,
-        nodeset: impl Deref<Target = NodeSet> + 'result,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
-        self.objs_and_os_indices(ObjectType::NUMANode)
-            .filter_map(move |(node, os_index)| nodeset.is_set(os_index).then_some(node))
-    }
-
-    /// Get a list of `(&TopologyObject, OS index)` tuples for an `ObjectType`
-    /// that is guaranteed to appear only at one depth of the topology and to
-    /// have an OS index.
-    ///
-    /// # Panics
-    ///
-    /// Will panic if the object type appears at more than one depth or do not
-    /// have an OS index. As this method is an implementation detail of other
-    /// methods above, the caller should be able to ensure it never happens.
-    fn objs_and_os_indices(
-        &self,
-        ty: ObjectType,
-    ) -> impl DoubleEndedIterator<Item = (&TopologyObject, usize)>
-           + Clone
-           + ExactSizeIterator
-           + FusedIterator {
-        self.objects_at_depth(
-            self.depth_for_type(ty)
-                .expect("These objects should only appear at a single depth"),
-        )
-        .map(|obj| {
-            (
-                obj,
-                obj.os_index()
-                    .expect("These objects should have an OS index"),
-            )
-        })
-    }
-
-    /// Enumerate objects at the same depth as `obj`, but with increasing
-    /// physical distance (i.e. from increasingly higher common ancestors in the
-    /// topology tree).
-    ///
-    /// This search may only be applied to objects that have a cpuset (normal
-    /// and memory objects) and belong to this topology.
-    ///
-    /// # Errors
-    ///
-    /// - [`ForeignObject`] if `obj` does not belong to this topology.
-    /// - [`MissingCpuSet`] if `obj` does not have a cpuset.
-    ///
-    /// [`ForeignObject`]: ClosestObjectsError::ForeignObject
-    /// [`MissingCpuSet`]: ClosestObjectsError::MissingCpuSet
-    #[doc(alias = "hwloc_get_closest_objs")]
-    pub fn objects_closest_to<'result>(
-        &'result self,
-        obj: &'result TopologyObject,
-    ) -> Result<impl Iterator<Item = &TopologyObject> + 'result, ClosestObjectsError> {
-        // Validate input object
-        if !self.contains(obj) {
-            return Err(ClosestObjectsError::ForeignObject(obj.into()));
-        }
-        let obj_cpuset = obj
-            .cpuset()
-            .ok_or_else(|| ClosestObjectsError::MissingCpuSet(obj.into()))?;
-
-        /// Assert that an object has a cpuset, return both
-        fn obj_and_cpuset<'obj>(
-            obj: &'obj TopologyObject,
-            error: &str,
-        ) -> (&'obj TopologyObject, BitmapRef<'obj, CpuSet>) {
-            (obj, obj.cpuset().expect(error))
-        }
-
-        /// Find the first ancestor of an object that knows about more objects
-        /// than that object (if any), and return it along with its cpuset
-        fn find_larger_parent<'obj>(
-            known_obj: &'obj TopologyObject,
-            known_cpuset: &CpuSet,
-        ) -> Option<(&'obj TopologyObject, BitmapRef<'obj, CpuSet>)> {
-            known_obj
-                .ancestors()
-                .map(|ancestor| {
-                    obj_and_cpuset(
-                        ancestor,
-                        "Ancestors of an object with a cpuset should have a cpuset",
-                    )
-                })
-                .find(|(_ancestor, ancestor_cpuset)| ancestor_cpuset != known_cpuset)
-        }
-        let mut ancestor_and_cpuset = find_larger_parent(obj, &obj_cpuset);
-
-        // Prepare to jointly iterate over cousins and their cpusets
-        // On each pass, we're going to find which cousins are covered by the
-        // current ancestor, keeping the other cousins around to iterate over
-        // them again during the next pass with a higher-level ancestor.
-        let mut cousins_and_cpusets = self
-            .objects_at_depth(obj.depth())
-            .filter(|cousin_or_obj| !ptr::eq(*cousin_or_obj, obj))
-            .map(|cousin| {
-                obj_and_cpuset(
-                    cousin,
-                    "Cousins of an object with a cpuset should have a cpuset",
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut next_cousins_and_cpusets = Vec::new();
-
-        // Emit the final iterator
-        Ok(std::iter::from_fn(move || {
-            loop {
-                // Look for a cousin that is covered by the current ancestor
-                let (ancestor, ancestor_cpuset) = ancestor_and_cpuset.take()?;
-                while let Some((cousin, cousin_cpuset)) = cousins_and_cpusets.pop() {
-                    if ancestor_cpuset.includes(cousin_cpuset) {
-                        return Some(cousin);
-                    } else {
-                        next_cousins_and_cpusets.push((cousin, cousin_cpuset));
-                    }
-                }
-
-                // We ran out of cousins, go to a higher-level ancestor or end
-                // iteration if we reached the top of the tree.
-                let (ancestor, ancestor_cpuset) = find_larger_parent(ancestor, &ancestor_cpuset)?;
-                ancestor_and_cpuset = Some((ancestor, ancestor_cpuset));
-                std::mem::swap(&mut cousins_and_cpusets, &mut next_cousins_and_cpusets);
-            }
-        }))
-    }
-
-    /// Find an object via a parent->child chain specified by types and indices
-    ///
-    /// For example, if called with `&[(NUMANode, 0), (Package, 1), (Core, 2)]`,
-    /// this will return the third core object below the second package below
-    /// the first NUMA node.
-    ///
-    /// This search may only be applied to object types that have a cpuset
-    /// (normal and memory objects).
-    ///
-    /// # Errors
-    ///
-    /// - [`MissingCpuSetError`] if one of the specified object types does not
-    ///   have a cpuset.
-    #[doc(alias = "hwloc_get_obj_below_array_by_type")]
-    #[doc(alias = "hwloc_get_obj_below_by_type")]
-    pub fn object_by_type_index_path(
-        &self,
-        path: &[(ObjectType, usize)],
-    ) -> Result<Option<&TopologyObject>, MissingCpuSetError> {
-        let mut obj = self.root_object();
-        for &(ty, idx) in path {
-            let cpuset = obj.cpuset().ok_or_else(|| MissingCpuSetError::from(obj))?;
-            if let Some(next_obj) = self.objects_inside_cpuset_with_type(cpuset, ty).nth(idx) {
-                obj = next_obj;
-            } else {
-                return Ok(None);
-            }
-        }
-        Ok(Some(obj))
-    }
-
-    /// Find an object of a different type with the same locality
-    ///
-    /// The source object `src` must belong to this topology, otherwise a
-    /// [`ForeignSource`] error will be returned.
-    ///
-    /// If the source object is a normal or memory type, this function returns
-    /// an object of type `ty` with the same CPU and node sets, either below or
-    /// above in the hierarchy.
-    ///
-    /// If the source object is a PCI or an OS device within a PCI device, the
-    /// function may either return that PCI device, or another OS device in the
-    /// same PCI parent. This may for instance be useful for converting between
-    /// OS devices such as "nvml0" or "rsmi1" used in distance structures into
-    /// the the PCI device, or the CUDA or OpenCL OS device that correspond to
-    /// the same physical card.
-    ///
-    /// If specified, parameter `subtype` restricts the search to objects whose
-    /// [`TopologyObject::subtype()`] attribute exists and is equal to `subtype`
-    /// (case-insensitively), for instance "OpenCL" or "CUDA".
-    ///
-    /// If specified, parameter `name_prefix` restricts the search to objects
-    /// whose [`TopologyObject::name()`] attribute exists and starts with
-    /// `name_prefix` (case-insensitively), for instance "rsmi" for matching
-    /// "rsmi0".
-    ///
-    /// If multiple objects match, the first one is returned.
-    ///
-    /// This function will not walk the hierarchy across bridges since the PCI
-    /// locality may become different. This function cannot also convert between
-    /// normal/memory objects and I/O or Misc objects.
-    ///
-    /// If no matching object could be found, or if the source object and target
-    /// type are incompatible, `None` will be returned.
-    ///
-    /// # Errors
-    ///
-    /// - [`ForeignSource`] if `src` does not belong to this topology.
-    /// - [`StringContainsNul`] if `subtype` or `name_prefix` contains NUL chars.
-    ///
-    /// [`ForeignSource`]: LocalObjectError::ForeignSource
-    /// [`StringContainsNul`]: LocalObjectError::StringContainsNul
-    #[cfg(feature = "hwloc-2_5_0")]
-    #[doc(alias = "hwloc_get_obj_with_same_locality")]
-    pub fn object_with_same_locality(
-        &self,
-        src: &TopologyObject,
-        ty: ObjectType,
-        subtype: Option<&str>,
-        name_prefix: Option<&str>,
-    ) -> Result<Option<&TopologyObject>, LocalObjectError> {
-        if !self.contains(src) {
-            return Err(src.into());
-        }
-        let subtype = subtype.map(LibcString::new).transpose()?;
-        let name_prefix = name_prefix.map(LibcString::new).transpose()?;
-        let borrow_pchar = |opt: &Option<LibcString>| -> *const c_char {
-            opt.as_ref().map_or(ptr::null(), LibcString::borrow)
-        };
-        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - src was checked to belong to the active topology
-        //         - LibcStrings are trusted to be valid C strings and not used
-        //           after the end of their lifetime
-        //         - hwloc ops are trusted not to modify *const parameters
-        //         - By construction, ObjectType only exposes values that map into
-        //           hwloc_obj_type_t values understood by the configured version
-        //           of hwloc, and build.rs checks that the active version of
-        //           hwloc is not older than that, so into() may only generate
-        //           valid hwloc_obj_type_t values for current hwloc
-        //         - Per documentation, flags must be zero
-        let ptr = unsafe {
-            hwlocality_sys::hwloc_get_obj_with_same_locality(
-                self.as_ptr(),
-                &src.0,
-                ty.into(),
-                borrow_pchar(&subtype),
-                borrow_pchar(&name_prefix),
-                0,
-            )
-        };
-        // SAFETY: - If hwloc succeeds, the output pointer and its target are
-        //           both assumed to be valid
-        //         - Output is bound to the lifetime of the topology it comes from
-        Ok((!ptr.is_null()).then(|| unsafe { (&*ptr).as_newtype() }))
-    }
-}
-
-/// Error returned by [`Topology::objects_closest_to()`]
-#[derive(Clone, Debug, Eq, Error, PartialEq)]
-pub enum ClosestObjectsError {
-    /// Target object does not belong to this topology
-    #[error(transparent)]
-    ForeignObject(#[from] ForeignObjectError),
-
-    /// Target object does not have a cpuset and this search requires one
-    #[error(transparent)]
-    MissingCpuSet(#[from] MissingCpuSetError),
-}
-
-/// Error returned when a search algorithm that requires a cpuset is applied to
-/// an object that doesn't have one.
-///
-/// The presence of a cpuset greatly simplifies some search algorithms as it
-/// allows asserting that an object is a child of another with simple bitmap
-/// operations, rather than requiring topology tree traversal. Therefore,
-/// relatively complex search operations may only be applied to objects with a
-/// cpuset (i.e. normal and memory objects) and will fail with this error if
-/// applied to other object types.
-//
-// --- Implementation notes ---
-//
-// Not implementing Copy at this point because I want to leave options open for
-// switching to another way to describe objects (Debug string, etc).
-#[allow(missing_copy_implementations)]
-#[derive(Clone, Debug, Default, Eq, Error, PartialEq)]
-#[error("object #{0} doesn't have a cpuset but we need one for this search")]
-pub struct MissingCpuSetError(TopologyObjectID);
-//
-impl<'topology> From<&'topology TopologyObject> for MissingCpuSetError {
-    fn from(object: &'topology TopologyObject) -> Self {
-        Self(object.global_persistent_index())
-    }
-}
-
-/// Error returned by [`Topology::object_with_same_locality()`]
-#[cfg(feature = "hwloc-2_5_0")]
-#[derive(Clone, Debug, Eq, Error, PartialEq)]
-pub enum LocalObjectError {
-    /// Target object does not belong to this topology
-    #[error(transparent)]
-    ForeignSource(#[from] ForeignObjectError),
-
-    /// Subtype or name prefix string contains a NUL char
-    #[error("local object query string can't contain NUL chars")]
-    StringContainsNul,
-}
-//
-#[cfg(feature = "hwloc-2_5_0")]
-impl From<NulError> for LocalObjectError {
-    fn from(_: NulError) -> Self {
-        Self::StringContainsNul
-    }
-}
-//
-#[cfg(feature = "hwloc-2_5_0")]
-impl<'topology> From<&'topology TopologyObject> for LocalObjectError {
-    fn from(object: &'topology TopologyObject) -> Self {
-        Self::ForeignSource(object.into())
-    }
-}
-
-/// # Finding I/O objects
-//
-// --- Implementation details ---
-//
-// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html
-// but inline functions had to be reimplemented in Rust. Further, queries
-// pertaining to ancestors and children were moved to the corresponding sections.
-impl Topology {
-    /// Enumerate PCI devices in the system
-    #[doc(alias = "hwloc_get_next_pcidev")]
-    pub fn pci_devices(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
-    {
-        self.objects_at_depth(Depth::PCIDevice)
-    }
-
-    /// Find the PCI device object matching the PCI bus id given domain, bus
-    /// device and function PCI bus id
-    #[doc(alias = "hwloc_get_pcidev_by_busid")]
-    pub fn pci_device_by_bus_id(
-        &self,
-        domain: PCIDomain,
-        bus_id: u8,
-        bus_device: u8,
-        function: u8,
-    ) -> Option<&TopologyObject> {
-        self.pci_devices().find(|obj| {
-            let Some(ObjectAttributes::PCIDevice(pci)) = obj.attributes() else {
-                unreachable!("All PCI devices should have PCI attributes")
-            };
-            pci.domain() == domain
-                && pci.bus_id() == bus_id
-                && pci.bus_device() == bus_device
-                && pci.function() == function
-        })
-    }
-
-    /// Find the PCI device object matching the PCI bus id given as a string
-    /// of format "xxxx:yy:zz.t" (with domain) or "yy:zz.t" (without domain)
-    ///
-    /// # Errors
-    ///
-    /// - [`ParameterError`] if the given string does not match the PCI bus id
-    ///   format given above
-    #[doc(alias = "hwloc_get_pcidev_by_busidstring")]
-    pub fn pci_device_by_bus_id_string(
-        &self,
-        bus_id: &str,
-    ) -> Result<Option<&TopologyObject>, ParameterError<String>> {
-        // Package `bus_id` into an error if need be
-        let make_error = || ParameterError(bus_id.to_owned());
-
-        // Assume well-formatted string
-        let parse_domain = |s| PCIDomain::from_str_radix(s, 16).map_err(|_| make_error());
-        let parse_u8 = |s| u8::from_str_radix(s, 16).map_err(|_| make_error());
-
-        // Extract initial hex (whose semantics are ambiguous at this stage)
-        let (int1, mut rest) = bus_id.split_once(':').ok_or_else(make_error)?;
-
-        // From presence/absence of second ':', deduce if int1 was a domain or
-        // a bus id in the default 0 domain.
-        let (domain, bus) = if let Some((bus, next_rest)) = rest.split_once(':') {
-            rest = next_rest;
-            (parse_domain(int1)?, parse_u8(bus)?)
-        } else {
-            (0, parse_u8(int1)?)
-        };
-
-        // Parse device and function IDs, and forward to non-textual lookup
-        let (dev, func) = rest.split_once('.').ok_or_else(make_error)?;
-        Ok(self.pci_device_by_bus_id(domain, bus, parse_u8(dev)?, parse_u8(func)?))
-    }
-
-    /// Enumerate OS devices in the system
-    #[doc(alias = "hwloc_get_next_osdev")]
-    pub fn os_devices(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
-    {
-        self.objects_at_depth(Depth::OSDevice)
-    }
-
-    /// Enumerate bridges in the system
-    #[doc(alias = "hwloc_get_next_bridge")]
-    pub fn bridges(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
-    {
-        self.objects_at_depth(Depth::Bridge)
-    }
-}
 
 /// Hardware topology object
 ///
@@ -1333,6 +152,7 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
+    #[cfg(feature = "hwloc-2_3_0")]
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
         self.0.subtype = LibcString::new(subtype)?.into_raw();
         Ok(())
@@ -1425,17 +245,13 @@ impl TopologyObject {
     }
 
     /// Chain of parent objects up to the topology root
-    pub fn ancestors(&self) -> impl ExactSizeIterator<Item = &Self> + Clone + FusedIterator {
+    pub fn ancestors(&self) -> impl FusedIterator<Item = &Self> + Clone {
         Ancestors(self)
     }
 
     /// Search for an ancestor at a certain depth
     ///
-    /// Accepts [`Depth`], [`NormalDepth`] and [`usize`] operands. Use the
-    /// former two for type-safety (they are guaranteed to be in range as a type
-    /// invariant) or the latter for convenience (it is more tightly integrated
-    /// with Rust's built-in integer support, for example it supports integer
-    /// literals).
+    /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// Will return `None` if the requested depth is deeper than the depth of
     /// the current object.
@@ -1490,7 +306,7 @@ impl TopologyObject {
     /// - `self` and `other` do not belong to the same topology, and thus have
     ///   no shared ancestor.
     #[doc(alias = "hwloc_get_common_ancestor_obj")]
-    pub fn common_ancestor(&self, other: &Self) -> Option<&Self> {
+    pub fn first_common_ancestor(&self, other: &Self) -> Option<&Self> {
         // Handle degenerate case
         if ptr::eq(self, other) {
             return self.parent();
@@ -1520,8 +336,9 @@ impl TopologyObject {
         let (virtual_ancestors_1, parent1) = collect_virtual_ancestors(self);
         let (virtual_ancestors_2, parent2) = collect_virtual_ancestors(other);
 
-        // Make sure there is no common ancestor at some virtual depth
-        // (can't avoid O(N²) alg here as virtual depths cannot be compared)
+        // Make sure there is no common ancestor at some virtual depth (can't
+        // avoid O(N²) alg here as virtual depths cannot be compared and global
+        // persistent indices may be redundant across different topologies)
         for ancestor1 in virtual_ancestors_1 {
             for ancestor2 in &virtual_ancestors_2 {
                 if ptr::eq(ancestor1, *ancestor2) {
@@ -1603,11 +420,12 @@ impl TopologyObject {
     /// Find the smallest non-I/O ancestor object. This object (normal or
     /// memory) may then be used for binding because it has CPU and node sets
     /// and because its locality is the same as this object.
+    ///
+    /// This operation will fail if and only if the object is the root of the
+    /// topology.
     #[doc(alias = "hwloc_get_non_io_ancestor_obj")]
-    pub fn non_io_ancestor(&self) -> &Self {
-        self.ancestors()
-            .find(|obj| obj.cpuset().is_some())
-            .expect("Per hwloc documentation, there has to be one non-I/O ancestor")
+    pub fn first_non_io_ancestor(&self) -> Option<&Self> {
+        self.ancestors().find(|obj| obj.cpuset().is_some())
     }
 }
 
@@ -1628,8 +446,6 @@ impl<'object> Iterator for Ancestors<'object> {
         (depth_res.unwrap_or(0), depth_res.ok())
     }
 }
-//
-impl ExactSizeIterator for Ancestors<'_> {}
 //
 impl FusedIterator for Ancestors<'_> {}
 
@@ -1731,20 +547,21 @@ impl TopologyObject {
     //       If you do, please submit an issue to the repository!
 
     /// Truth that this object is symmetric, which means all normal children and
-    /// their children have identical subtrees
+    /// their children have identically shaped subtrees
     ///
-    /// Memory, I/O and Misc children are ignored.
+    /// Memory, I/O and Misc children are ignored when evaluating this property,
+    /// and it is false for all of these object types.
     ///
     /// If this is true of the root object, then the topology may be [exported
     /// as a synthetic string](Topology::export_synthetic()).
     #[doc(alias = "hwloc_obj::symmetric_subtree")]
-    pub fn symmetric_subtree(&self) -> bool {
+    pub fn is_symmetric_subtree(&self) -> bool {
         self.0.symmetric_subtree != 0
     }
 
     /// Get the child covering at least the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// This function will always return `None` if the given set is empty or
     /// this topology object doesn't have a cpuset (I/O or Misc objects), as
@@ -1813,6 +630,7 @@ impl TopologyObject {
             return false;
         };
         let Some(DownstreamAttributes::PCI(pci)) = bridge.downstream_attributes() else {
+            // Cannot happen on current hwloc, but may happen someday
             return false;
         };
         pci.domain() == domain && pci.secondary_bus() <= bus_id && pci.subordinate_bus() >= bus_id
@@ -1905,7 +723,7 @@ impl TopologyObject {
 
     /// Truth that this object is inside of the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects are considered to be inside `set` if they have a non-empty
     /// cpuset which verifies `set.includes(object_cpuset)`.
@@ -1918,7 +736,7 @@ impl TopologyObject {
 
     /// Truth that this object covers the given cpuset `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// Objects are considered to cover `set` if it is non-empty and the object
     /// has a cpuset which verifies `object_cpuset.includes(set)`.
@@ -2051,7 +869,7 @@ impl TopologyObject {
     /// exist, although sane users should not leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
-        if self.0.children.is_null() {
+        if self.0.infos.is_null() {
             assert_eq!(
                 self.0.infos_count, 0,
                 "Got null infos pointer with nonzero info count"
@@ -2082,6 +900,8 @@ impl TopologyObject {
     pub fn info(&self, key: &str) -> Option<&CStr> {
         self.infos().iter().find_map(|info| {
             let Ok(info_name) = info.name().to_str() else {
+                // hwloc does not currently emit invalid Unicode, but it might
+                // someday if a malicious C program tampered with the topology
                 return None;
             };
             (info_name == key).then_some(info.value())
@@ -2103,6 +923,7 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `name` or `value` contains NUL chars.
+    #[cfg(feature = "hwloc-2_3_0")]
     #[doc(alias = "hwloc_obj_add_info")]
     pub fn add_info(&mut self, name: &str, value: &str) -> Result<(), HybridError<NulError>> {
         let name = LibcString::new(name)?;
@@ -2151,10 +972,9 @@ impl TopologyObject {
             (type_chars, attr_chars)
         };
 
-        let cpuset_str = self.cpuset().map_or_else(
-            || " without a CpuSet".to_owned(),
-            |cpuset| format!(" with {cpuset}"),
-        );
+        let cpuset_str = self
+            .cpuset()
+            .map_or_else(String::new, |cpuset| format!(" with {cpuset}"));
 
         // SAFETY: - Output of call_snprintf should be valid C strings
         //         - We're not touching type_chars and attr_chars while type_str
@@ -2191,14 +1011,18 @@ impl TopologyObject {
     /// topology with `hwloc_topology_insert_group_object()`.
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) unsafe fn delete_all_sets(self_: ptr::NonNull<Self>) {
-        use ptr::addr_of_mut;
-
         let self_ = self_.as_ptr();
+        debug_assert_eq!(
+            // SAFETY: self_ is valid per input precondition
+            unsafe { (*self_).0.ty },
+            hwlocality_sys::HWLOC_OBJ_GROUP,
+            "this method should only be called on Group objects"
+        );
         for set_ptr in [
-            addr_of_mut!((*self_).0.cpuset),
-            addr_of_mut!((*self_).0.nodeset),
-            addr_of_mut!((*self_).0.complete_cpuset),
-            addr_of_mut!((*self_).0.complete_nodeset),
+            ptr::addr_of_mut!((*self_).0.cpuset),
+            ptr::addr_of_mut!((*self_).0.nodeset),
+            ptr::addr_of_mut!((*self_).0.complete_cpuset),
+            ptr::addr_of_mut!((*self_).0.complete_nodeset),
         ] {
             // SAFETY: This is safe per the input precondition that `self_` is a
             //         valid `TopologyObject` (which includes valid bitmap
@@ -2267,75 +1091,611 @@ unsafe impl TransparentNewtype for TopologyObject {
     type Inner = hwloc_obj;
 }
 
+#[allow(clippy::cognitive_complexity)]
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
+    use super::hierarchy::tests::{any_hwloc_depth, any_normal_depth, any_usize_depth};
     use super::*;
+    use crate::{
+        strategies::{any_object, any_string, set_with_reference, test_object},
+        topology::Topology,
+    };
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
-    use std::collections::{HashMap, HashSet};
+    use std::{collections::HashMap, ffi::CString, ops::RangeInclusive};
 
-    /// Pick a random object from the test instance
-    pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
-        prop::sample::select(Topology::test_objects())
+    /// Run [`check_any_object()`] on every topology object
+    #[test]
+    fn check_all_objects() -> Result<(), TestCaseError> {
+        let topology = Topology::test_instance();
+        for obj in topology.objects() {
+            check_any_object(obj)?;
+        }
+        Ok(())
     }
 
-    /// Check that the various object lists match their definitions
-    #[test]
-    fn object_lists() {
-        let topology = Topology::test_instance();
+    /// Stuff that should be true of any object we examine
+    fn check_any_object(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        check_sets(obj)?;
+        check_parent(obj)?;
+        check_first_shared_cache(obj)?;
+        check_cousins_and_siblings(obj)?;
+        check_children(obj)?;
+        check_infos(obj)?;
+        check_displays(obj)?;
+        Ok(())
+    }
 
-        fn checked_object_set<'a>(
-            it: impl Iterator<Item = &'a TopologyObject>,
-        ) -> HashMap<u64, &'a TopologyObject> {
-            let mut set = HashMap::new();
-            for obj in it {
-                assert!(
-                    set.insert(obj.global_persistent_index(), obj).is_none(),
-                    "global_persistent_index should be unique across the topology"
+    /// Check that an object's cpusets and nodesets have the expected properties
+    fn check_sets(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        let has_sets = obj.object_type().has_sets();
+
+        prop_assert_eq!(obj.cpuset().is_some(), has_sets);
+        prop_assert_eq!(obj.complete_cpuset().is_some(), has_sets);
+        if let (Some(complete), Some(normal)) = (obj.complete_cpuset(), obj.cpuset()) {
+            prop_assert!(complete.includes(normal));
+            prop_assert!(obj.is_inside_cpuset(complete));
+            prop_assert!(obj.covers_cpuset(normal));
+        }
+
+        prop_assert_eq!(obj.nodeset().is_some(), has_sets);
+        prop_assert_eq!(obj.complete_nodeset().is_some(), has_sets);
+        if let (Some(complete), Some(normal)) = (obj.complete_nodeset(), obj.nodeset()) {
+            prop_assert!(complete.includes(normal));
+        }
+
+        Ok(())
+    }
+
+    /// Check that an object's parent has the expected properties
+    fn check_parent(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        let Some(parent) = obj.parent() else {
+            prop_assert_eq!(obj.object_type(), ObjectType::Machine);
+            return Ok(());
+        };
+
+        let first_ancestor = obj.ancestors().next().unwrap();
+        prop_assert!(ptr::eq(parent, first_ancestor));
+
+        if let (Depth::Normal(parent_depth), Depth::Normal(obj_depth)) =
+            (parent.depth(), obj.depth())
+        {
+            prop_assert!(parent_depth < obj_depth);
+        }
+
+        if obj.object_type().has_sets() {
+            prop_assert!(parent.object_type().has_sets());
+            prop_assert!(parent.cpuset().unwrap().includes(obj.cpuset().unwrap()));
+            prop_assert!(parent.nodeset().unwrap().includes(obj.nodeset().unwrap()));
+            prop_assert!(parent
+                .complete_cpuset()
+                .unwrap()
+                .includes(obj.complete_cpuset().unwrap()));
+            prop_assert!(parent
+                .complete_nodeset()
+                .unwrap()
+                .includes(obj.complete_nodeset().unwrap()));
+        }
+
+        Ok(())
+    }
+
+    /// Check that [`TopologyObject::first_shared_cache()`] works as expected
+    fn check_first_shared_cache(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        // Call the function to begin with
+        let result = obj.first_shared_cache();
+
+        // Should not yield result on objects without cpusets
+        if obj.cpuset().is_none() {
+            prop_assert!(result.is_none());
+            return Ok(());
+        }
+
+        // Otherwise, should yield first cache parent that has multiple normal
+        // children below it
+        let expected = obj
+            .ancestors()
+            .skip_while(|ancestor| ancestor.normal_arity() == 1)
+            .find(|ancestor| ancestor.object_type().is_cpu_data_cache());
+        if let (Some(result), Some(expected)) = (result, expected) {
+            prop_assert!(ptr::eq(result, expected));
+        } else {
+            prop_assert!(result.is_none() && expected.is_none());
+        }
+        Ok(())
+    }
+
+    /// Check that an object's cousin and siblings have the expected properties
+    fn check_cousins_and_siblings(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        let siblings_len = if let Some(parent) = obj.parent() {
+            let ty = obj.object_type();
+            if ty.is_normal() {
+                parent.normal_arity()
+            } else if ty.is_memory() {
+                parent.memory_arity()
+            } else if ty.is_io() {
+                parent.io_arity()
+            } else {
+                prop_assert_eq!(ty, ObjectType::Misc);
+                parent.misc_arity()
+            }
+        } else {
+            1
+        };
+        let topology = Topology::test_instance();
+        let cousins_len = topology.num_objects_at_depth(obj.depth());
+
+        if let Some(prev_cousin) = obj.prev_cousin() {
+            check_cousin(obj, prev_cousin)?;
+            prop_assert_eq!(prev_cousin.logical_index(), obj.logical_index() - 1);
+            prop_assert!(ptr::eq(prev_cousin.next_cousin().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.logical_index(), 0);
+        }
+        if let Some(next_cousin) = obj.next_cousin() {
+            check_cousin(obj, next_cousin)?;
+            prop_assert_eq!(next_cousin.logical_index(), obj.logical_index() + 1);
+            prop_assert!(ptr::eq(next_cousin.prev_cousin().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.logical_index(), cousins_len - 1);
+        }
+
+        if let Some(prev_sibling) = obj.prev_sibling() {
+            check_sibling(obj, prev_sibling)?;
+            prop_assert_eq!(prev_sibling.sibling_rank(), obj.sibling_rank() - 1);
+            prop_assert!(ptr::eq(prev_sibling.next_sibling().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.sibling_rank(), 0);
+        }
+        if let Some(next_sibling) = obj.next_sibling() {
+            check_sibling(obj, next_sibling)?;
+            prop_assert_eq!(next_sibling.sibling_rank(), obj.sibling_rank() + 1);
+            prop_assert!(ptr::eq(next_sibling.prev_sibling().unwrap(), obj));
+        } else {
+            prop_assert_eq!(obj.sibling_rank(), siblings_len - 1);
+        }
+
+        Ok(())
+    }
+
+    /// Check that an object's cousin has the expected properties
+    fn check_cousin(obj: &TopologyObject, cousin: &TopologyObject) -> Result<(), TestCaseError> {
+        prop_assert_eq!(cousin.object_type(), obj.object_type());
+        prop_assert_eq!(cousin.depth(), obj.depth());
+        if obj.object_type().has_sets() {
+            prop_assert!(!obj.cpuset().unwrap().intersects(cousin.cpuset().unwrap()));
+            prop_assert!(!obj
+                .complete_cpuset()
+                .unwrap()
+                .intersects(cousin.complete_cpuset().unwrap()));
+        }
+        Ok(())
+    }
+
+    /// Check that an object's sibling has the expected properties
+    ///
+    /// This does not re-check the properties checked by `check_cousin()`, since
+    /// the sibling of some object must be the cousin of another object.
+    fn check_sibling(obj: &TopologyObject, sibling: &TopologyObject) -> Result<(), TestCaseError> {
+        prop_assert_eq!(sibling.0.parent, obj.0.parent);
+        Ok(())
+    }
+
+    /// Check that an object's children has the expected properties
+    fn check_children(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        prop_assert_eq!(obj.normal_arity(), obj.normal_children().count());
+        prop_assert_eq!(obj.memory_arity(), obj.memory_children().count());
+        prop_assert_eq!(obj.io_arity(), obj.io_children().count());
+        prop_assert_eq!(obj.misc_arity(), obj.misc_children().count());
+        prop_assert_eq!(
+            obj.all_children().count(),
+            obj.normal_arity() + obj.memory_arity() + obj.io_arity() + obj.misc_arity()
+        );
+
+        // NOTE: Most parent-child relations are checked when checking the
+        //       parent, since that's agnostic to the kind of child we deal with
+        for (idx, normal_child) in obj.normal_children().enumerate() {
+            prop_assert_eq!(normal_child.sibling_rank(), idx);
+            prop_assert!(normal_child.object_type().is_normal());
+        }
+        for (idx, memory_child) in obj.memory_children().enumerate() {
+            prop_assert_eq!(memory_child.sibling_rank(), idx);
+            prop_assert!(memory_child.object_type().is_memory());
+        }
+        for (idx, io_child) in obj.io_children().enumerate() {
+            prop_assert_eq!(io_child.sibling_rank(), idx);
+            prop_assert!(io_child.object_type().is_io());
+        }
+        for (idx, misc_child) in obj.misc_children().enumerate() {
+            prop_assert_eq!(misc_child.sibling_rank(), idx);
+            prop_assert_eq!(misc_child.object_type(), ObjectType::Misc);
+        }
+
+        Ok(())
+    }
+
+    /// Check that an object's info metadata matches expectations
+    fn check_infos(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        for info in obj.infos() {
+            if let Ok(name) = info.name().to_str() {
+                prop_assert_eq!(
+                    obj.info(name),
+                    obj.infos()
+                        .iter()
+                        .find(|other_info| other_info.name() == info.name())
+                        .map(TextualInfo::value)
                 );
             }
-            set
         }
-        let key_set = |map: &HashMap<u64, _>| -> HashSet<u64> { map.keys().copied().collect() };
+        // NOTE: Looking up invalid info names is tested elsewhere
+        Ok(())
+    }
 
-        let objects = checked_object_set(topology.objects());
-        let keys = key_set(&objects);
+    /// Check that an object's displays match expectations
+    fn check_displays(obj: &TopologyObject) -> Result<(), TestCaseError> {
+        // Render all supported display flavors
+        let display = format!("{obj}");
+        let display_alternate = format!("{obj:#}");
+        let debug = format!("{obj:?}");
+        let debug_alternate = format!("{obj:#?}");
 
-        let normal_objects = checked_object_set(topology.normal_objects());
-        assert!(normal_objects
-            .values()
-            .all(|obj| obj.object_type().is_normal()));
-        let normal_keys = key_set(&normal_objects);
+        // Non-alternate displays should fit in a single line
+        for non_alternate in [&display, &debug] {
+            prop_assert!(!non_alternate.chars().any(|c| c == '\n'));
+        }
 
-        let virtual_objects = checked_object_set(topology.virtual_objects());
-        assert!(virtual_objects
-            .values()
-            .all(|obj| !obj.object_type().is_normal()));
-        let virtual_keys = key_set(&virtual_objects);
+        // Debug output should be longer than or identical to Display output
+        prop_assert!(debug.len() >= display.len());
+        prop_assert!(debug_alternate.len() >= display_alternate.len());
 
-        assert_eq!(keys, &normal_keys | &virtual_keys);
-        assert_eq!(normal_keys, &keys - &virtual_keys);
-        assert_eq!(virtual_keys, &keys - &normal_keys);
+        // Alternate displays should be longer than or identical to the norm
+        prop_assert!(debug_alternate.len() >= debug.len());
+        prop_assert!(display_alternate.len() >= display.len());
+        Ok(())
+    }
 
-        let memory_objects = checked_object_set(topology.memory_objects());
-        assert!(memory_objects
-            .values()
-            .all(|obj| obj.object_type().is_memory()));
-        let memory_keys = key_set(&memory_objects);
+    /// Check that [`TopologyObject::is_symmetric_subtree()`] is correct
+    #[test]
+    fn is_symmetric_subtree() {
+        // Iterate over topology objects from children to parent: by the time we
+        // reach a parent, we know that we can trust the is_symmetric_subtree of
+        // its direct (and transitive) normal children.
+        let topology = Topology::test_instance();
+        for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).rev() {
+            'objs: for obj in topology.objects_at_depth(depth) {
+                // An object is a symmetric subtree if it has no children...
+                let Some(first_child) = obj.normal_children().next() else {
+                    assert!(obj.is_symmetric_subtree());
+                    continue 'objs;
+                };
 
-        let io_objects = checked_object_set(topology.io_objects());
-        assert!(io_objects.values().all(|obj| obj.object_type().is_io()));
-        let io_keys = key_set(&io_objects);
+                // ...or if its children all have the following properties:
+                let should_be_symmetric = obj.normal_children().all(|child| {
+                    // - They are symmetric subtree themselves
+                    child.is_symmetric_subtree()
 
-        let misc_objects = checked_object_set(topology.objects_with_type(ObjectType::Misc));
-        assert!(misc_objects
-            .values()
-            .all(|obj| obj.object_type() == ObjectType::Misc));
-        let misc_keys = key_set(&misc_objects);
+                    // - All of their topologically meaningful properties are
+                    //   identical (and thus equal to that of first child)
+                    && child.object_type() == first_child.object_type()
+                    && child.subtype() == first_child.subtype()
+                    && child.attributes() == first_child.attributes()
+                    && child.depth() == first_child.depth()
+                    && child.normal_arity() == first_child.normal_arity()
+                });
+                assert_eq!(obj.is_symmetric_subtree(), should_be_symmetric);
+            }
+        }
 
-        assert_eq!(virtual_keys, &(&memory_keys | &io_keys) | &misc_keys);
-        assert_eq!(memory_keys, &(&virtual_keys - &io_keys) - &misc_keys);
-        assert_eq!(io_keys, &(&virtual_keys - &memory_keys) - &misc_keys);
-        assert_eq!(misc_keys, &(&virtual_keys - &memory_keys) - &io_keys);
+        // Only normal objects can be symmetric
+        assert!(topology
+            .virtual_objects()
+            .all(|obj| !obj.is_symmetric_subtree()));
+    }
+
+    /// Check that [`TopologyObject::total_memory()`] is correct
+    #[test]
+    fn total_memory() {
+        // We'll compute the expected total amount of memory below each NUMA
+        // node through a bottom-up tree reduction from NUMA nodes up
+        let topology = Topology::test_instance();
+        let mut expected_total_memory = HashMap::new();
+        let mut curr_objects = HashMap::new();
+        let mut next_objects = HashMap::new();
+
+        // Seed tree reduction by counting local memory inside of each NUMA node
+        for numa in topology.objects_with_type(ObjectType::NUMANode) {
+            let Some(ObjectAttributes::NUMANode(attrs)) = numa.attributes() else {
+                unreachable!()
+            };
+            let gp_index = numa.global_persistent_index();
+            let local_memory = attrs.local_memory().map_or(0, u64::from);
+            assert!(expected_total_memory
+                .insert(gp_index, local_memory)
+                .is_none());
+            assert!(curr_objects.insert(gp_index, numa).is_none());
+        }
+
+        // Compute expected total_memory value through tree reduction
+        while !curr_objects.is_empty() {
+            for (gp_index, obj) in curr_objects.drain() {
+                let obj_memory = expected_total_memory[&gp_index];
+                if let Some(parent) = obj.parent() {
+                    let parent_gp_index = parent.global_persistent_index();
+                    *expected_total_memory.entry(parent_gp_index).or_default() += obj_memory;
+                    next_objects.insert(parent_gp_index, parent);
+                }
+            }
+            std::mem::swap(&mut curr_objects, &mut next_objects);
+        }
+
+        // At this point we should have built an accurate map of how much memory
+        // lies in NUMA nodes below each object, use it to check every object.
+        for obj in topology.objects() {
+            assert_eq!(
+                obj.total_memory(),
+                expected_total_memory
+                    .remove(&obj.global_persistent_index())
+                    .unwrap_or(0)
+            );
+        }
+    }
+
+    // --- Test operations with a depth parameter ---
+
+    /// Test [`TopologyObject::ancestor_at_depth()`] for a certain
+    /// [`TopologyObject`] and at a certain desired parent depth
+    fn check_ancestor_at_depth<DepthLike>(
+        obj: &TopologyObject,
+        depth: DepthLike,
+    ) -> Result<(), TestCaseError>
+    where
+        DepthLike: TryInto<Depth> + Copy + Debug + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let actual = obj.ancestor_at_depth(depth);
+        let expected = obj.ancestors().find(|obj| obj.depth() == depth);
+        if let (Some(actual), Some(expected)) = (actual, expected) {
+            prop_assert!(ptr::eq(actual, expected));
+        } else {
+            prop_assert!(actual.is_none() && expected.is_none());
+        }
+        Ok(())
+    }
+
+    proptest! {
+        // Probe ancestors by depth at valid and invalid depths
+        #[test]
+        fn ancestor_at_hwloc_depth(obj in test_object(),
+                                   depth in any_hwloc_depth()) {
+            check_ancestor_at_depth(obj, depth)?;
+        }
+        //
+        #[test]
+        fn ancestor_at_normal_depth(obj in test_object(),
+                                    depth in any_normal_depth()) {
+            check_ancestor_at_depth(obj, depth)?;
+        }
+        //
+        #[test]
+        fn ancestor_at_usize_depth(obj in test_object(),
+                                   depth in any_usize_depth()) {
+            check_ancestor_at_depth(obj, depth)?;
+        }
+    }
+
+    // --- Querying stuff by cpuset/nodeset ---
+
+    /// Pick an object and a related cpuset
+    fn object_and_related_cpuset() -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
+        // Separate objects with and without cpusets
+        let topology = Topology::test_instance();
+        let mut with_cpuset = Vec::new();
+        let mut without_cpuset = Vec::new();
+        for obj in topology.objects() {
+            if obj.object_type().has_sets() {
+                with_cpuset.push(obj);
+            } else {
+                without_cpuset.push(obj);
+            }
+        }
+
+        // For objects with cpusets, the reference cpuset is their cpuset
+        fn with_reference(
+            objects: Vec<&'static TopologyObject>,
+            ref_cpuset: impl Fn(&TopologyObject) -> BitmapRef<'_, CpuSet>,
+        ) -> Option<impl Strategy<Value = (&'static TopologyObject, CpuSet)>> {
+            (!objects.is_empty()).then(move || {
+                prop::sample::select(objects)
+                    .prop_flat_map(move |obj| (Just(obj), set_with_reference(&ref_cpuset(obj))))
+            })
+        }
+        let with_cpuset = with_reference(with_cpuset, |obj| obj.cpuset().unwrap());
+
+        // For objects without cpusets, the reference is the topology cpuset
+        let without_cpuset = with_reference(without_cpuset, |_obj| topology.cpuset());
+
+        // We pick from either list with equal probability
+        match (with_cpuset, without_cpuset) {
+            (Some(with), Some(without)) => prop_oneof![with, without].boxed(),
+            (Some(with), None) => with.boxed(),
+            (None, Some(without)) => without.boxed(),
+            (None, None) => unreachable!(),
+        }
+    }
+
+    proptest! {
+        /// Test [`TopologyObject::normal_child_covering_cpuset()`]
+        #[test]
+        fn normal_child_covering_cpuset((obj, set) in object_and_related_cpuset()) {
+            if let Some(result) = obj.normal_child_covering_cpuset(&set) {
+                prop_assert!(result.covers_cpuset(&set));
+            } else {
+                prop_assert!(obj.normal_children().all(|obj| !obj.covers_cpuset(&set)));
+            }
+        }
+
+        /// Test [`TopologyObject::is_inside_cpuset()`]
+        #[test]
+        fn is_inside_cpuset((obj, set) in object_and_related_cpuset()) {
+            let result = obj.is_inside_cpuset(&set);
+            let Some(obj_set) = obj.cpuset() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            if obj_set.is_empty() {
+                prop_assert!(!result);
+                return Ok(());
+            }
+            prop_assert_eq!(result, set.includes(obj_set));
+        }
+
+        /// Test [`TopologyObject::covers_cpuset()`]
+        #[test]
+        fn covers_cpuset((obj, set) in object_and_related_cpuset()) {
+            let result = obj.covers_cpuset(&set);
+            let Some(obj_set) = obj.cpuset() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            if set.is_empty() {
+                prop_assert!(!result);
+                return Ok(());
+            }
+            prop_assert_eq!(result, obj_set.includes(&set));
+        }
+    }
+
+    // --- Truth that an object is a bridge covering a certain PCI bus ---
+
+    /// Generate queries that have a reasonable chance of returning `true`
+    fn bridge_coverage() -> impl Strategy<Value = (&'static TopologyObject, PCIDomain, u8)> {
+        #[derive(Clone, Debug)]
+        struct BridgeCoverage {
+            bridge: &'static TopologyObject,
+            domain: PCIDomain,
+            bus_id_range: RangeInclusive<u8>,
+        }
+        let topology = Topology::test_instance();
+        let bridge_coverages = topology
+            .objects_with_type(ObjectType::Bridge)
+            .filter_map(|bridge| {
+                let Some(ObjectAttributes::Bridge(attrs)) = bridge.attributes() else {
+                    unreachable!()
+                };
+                let Some(DownstreamAttributes::PCI(pci)) = attrs.downstream_attributes() else {
+                    return None;
+                };
+                Some(BridgeCoverage {
+                    bridge,
+                    domain: pci.domain(),
+                    bus_id_range: pci.secondary_bus()..=pci.subordinate_bus(),
+                })
+            })
+            .collect::<Vec<_>>();
+        if bridge_coverages.is_empty() {
+            (any_object(), any::<PCIDomain>(), any::<u8>()).boxed()
+        } else {
+            prop::sample::select(bridge_coverages)
+                .prop_flat_map(|bridge_coverage| {
+                    let obj = prop_oneof![
+                        3 => Just(bridge_coverage.bridge),
+                        2 => any_object()
+                    ];
+                    let domain = prop_oneof![
+                        3 => Just(bridge_coverage.domain),
+                        2 => any::<PCIDomain>()
+                    ];
+                    let bus_id = prop_oneof![
+                        3 => bridge_coverage.bus_id_range,
+                        2 => any::<u8>()
+                    ];
+                    (obj, domain, bus_id)
+                })
+                .boxed()
+        }
+    }
+
+    proptest! {
+        /// Test [`TopologyObject::is_bridge_covering_pci_bus()`]
+        #[test]
+        fn is_bridge_covering_pci_bus((obj, domain, bus_id) in bridge_coverage()) {
+            let result = obj.is_bridge_covering_pci_bus(domain, bus_id);
+            let Some(ObjectAttributes::Bridge(attrs)) = obj.attributes() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            let Some(DownstreamAttributes::PCI(pci)) = attrs.downstream_attributes() else {
+                prop_assert!(!result);
+                return Ok(());
+            };
+            prop_assert_eq!(
+                result,
+                domain == pci.domain() && bus_id >= pci.secondary_bus() && bus_id <= pci.subordinate_bus()
+            );
+        }
+    }
+
+    // --- Looking up textual object info by random string ---
+
+    proptest! {
+        /// Test [`TopologyObject::info()`] against a random key
+        ///
+        /// Correct keys are checked in another test.
+        #[test]
+        fn info(obj in any_object(), key in any_string()) {
+            let result = obj.info(&key);
+            let Ok(ckey) = CString::new(key.clone()) else {
+                assert_eq!(result, None);
+                return Ok(());
+            };
+            assert_eq!(
+                obj.info(&key),
+                obj.infos().iter().find_map(|info|{
+                    (info.name() == ckey.as_c_str()).then_some(info.value())
+                })
+            );
+        }
+    }
+
+    // --- Properties of pairs of objects ---
+
+    proptest! {
+        /// Test for [`TopologyObject::first_common_ancestor()`]
+        #[test]
+        fn first_common_ancestor(obj in test_object(), other in any_object()) {
+            // Check result
+            let result = obj.first_common_ancestor(other);
+
+            // The topology root has no ancestor
+            if obj.object_type() == ObjectType::Machine || other.object_type() == ObjectType::Machine
+            {
+                prop_assert!(result.is_none());
+                return Ok(());
+            }
+
+            // Objects from two different topologies have no common ancestor
+            let topology = Topology::test_instance();
+            if !topology.contains(other) {
+                prop_assert!(result.is_none());
+                return Ok(());
+            }
+
+            // Otherwise, there should be a common ancestor
+            let common_ancestor = result.unwrap();
+
+            // Check if it is indeed the first common ancestor
+            fn prev_ancestor_candidate<'obj>(
+                obj: &'obj TopologyObject,
+                common_ancestor: &TopologyObject,
+            ) -> Option<&'obj TopologyObject> {
+                obj.ancestors().take_while(|&ancestor| !ptr::eq(ancestor, common_ancestor)).last()
+            }
+            let obj_ancestor = prev_ancestor_candidate(obj, common_ancestor);
+            let other_ancestor = prev_ancestor_candidate(other, common_ancestor);
+            if let (Some(obj_ancestor), Some(other_ancestor)) = (obj_ancestor, other_ancestor) {
+                prop_assert!(!ptr::eq(obj_ancestor, other_ancestor));
+            }
+        }
     }
 }

@@ -33,7 +33,7 @@ struct pid_t;
 impl Topology {
     /// Bind a thread `tid` on cpus given in `set`
     ///
-    /// Accepts both `&'_ CpuSet` and `BitmapRef<'_, CpuSet>` operands.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
     ///
     /// The behavior is exactly the same as the Linux `sched_setaffinity` system
     /// call, but uses a hwloc [`CpuSet`].

@@ -890,7 +890,7 @@ pub struct hwloc_cache_attr_s {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::size")]
     pub size: u64,
 
-    /// Depth ofthe cache (e.g. L1, L2, ...)
+    /// Depth of the cache (e.g. L1, L2, ...)
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::depth")]
     pub depth: c_uint,
 
