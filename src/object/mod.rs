@@ -2231,14 +2231,18 @@ impl TopologyObject {
     /// topology with `hwloc_topology_insert_group_object()`.
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) unsafe fn delete_all_sets(self_: ptr::NonNull<Self>) {
-        use ptr::addr_of_mut;
-
         let self_ = self_.as_ptr();
+        debug_assert_eq!(
+            // SAFETY: self_ is valid per input precondition
+            unsafe { (*self_).0.ty },
+            hwlocality_sys::HWLOC_OBJ_GROUP,
+            "this method should only be called on Group objects"
+        );
         for set_ptr in [
-            addr_of_mut!((*self_).0.cpuset),
-            addr_of_mut!((*self_).0.nodeset),
-            addr_of_mut!((*self_).0.complete_cpuset),
-            addr_of_mut!((*self_).0.complete_nodeset),
+            ptr::addr_of_mut!((*self_).0.cpuset),
+            ptr::addr_of_mut!((*self_).0.nodeset),
+            ptr::addr_of_mut!((*self_).0.complete_cpuset),
+            ptr::addr_of_mut!((*self_).0.complete_nodeset),
         ] {
             // SAFETY: This is safe per the input precondition that `self_` is a
             //         valid `TopologyObject` (which includes valid bitmap
