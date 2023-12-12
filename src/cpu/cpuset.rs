@@ -465,10 +465,6 @@ impl CpuSet {
     #[cfg(feature = "hwloc-2_2_0")]
     #[doc(alias = "hwloc_bitmap_singlify_per_core")]
     pub fn singlify_per_core(&mut self, topology: &Topology, which: usize) {
-        let Ok(which) = c_uint::try_from(which) else {
-            self.clear();
-            return;
-        };
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
@@ -479,7 +475,7 @@ impl CpuSet {
             hwlocality_sys::hwloc_bitmap_singlify_per_core(
                 topology.as_ptr(),
                 self.as_mut_ptr(),
-                which,
+                c_uint::try_from(which).unwrap_or(c_uint::MAX),
             )
         })
         .expect("Per hwloc documentation, this function should not fail");
@@ -502,13 +498,12 @@ impl CpuSet {
     pub fn from_nodeset(topology: &Topology, nodeset: impl Deref<Target = NodeSet>) -> Self {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
-            let mut cpuset = CpuSet::new();
-            for obj in topology.objects_at_depth(Depth::NUMANode) {
-                if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
-                    cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");
-                }
-            }
-            cpuset
+            topology
+                .nodes_from_nodeset(nodeset)
+                .fold(CpuSet::new(), |mut cpuset, node| {
+                    cpuset |= node.cpuset().expect("NUMA nodes should have cpusets");
+                    cpuset
+                })
         }
         polymorphized(topology, &nodeset)
     }
@@ -632,6 +627,21 @@ mod tests {
                         .position(|candidate| ptr::eq(candidate, obj))
             );
         }
+
+        /// Test for [`CpuSet::from_nodeset()`]
+        #[test]
+        fn cpuset_from_nodeset(
+            nodeset in topology_related_set(Topology::nodeset),
+        ) {
+            let topology = Topology::test_instance();
+            prop_assert_eq!(
+                CpuSet::from_nodeset(topology, &nodeset),
+                topology.nodes_from_nodeset(&nodeset)
+                        .map(|node| node.cpuset().unwrap().clone_target())
+                        .reduce(|set1, set2| set1 | set2)
+                        .unwrap_or_default()
+            )
+        }
     }
 
     /// Find the smallest object covering a cpuset whose type matches some
@@ -682,6 +692,66 @@ mod tests {
                 prop_assert!(ptr::eq(result.unwrap(), obj));
             } else {
                 prop_assert!(result.is_none());
+            }
+        }
+    }
+
+    // === Test singlify_per_core ===
+
+    #[cfg(feature = "hwloc-2_2_0")]
+    mod singlify_per_core {
+        use super::*;
+        use std::collections::HashMap;
+
+        /// Generate a `which` input that is usually sensible, but can be anything
+        fn any_core_pu_idx() -> impl Strategy<Value = usize> {
+            let topology = Topology::test_instance();
+            let max_pus_per_core = topology
+                .objects_with_type(ObjectType::Core)
+                .map(|core| core.cpuset().unwrap().weight().unwrap())
+                .max()
+                .unwrap_or(1);
+            prop_oneof![
+                4 => 0..max_pus_per_core,
+                1 => max_pus_per_core..=usize::MAX
+            ]
+        }
+
+        proptest! {
+            /// Test for [`Topology::singlify_per_core()`]
+            #[test]
+            fn singlify_per_core(
+                mut set in topology_related_set(Topology::cpuset),
+                which in any_core_pu_idx(),
+            ) {
+                // Start by computing the expected result
+                let topology = Topology::test_instance();
+
+                // Do a pass over PUs in the cpuset, directly adding PUs that don't
+                // have a core parent, and keeping track of which PUs are below each
+                // core in OS index order.
+                let mut expected_result = &set - topology.cpuset();
+                let mut core_to_cpu_indices = HashMap::<_, CpuSet>::new();
+                for pu in topology.pus_from_cpuset(&set) {
+                    let cpu_idx = pu.os_index().unwrap();
+                    #[allow(clippy::option_if_let_else)]
+                    if let Some(core) = pu.ancestors().find(|obj| obj.object_type() == ObjectType::Core) {
+                        core_to_cpu_indices.entry(core.global_persistent_index()).or_default().set(cpu_idx)
+                    } else {
+                        expected_result.set(cpu_idx);
+                    }
+                }
+
+                // Pick the requested PU below each core, if any
+                for (_core_id, cpus_below_core) in core_to_cpu_indices {
+                    if let Some(cpu_idx) = cpus_below_core.iter_set().nth(which) {
+                        expected_result.set(cpu_idx);
+                    }
+                }
+
+                // Check if the output matches our expectation
+                set.singlify_per_core(topology, which);
+                prop_assert_eq!(set, expected_result);
             }
         }
     }
