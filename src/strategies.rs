@@ -1,7 +1,7 @@
 //! Common strategies for property-based testing
 //!
-//! Every proptest [`Strategy`] which cannot be handled by an [`Arbitrary`] impl
-//! or a function that is only used by a single module is centralized here.
+//! This is a place for centralizing proptest strategies which are more clever
+//! than an [`Arbitrary`] and don't have one clear place to go in the codebase.
 
 use crate::bitmap::BitmapIndex;
 #[cfg(test)]

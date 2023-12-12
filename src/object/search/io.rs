@@ -113,10 +113,7 @@ impl Topology {
 mod tests {
     use super::*;
     use crate::{
-        object::{
-            lists::tests::{checked_object_set, object_ids_from_set},
-            types::ObjectType,
-        },
+        object::{lists::tests::compare_object_sets, types::ObjectType},
         strategies::any_string,
     };
     use proptest::prelude::*;
@@ -126,29 +123,21 @@ mod tests {
     // --- Enumerate I/O devices ---
 
     #[test]
-    fn io_object_lists() {
-        fn compare_object_sets(
-            result: impl Iterator<Item = &'static TopologyObject>,
-            reference: impl Iterator<Item = &'static TopologyObject>,
-        ) {
-            assert_eq!(
-                object_ids_from_set(&checked_object_set(result)),
-                object_ids_from_set(&checked_object_set(reference)),
-            );
-        }
+    fn io_object_lists() -> Result<(), TestCaseError> {
         let topology = Topology::test_instance();
         compare_object_sets(
             topology.pci_devices(),
             topology.objects_with_type(ObjectType::PCIDevice),
-        );
+        )?;
         compare_object_sets(
             topology.os_devices(),
             topology.objects_with_type(ObjectType::OSDevice),
-        );
+        )?;
         compare_object_sets(
             topology.bridges(),
             topology.objects_with_type(ObjectType::Bridge),
-        );
+        )?;
+        Ok(())
     }
 
     // --- Find PCI devices by address ---

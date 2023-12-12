@@ -81,6 +81,11 @@ impl Topology {
             self_: &'self_ Topology,
             set: &CpuSet,
         ) -> Result<Vec<&'self_ TopologyObject>, CoarsestPartitionError> {
+            // Handle empty set edge case
+            if set.is_empty() {
+                return Ok(Vec::new());
+            }
+
             // Make sure each set index actually maps into a hardware PU
             let root = self_.root_object();
             let root_cpuset = root.cpuset().expect("Root should have a CPU set");
@@ -528,7 +533,13 @@ impl_bitmap_newtype!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::strategies::topology_related_set;
+    use crate::{
+        object::{
+            hierarchy::tests::{any_hwloc_depth, any_normal_depth, any_usize_depth},
+            lists::tests::compare_object_sets,
+        },
+        strategies::topology_related_set,
+    };
     use proptest::prelude::*;
     use std::collections::HashSet;
 
@@ -595,6 +606,52 @@ mod tests {
                 prop_assert!(expected.remove(&obj.global_persistent_index()));
             }
             prop_assert_eq!(expected, HashSet::new());
+        }
+    }
+
+    /// Test [`Topology::objects_inside_cpuset_at_depth()`] at a certain depth
+    fn check_objects_inside_cpuset_at_depth<DepthLike>(
+        set: &CpuSet,
+        depth: DepthLike,
+    ) -> Result<(), TestCaseError>
+    where
+        DepthLike: TryInto<Depth> + Copy + Debug + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+        compare_object_sets(
+            topology.objects_inside_cpuset_at_depth(set, depth),
+            topology
+                .objects_at_depth(depth)
+                .filter(|obj| obj.is_inside_cpuset(set)),
+        )
+    }
+
+    proptest! {
+        // Test above operations at valid and invalid depths
+        #[test]
+        fn check_objects_inside_cpuset_at_hwloc_depth(
+            set in topology_related_set(Topology::cpuset),
+            depth in any_hwloc_depth()
+        ) {
+            check_objects_inside_cpuset_at_depth(&set, depth)?;
+        }
+        //
+        #[test]
+        fn check_objects_inside_cpuset_at_normal_depth(
+            set in topology_related_set(Topology::cpuset),
+            depth in any_normal_depth()
+        ) {
+            check_objects_inside_cpuset_at_depth(&set, depth)?;
+        }
+        //
+        #[test]
+        fn check_objects_inside_cpuset_at_usize_depth(
+            set in topology_related_set(Topology::cpuset),
+            depth in any_usize_depth()
+        ) {
+            check_objects_inside_cpuset_at_depth(&set, depth)?;
         }
     }
 }
