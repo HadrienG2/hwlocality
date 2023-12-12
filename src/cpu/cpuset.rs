@@ -25,7 +25,7 @@ use crate::{
 use similar_asserts::assert_eq;
 #[cfg(feature = "hwloc-2_2_0")]
 use std::ffi::c_uint;
-use std::{fmt::Debug, iter::FusedIterator, ops::Deref, ptr};
+use std::{debug_assert, fmt::Debug, iter::FusedIterator, ops::Deref, ptr};
 use thiserror::Error;
 
 /// # Finding objects inside a CPU set
@@ -98,12 +98,14 @@ impl Topology {
                 result: &mut Vec<&'a TopologyObject>,
                 cpusets: &mut Vec<CpuSet>,
             ) {
-                // If the current object does not have a cpuset, ignore it
-                let Some(parent_cpuset) = parent.cpuset() else {
-                    return;
-                };
-
-                // If it exactly covers the target cpuset, we're done
+                // If the current object matches the target cpuset, we're done
+                let parent_cpuset = parent
+                    .cpuset()
+                    .expect("normal objects should have a cpuset");
+                debug_assert!(
+                    parent_cpuset.intersects(set),
+                    "shouldn't recurse into objects with an unrelated cpuset"
+                );
                 if parent_cpuset == set {
                     result.push(parent);
                     return;
@@ -112,11 +114,8 @@ impl Topology {
                 // Otherwise, look for children that cover the target cpuset
                 let mut subset = cpusets.pop().unwrap_or_default();
                 for child in parent.normal_children() {
-                    // Ignore children without a cpuset, or with a cpuset that
-                    // doesn't intersect the target cpuset
-                    let Some(child_cpuset) = child.cpuset() else {
-                        continue;
-                    };
+                    // Ignore children that don't intersect the target cpuset
+                    let child_cpuset = child.cpuset().expect("normal objects should have a cpuset");
                     if !child_cpuset.intersects(set) {
                         continue;
                     }
@@ -525,3 +524,77 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_cpuset_t")]
     CpuSet
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strategies::topology_related_set;
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    proptest! {
+        /// Test for [`Topology::largest_objects_inside_cpuset()`]
+        #[test]
+        fn largest_objects_inside_cpuset(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let mut result = topology.largest_objects_inside_cpuset(set.clone());
+
+            // Figure out which objects we should get by iterating in order of
+            // increasing depth, noting which objects match...
+            let mut remaining_set = set;
+            let mut expected = HashSet::new();
+            'depths: for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()) {
+                for obj in topology.objects_at_depth(depth) {
+                    if obj.is_inside_cpuset(&remaining_set) {
+                        prop_assert!(expected.insert(obj.global_persistent_index()));
+                        // ...and updating the search cpuset as we go in order
+                        // to avoid double-counting children of these objects
+                        remaining_set -= obj.cpuset().unwrap();
+                        if remaining_set.is_empty() {
+                            break 'depths;
+                        }
+                    }
+                }
+            }
+
+            // Check that the iterator yields all expected objects and only them
+            for _ in 0..expected.len() {
+                let out_obj = result.next().unwrap();
+                prop_assert!(expected.remove(&out_obj.global_persistent_index()));
+            }
+            prop_assert!(result.next().is_none());
+        }
+
+        /// Test for [`Topology::coarsest_cpuset_partition()`]
+        #[test]
+        fn coarsest_cpuset_partition(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let result = topology.coarsest_cpuset_partition(&set);
+
+            // This function should only succeed when the input set is a subset
+            // of the topology cpuset
+            if !topology.cpuset().includes(&set) {
+                let expected_error = CoarsestPartitionError {
+                    query: set,
+                    root: topology.cpuset().clone_target()
+                };
+                prop_assert!(matches!(result, Err(e) if e == expected_error));
+                return Ok(());
+            }
+            let result = result.unwrap();
+
+            // When it does succeed, it should produce the same output as
+            // largest_objects_inside_cpuset
+            let mut expected = topology
+                .largest_objects_inside_cpuset(set)
+                .map(TopologyObject::global_persistent_index)
+                .collect::<HashSet<_>>();
+            for obj in result {
+                prop_assert!(expected.remove(&obj.global_persistent_index()));
+            }
+            prop_assert_eq!(expected, HashSet::new());
+        }
+    }
+}
