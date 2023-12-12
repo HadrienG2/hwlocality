@@ -54,15 +54,11 @@ mod reference;
 
 #[cfg(doc)]
 use crate::{
-    cpu::cpuset::CpuSet,
-    memory::nodeset::NodeSet,
-    object::TopologyObject,
-    topology::{builder::BuildFlags, Topology},
+    cpu::cpuset::CpuSet, memory::nodeset::NodeSet, object::TopologyObject, topology::Topology,
 };
 use crate::{
     errors,
     ffi::{self, PositiveInt},
-    Sealed,
 };
 use hwlocality_sys::hwloc_bitmap_s;
 #[cfg(any(test, feature = "proptest"))]
@@ -70,12 +66,10 @@ use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-#[cfg(doc)]
-use std::collections::BTreeSet;
 #[cfg(any(test, feature = "proptest"))]
 use std::collections::HashSet;
 use std::{
-    borrow::{Borrow, BorrowMut},
+    borrow::Borrow,
     cmp::Ordering,
     convert::TryFrom,
     ffi::{c_int, c_uint},
@@ -94,7 +88,7 @@ pub type BitmapIndex = PositiveInt;
 
 // Re-export BitmapRef so users don't need to know about the reference submodule
 pub use self::{
-    newtypes::{BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
+    newtypes::{BitmapKind, OwnedBitmap, OwnedSpecializedBitmap, SpecializedBitmap},
     reference::BitmapRef,
 };
 
@@ -1650,49 +1644,6 @@ impl<B: Borrow<Self>> SubAssign<B> for Bitmap {
 // SAFETY: Safe because Bitmap exposes no internal mutability
 unsafe impl Sync for Bitmap {}
 
-/// A [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
-///
-/// This type cannot be implemented outside of this crate as it relies on
-/// hwlocality implementation details. It is only meant to be used in the
-/// signature of generic methods that accept the aforementioned set of types
-/// and then go on to process them homogeneously.
-//
-// --- Implementation details ---
-//
-// # Safety
-//
-// Implementations of this type must be a `repr(transparent)` wrapper of
-// `NonNull<hwloc_bitmap_s>`, possibly with some ZSTs added.
-#[allow(clippy::missing_safety_doc)]
-pub unsafe trait OwnedBitmap:
-    Borrow<Bitmap>
-    + BorrowMut<Bitmap>
-    + Clone
-    + Debug
-    + Display
-    + From<Bitmap>
-    + Into<Bitmap>
-    + Sealed
-    + 'static
-{
-    /// Access the inner `NonNull<hwloc_bitmap_s>`
-    ///
-    /// # Safety
-    ///
-    /// The client must not use this pointer to mutate the target object
-    #[doc(hidden)]
-    unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s>;
-}
-//
-impl Sealed for Bitmap {}
-//
-// SAFETY: Bitmap is a repr(transparent) newtype of NonNull<RawBitmap>
-unsafe impl OwnedBitmap for Bitmap {
-    unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s> {
-        self.0
-    }
-}
-
 #[allow(clippy::cognitive_complexity, clippy::op_ref, clippy::too_many_lines)]
 #[cfg(test)]
 pub(crate) mod tests {
@@ -1716,7 +1667,7 @@ pub(crate) mod tests {
         hash::{BuildHasher, Hash},
         io::{self, Read},
         mem::ManuallyDrop,
-        ops::{Deref, Drop, RangeFrom, RangeInclusive},
+        ops::{Deref, RangeFrom, RangeInclusive},
         panic::UnwindSafe,
         ptr,
     };
@@ -1757,14 +1708,6 @@ pub(crate) mod tests {
         Sub<Bitmap>, Sub<&'static Bitmap>,
     );
     assert_type_eq_all!(BitmapIndex, PositiveInt);
-    assert_impl_all!(BitmapKind:
-        Copy, Debug, Hash, Sized, Sync, Unpin, UnwindSafe
-    );
-    assert_not_impl_any!(BitmapKind:
-        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
-        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
-        io::Write
-    );
     assert_impl_all!(Iter<Bitmap>:
         Clone, Debug, FusedIterator<Item=BitmapIndex>, Hash, Sized, Sync, Unpin,
         UnwindSafe

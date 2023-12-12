@@ -1,10 +1,57 @@
 //! Implementation of bitmap newtypes ([`CpuSet`] and [`NodeSet`])
 
-use super::{Bitmap, OwnedBitmap};
+use super::{hwloc_bitmap_s, Bitmap};
 use crate::Sealed;
 #[cfg(doc)]
 use crate::{cpu::cpuset::CpuSet, memory::nodeset::NodeSet};
-use std::borrow::Borrow;
+use std::{
+    borrow::{Borrow, BorrowMut},
+    fmt::{Debug, Display},
+    ptr::NonNull,
+};
+
+/// A [`Bitmap`] or a specialized form thereof ([`CpuSet`], [`NodeSet`]...)
+///
+/// This type cannot be implemented outside of this crate as it relies on
+/// hwlocality implementation details. It is only meant to be used in the
+/// signature of generic methods that accept the aforementioned set of types
+/// and then go on to process them homogeneously.
+//
+// --- Implementation details ---
+//
+// # Safety
+//
+// Implementations of this type must be a `repr(transparent)` wrapper of
+// `NonNull<hwloc_bitmap_s>`, possibly with some ZSTs added.
+#[allow(clippy::missing_safety_doc)]
+pub unsafe trait OwnedBitmap:
+    Borrow<Bitmap>
+    + BorrowMut<Bitmap>
+    + Clone
+    + Debug
+    + Display
+    + From<Bitmap>
+    + Into<Bitmap>
+    + Sealed
+    + 'static
+{
+    /// Access the inner `NonNull<hwloc_bitmap_s>`
+    ///
+    /// # Safety
+    ///
+    /// The client must not use this pointer to mutate the target object
+    #[doc(hidden)]
+    unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s>;
+}
+//
+impl Sealed for Bitmap {}
+//
+// SAFETY: Bitmap is a repr(transparent) newtype of NonNull<RawBitmap>
+unsafe impl OwnedBitmap for Bitmap {
+    unsafe fn inner(&self) -> NonNull<hwloc_bitmap_s> {
+        self.0
+    }
+}
 
 /// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
 ///
@@ -966,4 +1013,30 @@ macro_rules! impl_bitmap_newtype {
         #[doc(inline)]
         pub use $mod_name::$newtype;
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use std::{
+        fmt::{
+            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
+        },
+        hash::Hash,
+        io::{self, Read},
+        ops::{Deref, Drop},
+        panic::UnwindSafe,
+    };
+
+    // Check that public types in this module keep implementing all expected
+    // traits, in the interest of detecting future semver-breaking changes
+    assert_impl_all!(BitmapKind:
+        Copy, Debug, Hash, Sized, Sync, Unpin, UnwindSafe
+    );
+    assert_not_impl_any!(BitmapKind:
+        Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
+        Octal, PartialOrd, Pointer, Read, UpperExp, UpperHex, fmt::Write,
+        io::Write
+    );
 }
