@@ -609,6 +609,19 @@ mod tests {
             prop_assert_eq!(expected, HashSet::new());
         }
 
+        /// Test for [`Topology::objects_covering_cpuset_with_type()`]
+        #[test]
+        fn objects_covering_cpuset_with_type(
+            set in topology_related_set(Topology::cpuset),
+            object_type: ObjectType
+        ) {
+            let topology = Topology::test_instance();
+            compare_object_sets(
+                topology.objects_covering_cpuset_with_type(&set, object_type),
+                topology.objects_with_type(object_type).filter(|obj| obj.covers_cpuset(&set))
+            )?;
+        }
+
         /// Test for [`Topology::object_index_inside_cpuset()`]
         #[test]
         fn object_index_inside_cpuset((obj, set) in object_and_related_cpuset()) {
@@ -620,6 +633,60 @@ mod tests {
             );
         }
     }
+
+    /// Find the smallest object covering a cpuset whose type matches some
+    /// conditions, using a naive algorithm
+    fn smallest_obj_above_cpuset_with_type_filter(
+        set: &CpuSet,
+        mut type_filter: impl FnMut(ObjectType) -> bool,
+    ) -> Option<&'static TopologyObject> {
+        let topology = Topology::test_instance();
+        'depths: for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).rev() {
+            if !type_filter(topology.type_at_depth(depth).unwrap()) {
+                continue 'depths;
+            }
+            for obj in topology.objects_at_depth(depth) {
+                if obj.covers_cpuset(set) {
+                    return Some(obj);
+                }
+            }
+        }
+        None
+    }
+
+    proptest! {
+        /// Test for [`Topology::smallest_object_covering_cpuset()`]
+        #[test]
+        fn smallest_object_covering_cpuset(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let result = topology.smallest_object_covering_cpuset(&set);
+
+            // Check against output of naive algorithm
+            if let Some(obj) = smallest_obj_above_cpuset_with_type_filter(&set, |_| true) {
+                prop_assert!(ptr::eq(result.unwrap(), obj));
+            } else {
+                prop_assert!(result.is_none());
+            }
+        }
+
+        /// Test for [`Topology::first_cache_covering_cpuset()`]
+        #[test]
+        fn first_cache_covering_cpuset(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let result = topology.first_cache_covering_cpuset(&set);
+
+            // Check against output of naive algorithm
+            if let Some(obj) = smallest_obj_above_cpuset_with_type_filter(&set, ObjectType::is_cpu_data_cache) {
+                prop_assert!(ptr::eq(result.unwrap(), obj));
+            } else {
+                prop_assert!(result.is_none());
+            }
+        }
+    }
+
+    // === Test methods that need a (set, depth) tuple ===
 
     /// Test for [`Topology::objects_inside_cpuset_at_depth()`]
     fn check_objects_inside_cpuset_at_depth<DepthLike>(
@@ -639,14 +706,35 @@ mod tests {
                 .filter(|obj| obj.is_inside_cpuset(set)),
         )
     }
-    //
+
+    /// Test for [`Topology::objects_covering_cpuset_at_depth()`]
+    fn check_objects_covering_cpuset_at_depth<DepthLike>(
+        set: &CpuSet,
+        depth: DepthLike,
+    ) -> Result<(), TestCaseError>
+    where
+        DepthLike: TryInto<Depth> + Copy + Debug + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+        compare_object_sets(
+            topology.objects_covering_cpuset_at_depth(set, depth),
+            topology
+                .objects_at_depth(depth)
+                .filter(|obj| obj.covers_cpuset(set)),
+        )
+    }
+
     proptest! {
+        // Test all of the above for all depth types
         #[test]
         fn check_objects_inside_cpuset_at_hwloc_depth(
             set in topology_related_set(Topology::cpuset),
             depth in any_hwloc_depth()
         ) {
             check_objects_inside_cpuset_at_depth(&set, depth)?;
+            check_objects_covering_cpuset_at_depth(&set, depth)?;
         }
         //
         #[test]
@@ -655,6 +743,7 @@ mod tests {
             depth in any_normal_depth()
         ) {
             check_objects_inside_cpuset_at_depth(&set, depth)?;
+            check_objects_covering_cpuset_at_depth(&set, depth)?;
         }
         //
         #[test]
@@ -663,6 +752,7 @@ mod tests {
             depth in any_usize_depth()
         ) {
             check_objects_inside_cpuset_at_depth(&set, depth)?;
+            check_objects_covering_cpuset_at_depth(&set, depth)?;
         }
     }
 }
