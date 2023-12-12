@@ -1,5 +1,7 @@
 //! Implementation of bitmap newtypes ([`CpuSet`] and [`NodeSet`])
 
+#[cfg(doc)]
+use super::BitmapRef;
 use super::{hwloc_bitmap_s, Bitmap};
 use crate::Sealed;
 #[cfg(doc)]
