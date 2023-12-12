@@ -91,7 +91,7 @@ pub(crate) mod tests {
     }
 
     /// Extract the keys from the output of [`checked_object_set()`]
-    pub(crate) fn object_ids_from_set<'a>(map: &HashMap<u64, &'a TopologyObject>) -> HashSet<u64> {
+    pub(crate) fn object_ids_from_set(map: &HashMap<u64, &TopologyObject>) -> HashSet<u64> {
         map.keys().copied().collect()
     }
 

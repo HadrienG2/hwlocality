@@ -1093,7 +1093,7 @@ unsafe impl TransparentNewtype for TopologyObject {
 
 #[allow(clippy::cognitive_complexity)]
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::hierarchy::tests::{any_hwloc_depth, any_normal_depth, any_usize_depth};
     use super::*;
     use crate::{
@@ -1487,7 +1487,8 @@ mod tests {
     // --- Querying stuff by cpuset/nodeset ---
 
     /// Pick an object and a related cpuset
-    fn object_and_related_cpuset() -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
+    pub(crate) fn object_and_related_cpuset(
+    ) -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
         // Separate objects with and without cpusets
         let topology = Topology::test_instance();
         let mut with_cpuset = Vec::new();

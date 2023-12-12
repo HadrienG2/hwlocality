@@ -537,6 +537,7 @@ mod tests {
         object::{
             hierarchy::tests::{any_hwloc_depth, any_normal_depth, any_usize_depth},
             lists::tests::compare_object_sets,
+            tests::object_and_related_cpuset,
         },
         strategies::topology_related_set,
     };
@@ -607,9 +608,20 @@ mod tests {
             }
             prop_assert_eq!(expected, HashSet::new());
         }
+
+        /// Test for [`Topology::object_index_inside_cpuset()`]
+        #[test]
+        fn object_index_inside_cpuset((obj, set) in object_and_related_cpuset()) {
+            let topology = Topology::test_instance();
+            prop_assert_eq!(
+                topology.object_index_inside_cpuset(&set, obj),
+                topology.objects_inside_cpuset_at_depth(&set, obj.depth())
+                        .position(|candidate| ptr::eq(candidate, obj))
+            );
+        }
     }
 
-    /// Test [`Topology::objects_inside_cpuset_at_depth()`] at a certain depth
+    /// Test for [`Topology::objects_inside_cpuset_at_depth()`]
     fn check_objects_inside_cpuset_at_depth<DepthLike>(
         set: &CpuSet,
         depth: DepthLike,
@@ -627,9 +639,8 @@ mod tests {
                 .filter(|obj| obj.is_inside_cpuset(set)),
         )
     }
-
+    //
     proptest! {
-        // Test above operations at valid and invalid depths
         #[test]
         fn check_objects_inside_cpuset_at_hwloc_depth(
             set in topology_related_set(Topology::cpuset),
