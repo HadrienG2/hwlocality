@@ -5,7 +5,7 @@
 
 #[cfg(doc)]
 use crate::{bitmap::Bitmap, topology::support::DiscoverySupport};
-use crate::{cpu::cpuset::CpuSet, impl_bitmap_newtype, object::depth::Depth, topology::Topology};
+use crate::{cpu::cpuset::CpuSet, impl_bitmap_newtype, topology::Topology};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -35,11 +35,12 @@ impl NodeSet {
     pub fn from_cpuset(topology: &Topology, cpuset: impl Deref<Target = CpuSet>) -> Self {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(topology: &Topology, cpuset: &CpuSet) -> NodeSet {
-            let mut nodeset = NodeSet::new();
-            for obj in topology.objects_covering_cpuset_at_depth(cpuset, Depth::NUMANode) {
-                nodeset.set(obj.os_index().expect("NUMA nodes should have OS indices"));
-            }
-            nodeset
+            topology
+                .pus_from_cpuset(cpuset)
+                .fold(NodeSet::new(), |mut nodeset, pu| {
+                    nodeset |= pu.nodeset().expect("processing units should have nodesets");
+                    nodeset
+                })
         }
         polymorphized(topology, &cpuset)
     }

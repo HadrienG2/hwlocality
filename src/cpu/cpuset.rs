@@ -25,7 +25,7 @@ use crate::{
 use similar_asserts::assert_eq;
 #[cfg(feature = "hwloc-2_2_0")]
 use std::ffi::c_uint;
-use std::{fmt::Debug, iter::FusedIterator, ops::Deref, ptr};
+use std::{debug_assert, fmt::Debug, iter::FusedIterator, ops::Deref, ptr};
 use thiserror::Error;
 
 /// # Finding objects inside a CPU set
@@ -81,6 +81,11 @@ impl Topology {
             self_: &'self_ Topology,
             set: &CpuSet,
         ) -> Result<Vec<&'self_ TopologyObject>, CoarsestPartitionError> {
+            // Handle empty set edge case
+            if set.is_empty() {
+                return Ok(Vec::new());
+            }
+
             // Make sure each set index actually maps into a hardware PU
             let root = self_.root_object();
             let root_cpuset = root.cpuset().expect("Root should have a CPU set");
@@ -98,12 +103,14 @@ impl Topology {
                 result: &mut Vec<&'a TopologyObject>,
                 cpusets: &mut Vec<CpuSet>,
             ) {
-                // If the current object does not have a cpuset, ignore it
-                let Some(parent_cpuset) = parent.cpuset() else {
-                    return;
-                };
-
-                // If it exactly covers the target cpuset, we're done
+                // If the current object matches the target cpuset, we're done
+                let parent_cpuset = parent
+                    .cpuset()
+                    .expect("normal objects should have a cpuset");
+                debug_assert!(
+                    parent_cpuset.intersects(set),
+                    "shouldn't recurse into objects with an unrelated cpuset"
+                );
                 if parent_cpuset == set {
                     result.push(parent);
                     return;
@@ -112,11 +119,8 @@ impl Topology {
                 // Otherwise, look for children that cover the target cpuset
                 let mut subset = cpusets.pop().unwrap_or_default();
                 for child in parent.normal_children() {
-                    // Ignore children without a cpuset, or with a cpuset that
-                    // doesn't intersect the target cpuset
-                    let Some(child_cpuset) = child.cpuset() else {
-                        continue;
-                    };
+                    // Ignore children that don't intersect the target cpuset
+                    let child_cpuset = child.cpuset().expect("normal objects should have a cpuset");
                     if !child_cpuset.intersects(set) {
                         continue;
                     }
@@ -461,10 +465,6 @@ impl CpuSet {
     #[cfg(feature = "hwloc-2_2_0")]
     #[doc(alias = "hwloc_bitmap_singlify_per_core")]
     pub fn singlify_per_core(&mut self, topology: &Topology, which: usize) {
-        let Ok(which) = c_uint::try_from(which) else {
-            self.clear();
-            return;
-        };
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
@@ -475,7 +475,7 @@ impl CpuSet {
             hwlocality_sys::hwloc_bitmap_singlify_per_core(
                 topology.as_ptr(),
                 self.as_mut_ptr(),
-                which,
+                c_uint::try_from(which).unwrap_or(c_uint::MAX),
             )
         })
         .expect("Per hwloc documentation, this function should not fail");
@@ -498,13 +498,12 @@ impl CpuSet {
     pub fn from_nodeset(topology: &Topology, nodeset: impl Deref<Target = NodeSet>) -> Self {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(topology: &Topology, nodeset: &NodeSet) -> CpuSet {
-            let mut cpuset = CpuSet::new();
-            for obj in topology.objects_at_depth(Depth::NUMANode) {
-                if nodeset.is_set(obj.os_index().expect("NUMA nodes should have OS indices")) {
-                    cpuset |= obj.cpuset().expect("NUMA nodes should have cpusets");
-                }
-            }
-            cpuset
+            topology
+                .nodes_from_nodeset(nodeset)
+                .fold(CpuSet::new(), |mut cpuset, node| {
+                    cpuset |= node.cpuset().expect("NUMA nodes should have cpusets");
+                    cpuset
+                })
         }
         polymorphized(topology, &nodeset)
     }
@@ -525,3 +524,305 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_cpuset_t")]
     CpuSet
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        object::{
+            hierarchy::tests::{any_hwloc_depth, any_normal_depth, any_usize_depth},
+            lists::tests::compare_object_sets,
+            tests::object_and_related_cpuset,
+        },
+        strategies::topology_related_set,
+    };
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    proptest! {
+        /// Test for [`Topology::largest_objects_inside_cpuset()`]
+        #[test]
+        fn largest_objects_inside_cpuset(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let mut result = topology.largest_objects_inside_cpuset(set.clone());
+
+            // Figure out which objects we should get by iterating in order of
+            // increasing depth, noting which objects match...
+            let mut remaining_set = set;
+            let mut expected = HashSet::new();
+            'depths: for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()) {
+                for obj in topology.objects_at_depth(depth) {
+                    if obj.is_inside_cpuset(&remaining_set) {
+                        prop_assert!(expected.insert(obj.global_persistent_index()));
+                        // ...and updating the search cpuset as we go in order
+                        // to avoid double-counting children of these objects
+                        remaining_set -= obj.cpuset().unwrap();
+                        if remaining_set.is_empty() {
+                            break 'depths;
+                        }
+                    }
+                }
+            }
+
+            // Check that the iterator yields all expected objects and only them
+            for _ in 0..expected.len() {
+                let out_obj = result.next().unwrap();
+                prop_assert!(expected.remove(&out_obj.global_persistent_index()));
+            }
+            prop_assert!(result.next().is_none());
+        }
+
+        /// Test for [`Topology::coarsest_cpuset_partition()`]
+        #[test]
+        fn coarsest_cpuset_partition(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let result = topology.coarsest_cpuset_partition(&set);
+
+            // This function should only succeed when the input set is a subset
+            // of the topology cpuset
+            if !topology.cpuset().includes(&set) {
+                let expected_error = CoarsestPartitionError {
+                    query: set,
+                    root: topology.cpuset().clone_target()
+                };
+                prop_assert!(matches!(result, Err(e) if e == expected_error));
+                return Ok(());
+            }
+            let result = result.unwrap();
+
+            // When it does succeed, it should produce the same output as
+            // largest_objects_inside_cpuset
+            let mut expected = topology
+                .largest_objects_inside_cpuset(set)
+                .map(TopologyObject::global_persistent_index)
+                .collect::<HashSet<_>>();
+            for obj in result {
+                prop_assert!(expected.remove(&obj.global_persistent_index()));
+            }
+            prop_assert_eq!(expected, HashSet::new());
+        }
+
+        /// Test for [`Topology::objects_covering_cpuset_with_type()`]
+        #[test]
+        fn objects_covering_cpuset_with_type(
+            set in topology_related_set(Topology::cpuset),
+            object_type: ObjectType
+        ) {
+            let topology = Topology::test_instance();
+            compare_object_sets(
+                topology.objects_covering_cpuset_with_type(&set, object_type),
+                topology.objects_with_type(object_type).filter(|obj| obj.covers_cpuset(&set))
+            )?;
+        }
+
+        /// Test for [`Topology::object_index_inside_cpuset()`]
+        #[test]
+        fn object_index_inside_cpuset((obj, set) in object_and_related_cpuset()) {
+            let topology = Topology::test_instance();
+            prop_assert_eq!(
+                topology.object_index_inside_cpuset(&set, obj),
+                topology.objects_inside_cpuset_at_depth(&set, obj.depth())
+                        .position(|candidate| ptr::eq(candidate, obj))
+            );
+        }
+
+        /// Test for [`CpuSet::from_nodeset()`]
+        #[test]
+        fn cpuset_from_nodeset(
+            nodeset in topology_related_set(Topology::nodeset),
+        ) {
+            let topology = Topology::test_instance();
+            prop_assert_eq!(
+                CpuSet::from_nodeset(topology, &nodeset),
+                topology.nodes_from_nodeset(&nodeset)
+                        .map(|node| node.cpuset().unwrap().clone_target())
+                        .reduce(|set1, set2| set1 | set2)
+                        .unwrap_or_default()
+            )
+        }
+    }
+
+    /// Find the smallest object covering a cpuset whose type matches some
+    /// conditions, using a naive algorithm
+    fn smallest_obj_above_cpuset_with_type_filter(
+        set: &CpuSet,
+        mut type_filter: impl FnMut(ObjectType) -> bool,
+    ) -> Option<&'static TopologyObject> {
+        let topology = Topology::test_instance();
+        'depths: for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).rev() {
+            if !type_filter(topology.type_at_depth(depth).unwrap()) {
+                continue 'depths;
+            }
+            for obj in topology.objects_at_depth(depth) {
+                if obj.covers_cpuset(set) {
+                    return Some(obj);
+                }
+            }
+        }
+        None
+    }
+
+    proptest! {
+        /// Test for [`Topology::smallest_object_covering_cpuset()`]
+        #[test]
+        fn smallest_object_covering_cpuset(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let result = topology.smallest_object_covering_cpuset(&set);
+
+            // Check against output of naive algorithm
+            if let Some(obj) = smallest_obj_above_cpuset_with_type_filter(&set, |_| true) {
+                prop_assert!(ptr::eq(result.unwrap(), obj));
+            } else {
+                prop_assert!(result.is_none());
+            }
+        }
+
+        /// Test for [`Topology::first_cache_covering_cpuset()`]
+        #[test]
+        fn first_cache_covering_cpuset(set in topology_related_set(Topology::cpuset)) {
+            // Compute direct result
+            let topology = Topology::test_instance();
+            let result = topology.first_cache_covering_cpuset(&set);
+
+            // Check against output of naive algorithm
+            if let Some(obj) = smallest_obj_above_cpuset_with_type_filter(&set, ObjectType::is_cpu_data_cache) {
+                prop_assert!(ptr::eq(result.unwrap(), obj));
+            } else {
+                prop_assert!(result.is_none());
+            }
+        }
+    }
+
+    // === Test singlify_per_core ===
+
+    #[cfg(feature = "hwloc-2_2_0")]
+    mod singlify_per_core {
+        use super::*;
+        use std::collections::HashMap;
+
+        /// Generate a `which` input that is usually sensible, but can be anything
+        fn any_core_pu_idx() -> impl Strategy<Value = usize> {
+            let topology = Topology::test_instance();
+            let max_pus_per_core = topology
+                .objects_with_type(ObjectType::Core)
+                .map(|core| core.cpuset().unwrap().weight().unwrap())
+                .max()
+                .unwrap_or(1);
+            prop_oneof![
+                4 => 0..max_pus_per_core,
+                1 => max_pus_per_core..=usize::MAX
+            ]
+        }
+
+        proptest! {
+            /// Test for [`Topology::singlify_per_core()`]
+            #[test]
+            fn singlify_per_core(
+                mut set in topology_related_set(Topology::cpuset),
+                which in any_core_pu_idx(),
+            ) {
+                // Start by computing the expected result
+                let topology = Topology::test_instance();
+
+                // Do a pass over PUs in the cpuset, directly adding PUs that don't
+                // have a core parent, and keeping track of which PUs are below each
+                // core in OS index order.
+                let mut expected_result = &set - topology.cpuset();
+                let mut core_to_cpu_indices = HashMap::<_, CpuSet>::new();
+                for pu in topology.pus_from_cpuset(&set) {
+                    let cpu_idx = pu.os_index().unwrap();
+                    #[allow(clippy::option_if_let_else)]
+                    if let Some(core) = pu.ancestors().find(|obj| obj.object_type() == ObjectType::Core) {
+                        core_to_cpu_indices.entry(core.global_persistent_index()).or_default().set(cpu_idx)
+                    } else {
+                        expected_result.set(cpu_idx);
+                    }
+                }
+
+                // Pick the requested PU below each core, if any
+                for (_core_id, cpus_below_core) in core_to_cpu_indices {
+                    if let Some(cpu_idx) = cpus_below_core.iter_set().nth(which) {
+                        expected_result.set(cpu_idx);
+                    }
+                }
+
+                // Check if the output matches our expectation
+                set.singlify_per_core(topology, which);
+                prop_assert_eq!(set, expected_result);
+            }
+        }
+    }
+
+    // === Test methods that need a (set, depth) tuple ===
+
+    /// Test for [`Topology::objects_inside_cpuset_at_depth()`]
+    fn check_objects_inside_cpuset_at_depth<DepthLike>(
+        set: &CpuSet,
+        depth: DepthLike,
+    ) -> Result<(), TestCaseError>
+    where
+        DepthLike: TryInto<Depth> + Copy + Debug + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+        compare_object_sets(
+            topology.objects_inside_cpuset_at_depth(set, depth),
+            topology
+                .objects_at_depth(depth)
+                .filter(|obj| obj.is_inside_cpuset(set)),
+        )
+    }
+
+    /// Test for [`Topology::objects_covering_cpuset_at_depth()`]
+    fn check_objects_covering_cpuset_at_depth<DepthLike>(
+        set: &CpuSet,
+        depth: DepthLike,
+    ) -> Result<(), TestCaseError>
+    where
+        DepthLike: TryInto<Depth> + Copy + Debug + Eq,
+        Depth: PartialEq<DepthLike>,
+        <DepthLike as TryInto<Depth>>::Error: Debug,
+    {
+        let topology = Topology::test_instance();
+        compare_object_sets(
+            topology.objects_covering_cpuset_at_depth(set, depth),
+            topology
+                .objects_at_depth(depth)
+                .filter(|obj| obj.covers_cpuset(set)),
+        )
+    }
+
+    proptest! {
+        // Test all of the above for all depth types
+        #[test]
+        fn check_objects_inside_cpuset_at_hwloc_depth(
+            set in topology_related_set(Topology::cpuset),
+            depth in any_hwloc_depth()
+        ) {
+            check_objects_inside_cpuset_at_depth(&set, depth)?;
+            check_objects_covering_cpuset_at_depth(&set, depth)?;
+        }
+        //
+        #[test]
+        fn check_objects_inside_cpuset_at_normal_depth(
+            set in topology_related_set(Topology::cpuset),
+            depth in any_normal_depth()
+        ) {
+            check_objects_inside_cpuset_at_depth(&set, depth)?;
+            check_objects_covering_cpuset_at_depth(&set, depth)?;
+        }
+        //
+        #[test]
+        fn check_objects_inside_cpuset_at_usize_depth(
+            set in topology_related_set(Topology::cpuset),
+            depth in any_usize_depth()
+        ) {
+            check_objects_inside_cpuset_at_depth(&set, depth)?;
+            check_objects_covering_cpuset_at_depth(&set, depth)?;
+        }
+    }
+}

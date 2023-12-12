@@ -434,10 +434,7 @@ impl<'topology> From<&'topology TopologyObject> for LocalObjectError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        bitmap::OwnedSpecializedBitmap,
-        strategies::{any_object, set_with_reference},
-    };
+    use crate::strategies::{any_object, topology_related_set};
     use proptest::prelude::*;
     use std::{
         collections::{BTreeMap, HashMap},
@@ -604,17 +601,10 @@ mod tests {
 
     // --- Querying stuff by cpuset/nodeset ---
 
-    /// Shorthand for using topology-wide sets as a reference
-    fn set_with_topology_reference<Set: OwnedSpecializedBitmap>(
-        set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
-    ) -> impl Strategy<Value = Set> {
-        set_with_reference(set(Topology::test_instance()).as_ref())
-    }
-
     proptest! {
         /// Test [`Topology::pus_from_cpuset()`]
         #[test]
-        fn pus_from_cpuset(cpuset in set_with_topology_reference(Topology::cpuset)) {
+        fn pus_from_cpuset(cpuset in topology_related_set(Topology::cpuset)) {
             let mut expected = os_index_to_pu().clone();
             expected.retain(|_idx, pu| {
                 cpuset.includes(pu.cpuset().unwrap())
@@ -631,7 +621,7 @@ mod tests {
 
         /// Test [`Topology::nodes_from_nodeset()`]
         #[test]
-        fn nodes_from_nodeset(nodeset in set_with_topology_reference(Topology::nodeset)) {
+        fn nodes_from_nodeset(nodeset in topology_related_set(Topology::nodeset)) {
             let mut expected = os_index_to_node().clone();
             expected.retain(|_idx, node| {
                 nodeset.includes(node.nodeset().unwrap())

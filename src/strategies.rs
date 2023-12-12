@@ -1,12 +1,12 @@
 //! Common strategies for property-based testing
 //!
-//! Every proptest [`Strategy`] which cannot be handled by an [`Arbitrary`] impl
-//! or a function that is only used by a single module is centralized here.
+//! This is a place for centralizing proptest strategies which are more clever
+//! than an [`Arbitrary`] and don't have one clear place to go in the codebase.
 
 use crate::bitmap::BitmapIndex;
 #[cfg(test)]
 use crate::{
-    bitmap::{Bitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
     object::TopologyObject,
     topology::Topology,
 };
@@ -172,4 +172,13 @@ pub(crate) fn set_with_reference<Set: SpecializedBitmap>(
     // reference set, we get good coverage of all desired set configurations
     (inside_elems, outside_elems)
         .prop_map(|(inside_elems, outside_elems)| Set::Owned::from(inside_elems | outside_elems))
+}
+
+/// Specialization of `set_with_reference` that uses the topology-wide cpuset or
+/// nodeset as a reference
+#[cfg(test)]
+pub(crate) fn topology_related_set<Set: OwnedSpecializedBitmap>(
+    topology_set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
+) -> impl Strategy<Value = Set> {
+    set_with_reference(topology_set(Topology::test_instance()).as_ref())
 }

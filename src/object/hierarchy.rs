@@ -677,7 +677,7 @@ impl<'topology, Inner: FusedIterator<Item = &'topology TopologyObject>> FusedIte
 
 #[allow(clippy::cognitive_complexity)]
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::tests::assert_panics;
     use proptest::prelude::*;

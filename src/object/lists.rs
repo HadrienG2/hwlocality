@@ -72,6 +72,7 @@ impl Topology {
 pub(crate) mod tests {
     use super::*;
     use crate::object::ObjectType;
+    use proptest::prelude::*;
     use similar_asserts::assert_eq;
     use std::collections::{HashMap, HashSet};
 
@@ -90,8 +91,20 @@ pub(crate) mod tests {
     }
 
     /// Extract the keys from the output of [`checked_object_set()`]
-    pub(crate) fn object_ids_from_set(map: &HashMap<u64, &'static TopologyObject>) -> HashSet<u64> {
+    pub(crate) fn object_ids_from_set(map: &HashMap<u64, &TopologyObject>) -> HashSet<u64> {
         map.keys().copied().collect()
+    }
+
+    /// Compare the output of two iterators of objects without duplicates
+    pub(crate) fn compare_object_sets<'a>(
+        result: impl Iterator<Item = &'a TopologyObject>,
+        reference: impl Iterator<Item = &'a TopologyObject>,
+    ) -> Result<(), TestCaseError> {
+        prop_assert_eq!(
+            object_ids_from_set(&checked_object_set(result)),
+            object_ids_from_set(&checked_object_set(reference))
+        );
+        Ok(())
     }
 
     /// Check that the various object lists match their definitions
