@@ -236,6 +236,17 @@ pub enum HybridError<RustError: Error> {
     // complexity and thus benefits the most from it.
     Hwloc(RawHwlocError),
 }
+//
+impl<RustError: Error> HybridError<RustError> {
+    /// Assume that all expected Rust-side error sources have been handled and
+    /// panic otherwise, but still allow unexpected hwloc errors
+    pub fn expect_only_hwloc(self, msg: &str) -> RawHwlocError {
+        match self {
+            Self::Hwloc(e) => e,
+            Self::Rust(e) => panic!("{msg} (got unexpected Rust error {e}"),
+        }
+    }
+}
 
 /// A string meant for hwloc consumption contained the NUL char
 ///

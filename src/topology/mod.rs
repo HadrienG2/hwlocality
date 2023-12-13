@@ -21,10 +21,14 @@ use crate::topology::support::MiscSupport;
 use crate::{
     bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
     cpu::cpuset::CpuSet,
-    errors::{self, ForeignObjectError, RawHwlocError},
+    errors::{self, ForeignObjectError, HybridError, RawHwlocError},
     ffi::transparent::AsNewtype,
     memory::nodeset::NodeSet,
-    object::{depth::NormalDepth, types::ObjectType, TopologyObject},
+    object::{
+        depth::{Depth, NormalDepth},
+        types::ObjectType,
+        TopologyObject,
+    },
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -38,7 +42,7 @@ use libc::EINVAL;
 use similar_asserts::assert_eq;
 use std::{
     convert::TryInto,
-    fmt::{self, Pointer},
+    fmt::{self, Debug, Pointer},
     ops::Deref,
     ptr::{self, NonNull},
     sync::OnceLock,
@@ -103,7 +107,6 @@ use thiserror::Error;
 // Any binding to an hwloc topology function that takes a user-provided
 // &TopologyObject parameter **must** check that this object does belongs to the
 // topology using the Topology::contains() method before passing it to hwloc.
-#[derive(Debug)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<hwloc_topology>);
@@ -937,6 +940,122 @@ impl Clone for Topology {
     }
 }
 
+impl Debug for Topology {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("Topology");
+
+        // Topology building properties
+        debug
+            .field("is_abi_compatible", &self.is_abi_compatible())
+            .field("build_flags", &self.build_flags())
+            .field("is_this_system", &self.is_this_system())
+            .field("feature_support", self.feature_support());
+        let type_filters = enum_iterator::all::<ObjectType>()
+            .map(|ty| {
+                (
+                    ty,
+                    self.type_filter(ty)
+                        .expect("should always succeed when called with a valid type"),
+                )
+            })
+            .collect::<Vec<_>>();
+        debug.field("type_filter", &type_filters);
+
+        // Object levels, depths and types properties
+        let objects_at_depths = (NormalDepth::iter_range(NormalDepth::MIN, self.depth())
+            .map(Depth::from))
+        .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+        .filter_map(|depth| {
+            let objs = self.objects_at_depth(depth).collect::<Vec<_>>();
+            (!objs.is_empty()).then_some((format!("{depth}"), objs))
+        })
+        .collect::<Vec<_>>();
+        debug
+            // Contains the info from most other topology queries
+            .field("objects_at_depth", &objects_at_depths)
+            .field("memory_parents_depth", &self.memory_parents_depth());
+
+        // CPU and node sets of the entire topology
+        debug
+            .field("cpuset", &self.cpuset())
+            .field("complete_cpuset", &self.complete_cpuset())
+            .field("allowed_cpuset", &self.allowed_cpuset())
+            .field("nodeset", &self.nodeset())
+            .field("complete_nodeset", &self.complete_nodeset())
+            .field("allowed_nodeset", &self.allowed_nodeset());
+
+        // Object distances
+        debug.field("distances", &self.distances(None));
+
+        // Memory attributes
+        #[cfg(feature = "hwloc-2_3_0")]
+        {
+            use crate::memory::attribute::{MemoryAttribute, MemoryAttributeFlags};
+
+            // We'll only consider built-in memory attributes because as far as
+            // I can tell there is no way to list named attributes
+            let builtin = MemoryAttribute::BUILTIN_ATTRIBUTES;
+            let mut attributes = Vec::with_capacity(builtin.len());
+            for (attr_name, attr_constructor) in builtin {
+                // For each attribute and for each NUMA node...
+                let attribute = attr_constructor(self);
+                let needs_initiator = attribute
+                    .flags()
+                    .contains(MemoryAttributeFlags::NEED_INITIATOR);
+                let mut numa_to_initiators =
+                    Vec::with_capacity(self.num_objects_at_depth(Depth::NUMANode));
+                for numa in self.objects_at_depth(Depth::NUMANode) {
+                    // ...we build a map from initiator to attribute value
+                    let initiator_to_value = if needs_initiator {
+                        // If there are initiators, we query the list of
+                        // initiators and values and work from there
+                        attribute
+                            .initiators(numa)
+                            .map(|(initiators, values)| {
+                                (initiators
+                                    .into_iter()
+                                    .map(|initiator| format!("Initiator {initiator}")))
+                                .zip(values)
+                                .collect::<Vec<_>>()
+                            })
+                            .map_err(|e| {
+                                e.expect_only_hwloc(
+                                    "shouldn't happen because this attribute \
+                                    does have initiators and the target NUMA \
+                                    node does belong to the topology",
+                                )
+                            })
+                    } else {
+                        // If there are no initiators, we get the single
+                        // memory attribute value.
+                        attribute
+                            .value(None, numa)
+                            .map(|value| vec![("No initiator".to_owned(), value)])
+                            .map_err(|e| {
+                                e.expect_only_hwloc(
+                                    "shouldn't happen because this attribute \
+                                    has no initiators and the target NUMA \
+                                    node does belong to the topology",
+                                )
+                            })
+                    };
+                    numa_to_initiators.push((format!("Target {numa}"), initiator_to_value));
+                }
+                attributes.push((attr_name, numa_to_initiators));
+            }
+            debug.field("memory_attributes", &attributes);
+        }
+
+        // Kinds of CPU cores
+        #[cfg(feature = "hwloc-2_4_0")]
+        {
+            let cpu_kinds = self.cpu_kinds().into_iter().flatten().collect::<Vec<_>>();
+            debug.field("cpu_kinds", &cpu_kinds);
+        }
+        debug.finish()
+    }
+}
+
 impl Drop for Topology {
     #[doc(alias = "hwloc_topology_destroy")]
     fn drop(&mut self) {
@@ -1031,6 +1150,13 @@ mod tests {
         )?;
         assert!(!topology.contains(clone.root_object()));
         Ok(())
+    }
+
+    #[allow(clippy::print_stdout)]
+    #[test]
+    fn debug() {
+        let topology = Topology::test_instance();
+        println!("{topology:#?}");
     }
 
     /// Bias the `max_depth` input to `distribute_items` tests so that

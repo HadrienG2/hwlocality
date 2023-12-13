@@ -75,7 +75,10 @@ impl Topology {
     /// one of them is returned. The same applies for `MEANS_xyz` options.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
-    pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    pub fn distances(
+        &self,
+        kind: Option<DistancesKind>,
+    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         // SAFETY: - By definition, it's valid to pass hwloc_distances_get
         //         - Parameters are guaranteed valid per get_distances_with_kind
         //           contract
@@ -102,7 +105,7 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_depth")]
     pub fn distances_at_depth<DepthLike>(
         &self,
-        kind: DistancesKind,
+        kind: Option<DistancesKind>,
         depth: DepthLike,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError>
     where
@@ -112,7 +115,7 @@ impl Topology {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &Topology,
-            kind: DistancesKind,
+            kind: Option<DistancesKind>,
             depth: Depth,
         ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
             // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
@@ -153,7 +156,7 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(
         &self,
-        kind: DistancesKind,
+        kind: Option<DistancesKind>,
         ty: ObjectType,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         // SAFETY: - hwloc_distances_get_by_type with the type parameter curried
@@ -230,7 +233,7 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
-        kind: DistancesKind,
+        kind: Option<DistancesKind>,
         getter_name: &'static str,
         mut getter: impl FnMut(
             *const hwloc_topology,
@@ -240,6 +243,7 @@ impl Topology {
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+        let kind = kind.unwrap_or(DistancesKind::empty());
         // SAFETY: - getter with the kind parameters curried away behaves as
         //           get_distances would expect
         //         - There are no invalid kind values for these search APIs

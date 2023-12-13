@@ -1165,11 +1165,11 @@ pub(crate) mod tests {
 
         #[cfg(feature = "hwloc-2_8_0")]
         {
-            use crate::{cpu::kind::NoData, object::distance::DistancesKind};
+            use crate::cpu::kind::NoData;
             if build_flags.contains(BuildFlags::IGNORE_DISTANCES) {
                 prop_assert_eq!(
                     topology
-                        .distances(DistancesKind::empty())
+                        .distances(None)
                         .map(|distances| distances.is_empty()),
                     Ok(true)
                 );
