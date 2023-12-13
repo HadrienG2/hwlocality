@@ -715,16 +715,19 @@ macro_rules! wrap_ids_unchecked {
         )*
 
         /// List of all built-in memory attributes
+        #[allow(unused_doc_comments)]
         pub(crate) const BUILTIN_ATTRIBUTES: [
             fn(&'topology Topology) -> Self;
-            { [ $( stringify!($constructor) ),* ].len() }
+            {[
+                $(
+                    $(#[$attr])*
+                    { stringify!($constructor) }
+                ),*
+            ].len()}
         ] = [
             $(
-                #[allow(unused_doc_comments)]
                 $(#[$attr])*
-                {
-                    Self::$constructor
-                }
+                { Self::$constructor }
             ),*
         ];
     };
