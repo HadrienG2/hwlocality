@@ -34,10 +34,13 @@ impl CacheAttributes {
     }
 
     /// Depth of the cache (e.g. L1, L2, ...)
+    ///
+    /// Note that following hardware nomenclature, cache depths normally start
+    /// at 1, corresponding to the L1 cache.
     #[doc(alias = "hwloc_cache_attr_s::depth")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::depth")]
-    pub fn depth(&self) -> NonZeroUsize {
-        NonZeroUsize::new(int::expect_usize(self.0.depth)).expect("Cache depths should start at 1")
+    pub fn depth(&self) -> usize {
+        int::expect_usize(self.0.depth)
     }
 
     /// Cache line size in bytes, if known
@@ -142,15 +145,10 @@ impl Debug for CacheAttributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("CacheAttributes");
 
-        debug.field("size", &self.size());
-
-        if self.0.depth == 0 {
-            debug.field("depth", &"0");
-        } else {
-            debug.field("depth", &self.depth());
-        }
-
-        debug.field("line_size", &self.line_size());
+        debug
+            .field("size", &self.size())
+            .field("depth", &self.depth())
+            .field("line_size", &self.line_size());
 
         if self.0.associativity >= -1 {
             debug.field("associativity", &self.associativity());
@@ -349,14 +347,8 @@ pub(super) mod tests {
 
         prop_assert_eq!(attr.size(), NonZeroU64::new(size));
 
-        #[allow(clippy::option_if_let_else)]
-        let depth_dbg = if let Some(depth) = NonZeroUsize::new(usize::try_from(depth).unwrap()) {
-            prop_assert_eq!(attr.depth(), depth);
-            format!("{:?}", attr.depth())
-        } else {
-            assert_panics(|| attr.depth())?;
-            "\"0\"".to_owned()
-        };
+        prop_assert_eq!(attr.depth(), usize::try_from(depth).unwrap());
+        let depth_dbg = format!("{:?}", attr.depth());
 
         prop_assert_eq!(
             attr.line_size(),

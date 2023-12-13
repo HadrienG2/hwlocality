@@ -15,7 +15,7 @@ use num_enum::TryFromPrimitiveError;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use std::{ffi::c_uint, fmt::Debug, iter::FusedIterator, num::NonZeroUsize};
+use std::{ffi::c_uint, fmt::Debug, iter::FusedIterator};
 
 /// # Object levels, depths and types
 ///
@@ -273,8 +273,8 @@ impl Topology {
     /// the corresponding type such as [`ObjectType::L1ICache`], except that it
     /// may also return a unified cache when looking for an instruction cache.
     ///
-    /// Please note that following hardware nomenclature, hardware cache levels
-    /// start at 1 (L1 cache), not 0.
+    /// Please note that following hardware nomenclature, cache levels normally
+    /// start at 1 (corresponding to the hardware L1 cache), not 0.
     ///
     /// If `cache_type` is `None`, it is ignored and multiple levels may match.
     /// The function returns either the depth of a uniquely matching level or
@@ -310,11 +310,6 @@ impl Topology {
         cache_level: usize,
         cache_type: Option<CacheType>,
     ) -> Result<Depth, TypeToDepthError> {
-        // There is no cache level 0, it starts at L1
-        let Some(cache_level) = NonZeroUsize::new(cache_level) else {
-            return Err(TypeToDepthError::Nonexistent);
-        };
-
         // Otherwise, need to actually look it up
         let mut result = Err(TypeToDepthError::Nonexistent);
         for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
@@ -981,7 +976,7 @@ pub(crate) mod tests {
     /// Data about a single cache level
     struct CacheKind {
         depth: NormalDepth,
-        level: NonZeroUsize,
+        level: usize,
         ty: CacheType,
     }
 
@@ -999,7 +994,7 @@ pub(crate) mod tests {
         // Otherwise, find the valid cache levels and the last valid one...
         let cache_levels = cache_kinds
             .iter()
-            .map(|kind| usize::from(kind.level))
+            .map(|kind| kind.level)
             .collect::<HashSet<_>>();
         let last_level = cache_levels.iter().copied().max().unwrap();
 
@@ -1043,7 +1038,7 @@ pub(crate) mod tests {
             let matches = cache_kinds()
                 .iter()
                 .filter(|kind| {
-                    let level_ok = usize::from(kind.level) == cache_level;
+                    let level_ok = kind.level == cache_level;
                     let type_ok = cache_type.map_or(true, |ty| {
                         kind.ty == ty || kind.ty == CacheType::Unified
                     });
