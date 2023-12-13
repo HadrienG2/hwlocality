@@ -24,6 +24,8 @@ env:
   MINIMAL_RUST: '1.71.0'  # Minimal Supported Rust Version
   HWLOC_VERSION: '2.9.3'
   HWLOC_VERSION_SHORT: '2.9'  # Used in URL to official tarball/binaries
+  HWLOC_DEBUG_VERBOSE: 0  # Set to 1 when debugging issues inside of hwloc
+  HWLOC_HIDE_ERRORS: 0  # Remove if this proves too chatty
   CARGO_NET_GIT_FETCH_WITH_CLI: false  # Workaround that can go once we bump
                                        # MINIMAL_RUST to 1.72+ in the future.
                                        # https://github.com/dtolnay/rust-toolchain/pull/94

@@ -86,7 +86,7 @@ runs:
       run: |
           curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
           cd hwloc-${{ inputs.hwloc-version }}
-          ./configure --prefix="${HOME}/hwloc"
+          ./configure --prefix="${HOME}/hwloc" --enable-debug
           make -j$(nproc)
           make install
           cd ..
@@ -98,7 +98,7 @@ runs:
       run: |
           curl -L "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-${{ inputs.hwloc-version }}.tar.gz" | tar -xz
           cd hwloc-${{ inputs.hwloc-version }}
-          ./configure --prefix="${HOME}/hwloc" --enable-static
+          ./configure --prefix="${HOME}/hwloc" --enable-debug --enable-static
           make -j$(nproc)
           make install
           cd ..
