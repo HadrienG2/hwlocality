@@ -356,10 +356,11 @@ impl<'topology> NodeAttributeDump<'topology> {
         let (initiators, values) = match &self.initiators_and_values {
             Ok(o) => o,
             Err(e) => {
-                return f
-                    .debug_tuple("Err")
-                    .field(&e.errno.expect("memory attribute getters do set errno"))
-                    .finish()
+                let mut err = f.debug_tuple("Err");
+                if let Some(errno) = &e.errno {
+                    err.field(&errno);
+                }
+                return err.finish();
             }
         };
 
