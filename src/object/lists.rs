@@ -46,7 +46,7 @@ impl Topology {
             .flat_map(|depth| self.objects_at_depth(depth))
     }
 
-    /// Full list of virtual bjects in the topology, ordered by type
+    /// Full list of virtual objects in the topology, ordered by type
     pub fn virtual_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
         Depth::VIRTUAL_DEPTHS
             .iter()

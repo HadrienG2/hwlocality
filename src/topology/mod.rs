@@ -56,7 +56,7 @@ use thiserror::Error;
 /// hwloc documentation:
 ///
 /// - [Topology building](#topology-building)
-/// - [Full object list](#full-object-list) (specific to Rust bindings)
+/// - [Full object lists](#full-object-lists) (specific to Rust bindings)
 /// - [Object levels, depths and types](#object-levels-depths-and-types)
 /// - [CPU cache statistics](#cpu-cache-statistics) (specific to Rust bindings)
 /// - [CPU binding](#cpu-binding)
