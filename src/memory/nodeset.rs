@@ -59,3 +59,27 @@ impl_bitmap_newtype!(
     #[doc(alias = "hwloc_const_nodeset_t")]
     NodeSet
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strategies::topology_related_set;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Test for [`NodeSet::from_cpuset()`]
+        #[test]
+        fn nodeset_from_cpuset(
+            cpuset in topology_related_set(Topology::cpuset),
+        ) {
+            let topology = Topology::test_instance();
+            prop_assert_eq!(
+                NodeSet::from_cpuset(topology, &cpuset),
+                topology.pus_from_cpuset(&cpuset)
+                        .map(|pu| pu.nodeset().unwrap().clone_target())
+                        .reduce(|set1, set2| set1 | set2)
+                        .unwrap_or_default()
+            )
+        }
+    }
+}
