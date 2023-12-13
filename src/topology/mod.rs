@@ -962,7 +962,7 @@ impl Debug for Topology {
             .collect::<BTreeMap<_, _>>();
         debug.field("type_filter", &type_filters);
 
-        // Object levels, depths and types properties
+        // TopologyObject hierarchy
         let objects_per_depth = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
             .map(Depth::from)
             .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
