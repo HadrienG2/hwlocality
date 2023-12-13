@@ -118,10 +118,7 @@ impl Topology {
     pub fn cpu_kinds(
         &self,
     ) -> Result<
-        impl DoubleEndedIterator<Item = (CpuSet, Option<CpuEfficiency>, &[TextualInfo])>
-            + Clone
-            + ExactSizeIterator
-            + FusedIterator,
+        impl DoubleEndedIterator<Item = CpuKind<'_>> + Clone + ExactSizeIterator + FusedIterator,
         NoData,
     > {
         // Iterate over all CPU kinds
@@ -136,10 +133,7 @@ impl Topology {
     ///
     /// This internal method should only be called on CPU kind indices which are
     /// known to be valid by the high-level APIs.
-    unsafe fn cpu_kind(
-        &self,
-        kind_index: usize,
-    ) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
+    unsafe fn cpu_kind(&self, kind_index: usize) -> CpuKind<'_> {
         // Let hwloc tell us everything it knows about this CPU kind
         let kind_index =
             c_uint::try_from(kind_index).expect("Should not happen if API contract is honored");
@@ -190,7 +184,11 @@ impl Topology {
             //         - Total size should not wrap for any valid allocation
             //         - AsNewtype is trusted to be implemented correctly
             unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) };
-        (cpuset, efficiency, infos)
+        CpuKind {
+            cpuset,
+            efficiency,
+            infos,
+        }
     }
 
     /// Query information about the CPU kind that contains CPUs listed in `set`
@@ -212,12 +210,12 @@ impl Topology {
     pub fn cpu_kind_from_set(
         &self,
         set: impl Deref<Target = CpuSet>,
-    ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), FromSetError> {
+    ) -> Result<CpuKind<'_>, FromSetError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
             set: &CpuSet,
-        ) -> Result<(CpuSet, Option<CpuEfficiency>, &'self_ [TextualInfo]), FromSetError> {
+        ) -> Result<CpuKind<'self_>, FromSetError> {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
@@ -247,6 +245,22 @@ impl Topology {
         }
         polymorphized(self, &set)
     }
+}
+
+/// Kind of CPU core
+#[derive(Debug)]
+pub struct CpuKind<'topology> {
+    /// CPUs that use this kind of core
+    pub cpuset: CpuSet,
+
+    /// CPU efficiency metric, if known
+    ///
+    /// A lower metric value means that the CPU is expected to consume less
+    /// power, at the cost of possibly being less performant.
+    pub efficiency: Option<CpuEfficiency>,
+
+    /// Textual information
+    pub infos: &'topology [TextualInfo],
 }
 
 /// # Kinds of CPU cores

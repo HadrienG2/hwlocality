@@ -24,7 +24,7 @@ use crate::{
         string::LibcString,
         transparent::{AsInner, AsNewtype},
     },
-    object::TopologyObject,
+    object::{types::ObjectType, TopologyObject},
     topology::{editor::TopologyEditor, Topology},
 };
 use bitflags::bitflags;
@@ -49,6 +49,7 @@ use libc::{EBUSY, EINVAL, ENOENT};
 use similar_asserts::assert_eq;
 use std::{
     ffi::{c_int, c_uint, c_ulong, CStr},
+    fmt::{self, Debug},
     hash::Hash,
     mem::MaybeUninit,
     ptr::{self, NonNull},
@@ -212,6 +213,187 @@ impl Topology {
                 .collect())
         }
         polymorphized(self, target.into())
+    }
+
+    /// Dump the values of all built-in memory attributes
+    pub(crate) fn dump_builtin_attributes(&self) -> MultiAttributeDump<'_> {
+        MultiAttributeDump::builtins(self)
+    }
+}
+
+/// Dumb of memory attributes, for now only usable via its Debug implementation
+pub(crate) struct MultiAttributeDump<'topology>(Vec<AttributeDump<'topology>>);
+//
+impl<'topology> MultiAttributeDump<'topology> {
+    /// Dump all built-in memory attributes
+    fn builtins(topology: &'topology Topology) -> Self {
+        Self(
+            MemoryAttribute::BUILTIN_ATTRIBUTES
+                .into_iter()
+                .map(|constructor| AttributeDump::for_each_numa(constructor(topology)))
+                .collect(),
+        )
+    }
+}
+//
+impl Debug for MultiAttributeDump<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut attr_to_dump = f.debug_map();
+        for attr_dump in &self.0 {
+            attr_to_dump.entry(&attr_dump.attribute, &format_args!("{attr_dump:#?}"));
+        }
+        attr_to_dump.finish()
+    }
+}
+
+/// Dump of a specific memory attribute
+//
+// --- Implementation notes ---
+//
+// Before making this pub, find a cleaner way to implement fmt_value
+struct AttributeDump<'topology> {
+    /// Attribute being dumped
+    attribute: MemoryAttribute<'topology>,
+
+    /// Attribute dump for each NUMA node on the system
+    numa_nodes: Vec<NodeAttributeDump<'topology>>,
+}
+//
+impl<'topology> AttributeDump<'topology> {
+    /// Dump the value of the attribute for each NUMA node on the system
+    fn for_each_numa(attribute: MemoryAttribute<'topology>) -> Self {
+        Self {
+            attribute,
+            numa_nodes: attribute
+                .topology
+                .objects_with_type(ObjectType::NUMANode)
+                .map(|node| NodeAttributeDump::new(attribute, node))
+                .collect(),
+        }
+    }
+
+    /// Format the `numa_nodes` field
+    fn fmt_value(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let mut node_to_initiators = f.debug_map();
+        for node in &self.numa_nodes {
+            node_to_initiators.entry(&format_args!("{}", node.numa), &format_args!("{node:#?}"));
+        }
+        node_to_initiators.finish()
+    }
+}
+//
+impl Debug for AttributeDump<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Dreadful hack to get a Formatter, thankfully this struct isn't pub
+        #[allow(clippy::recursive_format_impl)]
+        if f.alternate() {
+            self.fmt_value(f)
+        } else {
+            f.debug_struct("AttributeDump")
+                .field("attribute", &self.attribute)
+                .field("numa_nodes", &format_args!("{self:#?}"))
+                .finish()
+        }
+    }
+}
+
+/// Dump of a specific memory attribute for a specific NUMA node
+//
+// --- Implementation notes ---
+//
+// Before making this pub, find a cleaner way to implement fmt_value
+struct NodeAttributeDump<'topology> {
+    /// NUMA node for which the memory attribute values were queried
+    numa: &'topology TopologyObject,
+
+    /// Result of the memory attribute value query
+    initiators_and_values:
+        Result<(Option<Vec<MemoryAttributeLocation<'topology>>>, Vec<u64>), RawHwlocError>,
+}
+//
+impl<'topology> NodeAttributeDump<'topology> {
+    /// Dump the value of the attribute for a specific NUMA node
+    ///
+    /// # Panics
+    ///
+    /// Expects `numa` to belong to the same topology as `attribute`.
+    fn new(attribute: MemoryAttribute<'topology>, numa: &'topology TopologyObject) -> Self {
+        let initiators_and_values = if attribute
+            .flags()
+            .contains(MemoryAttributeFlags::NEED_INITIATOR)
+        {
+            attribute
+                .initiators(numa)
+                .map(|(initiators, values)| (Some(initiators), values))
+                .map_err(|e| {
+                    e.expect_only_hwloc(
+                        "shouldn't happen because this attribute \
+                        does have initiators and the target NUMA \
+                        node does belong to the topology",
+                    )
+                })
+        } else {
+            attribute
+                .value(None, numa)
+                .map(|value| (None, vec![value]))
+                .map_err(|e| {
+                    e.expect_only_hwloc(
+                        "shouldn't happen because this attribute \
+                        has no initiators and the target NUMA \
+                        node does belong to the topology",
+                    )
+                })
+        };
+        Self {
+            numa,
+            initiators_and_values,
+        }
+    }
+
+    /// Format the `initiators_and_values` field
+    fn fmt_value(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        // Handle query errors
+        let (initiators, values) = match &self.initiators_and_values {
+            Ok(o) => o,
+            Err(e) => {
+                return f
+                    .debug_tuple("Err")
+                    .field(&e.errno.expect("memory attribute getters do set errno"))
+                    .finish()
+            }
+        };
+
+        // Handle initiator-less attributes
+        let Some(initiators) = initiators else {
+            assert_eq!(
+                values.len(),
+                1,
+                "memory attributes without an initiator should have only one value"
+            );
+            return write!(f, "{}", values[0]);
+        };
+
+        // Handle initiator-ful attributes
+        let mut initiator_to_value = f.debug_map();
+        for (initiator, value) in initiators.iter().zip(values) {
+            initiator_to_value.entry(&initiator, &value);
+        }
+        initiator_to_value.finish()
+    }
+}
+//
+impl Debug for NodeAttributeDump<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Dreadful hack to get a Formatter, thankfully this struct isn't pub
+        #[allow(clippy::recursive_format_impl)]
+        if f.alternate() {
+            self.fmt_value(f)
+        } else {
+            f.debug_struct("NodeAttributeDump")
+                .field("numa", self.numa)
+                .field("initiators_and_values", &format_args!("{self:#?}"))
+                .finish()
+        }
     }
 }
 
@@ -534,16 +716,15 @@ macro_rules! wrap_ids_unchecked {
 
         /// List of all built-in memory attributes
         pub(crate) const BUILTIN_ATTRIBUTES: [
-            (&'static str, fn(&'topology Topology) -> Self);
+            fn(&'topology Topology) -> Self;
             { [ $( stringify!($constructor) ),* ].len() }
         ] = [
             $(
                 #[allow(unused_doc_comments)]
                 $(#[$attr])*
-                { (
-                    stringify!($constructor),
+                {
                     Self::$constructor
-                ) }
+                }
             ),*
         ];
     };
@@ -560,7 +741,7 @@ macro_rules! wrap_ids_unchecked {
 // # Safety
 //
 // `id` must be a valid identifier to a memory attribute known of `topology`.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 #[doc(alias = "hwloc_memattr_id_e")]
 #[doc(alias = "hwloc_memattr_id_t")]
 pub struct MemoryAttribute<'topology> {
@@ -1047,7 +1228,6 @@ impl<'topology> MemoryAttribute<'topology> {
         ) -> c_int,
     ) -> Result<(Vec<Endpoint>, Vec<u64>), RawHwlocError> {
         // Prepare to call hwloc
-        let mut nr = 0;
         let mut call_ffi = |nr_mut, endpoint_out, values_out| {
             errors::call_hwloc_int_normal(api, || {
                 // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
@@ -1068,9 +1248,10 @@ impl<'topology> MemoryAttribute<'topology> {
         };
 
         // Allocate arrays of endpoints and values
-        // SAFETY: 0 elements + null buffer pointers is the correct way to
-        //         request the buffer size to be allocated from hwloc
-        call_ffi(&mut nr, ptr::null_mut(), ptr::null_mut())?;
+        // SAFETY: 1 elements + throw-away buffers is the correct way to request
+        //         the buffer size to be allocated from hwloc
+        let mut nr = 1;
+        call_ffi(&mut nr, [placeholder].as_mut_ptr(), [u64::MAX].as_mut_ptr())?;
         let len = int::expect_usize(nr);
         let mut endpoints = vec![placeholder; len];
         let mut values = vec![u64::MAX; len];
@@ -1226,6 +1407,13 @@ impl<'topology> MemoryAttribute<'topology> {
     /// Translate this attribute's name to a form suitable for error reporting
     fn error_name(&self) -> Box<str> {
         self.name().to_string_lossy().into()
+    }
+}
+//
+impl Debug for MemoryAttribute<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = format!("{}(#{})", self.name().to_string_lossy(), self.id);
+        f.pad(&name)
     }
 }
 
