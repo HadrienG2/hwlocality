@@ -963,17 +963,17 @@ impl Debug for Topology {
         debug.field("type_filter", &type_filters);
 
         // Object levels, depths and types properties
-        let objects_at_depth = (NormalDepth::iter_range(NormalDepth::MIN, self.depth())
-            .map(Depth::from))
-        .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
-        .filter_map(|depth| {
-            let objs = self.objects_at_depth(depth).collect::<Vec<_>>();
-            (!objs.is_empty()).then_some((format!("{depth}"), objs))
-        })
-        .collect::<Vec<_>>();
+        let objects_per_depth = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
+            .map(Depth::from)
+            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+            .filter_map(|depth| {
+                let objs = self.objects_at_depth(depth).collect::<Vec<_>>();
+                (!objs.is_empty()).then_some((format!("{depth}"), objs))
+            })
+            .collect::<Vec<_>>();
         debug
             // Contains the info from most other topology queries
-            .field("objects_at_depth", &objects_at_depth)
+            .field("objects_per_depth", &objects_per_depth)
             .field("memory_parents_depth", &self.memory_parents_depth());
 
         // CPU and node sets of the entire topology
