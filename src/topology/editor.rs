@@ -49,7 +49,6 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
-#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
@@ -629,8 +628,7 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
 pub struct AllowSetError;
 
 /// Control merging of newly inserted groups with existing objects
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
 pub enum GroupMerge {
     /// Prevent the hwloc core from ever merging this Group with another
     /// hierarchically-identical object

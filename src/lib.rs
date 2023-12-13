@@ -237,7 +237,6 @@ pub mod topology;
 pub use proptest;
 
 /// Re-export `enum_iterator` version we're built against
-#[cfg(feature = "proptest")]
 pub use enum_iterator;
 
 use crate::ffi::int;

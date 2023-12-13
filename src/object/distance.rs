@@ -32,7 +32,7 @@ use crate::{
     ffi::string::LibcString,
 };
 use bitflags::bitflags;
-#[cfg(all(feature = "hwloc-2_5_0", any(test, feature = "proptest")))]
+#[cfg(feature = "hwloc-2_5_0")]
 use enum_iterator::Sequence;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
@@ -1437,7 +1437,6 @@ crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(
     Copy,
     Clone,
@@ -1448,6 +1447,7 @@ crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
     num_enum::IntoPrimitive,
     num_enum::TryFromPrimitive,
     PartialEq,
+    Sequence,
 )]
 #[doc(alias = "hwloc_distances_transform_e")]
 #[repr(u32)]

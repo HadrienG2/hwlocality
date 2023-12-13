@@ -18,7 +18,6 @@ use crate::{
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
-#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
@@ -1311,11 +1310,20 @@ pub(crate) enum MemoryBindingOperation {
 /// Memory binding policy
 ///
 /// Not all systems support all kinds of binding.
-/// [`Topology::feature_support()`] may be used to query the
-/// actual memory binding support in the currently used operating system.
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
+/// [`Topology::feature_support()`] may be used to query the actual memory
+/// binding support in the currently used operating system.
 #[derive(
-    Copy, Clone, Debug, Default, Display, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive,
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Display,
+    Eq,
+    Hash,
+    IntoPrimitive,
+    PartialEq,
+    TryFromPrimitive,
+    Sequence,
 )]
 #[doc(alias = "hwloc_membind_policy_t")]
 #[repr(i32)]

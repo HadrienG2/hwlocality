@@ -20,7 +20,6 @@ use crate::{
     },
 };
 use derive_more::Display;
-#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use hwlocality_sys::{
     hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
@@ -44,8 +43,9 @@ use std::{
 };
 
 /// Type of one side (upstream or downstream) of an I/O bridge
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
+)]
 #[doc(alias = "hwloc_obj_bridge_type_e")]
 #[doc(alias = "hwloc_obj_bridge_type_t")]
 #[repr(u32)]
@@ -62,8 +62,9 @@ pub enum BridgeType {
 crate::impl_arbitrary_for_sequence!(BridgeType);
 
 /// Cache type
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
+)]
 #[doc(alias = "hwloc_obj_cache_type_e")]
 #[doc(alias = "hwloc_obj_cache_type_t")]
 #[repr(u32)]
@@ -84,8 +85,9 @@ pub enum CacheType {
 crate::impl_arbitrary_for_sequence!(CacheType);
 
 /// Type of a OS device
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
+)]
 #[doc(alias = "hwloc_obj_osdev_type_e")]
 #[doc(alias = "hwloc_obj_osdev_type_t")]
 #[repr(u32)]
@@ -153,8 +155,9 @@ crate::impl_arbitrary_for_sequence!(OSDeviceType);
 /// It can also help to think of it as comparing the relative depths of each type, so
 /// a `ObjectType::Machine` will be smaller than a `ObjectType::PU` since the machine
 /// contains processing units.
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
+)]
 #[doc(alias = "hwloc_obj_type_e")]
 #[doc(alias = "hwloc_obj_type_t")]
 #[non_exhaustive]
