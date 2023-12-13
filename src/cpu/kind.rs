@@ -170,11 +170,13 @@ impl Topology {
                 Some(int::expect_usize(positive))
             }
         };
-        assert!(
-            !infos.is_null(),
-            "Got null infos pointer from hwloc_cpukinds_get_info"
-        );
-        let infos =
+        let infos = if infos.is_null() {
+            assert_eq!(
+                nr_infos, 0,
+                "hwloc pretended to yield {nr_infos} infos but provided a null infos pointer"
+            );
+            &[]
+        } else {
             // SAFETY: - Per hwloc API contract, infos and nr_infos should be
             //           valid and point to valid state if the function returned
             //           successfully
@@ -183,7 +185,8 @@ impl Topology {
             //           these rules ourselves
             //         - Total size should not wrap for any valid allocation
             //         - AsNewtype is trusted to be implemented correctly
-            unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) };
+            unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) }
+        };
         CpuKind {
             cpuset,
             efficiency,
