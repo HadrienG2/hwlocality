@@ -222,6 +222,7 @@ impl Topology {
 }
 
 /// Dumb of memory attributes, for now only usable via its Debug implementation
+#[derive(Clone)]
 pub(crate) struct MultiAttributeDump<'topology>(Vec<AttributeDump<'topology>>);
 //
 impl<'topology> MultiAttributeDump<'topology> {
@@ -233,6 +234,26 @@ impl<'topology> MultiAttributeDump<'topology> {
                 .map(|constructor| AttributeDump::for_each_numa(constructor(topology)))
                 .collect(),
         )
+    }
+
+    /// Truth that this dump contains the same data as another dump, assuming
+    /// both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        self.0
+            .iter()
+            .zip(&other.0)
+            .all(|(dump1, dump2)| dump1.eq_modulo_topology(dump2))
     }
 }
 //
@@ -251,6 +272,7 @@ impl Debug for MultiAttributeDump<'_> {
 // --- Implementation notes ---
 //
 // Before making this pub, find a cleaner way to implement fmt_value
+#[derive(Clone)]
 struct AttributeDump<'topology> {
     /// Attribute being dumped
     attribute: MemoryAttribute<'topology>,
@@ -270,6 +292,29 @@ impl<'topology> AttributeDump<'topology> {
                 .map(|node| NodeAttributeDump::new(attribute, node))
                 .collect(),
         }
+    }
+
+    /// Truth that this dump contains the same data as another dump, assuming
+    /// both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
+        if self.attribute.id != other.attribute.id {
+            return false;
+        }
+        if self.numa_nodes.len() != other.numa_nodes.len() {
+            return false;
+        }
+        self.numa_nodes
+            .iter()
+            .zip(&other.numa_nodes)
+            .all(|(dump1, dump2)| dump1.eq_modulo_topology(dump2))
     }
 
     /// Format the `numa_nodes` field
@@ -302,6 +347,7 @@ impl Debug for AttributeDump<'_> {
 // --- Implementation notes ---
 //
 // Before making this pub, find a cleaner way to implement fmt_value
+#[derive(Clone)]
 struct NodeAttributeDump<'topology> {
     /// NUMA node for which the memory attribute values were queried
     numa: &'topology TopologyObject,
@@ -348,6 +394,49 @@ impl<'topology> NodeAttributeDump<'topology> {
             numa,
             initiators_and_values,
         }
+    }
+
+    /// Truth that this dump contains the same data as another dump, assuming
+    /// both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
+        if self.numa.global_persistent_index() != other.numa.global_persistent_index() {
+            return false;
+        }
+        let (ok1, ok2) = match (&self.initiators_and_values, &other.initiators_and_values) {
+            (Ok(ok1), Ok(ok2)) => (ok1, ok2),
+            (Err(err1), Err(err2)) => return err1 == err2,
+            (Ok(_), Err(_)) | (Err(_), Ok(_)) => return false,
+        };
+        let ((initiators1, values1), (initiators2, values2)) = (ok1, ok2);
+        if values1 != values2 {
+            return false;
+        }
+        let (initiators1, initiators2) = match (initiators1, initiators2) {
+            (Some(i1), Some(i2)) => (i1, i2),
+            (None, None) => return true,
+            (Some(_), None) | (None, Some(_)) => return false,
+        };
+        if initiators1.len() != initiators2.len() {
+            return false;
+        }
+        initiators1.iter().zip(initiators2.iter()).all(|(i1, i2)| {
+            use MemoryAttributeLocation as MAL;
+            match (i1, i2) {
+                (MAL::CpuSet(set1), MAL::CpuSet(set2)) => set1 == set2,
+                (MAL::Object(obj1), MAL::Object(obj2)) => {
+                    obj1.global_persistent_index() == obj2.global_persistent_index()
+                }
+                (MAL::CpuSet(_), MAL::Object(_)) | (MAL::Object(_), MAL::CpuSet(_)) => false,
+            }
+        })
     }
 
     /// Format the `initiators_and_values` field

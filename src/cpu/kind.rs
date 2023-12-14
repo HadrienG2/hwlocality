@@ -251,7 +251,7 @@ impl Topology {
 }
 
 /// Kind of CPU core
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CpuKind<'topology> {
     /// CPUs that use this kind of core
     pub cpuset: CpuSet,

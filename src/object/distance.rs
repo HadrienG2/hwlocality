@@ -23,7 +23,7 @@ use crate::topology::editor::TopologyEditor;
 use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
-    object::{depth::Depth, types::ObjectType, TopologyObject},
+    object::{depth::Depth, types::ObjectType, TopologyObject, TopologyObjectID},
     topology::Topology,
 };
 #[cfg(feature = "hwloc-2_1_0")]
@@ -1249,6 +1249,38 @@ impl<'topology> Distances<'topology> {
         assert!(sender < self.num_objects(), "Invalid sender index");
         assert!(receiver < self.num_objects(), "Invalid receiver index");
         sender * self.num_objects() + receiver
+    }
+
+    /// Truth that this set of distances is the same as another set of
+    /// distances, assuming both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
+        #[cfg(feature = "hwloc-2_1_0")]
+        if self.name() != other.name() {
+            return false;
+        }
+        if self.kind() != other.kind() {
+            return false;
+        }
+        /// Translate the objects iterator into a GP index iterator
+        fn object_indices<'out>(
+            distances: &'out Distances<'out>,
+        ) -> impl Iterator<Item = Option<TopologyObjectID>> + 'out {
+            distances
+                .objects()
+                .map(|obj| obj.map(TopologyObject::global_persistent_index))
+        }
+        if object_indices(self).ne(object_indices(other)) {
+            return false;
+        }
+        self.distances().eq(other.distances())
     }
 
     /// Apply a transformation to this distance matrix

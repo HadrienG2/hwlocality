@@ -1013,6 +1013,92 @@ impl Drop for Topology {
     }
 }
 
+impl PartialEq for Topology {
+    fn eq(&self, other: &Self) -> bool {
+        /// Check equality of basic topology properties
+        macro_rules! check_all_equal {
+            ($($property:ident),*) => {
+                if (
+                    $(
+                        Topology::$property(self) != Topology::$property(other)
+                    )||*
+                ) {
+                    return false;
+                }
+            };
+        }
+        check_all_equal!(
+            is_abi_compatible,
+            build_flags,
+            is_this_system,
+            feature_support,
+            memory_parents_depth,
+            cpuset,
+            complete_cpuset,
+            allowed_cpuset,
+            nodeset,
+            complete_nodeset,
+            allowed_nodeset
+        );
+
+        /// Retrieve all type filters to check they are the same
+        fn type_filters(
+            topology: &Topology,
+        ) -> impl Iterator<Item = Result<TypeFilter, RawHwlocError>> + '_ {
+            enum_iterator::all::<ObjectType>().map(|ty| topology.type_filter(ty))
+        }
+        if !type_filters(self).eq(type_filters(other)) {
+            return false;
+        }
+
+        // Check that the object hierarchy is the same
+        if !self.has_same_object_hierarchy(other) {
+            return false;
+        }
+
+        // Check that object distances are the same
+        let same_distances = match (self.distances(None), other.distances(None)) {
+            (Ok(distances1), Ok(distances2)) => {
+                distances1.len() == distances2.len()
+                    && distances1
+                        .into_iter()
+                        .zip(&distances2)
+                        .all(|(d1, d2)| d1.eq_modulo_topology(d2))
+            }
+            (Err(e1), Err(e2)) => e1 == e2,
+            (Ok(_), Err(_)) | (Err(_), Ok(_)) => false,
+        };
+        if !same_distances {
+            return false;
+        }
+
+        // Check that memory attributes are the same
+        #[cfg(feature = "hwloc-2_3_0")]
+        {
+            if !self
+                .dump_builtin_attributes()
+                .eq_modulo_topology(&other.dump_builtin_attributes())
+            {
+                return false;
+            }
+        }
+
+        // Check that CPU core kinds are the same
+        #[cfg(feature = "hwloc-2_4_0")]
+        {
+            let same_kinds = match (self.cpu_kinds(), other.cpu_kinds()) {
+                (Ok(kinds1), Ok(kinds2)) => kinds1.eq(kinds2),
+                (Err(e1), Err(e2)) => e1 == e2,
+                (Ok(_), Err(_)) | (Err(_), Ok(_)) => false,
+            };
+            if !same_kinds {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl Pointer for Topology {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <NonNull<hwloc_topology> as Pointer>::fmt(&self.0, f)
@@ -1065,11 +1151,11 @@ mod tests {
         fmt::Write, io::Write
     );
     assert_impl_all!(Topology:
-        Clone, Debug, Drop, Pointer, Sized, Sync, Unpin, UnwindSafe
+        Clone, Debug, Drop, PartialEq, Pointer, Sized, Sync, Unpin, UnwindSafe
     );
     assert_not_impl_any!(Topology:
         Binary, Copy, Default, Deref, Display, IntoIterator, LowerExp, LowerHex,
-        Octal, PartialEq, Read, UpperExp, UpperHex, fmt::Write, io::Write
+        Octal, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(DistributeError:
         Clone, Error, Hash, Sized, Sync, Unpin, UnwindSafe
@@ -1097,13 +1183,15 @@ mod tests {
             |ty| Ok(topology.type_filter(ty).unwrap()),
         )?;
         assert!(!topology.contains(clone.root_object()));
+        assert_eq!(topology, &clone);
         Ok(())
     }
 
     #[allow(clippy::print_stdout, clippy::use_debug)]
     #[test]
-    fn debug() {
+    fn debug_and_self_eq() {
         let topology = Topology::test_instance();
+        assert_eq!(topology, topology);
         println!("{topology:#?}");
     }
 
