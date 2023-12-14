@@ -900,3 +900,20 @@ impl From<NulError> for InsertMiscError {
 //       that would be unsafe as it would expose &Topology with unevaluated lazy
 //       hwloc caches, and calling their methods could violates Rust's aliasing
 //       model via mutation through &Topology.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use similar_asserts::assert_eq;
+
+    /// Make sure the editor doesn't break the topology
+    #[test]
+    fn basic_lifecycle() {
+        let reference = Topology::test_instance();
+        let mut topology = reference.clone();
+        topology.edit(|editor| {
+            assert_eq!(editor.topology(), reference);
+        });
+        assert_eq!(&topology, reference);
+    }
+}
