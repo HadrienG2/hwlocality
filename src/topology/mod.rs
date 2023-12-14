@@ -1306,14 +1306,19 @@ mod tests {
         let mut input = roots.to_vec();
         let mut output = Vec::new();
         for _ in PositiveInt::iter_range(PositiveInt::MIN, max_depth) {
+            let mut new_leaves = false;
             for obj in input.drain(..) {
                 if obj.normal_arity() > 0 && obj.depth().expect_normal() < max_depth {
-                    output.extend(obj.normal_children())
+                    output.extend(obj.normal_children());
+                    new_leaves = true;
                 } else {
                     output.push(obj);
                 }
             }
             std::mem::swap(&mut input, &mut output);
+            if !new_leaves {
+                break;
+            }
         }
         input
     }
