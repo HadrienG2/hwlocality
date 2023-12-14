@@ -1199,8 +1199,11 @@ mod tests {
     /// interesting depth values below the maximum possible depth are sampled
     /// often enough
     fn max_depth() -> impl Strategy<Value = NormalDepth> {
-        (0..(2 * usize::from(Topology::test_instance().depth())))
-            .prop_map(|us| NormalDepth::try_from(us).unwrap())
+        prop_oneof![
+            4 => (0..usize::from(Topology::test_instance().depth()))
+                    .prop_map(|us| NormalDepth::try_from(us).unwrap()),
+            1 => any::<NormalDepth>()
+        ]
     }
 
     proptest! {
