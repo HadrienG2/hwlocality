@@ -218,8 +218,10 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// Err([`ParameterError`]) will be returned if the input set is
-    /// invalid. The topology is not modified in this case.
+    /// It is an error to attempt to remove all CPUs or NUMA nodes from a
+    /// topology using a `set` that has no intersection with the relevant
+    /// topology set. The topology will not be modified in this case, and a
+    /// [`ParameterError`] will be returned instead.
     ///
     /// # Aborts
     ///
@@ -904,9 +906,20 @@ impl From<NulError> for InsertMiscError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
+        object::{depth::Depth, types::ObjectType, TopologyObjectID},
+        strategies::topology_related_set,
+    };
+    use proptest::prelude::*;
     use similar_asserts::assert_eq;
+    use std::{
+        collections::{BTreeMap, HashMap},
+        ffi::CStr,
+        panic::RefUnwindSafe,
+    };
 
-    /// Make sure the editor doesn't break the topology
+    /// Make sure opening/closing the editor doesn't affect the topology
     #[test]
     fn basic_lifecycle() {
         let reference = Topology::test_instance();
@@ -915,5 +928,267 @@ mod tests {
             assert_eq!(editor.topology(), reference);
         });
         assert_eq!(&topology, reference);
+    }
+
+    // --- Test topology restrictions ---
+
+    proptest! {
+        #[test]
+        fn restrict_cpuset(
+            cpuset in topology_related_set(Topology::cpuset),
+            flags: RestrictFlags,
+        ) {
+            check_restrict(Topology::test_instance(), &cpuset, flags)?;
+        }
+
+        #[test]
+        fn restrict_nodeset(
+            nodeset in topology_related_set(Topology::nodeset),
+            flags: RestrictFlags,
+        ) {
+            check_restrict(Topology::test_instance(), &nodeset, flags)?;
+        }
+    }
+
+    /// Set-generic test for [`TopologyEditor::restrict()`]
+    fn check_restrict<Set: OwnedSpecializedBitmap + RefUnwindSafe>(
+        initial_topology: &Topology,
+        restrict_set: &Set,
+        flags: RestrictFlags,
+    ) -> Result<(), TestCaseError> {
+        // Compute the restricted topology
+        let mut final_topology = initial_topology.clone();
+        let result = final_topology.edit(|editor| editor.restrict(restrict_set, flags));
+
+        // Abstract over the kind of set that is being restricted
+        let topology_sets = |topology| ErasedSets::from_topology::<Set>(topology);
+        let object_sets = |obj: &TopologyObject| ErasedSets::from_object::<Set>(obj);
+        let predict_final_sets = |initial_sets: &ErasedSets| {
+            initial_sets.predict_restricted(initial_topology, restrict_set)
+        };
+
+        // Predict the effect of topology restriction
+        let initial_sets = topology_sets(initial_topology);
+        let predicted_sets = predict_final_sets(&initial_sets);
+
+        // If one attempts to remove all CPUs and NUMA nodes, and error will be
+        // returned and the topology will be unchanged
+        if predicted_sets.target.is_empty() {
+            prop_assert_eq!(result, Err(ParameterError::from(restrict_set.clone())));
+            prop_assert_eq!(initial_topology, &final_topology);
+            return Ok(());
+        }
+        result.unwrap();
+
+        // Otherwise, the topology sets should be restricted as directed
+        let final_sets = topology_sets(&final_topology);
+        prop_assert_eq!(&final_sets, &predicted_sets);
+
+        // Removing no CPU or node leaves the topology unchanged
+        if final_sets == initial_sets {
+            prop_assert_eq!(initial_topology, &final_topology);
+            return Ok(());
+        }
+
+        // Now we're going to predict the outcome on topology objects
+        let parent_id =
+            |obj: &TopologyObject| obj.parent().map(TopologyObject::global_persistent_index);
+        let predict_object =
+            |obj: &TopologyObject, predicted_parent_id: Option<TopologyObjectID>| {
+                PredictedObject::new(
+                    obj,
+                    predicted_parent_id,
+                    object_sets(obj).map(|sets| predict_final_sets(&sets)),
+                )
+            };
+        let mut predicted_objects = BTreeMap::new();
+
+        // First predict the set of normal and memory objects. Start by
+        // including or excluding leaf PU and NUMA node objects...
+        let id = |obj: &TopologyObject| obj.global_persistent_index();
+        let mut retained_leaves = initial_topology
+            .objects_with_type(ObjectType::PU)
+            .chain(initial_topology.objects_at_depth(Depth::NUMANode))
+            .filter(|obj| {
+                let predicted_sets = predict_final_sets(&object_sets(obj).unwrap());
+                !(predicted_sets.target.is_empty()
+                    && (predicted_sets.other.is_empty()
+                        || flags.contains(RestrictFlags::REMOVE_EMPTIED)))
+            })
+            .map(|obj| (id(obj), obj))
+            .collect::<HashMap<_, _>>();
+
+        // ...then recurse into parents to cover the object tree
+        let mut next_leaves = HashMap::new();
+        while !retained_leaves.is_empty() {
+            for (obj_id, obj) in retained_leaves.drain() {
+                predicted_objects.insert(obj_id, predict_object(obj, parent_id(obj)));
+                if let Some(parent) = obj.parent() {
+                    next_leaves.insert(id(parent), parent);
+                }
+            }
+            std::mem::swap(&mut retained_leaves, &mut next_leaves);
+        }
+
+        // When their normal parent is destroyed, I/O and Misc objects may
+        // either, depending on flags, be deleted or re-attached to the
+        // lowest-depth ancestor object that is still present in the topology.
+        let rebind_parent = |obj: &TopologyObject| {
+            let mut parent = obj.parent().unwrap();
+            if !(parent.object_type().is_io() || predicted_objects.contains_key(&id(parent))) {
+                parent = parent
+                    .ancestors()
+                    .find(|ancestor| predicted_objects.contains_key(&id(ancestor)))
+                    .unwrap()
+            }
+            Some(id(parent))
+        };
+
+        // Predict the fate I/O objects, including deletions and rebinding
+        let io_objects = initial_topology
+            .io_objects()
+            .filter(|obj| {
+                if flags.contains(RestrictFlags::ADAPT_IO) {
+                    obj.ancestors()
+                        .any(|ancestor| predicted_objects.contains_key(&id(ancestor)))
+                } else {
+                    predicted_objects.contains_key(&id(obj.first_non_io_ancestor().unwrap()))
+                }
+            })
+            .map(|obj| (id(obj), predict_object(obj, rebind_parent(obj))))
+            .collect::<Vec<_>>();
+
+        // Predict the fate of Misc objects using a similar logic
+        let misc_objects = initial_topology
+            .objects_with_type(ObjectType::Misc)
+            .filter(|obj| {
+                flags.contains(RestrictFlags::ADAPT_MISC) || {
+                    predicted_objects.contains_key(&id(obj.parent().unwrap()))
+                }
+            })
+            .map(|obj| (id(obj), predict_object(obj, rebind_parent(obj))))
+            .collect::<Vec<_>>();
+        predicted_objects.extend(io_objects);
+        predicted_objects.extend(misc_objects);
+
+        // Finally, check that the final object set matches our prediction
+        let final_objects = final_topology
+            .objects()
+            .map(|obj| {
+                (
+                    id(obj),
+                    PredictedObject::new(obj, parent_id(obj), object_sets(obj)),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        prop_assert_eq!(predicted_objects, final_objects);
+        Ok(())
+    }
+
+    /// [`CpuSet`]/[`NodeSet`] abstraction layer
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct ErasedSets {
+        /// Set that is being restricted
+        target: Bitmap,
+
+        /// Set that is indirectly affected by the restriction
+        other: Bitmap,
+    }
+    //
+    impl ErasedSets {
+        /// Get [`ErasedSets`] from a [`Topology`]
+        fn from_topology<RestrictedSet: OwnedSpecializedBitmap>(topology: &Topology) -> Self {
+            match RestrictedSet::BITMAP_KIND {
+                BitmapKind::CpuSet => Self {
+                    target: Self::ref_to_bitmap(topology.cpuset()),
+                    other: Self::ref_to_bitmap(topology.nodeset()),
+                },
+                BitmapKind::NodeSet => Self {
+                    target: Self::ref_to_bitmap(topology.nodeset()),
+                    other: Self::ref_to_bitmap(topology.cpuset()),
+                },
+            }
+        }
+
+        /// Get [`ErasedSets`] from a [`TopologyObject`]
+        fn from_object<RestrictedSet: OwnedSpecializedBitmap>(
+            obj: &TopologyObject,
+        ) -> Option<Self> {
+            Some(match RestrictedSet::BITMAP_KIND {
+                BitmapKind::CpuSet => Self {
+                    target: Self::ref_to_bitmap(obj.cpuset()?),
+                    other: Self::ref_to_bitmap(obj.nodeset().unwrap()),
+                },
+                BitmapKind::NodeSet => Self {
+                    target: Self::ref_to_bitmap(obj.nodeset()?),
+                    other: Self::ref_to_bitmap(obj.cpuset().unwrap()),
+                },
+            })
+        }
+
+        /// Predict the [`ErasedSets`] after restricting the source topology
+        fn predict_restricted<RestrictedSet: OwnedSpecializedBitmap>(
+            &self,
+            initial_topology: &Topology,
+            restrict_set: &RestrictedSet,
+        ) -> Self {
+            let restrict_set: Bitmap = restrict_set.clone().into();
+            let predicted_target = &self.target & restrict_set;
+            let predicted_other = match RestrictedSet::BITMAP_KIND {
+                BitmapKind::CpuSet => {
+                    let predicted_target = CpuSet::from(predicted_target.clone());
+                    Bitmap::from(NodeSet::from_cpuset(initial_topology, &predicted_target))
+                }
+                BitmapKind::NodeSet => {
+                    let predicted_target = NodeSet::from(predicted_target.clone());
+                    Bitmap::from(CpuSet::from_nodeset(initial_topology, &predicted_target))
+                }
+            };
+            Self {
+                target: predicted_target,
+                other: predicted_other,
+            }
+        }
+
+        /// Convert a [`BitmapRef`] to a type-erased [`Bitmap`]
+        fn ref_to_bitmap<Set: OwnedSpecializedBitmap>(set: BitmapRef<'_, Set>) -> Bitmap {
+            set.clone_target().into()
+        }
+    }
+
+    /// Predicted topology object properties after topology restriction
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct PredictedObject {
+        object_type: ObjectType,
+        subtype: Option<String>,
+        name: Option<String>,
+        attributes: Option<String>,
+        os_index: Option<usize>,
+        depth: Depth,
+        parent_id: Option<TopologyObjectID>,
+        sets: Option<ErasedSets>,
+        infos: String,
+    }
+    //
+    impl PredictedObject {
+        /// Given some predicted properties, predict the rest
+        fn new(
+            obj: &TopologyObject,
+            parent_id: Option<TopologyObjectID>,
+            sets: Option<ErasedSets>,
+        ) -> Self {
+            let stringify = |s: Option<&CStr>| s.map(|s| s.to_string_lossy().to_string());
+            Self {
+                object_type: obj.object_type(),
+                subtype: stringify(obj.subtype()),
+                name: stringify(obj.name()),
+                attributes: obj.attributes().map(|attr| format!("{attr:?}")),
+                os_index: obj.os_index(),
+                depth: obj.depth(),
+                parent_id,
+                sets,
+                infos: format!("{:?}", obj.infos().iter().collect::<Vec<_>>()),
+            }
+        }
     }
 }

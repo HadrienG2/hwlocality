@@ -34,6 +34,7 @@ pub unsafe trait OwnedBitmap:
     + Display
     + From<Bitmap>
     + Into<Bitmap>
+    + PartialEq
     + Sealed
     + 'static
 {
@@ -64,7 +65,9 @@ unsafe impl OwnedBitmap for Bitmap {
 /// specialized bitmap type was passed in.
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 #[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]
-pub trait SpecializedBitmap: AsRef<Bitmap> + Borrow<Self::Owned> + Sealed {
+pub trait SpecializedBitmap:
+    AsRef<Bitmap> + Borrow<Self::Owned> + Debug + PartialEq + Sealed
+{
     /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;
 
