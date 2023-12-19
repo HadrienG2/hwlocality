@@ -31,7 +31,7 @@
 //! as easy to use, cleanly implemented and feature-complete as it should be.
 
 use crate::{
-    bitmap::{BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObjectError, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
@@ -241,6 +241,35 @@ impl<'topology> TopologyEditor<'topology> {
             set: &OwnedSet,
             mut flags: RestrictFlags,
         ) -> Result<(), ParameterError<OwnedSet>> {
+            // Check if applying this restriction would remove all CPUs/nodes
+            //
+            // This duplicates some error handling logic inside of hwloc, but
+            // reduces the odds that in the presence of errno reporting issues
+            // on Windows, the process will abort when it shouldn't.
+            let topology = self_.topology();
+            let erased_set: &Bitmap = set.as_ref();
+            let (affected, other) = match OwnedSet::BITMAP_KIND {
+                BitmapKind::CpuSet => {
+                    let topology_set = topology.cpuset();
+                    let topology_set: &Bitmap = topology_set.as_ref();
+                    let cpuset = CpuSet::from(erased_set & topology_set);
+                    let nodeset = NodeSet::from_cpuset(topology, &cpuset);
+                    (Bitmap::from(cpuset), Bitmap::from(nodeset))
+                }
+                BitmapKind::NodeSet => {
+                    let topology_set = topology.nodeset();
+                    let topology_set: &Bitmap = topology_set.as_ref();
+                    let nodeset = NodeSet::from(erased_set & topology_set);
+                    let cpuset = CpuSet::from_nodeset(topology, &nodeset);
+                    (Bitmap::from(nodeset), Bitmap::from(cpuset))
+                }
+            };
+            if affected.is_empty()
+                && (flags.contains(RestrictFlags::REMOVE_EMPTIED) || other.is_empty())
+            {
+                return Err(ParameterError::from(set.to_owned()));
+            }
+
             // Configure restrict flags correctly depending on the node set type
             match OwnedSet::BITMAP_KIND {
                 BitmapKind::CpuSet => flags.remove(RestrictFlags::BY_NODE_SET),
@@ -274,6 +303,11 @@ impl<'topology> TopologyEditor<'topology> {
                     flags.bits(),
                 )
             });
+            let handle_enomem = |certain: bool| {
+                let nuance = if certain { "is" } else { "might be" };
+                eprintln!("ERROR: Topology {nuance} stuck in an invalid state. Must abort...");
+                std::process::abort()
+            };
             match result {
                 Ok(_) => Ok(()),
                 Err(
@@ -282,12 +316,17 @@ impl<'topology> TopologyEditor<'topology> {
                     },
                 ) => match errno.0 {
                     EINVAL => Err(ParameterError::from(set.to_owned())),
-                    ENOMEM => {
-                        eprintln!("ERROR: Topology is stuck in an invalid state. Must abort...");
-                        std::process::abort()
-                    }
+                    ENOMEM => handle_enomem(true),
                     _ => unreachable!("Unexpected hwloc error: {raw_err}"),
                 },
+                #[cfg(windows)]
+                Err(raw_err @ RawHwlocError { errno: None, .. }) => {
+                    // Due to errno propagation issues on windows, we may not
+                    // know which of EINVAL and ENOMEM we're dealing with. Since
+                    // not aborting on ENOMEM is unsafe, we must take the
+                    // pessimistic assumption that it was ENOMEM and abort...
+                    handle_enomem(false)
+                }
                 Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
             }
         }
@@ -732,6 +771,8 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                             child.as_inner(),
                         )
                     });
+                let handle_enomem =
+                    |raw_err: RawHwlocError| panic!("Internal reallocation failed: {raw_err}");
                 match result {
                     Ok(_) => {}
                     Err(
@@ -739,7 +780,16 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                             errno: Some(errno::Errno(ENOMEM)),
                             ..
                         },
-                    ) => panic!("Internal reallocation failed: {raw_err}"),
+                    ) => handle_enomem(raw_err),
+                    #[cfg(windows)]
+                    Err(raw_err @ RawHwlocError { errno: None, .. }) => {
+                        // As explained in the RawHwlocError documentation,
+                        // errno values may not correctly propagate from hwloc
+                        // to hwlocality on Windows. Since there is only one
+                        // expected errno value here, we'll interpret lack of
+                        // errno as ENOMEM on Windows.
+                        handle_enomem(raw_err)
+                    }
                     Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
                 }
             }

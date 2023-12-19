@@ -226,6 +226,14 @@ impl Topology {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => false,
+            #[cfg(all(windows, not(tarpaulin_include)))]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                false
+            }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }

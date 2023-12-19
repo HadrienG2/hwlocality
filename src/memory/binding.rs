@@ -930,7 +930,7 @@ impl Topology {
                         MemoryBoundObject::Area,
                         MemoryBindingOperation::Allocate,
                         clone_set,
-                        raw_err.errno.expect("Unexpected hwloc error without errno"),
+                        raw_err.errno,
                     )
                     .expect("Unexpected errno value")
                 })
@@ -1446,6 +1446,17 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// the requested operation is not exactly supported.
     #[error("requested memory binding action or policy isn't supported")]
     Unsupported,
+
+    /// An error occured, but we don't know which one
+    ///
+    /// This may only happen on Windows. On this operating system, there are
+    /// multiple versions of the standard library (called the C RunTimes or
+    /// CRTs), and it is very easy to end up in a situation where your program
+    /// links against a different CRT than your hwloc build, which breaks
+    /// errno-based error reporting among other things.
+    #[cfg(windows)]
+    #[error("an unknown error occured")]
+    Unknwon,
 }
 //
 impl<OwnedSet: OwnedSpecializedBitmap> From<MemoryBindingFlags> for MemoryBindingError<OwnedSet> {
@@ -1468,13 +1479,9 @@ pub(crate) fn call_hwloc_int<OwnedSet: OwnedSpecializedBitmap>(
 ) -> Result<(), MemoryBindingError<OwnedSet>> {
     match errors::call_hwloc_int_normal(api, ffi) {
         Ok(_) => Ok(()),
-        Err(RawHwlocError { errno, .. }) => Err(decode_errno(
-            object,
-            operation,
-            clone_set,
-            errno.expect("Unexpected hwloc error without errno"),
-        )
-        .expect("Unexpected errno value")),
+        Err(RawHwlocError { errno, .. }) => {
+            Err(decode_errno(object, operation, clone_set, errno).expect("Unexpected errno value"))
+        }
     }
 }
 
@@ -1486,11 +1493,11 @@ fn decode_errno<OwnedSet: OwnedSpecializedBitmap>(
     object: MemoryBoundObject,
     operation: MemoryBindingOperation,
     clone_set: &dyn Fn() -> Option<OwnedSet>,
-    errno: Errno,
+    errno: Option<Errno>,
 ) -> Option<MemoryBindingError<OwnedSet>> {
-    match errno.0 {
-        ENOSYS => Some(MemoryBindingError::Unsupported),
-        EXDEV => match operation {
+    match errno {
+        Some(Errno(ENOSYS)) => Some(MemoryBindingError::Unsupported),
+        Some(Errno(EXDEV)) => match operation {
             MemoryBindingOperation::Bind | MemoryBindingOperation::Allocate => {
                 Some(MemoryBindingError::BadSet(
                     object,
@@ -1505,7 +1512,10 @@ fn decode_errno<OwnedSet: OwnedSpecializedBitmap>(
                 unreachable!("The empty set should always be considered valid")
             }
         },
-        ENOMEM => Some(MemoryBindingError::AllocationFailed),
+        Some(Errno(ENOMEM)) => Some(MemoryBindingError::AllocationFailed),
+        #[cfg(windows)]
+        // Work around CRT mismatch issues on Windows, which break errno
+        None => Some(MemoryBindingError::Unknown),
         _ => None,
     }
 }

@@ -130,6 +130,14 @@ impl Topology {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => Ok(None),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                Ok(None)
+            }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
@@ -534,6 +542,7 @@ impl<'topology> TopologyEditor<'topology> {
                 &mut id,
             )
         });
+        let handle_ebusy = || Err(RegisterError::NameTaken(name.into()));
         match res {
             Ok(_positive) => Ok(MemoryAttributeBuilder {
                 editor: self,
@@ -544,7 +553,15 @@ impl<'topology> TopologyEditor<'topology> {
             Err(RawHwlocError {
                 errno: Some(Errno(EBUSY)),
                 ..
-            }) => Err(RegisterError::NameTaken(name.into())),
+            }) => handle_ebusy(),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EBUSY on Windows.
+                handle_ebusy()
+            }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
@@ -921,12 +938,22 @@ impl<'topology> MemoryAttribute<'topology> {
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
+        let handle_einval =
+            || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
             Ok(_positive) => {}
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
-            }) => unreachable!("MemoryAttribute should only hold valid attribute indices"),
+            }) => handle_einval(),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                handle_einval()
+            }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
         assert!(
@@ -976,12 +1003,22 @@ impl<'topology> MemoryAttribute<'topology> {
         let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
             hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
+        let handle_einval =
+            || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
             Ok(_positive) => MemoryAttributeFlags::from_bits_truncate(flags),
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
-            }) => unreachable!("MemoryAttribute should only hold valid attribute indices"),
+            }) => handle_einval(),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                handle_einval()
+            }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
@@ -1389,6 +1426,15 @@ impl<'topology> MemoryAttribute<'topology> {
                     errno: Some(Errno(EINVAL)),
                     ..
                 }) => unreachable!("Parameters should have been checked by the caller"),
+                #[cfg(windows)]
+                Err(RawHwlocError { errno: None, .. }) => {
+                    // As explained in the RawHwlocError documentation, errno values
+                    // may not correctly propagate from hwloc to hwlocality on
+                    // Windows. Since EINVAL should not occur here, only ENOENT
+                    // is expected here, so we'll interpret lack of errno as
+                    // ENOENT on Windows.
+                    None
+                }
                 Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
             }
         }
