@@ -319,15 +319,17 @@ impl<'topology> TopologyEditor<'topology> {
                     ENOMEM => handle_enomem(true),
                     _ => unreachable!("Unexpected hwloc error: {raw_err}"),
                 },
-                #[cfg(windows)]
                 Err(raw_err @ RawHwlocError { errno: None, .. }) => {
-                    // Due to errno propagation issues on windows, we may not
-                    // know which of EINVAL and ENOMEM we're dealing with. Since
-                    // not aborting on ENOMEM is unsafe, we must take the
-                    // pessimistic assumption that it was ENOMEM and abort...
-                    handle_enomem(false)
+                    if cfg!(windows) {
+                        // Due to errno propagation issues on windows, we may not
+                        // know which of EINVAL and ENOMEM we're dealing with. Since
+                        // not aborting on ENOMEM is unsafe, we must take the
+                        // pessimistic assumption that it was ENOMEM and abort...
+                        handle_enomem(false)
+                    } else {
+                        unreachable!("Unexpected hwloc error: {raw_err}")
+                    }
                 }
-                Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
             }
         }
         polymorphized(self, set.borrow(), flags)
