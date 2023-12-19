@@ -1456,7 +1456,7 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// errno-based error reporting among other things.
     #[cfg(windows)]
     #[error("an unknown error occured")]
-    Unknwon,
+    Unknown,
 }
 //
 impl<OwnedSet: OwnedSpecializedBitmap> From<MemoryBindingFlags> for MemoryBindingError<OwnedSet> {
