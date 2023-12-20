@@ -105,10 +105,19 @@ impl LibcString {
 
     /// Transfer ownership of the string to a C API
     ///
+    /// # Safety
+    ///
     /// Unlike with regular [`CString`], it is safe to pass this string to a C
-    /// API that may later free it using `free()`.
+    /// API that may later free it using `free()`, **as long as the application
+    /// links against the same libc/CRT as hwloc**.
+    ///
+    /// However, this last constraint is very hard to enforce in practice on
+    /// Windows, where the use of multiple CRT is the norm, libraries are
+    /// commonly distributed as binary DLLs, and you have no easy way to tell
+    /// which CRT the DLL you're using links against. This is why this method is
+    /// unsafe, and should not be exposed via a safe interface on Windows.
     #[cfg(any(test, feature = "hwloc-2_3_0"))]
-    pub(crate) fn into_raw(self) -> *mut c_char {
+    pub(crate) unsafe fn into_raw(self) -> *mut c_char {
         let ptr = self.0.as_ptr().cast::<c_char>();
         std::mem::forget(self);
         ptr
@@ -257,7 +266,8 @@ mod tests {
 
             // Test raw char* extraction
             let backup = c.0;
-            let raw = c.into_raw();
+            // SAFETY: Will not actually be sent to a C API
+            let raw = unsafe { c.into_raw() };
             prop_assert_eq!(raw, backup.cast::<c_char>().as_ptr());
 
             // SAFETY: Effectively replicates Drop. Correct because since into_raw()

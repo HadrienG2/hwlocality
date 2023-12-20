@@ -106,7 +106,10 @@ use std::{
 //   from one variant to another
 // - subtype may be replaced with another C string allocated by malloc(),
 //   which hwloc will automatically free() on topology destruction (source:
-//   documentation of hwloc_topology_insert_group_object() encourages it)
+//   documentation of hwloc_topology_insert_group_object() encourages it).
+//   However, this is only safe if hwloc is linked against the same libc as the
+//   application, so it should be made unsafe on Windows where linking against
+//   two different CRTs is both easy to do and hard to avoid.
 // - depth is in sync with parent
 // - logical_index is in sync with (next|prev)_cousin
 // - sibling_rank is in sync with (next|prev)_sibling
@@ -146,15 +149,45 @@ impl TopologyObject {
 
     /// Set the subtype string
     ///
+    /// This exposes [`TopologyObject::set_subtype_unchecked()`] as a safe
+    /// method on OSes which are not known to facilitate mixing and matching
+    /// libc versions between an application and its dependencies.
+    #[allow(clippy::missing_errors_doc)]
+    #[cfg(all(feature = "hwloc-2_3_0", not(windows)))]
+    pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
+        // SAFETY: Underlying OS is assumed not to ergonomically encourage
+        //         unsafe multi-libc linkage
+        unsafe { self.set_subtype_unchecked(subtype) }
+    }
+
+    /// Set the subtype string
+    ///
     /// This is something you'll often want to do when creating Group or Misc
     /// objects in order to make them more descriptive.
+    ///
+    /// # Safety
+    ///
+    /// This method is only safe to call if you can guarantee that your
+    /// application links against the same libc/CRT as hwloc.
+    ///
+    /// While linking against a different libc is something that is either
+    /// outright UB or strongly advised against on every OS, actually following
+    /// this sanity rule is unfortunately very hard on Windows, where usage of
+    /// multiple CRTs and pre-built DLLs is the norm, and there is no easy way
+    /// to tell which CRT version your pre-built hwloc DLL links against to
+    /// adjust your application build's CRT choice accordingly.
+    ///
+    /// Which is why hwlocality tries hard to accomodate violations of the rule.
+    /// And thus the safe version of this method, which assumes that you do
+    /// follow the rule, is not available on Windows.
     ///
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
     #[cfg(feature = "hwloc-2_3_0")]
-    pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
-        self.0.subtype = LibcString::new(subtype)?.into_raw();
+    pub unsafe fn set_subtype_unchecked(&mut self, subtype: &str) -> Result<(), NulError> {
+        // SAFETY: Per input precondition
+        self.0.subtype = unsafe { LibcString::new(subtype)?.into_raw() };
         Ok(())
     }
 
