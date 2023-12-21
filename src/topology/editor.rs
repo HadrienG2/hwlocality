@@ -400,10 +400,12 @@ impl<'topology> TopologyEditor<'topology> {
     /// Use the `merge` option to control hwloc's propension to merge groups
     /// with hierarchically-identical topology objects.
     ///
-    /// After a successful insertion, [`TopologyObject::set_subtype()`] can be
-    /// used to display something other than "Group" as the type name for this
-    /// object in `lstopo`, and custom name/value info pairs may be added using
-    /// [`TopologyObject::add_info()`].
+    /// After a successful insertion,
+    #[cfg_attr(windows, doc = "[`TopologyObject::set_subtype_unchecked()`]")]
+    #[cfg_attr(not(windows), doc = "[`TopologyObject::set_subtype()`]")]
+    /// can be used to display something other
+    /// than "Group" as the type name for this object in `lstopo`, and custom
+    /// name/value info pairs may be added using [`TopologyObject::add_info()`].
     ///
     /// # Errors
     ///
