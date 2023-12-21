@@ -150,8 +150,8 @@ impl TopologyObject {
     /// Set the subtype string
     ///
     /// This exposes [`TopologyObject::set_subtype_unchecked()`] as a safe
-    /// method on OSes which are not known to facilitate mixing and matching
-    /// libc versions between an application and its dependencies.
+    /// method on operating systems which aren't known to facilitate mixing and
+    /// matching libc versions between an application and its dependencies.
     #[allow(clippy::missing_errors_doc)]
     #[cfg(all(feature = "hwloc-2_3_0", not(windows)))]
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
