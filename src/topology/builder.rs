@@ -1020,7 +1020,6 @@ pub(crate) mod tests {
         },
         panic::UnwindSafe,
     };
-    use sysinfo::PidExt;
     use tempfile::NamedTempFile;
 
     // Check that public types in this module keep implementing all expected

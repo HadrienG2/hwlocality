@@ -8,7 +8,7 @@ use hwlocality::{
     },
     ProcessId, Topology,
 };
-use sysinfo::{ProcessRefreshKind, RefreshKind, System, SystemExt};
+use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
 /// Example which displays process CPU bindings
 fn main() -> eyre::Result<()> {
@@ -20,7 +20,7 @@ fn main() -> eyre::Result<()> {
         println!("This example needs support for querying process CPU bindings");
         return Ok(());
     }
-    if !sysinfo::System::IS_SUPPORTED {
+    if !sysinfo::IS_SUPPORTED_SYSTEM {
         println!("This example needs support for querying the process list");
         return Ok(());
     }
