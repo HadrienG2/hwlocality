@@ -30,6 +30,8 @@
 //! sub-optimal ergonomics as a result of making the regular [`Topology`] type
 //! as easy to use, cleanly implemented and feature-complete as it should be.
 
+#[cfg(doc)]
+use crate::topology::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
     bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
@@ -39,13 +41,8 @@ use crate::{
         transparent::{AsInner, AsNewtype},
     },
     memory::nodeset::NodeSet,
-    object::{attributes::GroupAttributes, TopologyObject},
+    object::{attributes::GroupAttributes, types::ObjectType, TopologyObject, TopologyObjectID},
     topology::Topology,
-};
-#[cfg(doc)]
-use crate::{
-    object::types::ObjectType,
-    topology::builder::{BuildFlags, TopologyBuilder, TypeFilter},
 };
 use bitflags::bitflags;
 use derive_more::Display;
@@ -409,11 +406,14 @@ impl<'topology> TopologyEditor<'topology> {
     /// Add more structure to the topology by adding an intermediate [`Group`]
     ///
     /// Use the `find_children` callback to specify which [`TopologyObject`]s of
-    /// this topology should be made children of the newly created Group
-    /// object. The cpuset and nodeset of the final Group object will be the
-    /// union of the cpuset and nodeset of all children respectively. Empty
-    /// groups are not allowed, so at least one of these sets must be
-    /// non-empty, or no Group object will be created.
+    /// this topology should be made children of the newly created Group object.
+    /// The resulting set of group children must follow a number of constraints:
+    ///
+    /// - They can only be objects with cpusets and/or nodesets, i.e. normal and
+    ///   memory objects are fine but I/O and [`Misc`] objects are not.
+    /// - There has to be at least one child object.
+    /// - Although group children may reside at multiple depths, the child set
+    ///   cannot simultaneously include a topology object and one its ancestors.
     ///
     /// Use the `merge` option to control hwloc's propension to merge groups
     /// with hierarchically-identical topology objects.
@@ -436,6 +436,7 @@ impl<'topology> TopologyEditor<'topology> {
     ///     - The effective CPU set or NUMA node set ends up being empty.
     ///
     /// [`Group`]: ObjectType::Group
+    /// [`Misc`]: ObjectType::Misc
     //
     // --- Implementation details ---
     //
@@ -719,6 +720,38 @@ impl From<bool> for GroupMerge {
             Self::Never
         }
     }
+}
+
+/// Error while creating a [`Group`](ObjectType::Group) object
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum GroupInsertError {
+    /// Attempted to create a group without children
+    #[error("a Group must have at least one child object")]
+    NoChild,
+
+    /// Attempted to add a child without a cpuset or nodeset
+    #[error("{0} objects, which don't have cpusets and nodesets, cannot be children of a Group")]
+    BadChildType(ObjectType),
+
+    /// Attempted to add a [`TopologyObject`] from another [`Topology`]
+    #[error("group child {0}")]
+    ForeignChild(#[from] ForeignObjectError),
+
+    /// Attempted to add both an object and one of its ancestors to the group
+    // FIXME: Find out if having two children of different depths is supported
+    //        at all, it's not clear to me how this could work when Group
+    //        objects can only have a single parent and the link between low
+    //        objects and their parent should not be lost.
+    #[error(
+        "ancestor object #{ancestor} and descendant object #{descendant} cannot be children of the same Group"
+    )]
+    IncompatibleChildren {
+        /// Proposed group child that is an ancestor of `descendant`
+        ancestor: TopologyObjectID,
+
+        /// Proposed group child that has `ancestor` as an ancestor
+        descendant: TopologyObjectID,
+    },
 }
 
 /// RAII guard for `Group` objects that have been allocated, but not inserted
