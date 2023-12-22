@@ -350,8 +350,9 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`AllowSetError`] if an `AllowSet::Custom` with both `cpuset` and
-    ///   `nodeset` set to `None` is passed in.
+    /// - [`AllowSetError`] if an `AllowSet::Custom` contains neither a cpuset
+    ///   nor a nodeset, or if it would remove either all CPUs or all NUMA nodes
+    ///   from the allowed set of the topology.
     #[doc(alias = "hwloc_topology_allow")]
     pub fn allow(&mut self, allow_set: AllowSet<'_>) -> Result<(), HybridError<AllowSetError>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
@@ -363,6 +364,23 @@ impl<'topology> TopologyEditor<'topology> {
                 HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS,
             ),
             AllowSet::Custom { cpuset, nodeset } => {
+                // Check that this operation does not empty any allow-set
+                let topology = self.topology();
+                let mut effective_cpuset = topology.cpuset().clone_target();
+                let mut effective_nodeset = topology.nodeset().clone_target();
+                if let Some(cpuset) = cpuset {
+                    effective_cpuset &= cpuset;
+                    effective_nodeset &= NodeSet::from_cpuset(topology, cpuset);
+                }
+                if let Some(nodeset) = nodeset {
+                    effective_nodeset &= nodeset;
+                    effective_cpuset &= CpuSet::from_nodeset(topology, nodeset);
+                }
+                if effective_cpuset.is_empty() && effective_nodeset.is_empty() {
+                    return Err(AllowSetError.into());
+                }
+
+                // Check that both sets have been specified
                 let cpuset = cpuset.map_or(ptr::null(), CpuSet::as_ptr);
                 let nodeset = nodeset.map_or(ptr::null(), NodeSet::as_ptr);
                 if cpuset.is_null() && nodeset.is_null() {
@@ -1243,6 +1261,112 @@ mod tests {
                 sets,
                 infos: format!("{:?}", obj.infos().iter().collect::<Vec<_>>()),
             }
+        }
+    }
+
+    // --- Changing the set of allowed PUs and NUMA nodes ---
+
+    /// Owned version of [`AllowSet`]
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    enum OwnedAllowSet {
+        All,
+        LocalRestrictions,
+        Custom {
+            cpuset: Option<CpuSet>,
+            nodeset: Option<NodeSet>,
+        },
+    }
+    //
+    impl OwnedAllowSet {
+        /// Borrow an [`AllowSet`] from this
+        fn as_allow_set(&self) -> AllowSet<'_> {
+            match self {
+                Self::All => AllowSet::All,
+                Self::LocalRestrictions => AllowSet::LocalRestrictions,
+                Self::Custom { cpuset, nodeset } => AllowSet::Custom {
+                    cpuset: cpuset.as_ref(),
+                    nodeset: nodeset.as_ref(),
+                },
+            }
+        }
+    }
+
+    /// Generate an `OwnedAllowSet` for `TopologyEditor::allow()` testing
+    fn any_allow_set() -> impl Strategy<Value = OwnedAllowSet> {
+        fn topology_related_set_opt<Set: OwnedSpecializedBitmap>(
+            topology_set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
+        ) -> impl Strategy<Value = Option<Set>> {
+            prop_oneof![
+                3 => topology_related_set(topology_set).prop_map(Some),
+                2 => Just(None)
+            ]
+        }
+        prop_oneof![
+            1 => Just(OwnedAllowSet::All),
+            1 => Just(OwnedAllowSet::LocalRestrictions),
+            3 => (
+                topology_related_set_opt(Topology::complete_cpuset),
+                topology_related_set_opt(Topology::complete_nodeset)
+            ).prop_map(|(cpuset, nodeset)| OwnedAllowSet::Custom {
+                cpuset, nodeset
+            })
+        ]
+    }
+
+    proptest! {
+        /// Test [`TopologyEditor::allow()`]
+        #[test]
+        fn allow(owned_allow_set in any_allow_set()) {
+            let initial_topology = Topology::test_instance();
+            let mut topology = initial_topology.clone();
+
+            let allow_set = owned_allow_set.as_allow_set();
+            let result = topology.edit(|editor| editor.allow(allow_set));
+
+            match allow_set {
+                AllowSet::All => {
+                    result.unwrap();
+                    prop_assert_eq!(topology.allowed_cpuset(), topology.cpuset());
+                    prop_assert_eq!(topology.allowed_nodeset(), topology.nodeset());
+                }
+                AllowSet::LocalRestrictions => {
+                    // LocalRestrictions does what the normal topology-building
+                    // process does, so it has no observable effect here...
+                    result.unwrap();
+                    prop_assert_eq!(&topology, initial_topology);
+                }
+                AllowSet::Custom { cpuset, nodeset } => {
+                    if cpuset.is_none() && nodeset.is_none() {
+                        prop_assert_eq!(result, Err(AllowSetError.into()));
+                        return Ok(());
+                    }
+
+                    let mut effective_cpuset = topology.cpuset().clone_target();
+                    let mut effective_nodeset = topology.nodeset().clone_target();
+                    if let Some(cpuset) = cpuset {
+                        effective_cpuset &= cpuset;
+                        effective_nodeset &= NodeSet::from_cpuset(&topology, cpuset);
+                    }
+                    if let Some(nodeset) = nodeset {
+                        effective_nodeset &= nodeset;
+                        effective_cpuset &= CpuSet::from_nodeset(&topology, nodeset);
+                    }
+                    if effective_cpuset.is_empty() && effective_nodeset.is_empty() {
+                        prop_assert_eq!(result, Err(AllowSetError.into()));
+                        return Ok(());
+                    }
+
+                    result.unwrap();
+                    prop_assert_eq!(topology.allowed_cpuset(), effective_cpuset);
+                    prop_assert_eq!(topology.allowed_nodeset(), effective_nodeset);
+                }
+            }
+
+            // Here we check that LocalRestrictions resets the topology from any
+            // allow set we may have configured back to its original allow sets
+            let result = topology.edit(|editor| editor.allow(AllowSet::LocalRestrictions));
+            result.unwrap();
+            prop_assert_eq!(&topology, initial_topology);
         }
     }
 }
