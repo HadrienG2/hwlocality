@@ -38,8 +38,20 @@ union fields are valid when nobody tells you they will always be.
 
 ## Prerequisites
 
-You will need a system with hwloc >=2.0.0 and associated development packages
-installed.
+`hwlocality` is compatible with `libhwloc` v2.0 and later. You can install a
+suitable version of `libhwloc` in two different ways:
+
+1. If your package manager of choice provides a reasonably recent `libhwloc`
+   package, then you can install it along with the associated development
+   package (typically called `libhwloc-dev` or `libhwloc-devel`). This is the
+   recommended way to do things because it will greatly speed up your
+   `hwlocality` (re)builds and allow you to easily keep `libhwloc` up to date
+   along with the rest of your development environment.
+2. If you cannot use the above method for any reason, then `hwlocality` can
+   alternatively download and build its own copy of `libhwloc`. To use such an
+   internal build, please enable the `bundled` Cargo feature. In addition to a
+   working C build environment, you will need to install `autotools` on Unices
+   and `cmake` on Windows.
 
 By default, compatibility with all hwloc 2.x versions is aimed for, which means
 features from newer versions in the 2.x series (or, in the near future,
@@ -51,13 +63,6 @@ hwloc 2.x releases, by enabling the cargo feature that matches the lowest hwloc
 release you need to be compatible with. See [the `[features]` section of this
 crate's Cargo.toml](https://github.com/hadrieng2/hwlocality/tree/master/Cargo.toml#L15)
 for more information.
-
-Beware that some Linux distributions provide very old hwloc versions. You may
-have to install it from [source code](https://www.open-mpi.org/projects/hwloc/).
-
-If you enable the `bundled` Cargo feature, we will attempt to build a recent
-hwloc internally. In addition to a valid C build environment, this requires
-autotools on Unices and CMake on Windows.
 
 ## Usage
 
@@ -159,9 +164,9 @@ be redirected to the suggested replacement in the Rust API.
 The main exceptions to this rule are notions that are not needed in Rust due to
 ergonomics improvements permitted by the Rust type system. For example...
 
-- C-style manual destructors are replaced by Drop impls
+- C-style manual destructors are replaced by `Drop` impls
 - Type argument clarification flags like `HWLOC_MEMBIND_BYNODESET` are replaced
-  by generics that do the right thing. 
+  by generics that do the right thing automatically. 
 
 ## License
 
