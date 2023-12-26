@@ -101,7 +101,7 @@ pub(crate) unsafe fn call_snprintf(
         let len_i32 = snprintf(ptr::null_mut(), 0);
         let len =
             usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
-        let mut buf = vec![0i8; len + 1];
+        let mut buf = vec![0; len + 1];
         assert_eq!(
             // SAFETY: Per input precondition
             snprintf(buf.as_mut_ptr(), buf.len()),
