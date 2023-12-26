@@ -124,15 +124,13 @@ jobs:
       - name: Build docs
         run: cargo doc ${{ env.JOB_FLAGS }}
 
-      # FIXME: Broken by v0.3.0, will bring it back after release
-      #
-      # - name: Check semver compliance
-      #   uses: obi1kenobi/cargo-semver-checks-action@v2
-      #   with:
-      #     package: hwlocality-sys # TODO: Extend once hwlocality is released
-      #     feature-group: default-features
-      #     features: ${{ matrix.features }}
-      #     rust-toolchain: manual
+      - name: Check semver compliance
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: hwlocality-sys # TODO: Extend once hwlocality is released
+          feature-group: default-features
+          features: ${{ matrix.features }}
+          rust-toolchain: manual
 
 
   # Run the tests and examples on all supported OSes and Rust versions (main CI)
