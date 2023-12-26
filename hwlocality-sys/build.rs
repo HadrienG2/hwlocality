@@ -175,6 +175,12 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
         config.define("CMAKE_TOOLCHAIN_FILE", &toolchain);
     }
 
+    // Disable testing
+    config.define("HWLOC_ENABLE_TESTING", "OFF");
+    // Disable unnecessary CLI tools
+    config.define("HWLOC_SKIP_LSTOPO", "1");
+    config.define("HWLOC_SKIP_TOOLS", "1");
+
     // Build hwloc
     let install_path = config.always_configure(false).build();
 
