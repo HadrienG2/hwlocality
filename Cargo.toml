@@ -166,7 +166,7 @@ derive_more = { version = "0.99", default-features = false, features = ["as_mut"
 errno = "0.3"
 
 # Part of this project (raw FFI binding)
-hwlocality-sys = "0.3.0"
+hwlocality-sys = { path = "./hwlocality-sys" }
 
 # Used for malloc, free, OS typedefs, and example thread queries
 libc.workspace = true
