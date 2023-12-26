@@ -21,7 +21,7 @@ hwloc-2_3_0 = ["hwloc-2_2_0"]
 hwloc-2_4_0 = ["hwloc-2_3_0"]
 hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
-bundled = ["dep:autotools", "dep:cmake"]
+vendored = ["dep:autotools", "dep:cmake"]
 # This feature does nothing in -sys and is only here for CI convenience
 proptest = []
 
@@ -34,13 +34,13 @@ windows-sys.workspace = true
 libc.workspace = true
 
 [build-dependencies]
-# Used for bundled builds on OSes other than Windows
+# Used for vendored builds on OSes other than Windows
 autotools = { version = "0.2", optional = true }
 
-# Used for bundled builds on Windows
+# Used for vendored builds on Windows
 cmake = { version = "0.1.50", optional = true }
 
-# Used to locate hwloc except in cmake bundled builds
+# Used to locate hwloc except in cmake vendored builds
 pkg-config = "0.3.8"
 
 [dev-dependencies]

@@ -1,4 +1,4 @@
-#[cfg(feature = "bundled")]
+#[cfg(feature = "vendored")]
 use std::{
     env,
     path::{Path, PathBuf},
@@ -34,16 +34,16 @@ fn setup_hwloc() {
     };
 
     // If asked to build hwloc ourselves, do so
-    #[cfg(feature = "bundled")]
-    setup_bundled_hwloc(required_version);
+    #[cfg(feature = "vendored")]
+    setup_vendored_hwloc(required_version);
 
     // If asked to use system hwloc, configure it using pkg-config
-    #[cfg(not(feature = "bundled"))]
+    #[cfg(not(feature = "vendored"))]
     find_hwloc(Some(required_version));
 }
 
 /// Use pkg-config to locate and use a certain hwloc release
-#[cfg(not(all(feature = "bundled", windows)))]
+#[cfg(not(all(feature = "vendored", windows)))]
 fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
     // Initialize pkg-config
     let mut config = pkg_config::Config::new();
@@ -85,8 +85,8 @@ fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
 }
 
 /// Install hwloc ourselves
-#[cfg(feature = "bundled")]
-fn setup_bundled_hwloc(required_version: &str) {
+#[cfg(feature = "vendored")]
+fn setup_vendored_hwloc(required_version: &str) {
     // Determine which version to fetch and where to fetch it
     let source_version = match required_version
         .split('.')
@@ -112,7 +112,7 @@ fn setup_bundled_hwloc(required_version: &str) {
 }
 
 /// Fetch hwloc from a git release branch, return repo path
-#[cfg(feature = "bundled")]
+#[cfg(feature = "vendored")]
 fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
     // Determine location of the git repo and its parent directory
     let parent_path = parent_path.as_ref();
@@ -152,7 +152,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
 }
 
 /// Compile hwloc using cmake, return local installation path
-#[cfg(all(feature = "bundled", windows))]
+#[cfg(all(feature = "vendored", windows))]
 fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
     // Locate CMake support files, make sure they are present
     // (should be the case on any hwloc release since 2.8)
@@ -193,7 +193,7 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
 }
 
 /// Compile hwloc using autotools, return local installation path
-#[cfg(all(feature = "bundled", not(windows)))]
+#[cfg(all(feature = "vendored", not(windows)))]
 fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Build using autotools
     let mut config = autotools::Config::new(source_path);

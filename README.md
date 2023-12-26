@@ -49,9 +49,13 @@ suitable version of `libhwloc` in two different ways:
    along with the rest of your development environment.
 2. If you cannot use the above method for any reason, then `hwlocality` can
    alternatively download and build its own copy of `libhwloc`. To use such an
-   internal build, please enable the `bundled` Cargo feature. In addition to a
-   working C build environment, you will need to install `autotools` on Unices
-   and `cmake` on Windows.
+   internal build, please enable the `vendored` Cargo feature. In addition to a
+   working C build environment, you will need `automake` and `libtool` on
+   Unices, and `cmake` on Windows.
+
+Unless you are using a vendored version of hwloc of Windows, you will also need
+to install `pkg-config` or one of its clones (`pkgconf`, `pkgconfiglite`...), as
+it is used to find `libhwloc` and set up `hwlocality` to link against it.
 
 By default, compatibility with all hwloc 2.x versions is aimed for, which means
 features from newer versions in the 2.x series (or, in the near future,
