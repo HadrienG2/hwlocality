@@ -88,7 +88,7 @@ jobs:
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
-          - 'hwloc-latest,bundled'
+          - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
     env:
@@ -116,7 +116,7 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-        if: contains(matrix.features, 'bundled') == false
+        if: contains(matrix.features, 'vendored') == false
 
       - name: Check clippy lints
         run: cargo clippy ${{ env.JOB_FLAGS }} --all-targets -- -D warnings
@@ -171,7 +171,7 @@ jobs:
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
-          - 'hwloc-latest,bundled'
+          - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
     env:
@@ -191,15 +191,15 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-        if: contains(matrix.features, 'bundled') == false
+        if: contains(matrix.features, 'vendored') == false
 
       - name: Set up hwloc build dependencies (macOS)
         run: brew install automake
-        if: contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
+        if: contains(matrix.features, 'vendored') && startsWith(matrix.os, 'macos')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
-        if: contains(matrix.features, 'bundled') == false
+        if: contains(matrix.features, 'vendored') == false
 
       - name: Run tests
         run: cargo test --workspace ${{ env.FEATURES_FLAG }}
@@ -428,7 +428,7 @@ jobs:
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
-          - 'hwloc-latest,bundled'
+          - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
     env:
@@ -448,15 +448,15 @@ jobs:
         with:
           hwloc-version: ${{ env.HWLOC_VERSION }}
           hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-        if: contains(matrix.features, 'bundled') == false
+        if: contains(matrix.features, 'vendored') == false
 
       - name: Set up hwloc build dependencies (macOS)
         run: brew install automake
-        if: contains(matrix.features, 'bundled') && startsWith(matrix.os, 'macos')
+        if: contains(matrix.features, 'vendored') && startsWith(matrix.os, 'macos')
 
       - name: Collect system information
         uses: ./.github/actions/system-information
-        if: contains(matrix.features, 'bundled') == false
+        if: contains(matrix.features, 'vendored') == false
 
       - name: Install cargo-examples
         uses: baptiste0928/cargo-install@v2

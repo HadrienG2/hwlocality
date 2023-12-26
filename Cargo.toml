@@ -37,7 +37,7 @@ overflow-checks = false
 
 [package]
 name = "hwlocality"
-version = "1.0.0"
+version = "1.0.0-alpha.1"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -145,7 +145,7 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 
 # Automatically fetch and build the latest compatible hwloc version from github.
 # Otherwise, the system installation of hwloc will be used.
-bundled = ["hwlocality-sys/bundled"]
+vendored = ["hwlocality-sys/vendored"]
 
 # Implement required infrastructure for property-based testing
 proptest = ["dep:enum-iterator", "dep:proptest"]
