@@ -198,14 +198,13 @@ fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Build using autotools
     let mut config = autotools::Config::new(source_path);
     if cfg!(target_os = "macos") {
-        // macOS really doesn't like static builds...
-        config.disable_static();
-        config.enable_shared();
-    } else {
-        // ...but they make life easier elsewhere
-        config.enable_static();
-        config.disable_shared();
+        // macOS need some extra stuff to be linked for all symbols to be found
+        config.ldflag("-F/System/Library/Frameworks -framework CoreFoundation");
+        // And libxml2 needs to be linked in explicitly for some inexplicable reason
+        println!("cargo:rustc-link-lib=xml2");
     }
+    config.enable_static();
+    config.disable_shared();
     let install_path = config.fast_build(true).reconf("-ivf").build();
 
     // Compute the associated PKG_CONFIG_PATH
