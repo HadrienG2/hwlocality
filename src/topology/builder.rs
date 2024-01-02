@@ -1284,7 +1284,7 @@ pub(crate) mod tests {
         /// The outcome of building from a different PID is unpredictable, and thus
         /// not suitable for testing. It may fail altogether if the OS forbids us
         /// from querying another PID.
-        #[allow(dbg_macro)]
+        #[allow(clippy::dbg_macro)]
         #[test]
         fn from_pid(build_flags in valid_build_flags()) {
             // Attempt to configure a builder to get data from a certain process
