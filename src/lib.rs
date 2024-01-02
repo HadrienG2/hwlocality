@@ -254,12 +254,12 @@ use std::{process::Child, thread::JoinHandle};
 /// This type unfortunately cannot be mapped to and from the [`ThreadId` type of
 /// the standard Rust library](std::thread::ThreadId)].
 ///
-/// You can get the `ThreadId` of the current thread using
-/// [`current_thread_id()`], and the one of a thread that you spawned using the
-/// [`AsThreadId`] extension trait.
+/// You can get the identifier of the current thread using
+/// [`current_thread_id()`], and the identifier of a thread that you spawned
+/// using the [`AsThreadId`] extension trait.
 pub type ThreadId = hwloc_thread_t;
 
-/// Helper method to get the thread id through the libc or windows API
+/// Get the current thread's identifier through the libc or windows API
 #[cfg(not(target_os = "windows"))]
 #[cfg_attr(docsrs, doc(cfg()))]
 pub fn current_thread_id() -> ThreadId {
@@ -267,7 +267,7 @@ pub fn current_thread_id() -> ThreadId {
     unsafe { libc::pthread_self() }
 }
 //
-/// Helper method to get the thread id through the libc or windows API
+/// Get the current thread's identifier through the libc or windows API
 #[cfg(target_os = "windows")]
 #[cfg_attr(docsrs, doc(cfg()))]
 pub fn current_thread_id() -> ThreadId {
@@ -294,15 +294,15 @@ impl<T> AsThreadId for std::thread::JoinHandle<T> {
 #[cfg_attr(docsrs, doc(cfg(any(unix, windows))))]
 impl<T> AsThreadId for std::thread::JoinHandle<T> {
     fn as_thread_id(&self) -> ThreadId {
-        use std::os::windows::thread::AsRawHandle;
+        use std::os::windows::io::AsRawHandle;
         self.as_raw_handle()
     }
 }
 
 /// Process identifier (OS-specific)
 ///
-/// You can get this for the current process using [`std::process::id()`], and
-/// for processes that you spawned using [`Child::id()`].
+/// You can get current process' identifier using [`std::process::id()`], and
+/// the identifier of other processes that you spawned using [`Child::id()`].
 pub type ProcessId = u32;
 
 /// Indicate at runtime which hwloc API version was used at build time
