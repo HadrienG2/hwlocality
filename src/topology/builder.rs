@@ -34,7 +34,7 @@ use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
 use hwlocality_sys::{
-    hwloc_topology, hwloc_topology_flags_e, hwloc_type_filter_e,
+    hwloc_pid_t, hwloc_topology, hwloc_topology_flags_e, hwloc_type_filter_e,
     HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED, HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM,
     HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES, HWLOC_TYPE_FILTER_KEEP_ALL,
     HWLOC_TYPE_FILTER_KEEP_IMPORTANT, HWLOC_TYPE_FILTER_KEEP_NONE,
@@ -183,7 +183,10 @@ impl TopologyBuilder {
         //         - We can't validate a PID (think TOCTOU race), but hwloc is
         //           trusted to be able to handle an invalid PID
         let result = errors::call_hwloc_int_normal("hwloc_topology_set_pid", || unsafe {
-            hwlocality_sys::hwloc_topology_set_pid(self.as_mut_ptr(), pid)
+            hwlocality_sys::hwloc_topology_set_pid(
+                self.as_mut_ptr(),
+                hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+            )
         });
         match result {
             Ok(_) => Ok(self),
@@ -1311,7 +1314,7 @@ pub(crate) mod tests {
 
             // Building from this process' PID should be supported if building from
             // a PID is supported at all.
-            let my_pid = ProcessId::try_from(sysinfo::get_current_pid().unwrap().as_u32()).unwrap();
+            let my_pid = std::process::id();
 
             // Windows and macOS do not seem to allow construction from PID at all
             let topology = if cfg!(any(windows, target_os = "macos")) {

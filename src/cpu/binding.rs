@@ -19,7 +19,8 @@ use bitflags::bitflags;
 use derive_more::Display;
 use hwlocality_sys::{
     hwloc_const_cpuset_t, hwloc_const_topology_t, hwloc_cpubind_flags_t, hwloc_cpuset_t,
-    HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT, HWLOC_CPUBIND_THREAD,
+    hwloc_pid_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
+    HWLOC_CPUBIND_THREAD,
 };
 use libc::{ENOSYS, EXDEV};
 #[allow(unused)]
@@ -229,7 +230,12 @@ impl Topology {
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_set_proc_cpubind",
                 |topology, cpuset, flags| {
-                    hwlocality_sys::hwloc_set_proc_cpubind(topology, pid, cpuset, flags)
+                    hwlocality_sys::hwloc_set_proc_cpubind(
+                        topology,
+                        hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+                        cpuset,
+                        flags,
+                    )
                 },
             )
         }
@@ -277,7 +283,12 @@ impl Topology {
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_get_proc_cpubind",
                 |topology, cpuset, flags| {
-                    hwlocality_sys::hwloc_get_proc_cpubind(topology, pid, cpuset, flags)
+                    hwlocality_sys::hwloc_get_proc_cpubind(
+                        topology,
+                        hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+                        cpuset,
+                        flags,
+                    )
                 },
             )
         }
@@ -472,7 +483,12 @@ impl Topology {
                 CpuBoundObject::ProcessOrThread(pid),
                 "hwloc_get_proc_last_cpu_location",
                 |topology, cpuset, flags| {
-                    hwlocality_sys::hwloc_get_proc_last_cpu_location(topology, pid, cpuset, flags)
+                    hwlocality_sys::hwloc_get_proc_last_cpu_location(
+                        topology,
+                        hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+                        cpuset,
+                        flags,
+                    )
                 },
             )
         }

@@ -2,7 +2,7 @@ use eyre::eyre;
 use hwlocality::{
     cpu::binding::CpuBindingFlags,
     object::{types::ObjectType, TopologyObject},
-    ProcessId, Topology,
+    Topology,
 };
 
 /// Example which binds an arbitrary process (in this example this very same one)
@@ -18,10 +18,6 @@ fn main() -> eyre::Result<()> {
         println!("This example needs support for querying and setting process CPU bindings");
         return Ok(());
     }
-    if !sysinfo::IS_SUPPORTED_SYSTEM {
-        println!("This example needs support for querying current PID");
-        return Ok(());
-    }
 
     // FIXME: hwloc's get_proc_cpu_binding() mysteriously fails on Windows CI.
     //        May want to try again once this upstream issue is resolved:
@@ -34,7 +30,7 @@ fn main() -> eyre::Result<()> {
     }
 
     // Determine the active process' PID
-    let pid = get_pid();
+    let pid = std::process::id();
     println!("Binding Process with PID {pid:?}");
 
     // Grab last PU and extract its CpuSet
@@ -75,9 +71,4 @@ fn last_pu(topology: &Topology) -> eyre::Result<&TopologyObject> {
         .objects_with_type(ObjectType::PU)
         .next_back()
         .ok_or_else(|| eyre!("system should have at least one PU"))
-}
-
-/// Query the current process' PID
-fn get_pid() -> ProcessId {
-    usize::from(sysinfo::get_current_pid().expect("Failed to query PID")) as _
 }

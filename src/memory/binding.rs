@@ -23,10 +23,10 @@ use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
-    hwloc_membind_policy_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET, HWLOC_MEMBIND_DEFAULT,
-    HWLOC_MEMBIND_FIRSTTOUCH, HWLOC_MEMBIND_INTERLEAVE, HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED,
-    HWLOC_MEMBIND_NEXTTOUCH, HWLOC_MEMBIND_NOCPUBIND, HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT,
-    HWLOC_MEMBIND_THREAD,
+    hwloc_membind_policy_t, hwloc_pid_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET,
+    HWLOC_MEMBIND_DEFAULT, HWLOC_MEMBIND_FIRSTTOUCH, HWLOC_MEMBIND_INTERLEAVE,
+    HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED, HWLOC_MEMBIND_NEXTTOUCH, HWLOC_MEMBIND_NOCPUBIND,
+    HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT, HWLOC_MEMBIND_THREAD,
 };
 use libc::{ENOMEM, ENOSYS, EXDEV};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
@@ -481,7 +481,13 @@ impl Topology {
                 flags,
                 MemoryBoundObject::Process(pid),
                 |topology, set, policy, flags| {
-                    hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                    hwlocality_sys::hwloc_set_proc_membind(
+                        topology,
+                        hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+                        set,
+                        policy,
+                        flags,
+                    )
                 },
             )
         }
@@ -525,7 +531,13 @@ impl Topology {
                 flags,
                 MemoryBoundObject::Process(pid),
                 |topology, set, policy, flags| {
-                    hwlocality_sys::hwloc_set_proc_membind(topology, pid, set, policy, flags)
+                    hwlocality_sys::hwloc_set_proc_membind(
+                        topology,
+                        hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+                        set,
+                        policy,
+                        flags,
+                    )
                 },
             )
         }
@@ -578,7 +590,13 @@ impl Topology {
                 MemoryBoundObject::Process(pid),
                 MemoryBindingOperation::GetBinding,
                 |topology, set, policy, flags| {
-                    hwlocality_sys::hwloc_get_proc_membind(topology, pid, set, policy, flags)
+                    hwlocality_sys::hwloc_get_proc_membind(
+                        topology,
+                        hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
+                        set,
+                        policy,
+                        flags,
+                    )
                 },
             )
         }

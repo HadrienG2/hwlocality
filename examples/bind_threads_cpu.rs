@@ -3,7 +3,7 @@ use hwlocality::{
     cpu::binding::CpuBindingFlags,
     object::types::ObjectType,
     topology::support::{DiscoverySupport, FeatureSupport},
-    ThreadId, Topology,
+    Topology,
 };
 
 /// Example which spawns one thread per core and then assigns it to each.
@@ -43,7 +43,7 @@ fn main() -> eyre::Result<()> {
             let topology = &topology;
             scope.spawn(move || -> eyre::Result<()> {
                 // Get the current thread id and lock the topology to use.
-                let tid = get_thread_id();
+                let tid = hwlocality::current_thread_id();
 
                 // Thread binding before explicit set.
                 let before = topology.thread_cpu_binding(tid, CpuBindingFlags::empty())?;
@@ -72,15 +72,4 @@ fn main() -> eyre::Result<()> {
     });
 
     Ok(())
-}
-
-/// Helper method to get the thread id through libc or windows API
-#[cfg(not(target_os = "windows"))]
-fn get_thread_id() -> ThreadId {
-    unsafe { libc::pthread_self() }
-}
-//
-#[cfg(target_os = "windows")]
-fn get_thread_id() -> ThreadId {
-    unsafe { windows_sys::Win32::System::Threading::GetCurrentThread() }
 }

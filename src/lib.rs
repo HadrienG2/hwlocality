@@ -241,20 +241,69 @@ pub use proptest;
 pub use enum_iterator;
 
 use crate::ffi::int;
-use hwlocality_sys::{hwloc_pid_t, hwloc_thread_t};
+use hwlocality_sys::hwloc_thread_t;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
+#[cfg(doc)]
+use std::{process::Child, thread::JoinHandle};
 
 /// Thread identifier (OS-specific)
 ///
 /// This is `HANDLE` on Windows and `libc::pthread_t` on all other platforms.
+/// This type unfortunately cannot be mapped to and from the [`ThreadId` type of
+/// the standard Rust library](std::thread::ThreadId)].
+///
+/// You can get the `ThreadId` of the current thread using
+/// [`current_thread_id()`], and the one of a thread that you spawned using the
+/// [`AsThreadId`] extension trait.
 pub type ThreadId = hwloc_thread_t;
+
+/// Helper method to get the thread id through the libc or windows API
+#[cfg(not(target_os = "windows"))]
+#[cfg_attr(docsrs, doc(cfg()))]
+pub fn current_thread_id() -> ThreadId {
+    // SAFETY: Should be always safe to call
+    unsafe { libc::pthread_self() }
+}
+//
+/// Helper method to get the thread id through the libc or windows API
+#[cfg(target_os = "windows")]
+#[cfg_attr(docsrs, doc(cfg()))]
+pub fn current_thread_id() -> ThreadId {
+    // SAFETY: Should be always safe to call on Windows
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentThread() }
+}
+
+/// [`JoinHandle`] extension trait that gives you the thread's [`ThreadId`]
+pub trait AsThreadId {
+    /// Get the [`ThreadId`] of the target thread
+    fn as_thread_id(&self) -> ThreadId;
+}
+//
+#[cfg(unix)]
+#[cfg_attr(docsrs, doc(cfg(any(unix, windows))))]
+impl<T> AsThreadId for std::thread::JoinHandle<T> {
+    fn as_thread_id(&self) -> ThreadId {
+        use std::os::unix::thread::JoinHandleExt;
+        self.as_pthread_t()
+    }
+}
+//
+#[cfg(windows)]
+#[cfg_attr(docsrs, doc(cfg(any(unix, windows))))]
+impl<T> AsThreadId for std::thread::JoinHandle<T> {
+    fn as_thread_id(&self) -> ThreadId {
+        use std::os::windows::thread::AsRawHandle;
+        self.as_raw_handle()
+    }
+}
 
 /// Process identifier (OS-specific)
 ///
-/// This is `u32` on Windows and `libc::pid_t` on all other platforms.
-pub type ProcessId = hwloc_pid_t;
+/// You can get this for the current process using [`std::process::id()`], and
+/// for processes that you spawned using [`Child::id()`].
+pub type ProcessId = u32;
 
 /// Indicate at runtime which hwloc API version was used at build time
 ///
