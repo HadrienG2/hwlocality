@@ -175,6 +175,12 @@ impl TopologyBuilder {
     ///
     /// - [`FromPIDError`] if the topology cannot be configured from this
     ///   process.
+    ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
     #[doc(alias = "hwloc_topology_set_pid")]
     pub fn from_pid(mut self, pid: ProcessId) -> Result<Self, HybridError<FromPIDError>> {
         // SAFETY: - TopologyBuilder is trusted to contain a valid ptr (type invariant)
@@ -1284,7 +1290,6 @@ pub(crate) mod tests {
         /// The outcome of building from a different PID is unpredictable, and thus
         /// not suitable for testing. It may fail altogether if the OS forbids us
         /// from querying another PID.
-        #[allow(clippy::dbg_macro)]
         #[test]
         fn from_pid(build_flags in valid_build_flags()) {
             // Attempt to configure a builder to get data from a certain process
@@ -1310,12 +1315,12 @@ pub(crate) mod tests {
             // on Linux was confirmed to be expected by upstream at
             // https://github.com/open-mpi/hwloc/issues/624
             if cfg!(not(target_os = "linux")) {
-                expect_fail(ProcessId::MAX)?;
+                expect_fail(ProcessId::try_from(i32::MAX).expect("should be a 'valid' PID"))?;
             }
 
             // Building from this process' PID should be supported if building from
             // a PID is supported at all.
-            let my_pid = dbg!(std::process::id());
+            let my_pid = std::process::id();
 
             // Windows and macOS do not seem to allow construction from PID at all
             let topology = if cfg!(any(windows, target_os = "macos")) {

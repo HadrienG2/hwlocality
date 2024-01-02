@@ -454,6 +454,12 @@ impl Topology {
     /// - [`Unsupported`] if the system cannot bind the specified
     ///   thread/process with the requested policy
     ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
+    ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
     /// [`THREAD`]: MemoryBindingFlags::THREAD
@@ -508,6 +514,12 @@ impl Topology {
     /// - [`Unsupported`] if the system cannot unbind the specified
     ///   thread/process
     ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
+    ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`STRICT`]: MemoryBindingFlags::STRICT
@@ -560,6 +572,12 @@ impl Topology {
     ///   and memory binding is inhomogeneous across threads in the process
     /// - [`Unsupported`] if the system cannot query the specified
     ///   thread/process' binding
+    ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE

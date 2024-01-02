@@ -206,6 +206,12 @@ impl Topology {
     /// - [`BadObject(ProcessOrThread)`] if it is not possible to bind the
     ///   target process/thread to CPUs, generally speaking
     ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
+    ///
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
@@ -260,6 +266,12 @@ impl Topology {
     ///   or if any other binding target flag was specified
     /// - [`BadObject(ProcessOrThread)`] if it is not possible to query the CPU
     ///   binding of the target process/thread
+    ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
@@ -459,6 +471,12 @@ impl Topology {
     ///   other than Linux, or if any other binding target flag was specified
     /// - [`BadObject(ProcessOrThread)`] if it is not possible to query the CPU
     ///   binding of the target process/thread
+    ///
+    /// # Panics
+    ///
+    /// Some operating systems use signed PIDs, and do not support PIDs greater
+    /// than `i32::MAX`. This method will panic when passed such an obviously
+    /// invalid PID on these operating systems.
     ///
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(ProcessOrThread)`]: CpuBindingError::BadObject
