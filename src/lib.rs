@@ -295,7 +295,9 @@ impl<T> AsThreadId for std::thread::JoinHandle<T> {
 impl<T> AsThreadId for std::thread::JoinHandle<T> {
     fn as_thread_id(&self) -> ThreadId {
         use std::os::windows::io::AsRawHandle;
-        self.as_raw_handle()
+        // SAFETY: Casting a pointer to an integer is fine, it's the opposite
+        //         direction that is a little bit polemical these days.
+        unsafe { std::mem::transmute(self.as_raw_handle()) }
     }
 }
 
