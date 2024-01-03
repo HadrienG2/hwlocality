@@ -197,7 +197,8 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
 fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Build using autotools
     let mut config = autotools::Config::new(source_path);
-    if cfg!(target_os = "macos") {
+    let os: String = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if os == "macos" {
         // macOS need some extra stuff to be linked for all symbols to be found
         config.ldflag("-F/System/Library/Frameworks -framework CoreFoundation");
         // And libxml2 needs to be linked in explicitly for some inexplicable reason
