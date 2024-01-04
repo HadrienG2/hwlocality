@@ -21,7 +21,7 @@ hwloc-2_3_0 = ["hwloc-2_2_0"]
 hwloc-2_4_0 = ["hwloc-2_3_0"]
 hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
-vendored = ["dep:autotools", "dep:cmake"]
+vendored = ["dep:autotools", "dep:cmake", "dep:flate2", "dep:hex-literal", "dep:reqwest", "dep:sha3", "dep:tar"]
 # This feature does nothing in -sys and is only here for CI convenience
 proptest = []
 
@@ -34,14 +34,21 @@ windows-sys.workspace = true
 libc.workspace = true
 
 [build-dependencies]
-# Used for vendored builds on OSes other than Windows
-autotools = { version = "0.2", optional = true }
-
-# Used for vendored builds on Windows
-cmake = { version = "0.1.50", optional = true }
-
 # Used to locate hwloc except in cmake vendored builds
 pkg-config = "0.3.8"
+
+# Used for vendored builds on all OSes
+flate2 = { version = "1.0", optional = true }
+hex-literal = { version = "0.4", optional = true }
+reqwest = { version = "0.11", features = ["blocking"], optional = true }
+sha3 = { version = "0.10.8", optional = true }
+tar = { version = "0.4", optional = true }
+
+# Used for vendored builds targeting OSes other than Windows
+autotools = { version = "0.2", optional = true }
+
+# Used for vendored builds targeting Windows
+cmake = { version = "0.1.50", optional = true }
 
 [dev-dependencies]
 # Used to check trait implementations
