@@ -135,7 +135,11 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # - Make it enable features associated with all previous versions.
 # - Change hwloc-latest to point to that feature.
 # - Update hwlocality-sys' Cargo.toml similarly
-# - Update hwlocality-sys' build.rs to up the build requirements.
+# - Update hwlocality-sys' build.rs to...
+#   * Record the new feature's hwloc version requirements in `setup_hwloc()`
+#   * Use a newer official tarball, with appropriate checksum (can be computed
+#     using `curl <tar.gz url> | sha3-256sum`), in `setup_vendored_hwloc()`
+#   * If this is a new major version, add support for it in `find_hwloc()`
 # - Make the binding honor the API/ABI changes with the right cfg()s.
 # - Bump the crate's minor release number unless previous version was unreleased.
 # - Add this feature to the CI's linter matrix and both test matrices.

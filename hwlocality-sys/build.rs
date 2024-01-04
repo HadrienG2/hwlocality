@@ -1,10 +1,17 @@
 use std::sync::OnceLock;
 #[cfg(feature = "vendored")]
-use std::{
-    env,
-    path::{Path, PathBuf},
-    process::Command,
-};
+mod vendored_deps {
+    pub use flate2::read::GzDecoder;
+    pub use hex_literal::hex;
+    pub use sha3::{Digest, Sha3_256};
+    pub use std::{
+        env,
+        path::{Path, PathBuf},
+    };
+    pub use tar::Archive;
+}
+#[cfg(feature = "vendored")]
+use vendored_deps::*;
 
 fn main() {
     // We don't need hwloc on docs.rs since it only builds the docs
@@ -15,7 +22,7 @@ fn main() {
 
 /// Configure the hwloc dependency
 fn setup_hwloc() {
-    // Determine the minimal supported hwloc version with current featurees
+    // Determine the minimal supported hwloc version with current features
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
     } else if cfg!(feature = "hwloc-2_5_0") {
@@ -88,18 +95,21 @@ fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
 #[cfg(feature = "vendored")]
 fn setup_vendored_hwloc(required_version: &str) {
     // Determine which version to fetch and where to fetch it
-    let source_version = match required_version
+    let (source_version, sha3_digest) = match required_version
         .split('.')
         .next()
         .expect("No major version in required_version")
     {
-        "2" => "v2.x",
+        "2" => (
+            "2.10.0",
+            hex!("b3e5e208587cd366fc2975f21102c20f3b1094d3cae69f464cb1bd8b09f302aa"),
+        ),
         other => panic!("Please add support for bundling hwloc v{other}.x"),
     };
     let out_path = env::var("OUT_DIR").expect("No output directory given");
 
     // Fetch latest supported hwloc from git
-    let source_path = fetch_hwloc(out_path, source_version);
+    let source_path = fetch_hwloc(out_path, source_version, sha3_digest);
 
     // On Windows, we build using CMake because the autotools build
     // procedure does not work with MSVC, which is often needed on this OS
@@ -111,44 +121,54 @@ fn setup_vendored_hwloc(required_version: &str) {
     }
 }
 
-/// Fetch hwloc from a git release branch, return repo path
+/// Fetch, check and extract an official hwloc tarball, return extracted path
 #[cfg(feature = "vendored")]
-fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
-    // Determine location of the git repo and its parent directory
+fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 32]) -> PathBuf {
+    // Predict location where tarball would be extracted
     let parent_path = parent_path.as_ref();
-    let repo_path = parent_path.join("hwloc");
+    let extracted_path = parent_path.join(format!("hwloc-{version}"));
 
-    // Clone the repo if this is the first time, update it with pull otherwise
-    let output = if !repo_path.join("Makefile.am").exists() {
-        Command::new("git")
-            .args([
-                "clone",
-                "https://github.com/open-mpi/hwloc",
-                "--depth",
-                "1",
-                "--branch",
-                version,
-            ])
-            .current_dir(parent_path)
-            .output()
-            .expect("git clone for hwloc failed")
-    } else {
-        Command::new("git")
-            .args(["pull", "--ff-only", "origin", "v2.x"])
-            .current_dir(&repo_path)
-            .output()
-            .expect("git pull for hwloc failed")
-    };
+    // Reuse any existing download
+    if extracted_path.exists() {
+        eprintln!("Reusing previous hwloc v{version} download");
+        return extracted_path;
+    }
 
-    // Make sure the command returned a successful status
-    let status = output.status;
-    assert!(
-        status.success(),
-        "git clone/pull for hwloc returned failure status {status}:\n{output:?}"
+    // Determine hwloc tarball URL
+    let mut version_components = version.split('.');
+    let major = version_components.next().expect("no major hwloc version");
+    let minor = version_components.next().expect("no minor hwloc version");
+    let url = format!(
+        "https://download.open-mpi.org/release/hwloc/v{major}.{minor}/hwloc-{version}.tar.gz"
     );
 
-    // Propagate repo path
-    repo_path
+    // Download hwloc tarball
+    eprintln!("Downloading hwloc v{version} from URL {url}...");
+    let tar_gz = reqwest::blocking::get(url)
+        .expect("failed to GET hwloc source")
+        .bytes()
+        .expect("failed to parse hwloc source HTTP body");
+
+    // Verify tarball integrity
+    eprintln!("Verifying hwloc source integrity...");
+    let mut hasher = Sha3_256::new();
+    hasher.update(&tar_gz[..]);
+    assert_eq!(
+        &hasher.finalize()[..],
+        sha3_digest,
+        "downloaded hwloc source failed integrity check"
+    );
+
+    // Extract tarball
+    eprintln!("Extracting hwloc source...");
+    let tar = GzDecoder::new(&tar_gz[..]);
+    let mut archive = Archive::new(tar);
+    archive
+        .unpack(parent_path)
+        .expect("failed to extract hwloc source");
+
+    // Predict location where tarball was extracted
+    extracted_path
 }
 
 /// Compile hwloc using cmake, return local installation path
