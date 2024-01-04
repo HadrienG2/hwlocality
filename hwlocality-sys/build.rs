@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 #[cfg(feature = "vendored")]
 use std::{
     env,
@@ -43,7 +44,6 @@ fn setup_hwloc() {
 }
 
 /// Use pkg-config to locate and use a certain hwloc release
-#[cfg(not(all(feature = "vendored", windows)))]
 fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
     // Initialize pkg-config
     let mut config = pkg_config::Config::new();
@@ -63,13 +63,13 @@ fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
 
     // Run pkg-config
     let lib = config
-        .statik(cfg!(not(target_os = "macos")))
+        .statik(target_os() != "macos")
         .probe("hwloc")
         .expect("Could not find a suitable version of hwloc");
 
     // As it turns-out, pkg-config does not correctly set up the RPATHs for the
     // transitive dependencies of hwloc itself in static builds. Fix that.
-    if cfg!(target_family = "unix") {
+    if target_family().split(',').any(|family| family == "unix") {
         for link_path in &lib.link_paths {
             println!(
                 "cargo:rustc-link-arg=-Wl,-rpath,{}",
@@ -103,12 +103,12 @@ fn setup_vendored_hwloc(required_version: &str) {
 
     // On Windows, we build using CMake because the autotools build
     // procedure does not work with MSVC, which is often needed on this OS
-    #[cfg(target_os = "windows")]
-    install_hwloc_cmake(source_path);
-
-    // On other OSes, we use autotools and pkg-config
-    #[cfg(not(target_os = "windows"))]
-    install_hwloc_autotools(source_path);
+    if target_os() == "windows" {
+        install_hwloc_cmake(source_path);
+    } else {
+        // On other OSes, we use autotools and pkg-config
+        install_hwloc_autotools(source_path);
+    }
 }
 
 /// Fetch hwloc from a git release branch, return repo path
@@ -152,7 +152,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
 }
 
 /// Compile hwloc using cmake, return local installation path
-#[cfg(all(feature = "vendored", windows))]
+#[cfg(feature = "vendored")]
 fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
     // Locate CMake support files, make sure they are present
     // (should be the case on any hwloc release since 2.8)
@@ -193,12 +193,11 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
 }
 
 /// Compile hwloc using autotools, return local installation path
-#[cfg(all(feature = "vendored", not(windows)))]
+#[cfg(feature = "vendored")]
 fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Build using autotools
     let mut config = autotools::Config::new(source_path);
-    let os: String = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    if os == "macos" {
+    if target_os() == "macos" {
         // macOS need some extra stuff to be linked for all symbols to be found
         config.ldflag("-F/System/Library/Frameworks -framework CoreFoundation");
         // And libxml2 needs to be linked in explicitly for some inexplicable reason
@@ -227,4 +226,28 @@ fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
 
     // Configure this build to use hwloc via pkg-config
     find_hwloc(None);
+}
+
+/// Cross-compilation friendly alternative to `cfg!(target_os)`
+fn target_os() -> &'static str {
+    static TARGET_OS: OnceLock<Box<str>> = OnceLock::new();
+    TARGET_OS
+        .get_or_init(|| {
+            std::env::var("CARGO_CFG_TARGET_OS")
+                .expect("Cargo should tell us what the target OS is")
+                .into_boxed_str()
+        })
+        .as_ref()
+}
+
+/// Cross-compilation friendly alternative to `cfg!(target_family)`
+fn target_family() -> &'static str {
+    static TARGET_FAMILY: OnceLock<Box<str>> = OnceLock::new();
+    TARGET_FAMILY
+        .get_or_init(|| {
+            std::env::var("CARGO_CFG_TARGET_FAMILY")
+                .expect("Cargo should tell us what the target family is")
+                .into_boxed_str()
+        })
+        .as_ref()
 }
