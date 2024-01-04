@@ -215,7 +215,7 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
 /// Compile hwloc using autotools, return local installation path
 #[cfg(feature = "vendored")]
 fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
-    // Build using autotools
+    // Configure for static linking
     let mut config = autotools::Config::new(source_path);
     if target_os() == "macos" {
         // macOS need some extra stuff to be linked for all symbols to be found
@@ -223,8 +223,17 @@ fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
         // And libxml2 needs to be linked in explicitly for some inexplicable reason
         println!("cargo:rustc-link-lib=xml2");
     }
-    config.enable_static();
-    config.disable_shared();
+    config.enable_static().disable_shared();
+
+    // Disable optional features unless user explicitly asked for them
+    if cfg!(not(feature = "vendored-extra")) {
+        config
+            .disable("cairo", None)
+            .disable("io", None)
+            .disable("libxml2", None);
+    }
+
+    // Run the build
     let install_path = config.fast_build(true).reconf("-ivf").build();
 
     // Compute the associated PKG_CONFIG_PATH

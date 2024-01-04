@@ -147,9 +147,22 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # - Adjust readthedocs links to point to the new release's documentation.
 # - Tag new minor releases of hwlocality and hwlocality-sys
 
-# Automatically fetch and build the latest compatible hwloc version from github.
-# Otherwise, the system installation of hwloc will be used.
+# Automatically download and build a compatible hwloc version internally.
+# Otherwise, hwlocality will use the system installation of hwloc.
+#
+# By default, hwloc is built with all optional features disabled, which
+# minimizes the odds of hard-to-debug vendored build failures. You may instead
+# let the hwloc build system automatically enable optional features, as it does
+# by default, using the "vendored-extra" cargo feature.
 vendored = ["hwlocality-sys/vendored"]
+
+# Let the hwloc vendored build auto-enable optional features (libxml2, I/O
+# device discovery...) as the build system deems appropriate for the host.
+#
+# Be warned that this autodetection process is known to have false positives,
+# e.g. CUDA support may end up being enabled even when the relevant CUDA toolkit
+# is not in PATHs, resulting in hwloc build failures.
+vendored-extra = ["hwlocality-sys/vendored-extra", "vendored"]
 
 # Implement required infrastructure for property-based testing
 proptest = ["dep:enum-iterator", "dep:proptest"]
