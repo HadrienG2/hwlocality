@@ -7,7 +7,6 @@ mod vendored_deps {
     pub use std::{
         env,
         path::{Path, PathBuf},
-        process::Command,
     };
     pub use tar::Archive;
 }
