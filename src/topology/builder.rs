@@ -1407,15 +1407,9 @@ pub(crate) mod tests {
             // Try building from an invalid XML string
             match builder_with_flags(build_flags)?.unwrap().from_xml("<ZaLgO>") {
                 Ok(builder) => {
-                    if cfg!(windows) {
-                        // Lack of Windows input validation was closed as WONTFIX by
-                        // upstream at https://github.com/open-mpi/hwloc/issues/623
-                        builder
-                            .build()
-                            .expect_err("Should fail to load topology from invalid XML");
-                    } else {
-                        prop_assert!(false, "Input XML should be validated early");
-                    }
+                    builder
+                        .build()
+                        .expect_err("Should fail to load topology from invalid XML");
                 }
                 Err(StringInputError::Invalid) => {}
                 Err(other) => prop_assert!(false, "Unexpected error while loading from invalid XML: {other}"),

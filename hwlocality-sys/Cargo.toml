@@ -1,6 +1,6 @@
 [package]
 name = "hwlocality-sys"
-version = "0.3.2"
+version = "0.3.3"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -22,6 +22,7 @@ hwloc-2_4_0 = ["hwloc-2_3_0"]
 hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
 vendored = ["dep:autotools", "dep:cmake", "dep:flate2", "dep:hex-literal", "dep:reqwest", "dep:sha3", "dep:tar"]
+vendored-extra = ["vendored"]
 # This feature does nothing in -sys and is only here for CI convenience
 proptest = []
 
