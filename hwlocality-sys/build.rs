@@ -23,7 +23,7 @@ fn main() {
 
 /// Configure the hwloc dependency
 fn setup_hwloc() {
-    // Determine the minimal supported hwloc version with current featurees
+    // Determine the minimal supported hwloc version with current features
     let required_version = if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
     } else if cfg!(feature = "hwloc-2_5_0") {
@@ -96,7 +96,7 @@ fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
 #[cfg(feature = "vendored")]
 fn setup_vendored_hwloc(required_version: &str) {
     // Determine which version to fetch and where to fetch it
-    let (source_version, source_digest) = match required_version
+    let (source_version, sha3_digest) = match required_version
         .split('.')
         .next()
         .expect("No major version in required_version")
@@ -110,7 +110,7 @@ fn setup_vendored_hwloc(required_version: &str) {
     let out_path = env::var("OUT_DIR").expect("No output directory given");
 
     // Fetch latest supported hwloc from git
-    let source_path = fetch_hwloc(out_path, source_version, source_digest);
+    let source_path = fetch_hwloc(out_path, source_version, sha3_digest);
 
     // On Windows, we build using CMake because the autotools build
     // procedure does not work with MSVC, which is often needed on this OS
@@ -124,7 +124,7 @@ fn setup_vendored_hwloc(required_version: &str) {
 
 /// Fetch, check and extract an official hwloc tarball, return extracted path
 #[cfg(feature = "vendored")]
-fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, digest: [u8; 32]) -> PathBuf {
+fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 32]) -> PathBuf {
     // Predict location where tarball would be extracted
     let parent_path = parent_path.as_ref();
     let extracted_path = parent_path.join(format!("hwloc-{version}"));
@@ -156,7 +156,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, digest: [u8; 32]) -
     hasher.update(&tar_gz[..]);
     assert_eq!(
         &hasher.finalize()[..],
-        digest,
+        sha3_digest,
         "downloaded hwloc source failed integrity check"
     );
 
