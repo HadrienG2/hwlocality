@@ -217,13 +217,15 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
 fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Configure for static linking
     let mut config = autotools::Config::new(source_path);
+    config.enable_static().disable_shared();
     if target_os() == "macos" {
         // macOS need some extra stuff to be linked for all symbols to be found
         config.ldflag("-F/System/Library/Frameworks -framework CoreFoundation");
-        // And libxml2 needs to be linked in explicitly for some inexplicable reason
-        println!("cargo:rustc-link-lib=xml2");
+        // And libxml2 must be linked in explicitly for some inexplicable reason
+        if cfg!(feature = "vendored-extra") {
+            println!("cargo:rustc-link-lib=xml2");
+        }
     }
-    config.enable_static().disable_shared();
 
     // Disable optional features unless user explicitly asked for them
     if cfg!(not(feature = "vendored-extra")) {
