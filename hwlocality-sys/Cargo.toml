@@ -1,6 +1,6 @@
 [package]
 name = "hwlocality-sys"
-version = "0.3.4"
+version = "0.3.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -41,7 +41,7 @@ pkg-config = "0.3.8"
 # Used for vendored builds on all OSes
 flate2 = { version = "1.0", optional = true }
 hex-literal = { version = "0.4", optional = true }
-reqwest = { version = "0.11", features = ["blocking"], optional = true }
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
 sha3 = { version = "0.10.8", optional = true }
 tar = { version = "0.4", optional = true }
 
