@@ -197,8 +197,8 @@ impl PositiveInt {
     /// `self`.
     ///
     /// Depending on what you’re doing with the value, you might also be
-    /// interested in the `ilog2` function which returns a consistent number,
-    /// even if the type widens.
+    /// interested in the [`ilog2()`] function which returns a consistent
+    /// number, even if the type widens.
     ///
     /// # Examples
     ///
@@ -210,6 +210,8 @@ impl PositiveInt {
     /// assert_eq!(PositiveInt::ONE.leading_zeros(), PositiveInt::EFFECTIVE_BITS - 1);
     /// assert_eq!(PositiveInt::MAX.leading_zeros(), 0);
     /// ```
+    ///
+    /// [`ilog2()`]: Self::ilog2()
     pub const fn leading_zeros(self) -> u32 {
         self.0.leading_zeros() - 1
     }
@@ -686,8 +688,8 @@ impl PositiveInt {
     /// rounded down.
     ///
     /// This method might not be optimized owing to implementation details;
-    /// `ilog2` can produce results more efficiently for base 2, and `ilog10`
-    /// can produce results more efficiently for base 10.
+    /// [`ilog2()`] can produce results more efficiently for base 2, and
+    /// [`ilog10()`] can produce results more efficiently for base 10.
     ///
     /// # Panics
     ///
@@ -706,6 +708,9 @@ impl PositiveInt {
     ///     1
     /// );
     /// ```
+    ///
+    /// [`ilog2()`]: Self::ilog2()
+    /// [`ilog10()`]: Self::ilog10()
     pub const fn ilog(self, base: Self) -> u32 {
         self.0.ilog(base.0)
     }
@@ -762,8 +767,8 @@ impl PositiveInt {
     /// Returns `None` if the number is zero, or if the base is not at least 2.
     ///
     /// This method might not be optimized owing to implementation details;
-    /// `checked_ilog2` can produce results more efficiently for base 2, and
-    /// `checked_ilog10` can produce results more efficiently for base 10.
+    /// [`checked_ilog2()`] can produce results more efficiently for base 2, and
+    /// [`checked_ilog10()`] can produce results more efficiently for base 10.
     ///
     /// # Examples
     ///
@@ -786,6 +791,9 @@ impl PositiveInt {
     ///     Some(1)
     /// );
     /// ```
+    ///
+    /// [`checked_ilog2()`]: Self::checked_ilog2()
+    /// [`checked_ilog10()`]: Self::checked_ilog10()
     pub const fn checked_ilog(self, base: Self) -> Option<u32> {
         self.0.checked_ilog(base.0)
     }
@@ -3925,7 +3933,7 @@ mod tests {
     /// panicking. This is the behavior of most built-in arithmetic operations.
     ///
     /// If `release_result` is `None`, it indicates that the faillible operation
-    /// should panick even in release mode, as e.g. ilog() does.
+    /// should panic even in release mode, as e.g. `ilog()` does.
     fn test_faillible<Rhs: Copy + RefUnwindSafe, const LEN: usize>(
         int: PositiveInt,
         rhs: Rhs,
