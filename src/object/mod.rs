@@ -1018,18 +1018,18 @@ impl TopologyObject {
             hwlocality_sys::HWLOC_OBJ_GROUP,
             "this method should only be called on Group objects"
         );
-        for set_ptr in [
-            ptr::addr_of_mut!((*self_).0.cpuset),
-            ptr::addr_of_mut!((*self_).0.nodeset),
-            ptr::addr_of_mut!((*self_).0.complete_cpuset),
-            ptr::addr_of_mut!((*self_).0.complete_nodeset),
-        ] {
-            // SAFETY: This is safe per the input precondition that `self_` is a
-            //         valid `TopologyObject` (which includes valid bitmap
-            //         pointers), and it's not part of a `Topology` yet so we
-            //         assume complete ownership of it delete its cpu/node-sets
-            //         without worrying about unintended consequences.
-            unsafe {
+        // SAFETY: This is safe per the input precondition that `self_` is a
+        //         valid `TopologyObject` (which includes valid bitmap
+        //         pointers), and it's not part of a `Topology` yet so we
+        //         assume complete ownership of it delete its cpu/node-sets
+        //         without worrying about unintended consequences.
+        unsafe {
+            for set_ptr in [
+                ptr::addr_of_mut!((*self_).0.cpuset),
+                ptr::addr_of_mut!((*self_).0.nodeset),
+                ptr::addr_of_mut!((*self_).0.complete_cpuset),
+                ptr::addr_of_mut!((*self_).0.complete_nodeset),
+            ] {
                 let set = set_ptr.read();
                 if !set.is_null() {
                     hwlocality_sys::hwloc_bitmap_free(set);
