@@ -1414,7 +1414,7 @@ mod tests {
                             Err(HybridError::Rust(AllowSetError::Unsupported)) => {}
                             #[cfg(windows)]
                             Err(HybridError::Hwloc(RawHwlocError { errno: None, .. })) => {}
-                            other => panic!("unexpected result {other}");
+                            other => panic!("unexpected result {other:?}"),
                         }
                         return Ok(());
                     }
