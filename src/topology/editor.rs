@@ -47,13 +47,14 @@ use crate::{
 use bitflags::bitflags;
 use derive_more::Display;
 use enum_iterator::Sequence;
+use errno::Errno;
 use hwlocality_sys::{
     hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
     HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS, HWLOC_RESTRICT_FLAG_ADAPT_IO,
     HWLOC_RESTRICT_FLAG_ADAPT_MISC, HWLOC_RESTRICT_FLAG_BYNODESET,
     HWLOC_RESTRICT_FLAG_REMOVE_CPULESS, HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS,
 };
-use libc::{EINVAL, ENOMEM};
+use libc::{EINVAL, ENOMEM, ENOSYS};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -347,9 +348,19 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`AllowSetError`] if an `AllowSet::Custom` contains neither a cpuset
-    ///   nor a nodeset, or if it would remove either all CPUs or all NUMA nodes
-    ///   from the allowed set of the topology.
+    /// - [`EmptyCustom`] if an `AllowSet::Custom` does not do anything because
+    ///   both its `cpuset` and `nodeset` members are empty.
+    /// - [`InvalidCpuset`] if applying the `cpuset` of an `AllowSet::Custom`
+    ///   would amount to disallowing all CPUs from the topology.
+    /// - [`InvalidNodeset`] if applying the `nodeset` of an `AllowSet::Custom`
+    ///   would amount to disallowing all NUMA nodes from the topology.
+    /// - [`Unsupported`] if the specified `AllowSet` is not supported by the
+    ///   host operating system.
+    ///
+    /// [`EmptyCustom`]: AllowSetError::EmptyCustom
+    /// [`InvalidCpuset`]: AllowSetError::InvalidCpuset
+    /// [`InvalidNodeset`]: AllowSetError::InvalidNodeset
+    /// [`Unsupported`]: AllowSetError::Unsupported
     #[doc(alias = "hwloc_topology_allow")]
     pub fn allow(&mut self, allow_set: AllowSet<'_>) -> Result<(), HybridError<AllowSetError>> {
         // Convert AllowSet into a valid `hwloc_topology_allow` configuration
@@ -363,25 +374,22 @@ impl<'topology> TopologyEditor<'topology> {
             AllowSet::Custom { cpuset, nodeset } => {
                 // Check that this operation does not empty any allow-set
                 let topology = self.topology();
-                let mut effective_cpuset = topology.cpuset().clone_target();
-                let mut effective_nodeset = topology.nodeset().clone_target();
                 if let Some(cpuset) = cpuset {
-                    effective_cpuset &= cpuset;
-                    effective_nodeset &= NodeSet::from_cpuset(topology, cpuset);
+                    if !topology.cpuset().intersects(cpuset) {
+                        return Err(AllowSetError::InvalidCpuset.into());
+                    }
                 }
                 if let Some(nodeset) = nodeset {
-                    effective_nodeset &= nodeset;
-                    effective_cpuset &= CpuSet::from_nodeset(topology, nodeset);
-                }
-                if effective_cpuset.is_empty() && effective_nodeset.is_empty() {
-                    return Err(AllowSetError.into());
+                    if !topology.nodeset().intersects(nodeset) {
+                        return Err(AllowSetError::InvalidNodeset.into());
+                    }
                 }
 
-                // Check that both sets have been specified
+                // Check that at least one set has been specified
                 let cpuset = cpuset.map_or(ptr::null(), CpuSet::as_ptr);
                 let nodeset = nodeset.map_or(ptr::null(), NodeSet::as_ptr);
                 if cpuset.is_null() && nodeset.is_null() {
-                    return Err(AllowSetError.into());
+                    return Err(AllowSetError::EmptyCustom.into());
                 }
                 (cpuset, nodeset, HWLOC_ALLOW_FLAG_CUSTOM)
             }
@@ -396,11 +404,17 @@ impl<'topology> TopologyEditor<'topology> {
         //         - By construction, flags are trusted to be in sync with the
         //           cpuset and nodeset params + only one of them is set as
         //           requested by hwloc
-        errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
+        let result = errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
             hwlocality_sys::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
-        })
-        .map(std::mem::drop)
-        .map_err(HybridError::Hwloc)
+        });
+        match result {
+            Ok(_) => Ok(()),
+            Err(RawHwlocError {
+                errno: Some(Errno(ENOSYS)),
+                ..
+            }) => Err(AllowSetError::Unsupported.into()),
+            Err(other) => Err(HybridError::Hwloc(other)),
+        }
     }
 
     /// Add more structure to the topology by adding an intermediate [`Group`]
@@ -634,6 +648,12 @@ pub enum AllowSet<'set> {
     /// Allow a custom set of objects
     ///
     /// You should provide at least one of `cpuset` and `nodeset`.
+    ///
+    /// No attempt is made to keep the allowed cpusets and nodesets consistent
+    /// with each other, so you can end up in situations where e.g. access to
+    /// some CPU cores is theoretically allowed by the topology's allowed
+    /// cpuset, but actually prevented because their NUMA node is not part of
+    /// the topology's allowed nodeset.
     #[doc(alias = "HWLOC_ALLOW_FLAG_CUSTOM")]
     Custom {
         /// New value of [`Topology::allowed_cpuset()`]
@@ -686,10 +706,32 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
     }
 }
 
-/// Attempted to change the allowed set of PUs and NUMA nodes without saying how
-#[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("AllowSet::Custom cannot have both empty cpuset AND nodeset members")]
-pub struct AllowSetError;
+/// Error while trying to set the allow-set of a topology
+#[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum AllowSetError {
+    /// `AllowSet::Custom` was specified but both the `cpuset` and `nodeset`
+    /// were empty, so it isn't clear how the allow set should change
+    #[error("AllowSet::Custom cannot have both empty cpuset AND nodeset members")]
+    EmptyCustom,
+
+    /// `AllowSet::Custom` was specified with a cpuset that would disallow all
+    /// CPUs from the topology
+    #[error("AllowSet::Custom cannot be used to clear the topology's allowed cpuset")]
+    InvalidCpuset,
+
+    /// `AllowSet::Custom` was specified with a nodeset that would disallow all
+    /// NUMA nodes from the topology
+    #[error("AllowSet::Custom cannot be used to clear the topology's allowed nodeset")]
+    InvalidNodeset,
+
+    /// An unsupported AllowSet was passed in
+    ///
+    /// At the time of writing (2024-01-08), this happens when using
+    /// `AllowSet::LocalRestrictions` on any operating system other than Linux
+    /// and Solaris.
+    #[error("this operation is not supported on this OS")]
+    Unsupported,
+}
 
 /// Control merging of newly inserted groups with existing objects
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
@@ -1356,6 +1398,9 @@ mod tests {
             let allow_set = owned_allow_set.as_allow_set();
             let result = topology.edit(|editor| editor.allow(allow_set));
 
+            // Only a couple OSes support AllowSet::LocalRestrictions
+            const OS_SUPPORTS_LOCAL_RESTRICTIONS: bool = cfg!(any(target_os = "linux", target_os = "solaris"));
+
             match allow_set {
                 AllowSet::All => {
                     result.unwrap();
@@ -1363,30 +1408,40 @@ mod tests {
                     prop_assert_eq!(topology.allowed_nodeset(), topology.nodeset());
                 }
                 AllowSet::LocalRestrictions => {
-                    // LocalRestrictions does what the normal topology-building
-                    // process does, so it has no observable effect here...
+                    // LocalRestrictions is only supported on Linux
+                    if !OS_SUPPORTS_LOCAL_RESTRICTIONS {
+                        prop_assert_eq!(result, Err(AllowSetError::Unsupported.into()));
+                        return Ok(());
+                    }
+
+                    // LocalRestrictions does what the normal
+                    // topology-building process does, so it has no observable
+                    // effect on a freshly built topology, but see below.
                     result.unwrap();
                     prop_assert_eq!(&topology, initial_topology);
                 }
                 AllowSet::Custom { cpuset, nodeset } => {
                     if cpuset.is_none() && nodeset.is_none() {
-                        prop_assert_eq!(result, Err(AllowSetError.into()));
+                        prop_assert_eq!(result, Err(AllowSetError::EmptyCustom.into()));
                         return Ok(());
                     }
 
                     let mut effective_cpuset = topology.cpuset().clone_target();
-                    let mut effective_nodeset = topology.nodeset().clone_target();
                     if let Some(cpuset) = cpuset {
                         effective_cpuset &= cpuset;
-                        effective_nodeset &= NodeSet::from_cpuset(&topology, cpuset);
+                        if effective_cpuset.is_empty() {
+                            prop_assert_eq!(result, Err(AllowSetError::InvalidCpuset.into()));
+                            return Ok(());
+                        }
                     }
+
+                    let mut effective_nodeset = topology.nodeset().clone_target();
                     if let Some(nodeset) = nodeset {
                         effective_nodeset &= nodeset;
-                        effective_cpuset &= CpuSet::from_nodeset(&topology, nodeset);
-                    }
-                    if effective_cpuset.is_empty() && effective_nodeset.is_empty() {
-                        prop_assert_eq!(result, Err(AllowSetError.into()));
-                        return Ok(());
+                        if effective_nodeset.is_empty() {
+                            prop_assert_eq!(result, Err(AllowSetError::InvalidNodeset.into()));
+                            return Ok(());
+                        }
                     }
 
                     result.unwrap();
@@ -1396,10 +1451,12 @@ mod tests {
             }
 
             // Here we check that LocalRestrictions resets the topology from any
-            // allow set we may have configured back to its original allow sets
-            let result = topology.edit(|editor| editor.allow(AllowSet::LocalRestrictions));
-            result.unwrap();
-            prop_assert_eq!(&topology, initial_topology);
+            // allow set we may have configured back to its original allow sets.
+            if OS_SUPPORTS_LOCAL_RESTRICTIONS {
+                let result = topology.edit(|editor| editor.allow(AllowSet::LocalRestrictions));
+                result.unwrap();
+                prop_assert_eq!(&topology, initial_topology);
+            }
         }
     }
 }
