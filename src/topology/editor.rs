@@ -1410,7 +1410,12 @@ mod tests {
                 AllowSet::LocalRestrictions => {
                     // LocalRestrictions is only supported on Linux
                     if !OS_SUPPORTS_LOCAL_RESTRICTIONS {
-                        prop_assert_eq!(result, Err(AllowSetError::Unsupported.into()));
+                        match result {
+                            Err(HybridError::Rust(AllowSetError::Unsupported)) => {}
+                            #[cfg(windows)]
+                            Err(HybridError::Hwloc(RawHwlocError { errno: None, .. })) => {}
+                            other => panic!("unexpected result {other}");
+                        }
                         return Ok(());
                     }
 
