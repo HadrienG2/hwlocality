@@ -1229,59 +1229,105 @@ mod tests {
     /// Generate valid (disjoint) roots for [`Topology::distribute_items()`],
     /// taken from [`Topology::test_instance()`]
     fn disjoint_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
-        // Starting from processing units, which are the smallest granularity at
-        // which we can distribute work, go up an arbitrary amount of ancestors
-        // from each PU. This gives us a list of root candidates with a few
-        // issues to be adressed:
-        //
-        // - They can overlap, i.e. one proposed root can be the parent of
-        //   another, and a given root may appear multiple times because it has
-        //   been reached from two different leaf PUs.
-        // - They cover the full cpuset of the topology. We also want to test
-        //   non-exhaustive configurations.
-        // - They are ordered by PU index. We also want to test non-ordered
-        //   configurations.
-        let overlapping_exhaustive_ordered_roots = Topology::test_instance()
-            .objects_with_type(ObjectType::PU)
-            .map(|pu| {
-                // Pick an arbitrary ancestor of this PU, or the PU itself
-                (0..=pu.ancestors().count()).prop_map(move |depth| {
-                    std::iter::once(pu)
-                        .chain(pu.ancestors())
-                        .nth(depth)
-                        .unwrap()
-                })
-            })
-            .collect::<Vec<_>>();
+        /// Number of PUs below a normal object
+        fn normal_weight(obj: &TopologyObject) -> usize {
+            obj.cpuset()
+                .expect("normal object should have a cpuset")
+                .weight()
+                .expect("normal object should have a finite cpuset")
+        }
 
-        // Start by eliminating the deepest redundant roots...
-        let exhaustive_ordered_roots =
-            overlapping_exhaustive_ordered_roots.prop_map(|mut roots| {
-                // Sort roots by increasing depth, so parents go before children
-                roots.sort_unstable_by_key(|root| root.depth().expect_normal());
+        /// Pick N objects below a certain root
+        ///
+        /// `root` must be a normal object that has at least `num_objects` PUs
+        /// underneath it.
+        ///
+        /// Objects will be ordered by logical index, the client is responsible
+        /// for shuffling them at the very end.
+        fn pick_disjoint_objects(
+            root: &'static TopologyObject,
+            num_objects: usize,
+        ) -> impl Strategy<Value = Vec<&'static TopologyObject>> {
+            // Validate the request
+            assert!(
+                root.object_type().is_normal(),
+                "root object should be normal"
+            );
+            assert!(num_objects <= normal_weight(root));
 
-                // Iterate from parent to children, keeping track of which CPUs
-                // we already covered and using this to eliminate duplicates.
-                // Due to the above sorting, this will keep the coarsest-grained
-                // roots, avoiding an explosion of small PUs.
-                let mut deduplicated_roots = Vec::new();
-                let mut covered_cpuset = CpuSet::new();
-                for root in roots {
-                    let root_cpuset = root.cpuset().unwrap();
-                    if !covered_cpuset.includes(root_cpuset) {
-                        assert!(!covered_cpuset.intersects(root_cpuset));
-                        deduplicated_roots.push(root);
-                        covered_cpuset |= root_cpuset;
-                    }
+            // Honor the request
+            match num_objects {
+                // Picking no objects is trivial
+                0 => Just(Vec::new()).boxed(),
+
+                // Picking a single object is easy too, just pick any object in
+                // the subtree below this root
+                1 => {
+                    let topology = Topology::test_instance();
+                    let subtree_objects = topology
+                        .normal_objects()
+                        .filter(|obj| obj.is_in_subtree(root) || ptr::eq(*obj, root))
+                        .collect::<Vec<_>>();
+                    prop::sample::select(subtree_objects)
+                        .prop_map(|obj| vec![obj])
+                        .boxed()
                 }
-                deduplicated_roots
-            });
 
-        // Pick a non-empty subset of the roots and reorder it randomly
-        exhaustive_ordered_roots
-            .prop_flat_map(|roots| {
-                let num_roots = roots.len();
-                prop::sample::subsequence(roots, 1..=num_roots)
+                // If we need to pick 2 or more objects, we must distribute them
+                // across the root's children
+                _ => {
+                    // Each child can at most yield as many objects as there are
+                    // PUs underneath it, and we must not yield more PUs than
+                    // this. This is achieved through the dirty trick of first
+                    // duplicating each child once per underlying PU...
+                    let degenerate_children = root
+                        .normal_children()
+                        .flat_map(|child| std::iter::repeat(child).take(normal_weight(child)))
+                        .collect::<Vec<_>>();
+                    debug_assert_eq!(degenerate_children.len(), normal_weight(root));
+
+                    // Then picking a subsequence of that duplicated sequence...
+                    prop::sample::subsequence(degenerate_children, num_objects)
+                        .prop_flat_map(|selected_degenerate| {
+                            // Then deduplicating again to find out how many
+                            // objects were allocated to each child.
+                            let mut count_per_child =
+                                Vec::<(&'static TopologyObject, usize)>::new();
+                            'children: for child in selected_degenerate {
+                                if let Some((last_child, last_count)) = count_per_child.last_mut() {
+                                    if ptr::eq(child, *last_child) {
+                                        *last_count += 1;
+                                        continue 'children;
+                                    }
+                                }
+                                count_per_child.push((child, 1));
+                            }
+
+                            // Once we have the deduplicated per-child work
+                            // allocation, we do the recursive request, which
+                            // will yield a vector of results for each child...
+                            let nested_objs = count_per_child
+                                .into_iter()
+                                .map(|(child, count)| pick_disjoint_objects(child, count))
+                                .collect::<Vec<_>>();
+
+                            // ...and we flatten that into a single vector of
+                            // merged results
+                            nested_objs.prop_map(|nested_objs| {
+                                nested_objs.into_iter().flatten().collect::<Vec<_>>()
+                            })
+                        })
+                        .boxed()
+                }
+            }
+        }
+
+        // Finally, we use the above logic to generate any valid number of roots
+        let root = Topology::test_instance().root_object();
+        (1..=normal_weight(root))
+            .prop_flat_map(|num_objects| {
+                eprintln!("Asked to pick {num_objects} disjoint topology objects");
+                pick_disjoint_objects(root, num_objects)
             })
             .prop_shuffle()
     }
