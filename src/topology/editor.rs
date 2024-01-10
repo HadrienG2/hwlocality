@@ -41,7 +41,7 @@ use crate::{
         transparent::{AsInner, AsNewtype},
     },
     memory::nodeset::NodeSet,
-    object::{attributes::GroupAttributes, types::ObjectType, TopologyObject, TopologyObjectID},
+    object::{attributes::GroupAttributes, types::ObjectType, TopologyObject},
     topology::Topology,
 };
 use bitflags::bitflags;
@@ -417,27 +417,139 @@ impl<'topology> TopologyEditor<'topology> {
         }
     }
 
-    /// Add more structure to the topology by adding an intermediate [`Group`]
+    /// Add more structure to the topology by creating an intermediate [`Group`]
     ///
-    /// Use the `find_children` callback to specify which [`TopologyObject`]s of
-    /// this topology should be made children of the newly created Group object.
-    /// The resulting set of group children must follow a number of constraints:
+    /// Sibling normal objects below a common parent object can be grouped to
+    /// express that there is a resource shared between the underlying CPU
+    /// cores, which cannot be modeled using a more specific standard hwloc
+    /// object type. For example, this is how the intra-chip NUMA clusters of
+    /// modern high-core-count AMD and Intel CPUs are usually modeled. See the
+    /// ["What are these Group objects in my
+    /// topology"](https://hwloc.readthedocs.io/en/v2.9/faq.html#faq_groups)
+    /// entry of the hwloc FAQ for more information.
     ///
-    /// - They can only be objects with cpusets and/or nodesets, i.e. normal and
-    ///   memory objects are fine but I/O and [`Misc`] objects are not.
-    /// - There has to be at least one child object.
-    /// - Although group children may reside at multiple depths, the child set
-    ///   cannot simultaneously include a topology object and one its ancestors.
+    /// Alas, creating hwloc groups is a lot less straightforward than the above
+    /// summary may suggest, and you are strongly advised to carefully read and
+    /// understand all of the following explanations before using it.
     ///
-    /// Use the `merge` option to control hwloc's propension to merge groups
-    /// with hierarchically-identical topology objects.
     ///
-    /// After a successful insertion,
+    /// # Group creation guide
+    ///
+    /// ## Basic workflow
+    ///
+    /// This function will first call the `find_parent` callback in order to
+    /// identify the parent object under which a new group should be inserted.
+    ///
+    /// The callback(s) specified by `filter_children` will then be called on
+    /// each normal and/or memory child of this parent, allowing you to tell
+    /// which objects should become members of the newly created group. See
+    /// [`GroupChildFilter`] for more information.
+    ///
+    /// This API design, which may feel unexpectedly complex, helps you honor
+    /// hwloc's many group creation rules:
+    ///
+    /// - Only normal and memory objects can be members of a group. I/O and
+    ///   [`Misc`] objects can only be grouped coarsely and indirectly by
+    ///   grouping the normal objects under which they reside.
+    /// - The normal and memory members of an hwloc group must be consistent
+    ///   with each other, as explained in the [`GroupChildFilter`]
+    ///   documentation.
+    /// - It is, generally speaking, not possible to group objects which do not
+    ///   lie below the same parent. For example, you cannot create a group that
+    ///   contains the first hyperthreads of each core of an x86 CPU.
+    ///
+    /// One extra constraint that **you** are responsible for honoring is that
+    /// hwloc does not support empty groups. Therefore your `filter_children`
+    /// callback(s) must select at least one normal child or one memory child.
+    ///
+    /// Finally, the `merge` parameter allows you to adjust hwloc's strategy for
+    /// merging proposed groups with equivalent topology objects, as explained
+    /// in the following section.
+    ///
+    /// ## Equivalence and merging
+    ///
+    /// hwloc considers a group to be equivalent to one or more existing
+    /// topology objects in the following circumstances:
+    ///
+    /// * A group with a single child object is considered to be equivalent to
+    ///   this child object
+    /// * A group which covers all children of the parent object that was
+    ///   designated by `find_parent` is considered to be equivalent to this
+    ///   parent object
+    ///     - This typically happens as a result of your children selection
+    ///       callbacks returning `true` for all children of the parent object.
+    ///     - If you were using [`GroupChildFilter::Mixed`] with `strict` set to
+    ///       `false`, it may also happen that although one of your callbacks
+    ///       did not pick all children, the remaining children had to be added
+    ///       to follow hwloc's group consistency rules.
+    ///
+    /// In addition to these equivalence relations, topology objects which form
+    /// a single-child chain with identical cpusets and nodesets (a simple
+    /// example being L2 -> L1d -> L1i -> Core chains in x86 topologies), are
+    /// also considered to be equivalent to each other. Therefore, if a group is
+    /// considered to be equivalent to one of these objects, then it is
+    /// considered equivalent to all of them.
+    ///
+    /// When a proposed group is equivalent to an existing topology object, the
+    /// default hwloc behavior is not to create a group, but instead to return
+    /// [`InsertedGroup::Existing`] with one of the objects that is considered
+    /// equivalent to the proposed group as a parameter. The idea is that you do
+    /// not really need a group to model the desired set of CPU cores and NUMA
+    /// nodes, since at least one existing topology object already does so.
+    ///
+    /// Another situation where you might not want to create a group is if there
+    /// are already groups below the designated parent, as these groups may
+    /// represent unrelated sets of objects and having both around at the same
+    /// topology depth may cause confusion. If this is a concern, you can set
+    /// the `merge` parameter to [`GroupMerge::Always`]. It will add any
+    /// existing group child below the designated parent to the set of objects
+    /// considered equivalent to the proposed group, before performing the
+    /// equivalence check.
+    ///
+    /// Conversely, if you want to force the creation of a group in a situation
+    /// where hwloc would not create one, you may use [`GroupMerge::Never`] to
+    /// force the creation of a group even when hwloc considers the proposed
+    /// group to be equivalent to one existing topology object. Beware that in
+    /// this case, the group may be created above or below any of the objects
+    /// that it is considered equivalent to, not necessarily below the parent
+    /// object that you initially had in mind.
+    ///
+    /// ## Documenting groups
+    ///
+    /// By nature, the [`Group`] object type is not very descriptive of what the
+    /// group represents in hardware, so you may want to add extra annotations
+    /// describing what the group is about.
+    ///
+    /// To this end, after a successful group object insertion, you may use
     #[cfg_attr(windows, doc = "[`TopologyObject::set_subtype_unchecked()`]")]
     #[cfg_attr(not(windows), doc = "[`TopologyObject::set_subtype()`]")]
-    /// can be used to display something other
-    /// than "Group" as the type name for this object in `lstopo`, and custom
-    /// name/value info pairs may be added using [`TopologyObject::add_info()`].
+    /// to have `lstopo` display something other than "Group" as the type name.
+    ///
+    /// If needed, you can also complement this basic group type information
+    /// with any number of extra name/value info pairs you need using
+    /// [`TopologyObject::add_info()`].
+    ///
+    /// ## Identifier invalidation
+    ///
+    /// When a group is created, it becomes a child of the group members' former
+    /// parent. To allow for this, the normal children of this parent need to be
+    /// reordered first, so that the group members lie at consecutive indices. A
+    /// new depth level of type [`Group`] may also need to be created to host
+    /// the group, which will push existing depths downwards. As a consequence
+    /// of all these topology changes...
+    ///
+    /// - The logical indices of all objects at the depth where the group
+    ///   members used to lie may change as a result of calling this function.
+    ///   If you want to identify a child object across calls to this function,
+    ///   you should therefore use another identifier than the logical index or
+    ///   sibling rank. [Global persistent
+    ///   indices](TopologyObject::global_persistent_index()) are explicitly
+    ///   designed for this use case.
+    /// - The mapping of depths to object types may change as a result of
+    ///   calling this function, for all depths below the designated group
+    ///   parent. Therefore, you must be very cautious about reusing previously
+    ///   computed depth values across calls to this function.
+    ///
     ///
     /// # Errors
     ///
@@ -460,13 +572,17 @@ impl<'topology> TopologyEditor<'topology> {
     #[doc(alias = "hwloc_topology_alloc_group_object")]
     #[doc(alias = "hwloc_obj_add_other_obj_sets")]
     #[doc(alias = "hwloc_topology_insert_group_object")]
-    pub fn insert_group_object(
+    pub fn insert_group_object<NormalFilter, MemoryFilter>(
         &mut self,
         merge: Option<GroupMerge>,
-        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<InsertedGroup<'topology>, HybridError<ForeignObjectError>> {
-        let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
-        group.add_children(find_children)?;
+        find_parent: impl FnOnce(&Topology) -> &TopologyObject,
+        filter_children: GroupChildFilter<NormalFilter, MemoryFilter>,
+    ) -> Result<InsertedGroup<'topology>, HybridError<GroupInsertError>>
+    where
+        NormalFilter: FnMut(&TopologyObject) -> bool,
+        MemoryFilter: FnMut(&TopologyObject) -> bool,
+    {
+        let mut group = AllocatedGroup::new(self, find_parent, filter_child)?;
         if let Some(merge) = merge {
             group.set_merge_policy(merge);
         }
@@ -746,7 +862,7 @@ pub enum GroupMerge {
     Never,
 
     /// Always discard this new group in favor of any existing Group with the
-    /// same locality
+    /// same locality, even if the child set does not match
     #[doc(alias = "hwloc_group_attr_s::kind")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
     Always,
@@ -762,6 +878,93 @@ impl From<bool> for GroupMerge {
             Self::Never
         }
     }
+}
+
+/// Callbacks that selects the members of a proposed group object
+///
+/// The basic workflow of [`TopologyEditor::insert_group_object()`] is that you
+/// first specify which topology object should be the parent of the newly
+/// created group, and then you specify (using this enum and its inner
+/// callbacks) which of the normal and memory children of this parent object
+/// should become members of the newly created group.
+///
+/// However, as an extra complication, you must live with the fact that hwloc
+/// only supports groups whose normal and memory member lists follow the
+/// following consistency rules:
+///
+/// 1. If a memory object is a member of a group, then all normal objects which
+///    are attached to this memory object (as evidenced by their PUs being part
+///    of that memory object's cpuset) must also be members of this group.
+/// 2. Conversely, if all normal objects which are attached to a memory object
+///    are members of a group, then this memory object must also be made a
+///    member of this group.
+///
+/// Because following these rules by hand is unpleasant, we provide various
+/// shortcuts which allow you to only specify a subset of the group's members,
+/// and let the remaining members required to follow the consistency rules be
+/// added to the group automatically.
+#[derive(Copy, Clone, Debug)]
+pub enum GroupChildFilter<
+    NormalFilter = fn(&TopologyObject) -> bool,
+    MemoryFilter = fn(&TopologyObject) -> bool,
+> where
+    NormalFilter: FnMut(&TopologyObject) -> bool,
+    MemoryFilter: FnMut(&TopologyObject) -> bool,
+{
+    /// Pick the group's normal children in the parent's normal children list
+    ///
+    /// Each normal child of the designated parent will be passed to the
+    /// provided callback, which will tell if this child should be made a member
+    /// of the group (`true`) or not (`false`), as in [`Iterator::filter()`].
+    ///
+    /// Memory children will then be automatically added in order to produce a
+    /// group member set that follows the consistency rules.
+    Normal(NormalFilter),
+
+    /// Pick the group's memory children in the parent's memory children list
+    ///
+    /// Works like `Normal`, except the provided filter is used to select memory
+    /// children instead of normal children, and it is normal children that get
+    /// automatically added to follow the consistency rules.
+    Memory(MemoryFilter),
+
+    /// Pick the group's normal and memory children
+    ///
+    /// The normal **and** memory children of the designated parent are
+    /// traversed and filtered using the `normal` and `memory` filters
+    /// respectively, as in the `Normal` and `Memory` cases.
+    ///
+    /// The resulting normal and memory children sets may or may not be
+    /// subsequently expanded to follow the consistency rules, depending on the
+    /// value of the `strict` flag.
+    Mixed {
+        /// Error out when `normal` and `memory` don't pick consistent sets
+        ///
+        /// If this flag isn't set, then after the `normal` and `memory`
+        /// callbacks have picked preliminary normal and memory children lists,
+        /// these normal and memory children lists are automatically expanded to
+        /// honor the consistency rules. This gives you the smallest valid hwloc
+        /// group that contains **at least** the children you asked for, at the
+        /// cost of possibly getting extra children that you did not expect,
+        /// which your code must handle gracefully.
+        ///
+        /// If this flag is set, then you are responsible for picking normal and
+        /// memory children sets that honor the consistency rules, and
+        /// [`TopologyEditor::insert_group_object()`] will fail if you don't.
+        /// This is for situations where getting unexpected extra group members
+        /// is unacceptable, and you are ready to go through the burden of
+        /// applying the consistency rules yourself in order to avoid this
+        /// outcome.
+        strict: bool,
+
+        /// Filter that selects the future group's normal children amongst the
+        /// parent's normal children list, as in `Normal`
+        normal: NormalFilter,
+
+        /// Filter that selects the future group's memory children amongst the
+        /// parent's memory children list, as in `Memory`
+        memory: MemoryFilter,
+    },
 }
 
 /// Error while creating a [`Group`](ObjectType::Group) object
