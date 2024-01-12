@@ -29,6 +29,16 @@ env:
                                        # https://github.com/dtolnay/rust-toolchain/pull/94
 
 jobs:
+  # Workaround for github CI dropping env var expansion in matrix strategy
+  matrix_vars:
+    runs-on: ubuntu-latest
+    outputs:
+      MINIMAL_RUST: ${{ env.MINIMAL_RUST }}
+    steps:
+      - name: Forward env var to output
+        run: echo "MINIMAL_RUST=${{ env.MINIMAL_RUST }}" >> $GITHUB_OUTPUT
+
+
   # Formatter output doesn't depend on cargo features, and only needs to be
   # tested on the latest supported release of each CI run.
   #
@@ -153,6 +163,8 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    needs: matrix_vars
+
     strategy:
       matrix:
         os:
@@ -161,7 +173,7 @@ jobs:
           - windows-latest
         rust:
           - stable
-          - $MINIMAL_RUST
+          - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
         features:
           - '""'
           - 'hwloc-2_0_4'
@@ -233,6 +245,8 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    needs: matrix_vars
+
     strategy:
       matrix:
         os:
@@ -241,7 +255,7 @@ jobs:
           - windows-latest
         rust:
           - stable
-          - $MINIMAL_RUST
+          - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
 
     steps:
       - name: Checkout sources
@@ -409,6 +423,8 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    needs: matrix_vars
+
     strategy:
       matrix:
         os:
@@ -418,7 +434,7 @@ jobs:
         rust:
           - beta
           - nightly
-          - $MINIMAL_RUST  # Compatibility can be broken by deps updates
+          - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
         features:
           - '""'
           - 'hwloc-2_0_4'
