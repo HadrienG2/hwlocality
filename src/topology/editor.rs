@@ -509,10 +509,14 @@ impl<'topology> TopologyEditor<'topology> {
     /// Conversely, if you want to force the creation of a group in a situation
     /// where hwloc would not create one, you may use [`GroupMerge::Never`] to
     /// force the creation of a group even when hwloc considers the proposed
-    /// group to be equivalent to one existing topology object. Beware that in
-    /// this case, the group may be created above or below any of the objects
-    /// that it is considered equivalent to, not necessarily below the parent
-    /// object that you initially had in mind.
+    /// group to be equivalent to one existing topology object. This comes with
+    /// two caveats:
+    ///
+    /// - The group may be created above or below any of the objects that it is
+    ///   considered equivalent to, not necessarily below the parent object that
+    ///   you initially had in mind.
+    /// - Even with this option, hwloc will refuse to create a group that is
+    ///   equivalent to the topology root.
     ///
     /// ## Documenting groups
     ///
@@ -1812,14 +1816,23 @@ mod tests {
 
     // --- Grouping objects ---
 
-    /// Pick a parent and a set of group members
-    fn group_parent_and_members() -> impl Strategy<
+    /// Pick a parent, a set of group members, and a group merging configuration
+    ///
+    /// If the `only_good` flag is set, only configurations that will result in
+    /// a successful group insertion (`insert_group_object()` returning
+    /// `Ok(InsertedGroup::New(_))`) are emitted. This is not good for general
+    /// group insertion testing, but is useful for higher-level tests that rely
+    /// on a group being inserted first.
+    fn group_building_blocks(
+        only_good: bool,
+    ) -> impl Strategy<
         Value = (
             &'static TopologyObject,
             GroupChildFilter<
                 Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
                 Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
             >,
+            Option<GroupMerge>,
         ),
     > {
         let topology = Topology::test_instance();
@@ -1849,16 +1862,23 @@ mod tests {
             })
             .collect::<HashMap<_, _>>();
         let good_parent_depths = good_parents_by_depth.keys().copied().collect::<Vec<_>>();
-        let good_parent = prop::sample::select(good_parent_depths).prop_flat_map(move |depth| {
-            prop::sample::select(good_parents_by_depth[&depth].clone())
-        });
-        let any_parent = prop_oneof! [
-            3 => good_parent,
-            2 => any_object(),
-        ];
+        let good_parent = || {
+            prop::sample::select(good_parent_depths.clone()).prop_flat_map(move |depth| {
+                prop::sample::select(good_parents_by_depth[&depth].clone())
+            })
+        };
+        let any_parent = if only_good {
+            good_parent().boxed()
+        } else {
+            prop_oneof! [
+                3 => good_parent(),
+                2 => any_object(),
+            ]
+            .boxed()
+        };
 
         // Given a parent, pick a child set
-        any_parent.prop_flat_map(|parent| {
+        any_parent.prop_flat_map(move |parent| {
             // Given one of the parent TopologyObject's children lists, select a
             // subset of it
             //
@@ -1867,6 +1887,8 @@ mod tests {
             // paths in the group constructor function.
             fn child_subset(
                 children_set: impl Iterator<Item = &'static TopologyObject>,
+                only_good: bool,
+                machine_like_parent: bool,
             ) -> impl Strategy<Value = HashSet<TopologyObjectID>> {
                 /// Produces a child subset from an iterable of children
                 fn from_iterable(
@@ -1877,20 +1899,49 @@ mod tests {
                         .map(TopologyObject::global_persistent_index)
                         .collect()
                 }
+                
+                // Absence of children hits a proptest edge case (can't pick one
+                // element from and empty array) and must be handled separately
                 let children = children_set.collect::<Vec<_>>();
                 if children.is_empty() {
-                    Just(HashSet::new()).boxed()
+                    return Just(HashSet::new()).boxed()
+                }
+                
+                // Other cases are handled as appropriate
+                let num_children = children.len();
+                let no_children = Just(from_iterable(std::iter::empty()));
+                let single_child = prop::sample::select(children.clone())
+                    .prop_map(|child| from_iterable(std::iter::once(child)));
+                let all_children = Just(from_iterable(children.clone()));
+                if only_good {
+                    // If asked to only produce good configurations, then we
+                    // must produce at least one child.
+                    assert!(num_children >= 1);
+                    if machine_like_parent {
+                        // hwloc will refuse to create a group that's equivalent
+                        // to the entire Machine, so we must be careful not to
+                        // include all children when the parent is Machine-like
+                        prop_oneof![
+                            2 => single_child,
+                            // At least one child, but not all of them
+                            3 => prop::sample::subsequence(children, 1..num_children).prop_map(from_iterable),
+                        ].boxed()
+                    } else {
+                        // Parent is not Machine-like, can cover whole parent
+                        // without any risk of our group being rejected by hwloc
+                        prop_oneof![
+                            1 => all_children,
+                            1 => single_child,
+                            // At least one child, possibly all of them
+                            3 => prop::sample::subsequence(children, 1..=num_children).prop_map(from_iterable),
+                        ].boxed()
+                    }
                 } else {
-                    let num_children = children.len();
+                    // If not asked to only produce good configurations, yield
+                    // all supported special cases including no children
                     prop_oneof![
-                        // Empty and full child list special cases
-                        1 => prop_oneof![
-                            Just(from_iterable(std::iter::empty())),
-                            Just(from_iterable(children.clone())),
-                        ],
-                        // Single-child special case
-                        1 => prop::sample::select(children.clone()).prop_map(|child| from_iterable(std::iter::once(child))),
-                        // General case
+                        1 => prop_oneof![no_children, all_children],
+                        1 => single_child,
                         3 => prop::sample::subsequence(children, 0..=num_children).prop_map(from_iterable),
                     ].boxed()
                 }
@@ -1903,21 +1954,53 @@ mod tests {
                 })
             }
 
+            // Check if the parent covers the whole topology (in which case in
+            // only_good mode we should not return all children)
+            let machine_like_parent = if parent.object_type().is_normal() {
+                parent.cpuset().unwrap() == topology.cpuset()
+                && parent.nodeset().unwrap() == topology.nodeset()
+            } else {
+                false
+            };
+
             // Generate any of the supported child filtering configurations
-            prop_oneof![
-                child_subset(parent.normal_children()).prop_map(|subset| GroupChildFilter::Normal(filter_fn(subset))),
-                child_subset(parent.memory_children()).prop_map(|subset| GroupChildFilter::Memory(filter_fn(subset))),
-                (
-                    any::<bool>(),
-                    child_subset(parent.normal_children()),
-                    child_subset(parent.memory_children())
-                )
-                    .prop_map(|(strict, normal_subset, memory_subset)| GroupChildFilter::Mixed {
-                        strict,
-                        normal: filter_fn(normal_subset),
-                        memory: filter_fn(memory_subset),
-                    })
-            ].prop_map(move |child_filter| (parent, child_filter))
+            let normal_child_filter = child_subset(
+                parent.normal_children(),
+                only_good,
+                machine_like_parent,
+            ).prop_map(|subset| GroupChildFilter::Normal(filter_fn(subset)));
+            let memory_child_filter = child_subset(
+                parent.memory_children(),
+                only_good,
+                machine_like_parent,
+            ).prop_map(|subset| GroupChildFilter::Memory(filter_fn(subset)));
+            let child_filter = if only_good {
+                prop_oneof![normal_child_filter, memory_child_filter].boxed()
+            } else {
+                prop_oneof![
+                    normal_child_filter,
+                    memory_child_filter,
+                    (
+                        any::<bool>(),
+                        child_subset(parent.normal_children(), false, false),
+                        child_subset(parent.memory_children(), false, false)
+                    )
+                        .prop_map(|(strict, normal_subset, memory_subset)| GroupChildFilter::Mixed {
+                            strict,
+                            normal: filter_fn(normal_subset),
+                            memory: filter_fn(memory_subset),
+                        })
+                ].boxed()
+            };
+
+            // Add a group merging configuration to conclude
+            let merge = if only_good {
+                Just(Some(GroupMerge::Never)).boxed()
+            } else {
+                any::<Option<GroupMerge>>().boxed()
+            };
+            (child_filter, merge)
+                .prop_map(move |(child_filter, merge)| (parent, child_filter, merge))
         })
     }
 
@@ -1925,43 +2008,226 @@ mod tests {
         /// Test for [`TopologyEditor::insert_group_object()`]
         #[test]
         fn insert_group_object(
-            (parent, mut child_filter) in group_parent_and_members(),
-            merge: Option<GroupMerge>,
+            (parent, mut child_filter, merge) in group_building_blocks(false),
         ) {
-            let expected_children_ids = dbg!(dbg!(&mut child_filter)
-                .filter_children(dbg!(parent), false))
+            let initial_topology = Topology::test_instance();
+            let initial_children = child_filter.filter_children(parent, false);
+            let children_ids = initial_children
+                .as_ref()
                 .map(|children| {
                     children
-                        .into_iter()
+                        .iter()
                         .map(|child| child.global_persistent_index())
                         .collect::<HashSet<_>>()
-                });
-            let mut topology = Topology::test_instance().clone();
+                })
+                .map_err(|e| e.clone());
+            let mut topology = initial_topology.clone();
             topology.edit(move |editor| {
                 let result = editor.insert_group_object(
-                    dbg!(merge),
+                    merge,
                     |topology| {
-                        // We need this somewhat convoluted find_parent routine
-                        // because we don't want the original parent object but
-                        // its equivalent in the cloned topology, if any
-                        topology
-                            .objects_at_depth(parent.depth())
-                            .find(|obj| obj.global_persistent_index() == parent.global_persistent_index())
-                            .unwrap_or(parent)
+                        if initial_topology.contains(parent) {
+                            // If the parent belonged to the initial topology,
+                            // find the equivalent in the copied topology
+                            topology
+                                .objects_at_depth(parent.depth())
+                                .find(|obj| obj.global_persistent_index() == parent.global_persistent_index())
+                                .expect("parent was tested to be present")
+                        } else {
+                            // Foreign parent of initial topology is also
+                            // foreign to new topology
+                            parent
+                        }
                     },
                     child_filter,
                 );
-                if matches!(dbg!(result), Ok(InsertedGroup::New(_))) {
-                    dbg!(editor.topology());
+
+                // Parent must be a normal object
+                if !parent.object_type().is_normal() {
+                    prop_assert_eq!(
+                        result.unwrap_err(),
+                        HybridError::Rust(GroupInsertError::BadParentType(parent.object_type()))
+                    );
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
                 }
-                // TODO: Actually test stuff
-                // TODO: Also test GroupMerge::Always by immediately inserting
-                //       another group below the same parent after successfully
-                //       inserting a first group. This is probably best handled
-                //       by a separate test which uses a variant of the
-                //       `group_parent_and_members()` generator that always
-                //       emits a valid (parent, filter_children, merge) tuple.
-            });
+
+                // Parent must belong to the topology
+                if !initial_topology.contains(parent) {
+                    prop_assert_eq!(
+                        result.unwrap_err(),
+                        HybridError::Rust(GroupInsertError::ForeignParent(parent.into()))
+                    );
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                }
+
+                // Group must have at least one child
+                if children_ids == Ok(HashSet::new()) {
+                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(GroupInsertError::Empty));
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                }
+
+                // Group child set must be consistent
+                let Ok(children_ids) = children_ids else {
+                    prop_assert_eq!(children_ids, Err(GroupInsertError::Inconsistent));
+                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(GroupInsertError::Inconsistent));
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                };
+                let initial_children = initial_children.unwrap();
+
+                // All error paths have been considered, at this point we know
+                // that group creation should succeed
+                let result = result.unwrap();
+
+                // Now we must handle node equivalence and group merging, which
+                // can happen...
+                // - If a single child is selected
+                // - If all children were selected and the complete_cpuset and
+                //   complete_nodeset of the parent do not disambiguate.
+                //
+                // In all cases, we need to be able to tell which topology nodes
+                // are equivalent to each other in hwloc's eyes...
+                fn equivalent_obj_ids(mut obj: &TopologyObject) -> HashSet<TopologyObjectID> {
+                    let is_equivalent = |candidate: &TopologyObject| {
+                        candidate.cpuset() == obj.cpuset()
+                            && candidate.nodeset() == obj.nodeset()
+                            && candidate.complete_cpuset() == obj.complete_cpuset()
+                            && candidate.complete_nodeset() == obj.complete_nodeset()
+                    };
+                    while obj.normal_arity() == 1 {
+                        let only_child = obj.normal_children().next().unwrap();
+                        if is_equivalent(only_child) {
+                            obj = only_child;
+                        } else {
+                            break;
+                        }
+                    }
+                    std::iter::once(obj).chain(obj.ancestors())
+                        .take_while(|ancestor| is_equivalent(ancestor))
+                        .map(|obj| obj.global_persistent_index())
+                        .collect()
+                }
+                //
+                // ...and have a way to handle a group that's equivalent to that
+                let mut handle_group_equivalence = |
+                    result,
+                    equivalent_obj: &TopologyObject
+                | {
+                    let equivalent_ids = equivalent_obj_ids(&equivalent_obj);
+                    if merge == Some(GroupMerge::Never)
+                        && !equivalent_ids.contains(&initial_topology.root_object().global_persistent_index())
+                    {
+                        let InsertedGroup::New(group) = result else { unreachable!() };
+                        // New group can be inserted below an existing object...
+                        if let Some(parent) = group.parent() {
+                            if equivalent_ids.contains(&parent.global_persistent_index()) {
+                                return Ok(());
+                            }
+                        }
+                        // ...or above it
+                        prop_assert_eq!(group.normal_arity(), 1);
+                        let only_child = group.normal_children().next().unwrap();
+                        prop_assert!(equivalent_ids.contains(&only_child.global_persistent_index()));
+                    } else {
+                        // Without GroupMerge::Never, should just point at
+                        // existing object
+                        prop_assert!(matches!(
+                            result,
+                            InsertedGroup::Existing(obj)
+                                if equivalent_ids.contains(&obj.global_persistent_index())
+                        ));
+                        prop_assert_eq!(editor.topology(), initial_topology);
+                    }
+                    Ok(())
+                };
+
+                // Single-child case
+                if initial_children.len() == 1 {
+                    handle_group_equivalence(result, initial_children[0])?;
+                    return Ok(());
+                }
+
+                // Parent-equivalent case
+                let parent_sets = (
+                    parent.cpuset().unwrap().clone_target(),
+                    parent.nodeset().unwrap().clone_target(),
+                    parent.complete_cpuset().unwrap().clone_target(),
+                    parent.complete_nodeset().unwrap().clone_target(),
+                );
+                let children_sets_union = initial_children.iter().fold(
+                    (CpuSet::new(), NodeSet::new(), CpuSet::new(), NodeSet::new()),
+                    |(mut cpuset, mut nodeset, mut complete_cpuset, mut complete_nodeset), child| {
+                        cpuset |= child.cpuset().unwrap();
+                        nodeset |= child.nodeset().unwrap();
+                        complete_cpuset |= child.complete_cpuset().unwrap();
+                        complete_nodeset |= child.complete_nodeset().unwrap();
+                        (cpuset, nodeset, complete_cpuset, complete_nodeset)
+                    }
+                );
+                if parent_sets == children_sets_union {
+                    handle_group_equivalence(result, parent)?;
+                    return Ok(());
+                }
+
+                // GroupMerge::Always refuses to create groups below an object
+                // that already has group children
+                if merge == Some(GroupMerge::Always)
+                    && parent.normal_children().any(|child| child.object_type() == ObjectType::Group)
+                {
+                    prop_assert!(matches!(result, InsertedGroup::Existing(_)));
+                    return Ok(());
+                }
+
+                // Outside of the conditions enumerated above, a new group
+                // should have been created, with the expected set of children
+                let InsertedGroup::New(group) = result else { unreachable!() };
+                prop_assert_eq!(
+                    group.parent().unwrap().global_persistent_index(),
+                    parent.global_persistent_index()
+                );
+                let mut remaining_children_ids = children_ids;
+                for child in group.normal_children().chain(group.memory_children()) {
+                    prop_assert!(remaining_children_ids.remove(&child.global_persistent_index()));
+                }
+                prop_assert!(remaining_children_ids.is_empty());
+                Ok(())
+            })?;
         }
+
+        // TODO: Test that group insertion fails when the group type filter is
+        //       set to None
     }
+
+    /// Building blocks for the GroupMerge::Always test:
+    ///
+    /// - Group insertion configuration that will always succeed
+    /// - Second child filter that picks a disjoint set of children of the same
+    ///   parent, to be used with the same parent and GroupMerge::Always
+    fn group_merging_test_inputs() -> impl Strategy<
+        Value = (
+            &'static TopologyObject,
+            GroupChildFilter<
+                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
+                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
+            >,
+            Option<GroupMerge>,
+            GroupChildFilter<
+                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
+                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
+            >,
+        ),
+    > {
+        group_building_blocks(true).prop_flat_map(|(parent, first_child_filter, parent_merge)| {
+            unimplemented!("now pick a child filter for the second group")
+        })
+    }
+
+    // TODO: Add stronger test of GroupMerge::Always that immediately inserts
+    //       another group below the same parent after successfully inserting a
+    //       first group. This is probably best handled by a separate test which
+    //       uses a variant of the `group_parent_and_members()` generator that
+    //       always emits a valid (parent, filter_children, merge) tuple.
 }
