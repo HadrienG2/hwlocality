@@ -33,7 +33,7 @@
 #[cfg(doc)]
 use crate::topology::builder::{BuildFlags, TopologyBuilder, TypeFilter};
 use crate::{
-    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObjectError, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
@@ -440,7 +440,7 @@ impl<'topology> TopologyEditor<'topology> {
     /// This function will first call the `find_parent` callback in order to
     /// identify the parent object under which a new group should be inserted.
     ///
-    /// The callback(s) specified by `filter_children` will then be called on
+    /// The callback(s) specified by `child_filter` will then be called on
     /// each normal and/or memory child of this parent, allowing you to tell
     /// which objects should become members of the newly created group. See
     /// [`GroupChildFilter`] for more information.
@@ -459,7 +459,7 @@ impl<'topology> TopologyEditor<'topology> {
     ///   contains the first hyperthreads of each core of an x86 CPU.
     ///
     /// One extra constraint that **you** are responsible for honoring is that
-    /// hwloc does not support empty groups. Therefore your `filter_children`
+    /// hwloc does not support empty groups. Therefore your `child_filter`
     /// callback(s) must select at least one normal child or one memory child.
     ///
     /// Finally, the `merge` parameter allows you to adjust hwloc's strategy for
@@ -576,14 +576,14 @@ impl<'topology> TopologyEditor<'topology> {
         &mut self,
         merge: Option<GroupMerge>,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
-        filter_children: GroupChildFilter<NormalFilter, MemoryFilter>,
+        child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
     ) -> Result<InsertedGroup<'topology>, HybridError<GroupInsertError>>
     where
         NormalFilter: FnMut(&TopologyObject) -> bool,
         MemoryFilter: FnMut(&TopologyObject) -> bool,
     {
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
-        group.add_children(find_parent, filter_children)?;
+        group.add_children(find_parent, child_filter)?;
         if let Some(merge) = merge {
             group.set_merge_policy(merge);
         }
@@ -968,6 +968,120 @@ pub enum GroupChildFilter<
     },
 }
 //
+impl<NormalFilter, MemoryFilter> GroupChildFilter<NormalFilter, MemoryFilter>
+where
+    NormalFilter: FnMut(&TopologyObject) -> bool,
+    MemoryFilter: FnMut(&TopologyObject) -> bool,
+{
+    /// Pick children of a group's parent according to this filter
+    ///
+    /// The group consistency rules given above actually describe the behavior
+    /// of `hwloc_topology_insert_group_object()`. Because this API is
+    /// cpuset/nodeset-based, you cannot add a NUMA node to a group without
+    /// adding all the associated normal objects (since the normal objects are
+    /// part of the NUMA node's cpuset), and you cannot add all of a NUMA node's
+    /// CPUs without adding the NUMA node (since adding all NUMA node children
+    /// sets all bits from the NUMA node's cpuset and nodeset).
+    ///
+    /// So if the group child set that we compute is destined for
+    /// `hwloc_obj_add_other_obj_sets()` consumption, we do not actually need to
+    /// do anything to expand the group so that it follows the consistency
+    /// rules. What requires work on our side is rejecting inconsistent groups
+    /// and adding objects to represent the group hwloc would actually create.
+    ///
+    /// Consequently, there is a `make_hwloc_input` operating mode which only
+    /// checks groups for consistency and does not perform group expansion,
+    /// meant, for situations where we do not care about group members but only
+    /// about the union of their cpusets/nodesets.
+    pub(self) fn filter_children<'topology>(
+        &mut self,
+        parent: &'topology TopologyObject,
+        make_hwloc_input: bool,
+    ) -> Result<Vec<&'topology TopologyObject>, GroupInsertError> {
+        // Pick user-requested group members, only check for group consistency
+        // in strict mode
+        let mut children = Vec::new();
+        fn child_cpuset(child: &TopologyObject) -> BitmapRef<'_, CpuSet> {
+            child
+                .cpuset()
+                .expect("normal & memory children should have cpusets")
+        }
+        fn child_nodeset(child: &TopologyObject) -> BitmapRef<'_, NodeSet> {
+            child
+                .nodeset()
+                .expect("normal & memory children should have nodesets")
+        }
+        match self {
+            GroupChildFilter::Normal(filter) => {
+                children.extend(parent.normal_children().filter(|obj| filter(*obj)));
+            }
+            GroupChildFilter::Memory(filter) => {
+                children.extend(parent.memory_children().filter(|obj| filter(*obj)));
+            }
+            GroupChildFilter::Mixed {
+                strict,
+                normal,
+                memory,
+            } => {
+                children.extend(parent.normal_children().filter(|obj| normal(*obj)));
+                if *strict {
+                    // In strict mixed mode, we need to check that hwloc won't
+                    // add extra objects the users didn't expect to the group
+                    let normal_cpuset = children.iter().fold(CpuSet::new(), |mut acc, child| {
+                        acc |= child_cpuset(child);
+                        acc
+                    });
+                    for memory_child in parent.memory_children() {
+                        let memory_cpuset = child_cpuset(memory_child);
+                        if memory(memory_child) {
+                            // If a memory child is picked, then hwloc will add
+                            // all of its CPU children to the group, so the user
+                            // should have added them to the normal child set.
+                            if !normal_cpuset.includes(memory_cpuset) {
+                                return Err(GroupInsertError::Inconsistent.into());
+                            }
+                            children.push(memory_child);
+                        } else {
+                            // If a memory child has CPU children and all of
+                            // them are picked, then hwloc will add the memory
+                            // object to the group, so the user should have
+                            // added it to the memory child set.
+                            if !memory_cpuset.is_empty() && normal_cpuset.includes(memory_cpuset) {
+                                return Err(GroupInsertError::Inconsistent.into());
+                            }
+                        }
+                    }
+                } else {
+                    children.extend(parent.memory_children().filter(|obj| memory(*obj)));
+                }
+            }
+        }
+
+        // If the output is user-visible, as opposed to being just for hwloc
+        // consumption, make child set match the group hwloc would create.
+        if !make_hwloc_input {
+            let (group_cpuset, group_nodeset) = children.drain(..).fold(
+                (CpuSet::new(), NodeSet::new()),
+                |(mut cpuset, mut nodeset), child| {
+                    cpuset |= child_cpuset(child);
+                    nodeset |= child_nodeset(child);
+                    (cpuset, nodeset)
+                },
+            );
+            children.extend(
+                parent
+                    .normal_children()
+                    .chain(parent.memory_children())
+                    .filter(|child| {
+                        group_cpuset.includes(child_cpuset(child))
+                            && group_nodeset.includes(child_nodeset(child))
+                    }),
+            );
+        }
+        Ok(children)
+    }
+}
+//
 impl<NormalFilter, MemoryFilter> Debug for GroupChildFilter<NormalFilter, MemoryFilter>
 where
     NormalFilter: FnMut(&TopologyObject) -> bool,
@@ -1046,8 +1160,9 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
 
     /// Expand cpu sets and node sets to cover designated children
     ///
-    /// This should only be done once. Adding children below multiple parents is
-    /// not supported.
+    /// This is only meant to be executed once. The children consistency checks
+    /// assume the input child set is the full child set and adding children
+    /// below multiple parents is not supported.
     ///
     /// # Errors
     ///
@@ -1056,7 +1171,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     pub(self) fn add_children<NormalFilter, MemoryFilter>(
         &mut self,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
-        filter_children: GroupChildFilter<NormalFilter, MemoryFilter>,
+        mut child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
     ) -> Result<(), GroupInsertError>
     where
         NormalFilter: FnMut(&TopologyObject) -> bool,
@@ -1073,73 +1188,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         }
 
         // Enumerate children
-        let mut children = Vec::new();
-        match filter_children {
-            // The group consistency rules of GroupChildFilter are actually a
-            // description of the unavoidable behavior of
-            // hwloc_topology_insert_group_object()'s cpuset/nodeset-based API.
-            //
-            // Therefore, unless we're dealing with mixed filters in strict
-            // mode, we don't need to add any child to the list ourself to get a
-            // consistent group according to this definition.
-            GroupChildFilter::Normal(mut filter) => {
-                children.extend(parent.normal_children().filter(|obj| filter(*obj)));
-            }
-            GroupChildFilter::Memory(mut filter) => {
-                children.extend(parent.memory_children().filter(|obj| filter(*obj)));
-            }
-            GroupChildFilter::Mixed {
-                strict,
-                mut normal,
-                mut memory,
-            } => {
-                children.extend(parent.normal_children().filter(|obj| normal(*obj)));
-                if strict {
-                    // In the case of mixed filters in strict mode, we do need
-                    // to ensure that hwloc_topology_insert_group_object() won't
-                    // add any unexpected extra child to the group.
-                    let normal_cpuset = children.iter().fold(CpuSet::new(), |mut acc, child| {
-                        acc |= child.cpuset().expect("normal children should have cpusets");
-                        acc
-                    });
-                    for memory_child in parent.memory_children() {
-                        let memory_cpuset = memory_child
-                            .cpuset()
-                            .expect("memory objects should have a complete cpuset");
-                        if memory(memory_child) {
-                            // If a memory child is picked, and it is associated
-                            // with some CPUs, then all normal children
-                            // associated with these CPUs must be picked too.
-                            //
-                            // This rule models the fact that if you add a
-                            // memory object to a group, you implicitly extend
-                            // the group's cpuset with this memory object's
-                            // cpuset, and thus add all associated PUs and
-                            // normal objects above them.
-                            if !normal_cpuset.includes(memory_cpuset) {
-                                return Err(GroupInsertError::Inconsistent.into());
-                            }
-                        } else {
-                            // If a memory child is _not_ picked, and it is
-                            // associated with some CPUs, then it is not legal
-                            // to pick all of these CPUs on the normal side.
-                            //
-                            // This rule models the fact that if you add all
-                            // CPUs associated with a memory object, then you've
-                            // extended the group's cpuset and nodeset with the
-                            // memory object's entire cpuset and nodeset, and
-                            // thus the memory object will be added to the group
-                            // by hwloc as well.
-                            if !memory_cpuset.is_empty() && normal_cpuset.includes(memory_cpuset) {
-                                return Err(GroupInsertError::Inconsistent.into());
-                            }
-                        }
-                    }
-                } else {
-                    children.extend(parent.memory_children().filter(|obj| memory(*obj)));
-                }
-            }
-        }
+        let children = child_filter.filter_children(parent, true)?;
         if children.is_empty() {
             return Err(GroupInsertError::Empty.into());
         }
@@ -1876,27 +1925,31 @@ mod tests {
         /// Test for [`TopologyEditor::insert_group_object()`]
         #[test]
         fn insert_group_object(
-            (parent, filter_children) in group_parent_and_members(),
+            (parent, mut child_filter) in group_parent_and_members(),
             merge: Option<GroupMerge>,
         ) {
+            let expected_children_ids = dbg!(dbg!(&mut child_filter)
+                .filter_children(dbg!(parent), false))
+                .map(|children| {
+                    children
+                        .into_iter()
+                        .map(|child| child.global_persistent_index())
+                        .collect::<HashSet<_>>()
+                });
             let mut topology = Topology::test_instance().clone();
             topology.edit(move |editor| {
                 let result = editor.insert_group_object(
                     dbg!(merge),
-                    // TODO: Move child list generator from AllocatedGroup to
-                    //       GroupChildFilter so that I can regenerate the child
-                    //       list in my tests and don't need debug printouts to
-                    //       see it. The method should not be public.
                     |topology| {
                         // We need this somewhat convoluted find_parent routine
-                        // because we must not find the original parent object,
-                        // but its equivalent in the cloned topology, if any
+                        // because we don't want the original parent object but
+                        // its equivalent in the cloned topology, if any
                         topology
-                            .objects_at_depth(dbg!(parent).depth())
+                            .objects_at_depth(parent.depth())
                             .find(|obj| obj.global_persistent_index() == parent.global_persistent_index())
                             .unwrap_or(parent)
                     },
-                    filter_children,
+                    child_filter,
                 );
                 if matches!(dbg!(result), Ok(InsertedGroup::New(_))) {
                     dbg!(editor.topology());
