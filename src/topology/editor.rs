@@ -31,7 +31,7 @@
 //! as easy to use, cleanly implemented and feature-complete as it should be.
 
 #[cfg(doc)]
-use crate::topology::builder::{BuildFlags, TopologyBuilder, TypeFilter};
+use crate::topology::builder::{BuildFlags, TopologyBuilder};
 use crate::{
     bitmap::{Bitmap, BitmapKind, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
@@ -42,7 +42,7 @@ use crate::{
     },
     memory::nodeset::NodeSet,
     object::{attributes::GroupAttributes, types::ObjectType, TopologyObject},
-    topology::Topology,
+    topology::{Topology, builder::TypeFilter},
 };
 use bitflags::bitflags;
 use derive_more::Display;
@@ -586,6 +586,10 @@ impl<'topology> TopologyEditor<'topology> {
         NormalFilter: FnMut(&TopologyObject) -> bool,
         MemoryFilter: FnMut(&TopologyObject) -> bool,
     {
+        let group_filter = self.topology().type_filter(ObjectType::Group).map_err(HybridError::Hwloc)?;
+        if group_filter == TypeFilter::KeepNone {
+            return Err(GroupInsertError::FilteredOut.into());
+        }
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_parent, child_filter)?;
         if let Some(merge) = merge {
@@ -1106,20 +1110,40 @@ where
 /// Error while creating a [`Group`](ObjectType::Group) object
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum GroupInsertError {
+    /// Attempted to create a group in a topology where groups are filtered out
+    ///
+    /// This happens when the type filter for [`ObjectType::Group`] is set to
+    /// [`TypeFilter::KeepNone`].
+    #[error("can't create group objects when group type filter is KeepNone")]
+    FilteredOut,
+
     /// Specified parent is not a normal object
-    #[error("Group object parent has non-normal object type {0}")]
+    ///
+    /// Group objects are normal objects, and a normal object may only have
+    /// another normal object as a parent, therefore the designated parent of a
+    /// group has to be a normal object.
+    #[error("group object parent has non-normal object type {0}")]
     BadParentType(ObjectType),
 
     /// Specified parent does not belong to this topology
-    #[error("Group object parent {0}")]
+    ///
+    /// It is not okay to take an object from a different topology when asked to
+    /// specify a group's parent.
+    #[error("group object parent {0}")]
     ForeignParent(#[from] ForeignObjectError),
 
     /// Attempted to create a group without children
-    #[error("a Group must have at least one child object")]
+    ///
+    /// The position of group objects in the topology is defined by their child
+    /// set, therefore a group object cannot be empty.
+    #[error("a group must have at least one child object")]
     Empty,
 
     /// Attempted to create an inconsistent group by using
     /// [`GroupChildFilter::Mixed()` in strict mode
+    ///
+    /// The group child set you asked for cannot be handled in hwloc's current
+    /// group creation model, without adding extra objects to the group.
     #[error("attempted to create an inconsistent group (see GroupChildFilter docs)")]
     Inconsistent,
 }
@@ -1413,6 +1437,7 @@ mod tests {
         ffi::CStr,
         fmt::Debug,
         panic::RefUnwindSafe,
+        sync::OnceLock,
     };
 
     /// Make sure opening/closing the editor doesn't affect the topology
@@ -2005,12 +2030,19 @@ mod tests {
     }
 
     proptest! {
-        /// Test for [`TopologyEditor::insert_group_object()`]
+        /// General-case test for [`TopologyEditor::insert_group_object()`]
+        ///
+        /// Some specific aspects of this function are not well handled by this
+        /// test, but they are stressed by other tests below.
         #[test]
         fn insert_group_object(
             (parent, mut child_filter, merge) in group_building_blocks(false),
         ) {
             let initial_topology = Topology::test_instance();
+            assert_ne!(
+                initial_topology.type_filter(ObjectType::Group).unwrap(),
+                TypeFilter::KeepNone,
+            );
             let initial_children = child_filter.filter_children(parent, false);
             let children_ids = initial_children
                 .as_ref()
@@ -2197,8 +2229,46 @@ mod tests {
             })?;
         }
 
-        // TODO: Test that group insertion fails when the group type filter is
-        //       set to None
+        /// Test that group insertion fails when group type filter is KeepNone
+        #[test]
+        fn ignored_group_insertion(
+            (parent, child_filter, merge) in group_building_blocks(false),
+        ) {
+            static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
+            let initial_topology = INITIAL_TOPOLOGY.get_or_init(|| {
+                Topology::builder()
+                    .with_type_filter(ObjectType::Group, TypeFilter::KeepNone).unwrap()
+                    .build().unwrap()
+            });
+
+            let mut topology = initial_topology.clone();
+            topology.edit(move |editor| {
+                let result = editor.insert_group_object(
+                    merge,
+                    |topology| {
+                        if initial_topology.contains(parent) {
+                            // If the parent belonged to the initial topology,
+                            // find the equivalent in the copied topology
+                            topology
+                                .objects_at_depth(parent.depth())
+                                .find(|obj| obj.global_persistent_index() == parent.global_persistent_index())
+                                .expect("parent was tested to be present")
+                        } else {
+                            // Foreign parent of initial topology is also
+                            // foreign to new topology
+                            parent
+                        }
+                    },
+                    child_filter,
+                );
+                prop_assert_eq!(
+                    result.unwrap_err(),
+                    HybridError::Rust(GroupInsertError::FilteredOut)
+                );
+                prop_assert_eq!(editor.topology(), initial_topology);
+                Ok(())
+            })?;
+        }
     }
 
     /// Building blocks for the GroupMerge::Always test:
