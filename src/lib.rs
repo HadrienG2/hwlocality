@@ -455,7 +455,7 @@ pub(crate) mod tests {
     thread_local! {
         /// Number of active [`SilentPanicGuard`] in the current thread. If
         /// this is greater than one, panics will be silenced.
-        static SILENCE_DEPTH: Cell<usize> = Cell::new(0);
+        static SILENCE_DEPTH: Cell<usize> = const { Cell::new(0) };
     }
     //
     impl SilentPanicGuard {
