@@ -42,11 +42,9 @@ use crate::{
     },
     memory::nodeset::NodeSet,
     object::{attributes::GroupAttributes, types::ObjectType, TopologyObject},
-    topology::{Topology, builder::TypeFilter},
+    topology::{builder::TypeFilter, Topology},
 };
 use bitflags::bitflags;
-use derive_more::Display;
-use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
     hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
@@ -462,9 +460,9 @@ impl<'topology> TopologyEditor<'topology> {
     /// hwloc does not support empty groups. Therefore your `child_filter`
     /// callback(s) must select at least one normal child or one memory child.
     ///
-    /// Finally, the `merge` parameter allows you to adjust hwloc's strategy for
-    /// merging proposed groups with equivalent topology objects, as explained
-    /// in the following section.
+    /// Finally, the `dont_merge` parameter allows you to adjust hwloc's
+    /// strategy for merging proposed groups with equivalent topology objects,
+    /// as explained in the following section.
     ///
     /// ## Equivalence and merging
     ///
@@ -497,20 +495,10 @@ impl<'topology> TopologyEditor<'topology> {
     /// not really need a group to model the desired set of CPU cores and NUMA
     /// nodes, since at least one existing topology object already does so.
     ///
-    /// Another situation where you might not want to create a group is if there
-    /// are already groups below the designated parent, as these groups may
-    /// represent unrelated sets of objects and having both around at the same
-    /// topology depth may cause confusion. If this is a concern, you can set
-    /// the `merge` parameter to [`GroupMerge::Always`]. It will add any
-    /// existing group child below the designated parent to the set of objects
-    /// considered equivalent to the proposed group, before performing the
-    /// equivalence check.
-    ///
-    /// Conversely, if you want to force the creation of a group in a situation
-    /// where hwloc would not create one, you may use [`GroupMerge::Never`] to
-    /// force the creation of a group even when hwloc considers the proposed
-    /// group to be equivalent to one existing topology object. This comes with
-    /// two caveats:
+    /// If you want to force the creation of a group in a situation where hwloc
+    /// would not create one, you can set `dont_merge` to `true` to force the
+    /// creation of a group even when hwloc considers the proposed group to be
+    /// equivalent to one existing topology object. This comes with two caveats:
     ///
     /// - The group may be created above or below any of the objects that it is
     ///   considered equivalent to, not necessarily below the parent object that
@@ -578,7 +566,7 @@ impl<'topology> TopologyEditor<'topology> {
     #[doc(alias = "hwloc_topology_insert_group_object")]
     pub fn insert_group_object<NormalFilter, MemoryFilter>(
         &mut self,
-        merge: Option<GroupMerge>,
+        dont_merge: bool,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
         child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
     ) -> Result<InsertedGroup<'topology>, HybridError<GroupInsertError>>
@@ -586,15 +574,16 @@ impl<'topology> TopologyEditor<'topology> {
         NormalFilter: FnMut(&TopologyObject) -> bool,
         MemoryFilter: FnMut(&TopologyObject) -> bool,
     {
-        let group_filter = self.topology().type_filter(ObjectType::Group).map_err(HybridError::Hwloc)?;
+        let group_filter = self
+            .topology()
+            .type_filter(ObjectType::Group)
+            .map_err(HybridError::Hwloc)?;
         if group_filter == TypeFilter::KeepNone {
             return Err(GroupInsertError::FilteredOut.into());
         }
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_parent, child_filter)?;
-        if let Some(merge) = merge {
-            group.set_merge_policy(merge);
-        }
+        group.configure_merging(dont_merge);
         group.insert().map_err(HybridError::Hwloc)
     }
 
@@ -856,37 +845,6 @@ pub enum AllowSetError {
     /// and Solaris.
     #[error("this operation is not supported on this OS")]
     Unsupported,
-}
-
-/// Control merging of newly inserted groups with existing objects
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
-pub enum GroupMerge {
-    /// Prevent the hwloc core from ever merging this Group with another
-    /// hierarchically-identical object
-    ///
-    /// This is useful when the Group itself describes an important feature that
-    /// cannot be exposed anywhere else in the hierarchy.
-    #[doc(alias = "hwloc_group_attr_s::dont_merge")]
-    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::dont_merge")]
-    Never,
-
-    /// Always discard this new group in favor of any existing Group with the
-    /// same locality, even if the child set does not match
-    #[doc(alias = "hwloc_group_attr_s::kind")]
-    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
-    Always,
-}
-//
-crate::impl_arbitrary_for_sequence!(GroupMerge);
-//
-impl From<bool> for GroupMerge {
-    fn from(value: bool) -> Self {
-        if value {
-            Self::Always
-        } else {
-            Self::Never
-        }
-    }
 }
 
 /// Callbacks that selects the members of a proposed group object
@@ -1280,7 +1238,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// By default, hwloc may or may not merge identical groups covering the
     /// same objects. You can encourage or inhibit this tendency with this method.
-    pub(self) fn set_merge_policy(&mut self, merge: GroupMerge) {
+    pub(self) fn configure_merging(&mut self, dont_merge: bool) {
         let group_attributes: &mut GroupAttributes =
             // SAFETY: - We know this is a group object as a type invariant, so
             //           accessing the group raw attribute is safe
@@ -1288,9 +1246,13 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             //           to a valid state
             //         - We are not changing the raw attributes variant
             unsafe { (&mut (*self.group.as_mut().as_inner().attr).group).as_newtype() };
-        match merge {
-            GroupMerge::Never => group_attributes.prevent_merging(),
-            GroupMerge::Always => group_attributes.favor_merging(),
+        if dont_merge {
+            // Make sure the new group is not merged with an existing object
+            group_attributes.prevent_merging();
+        } else {
+            // Make sure the new group is deterministically always merged with
+            // existing groups that have the same locality.
+            group_attributes.favor_merging();
         }
     }
 
@@ -1389,9 +1351,6 @@ pub enum InsertedGroup<'topology> {
     New(&'topology mut TopologyObject),
 
     /// Existing object that already fulfilled the role of the proposed Group
-    ///
-    /// If the Group adds no hierarchy information, hwloc may merge or discard
-    /// it in favor of existing topology object at the same location.
     Existing(&'topology TopologyObject),
 }
 
@@ -1841,192 +1800,165 @@ mod tests {
 
     // --- Grouping objects ---
 
-    /// Pick a parent, a set of group members, and a group merging configuration
-    ///
-    /// If the `only_good` flag is set, only configurations that will result in
-    /// a successful group insertion (`insert_group_object()` returning
-    /// `Ok(InsertedGroup::New(_))`) are emitted. This is not good for general
-    /// group insertion testing, but is useful for higher-level tests that rely
-    /// on a group being inserted first.
-    fn group_building_blocks(
-        only_good: bool,
-    ) -> impl Strategy<
+    /// Child filtering function, as a trait object
+    type DynChildFilter = Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>;
+
+    /// Within the test topology, pick a parent, a set of group members, and a
+    /// group merging configuration
+    fn group_building_blocks() -> impl Strategy<
         Value = (
             &'static TopologyObject,
-            GroupChildFilter<
-                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
-                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
-            >,
-            Option<GroupMerge>,
+            GroupChildFilter<DynChildFilter, DynChildFilter>,
+            bool,
         ),
     > {
+        // Pick a parent for the group object
+        let any_parent = prop_oneof! [
+            3 => multi_child_parent(),
+            2 => any_object(),
+        ];
+
+        // Given a parent, pick a child set
+        any_parent.prop_flat_map(move |parent| {
+            let child_filter = child_filter_from_parent(parent);
+            (child_filter, any::<bool>())
+                .prop_map(move |(child_filter, merge)| (parent, child_filter, merge))
+        })
+    }
+
+    /// Pick a parent for which group object creation can succeed
+    ///
+    /// The find_parent callback to insert_group_object could return any object
+    /// as a parent, including objects from different topologies. But outside of
+    /// the `dont_merge` special case, group creation will fail or return
+    /// `Existing` if the parent object is anything but a normal object with >=
+    /// 2 children. This function only picks parents which match this criterion,
+    /// and is used to bias the RNG towards more successful group generation.
+    ///
+    /// Furthermore, parents at high depths like CPU cores are more numerous
+    /// than objects at low depths like L3 cache. Therefore, a random pick
+    /// with a uniform distribution is a lot more likely to pick high-depth
+    /// parents than low-depth parents. To give low-depth parents a fair amount
+    /// of test coverage, we bias the parent distribution such that each parent
+    /// depth has an equal chance of coming up.
+    fn multi_child_parent() -> impl Strategy<Value = &'static TopologyObject> {
         let topology = Topology::test_instance();
 
-        // Pick a parent for the group object
-        //
-        // The user callback could return any object as a parent, including
-        // objects from different topologies. But group creation will fail or
-        // return Existing if the parent object is anything but a normal object
-        // with >= 2 children. Therefore, we bias the RNG towards picking such
-        // objects as a parent, in order to put a fair share of stress on the
-        // code path where group creation succeeds.
-        //
-        // Furthermore, parents at high depths like CPU cores are more numerous
-        // than objects at low depths like L3 cache. Therefore, a random pick
-        // with a uniform distribution is a lot more likely to pick high-depth
-        // parents than low-depth parents. To give low-depth parents a fair
-        // amount of test coverage, we bias the parent distribution such that
-        // each parent depth has an equal chance of coming up.
         let good_parents_by_depth = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
             .filter_map(|depth| {
                 let good_parents = topology
                     .objects_at_depth(depth)
-                    .filter(|obj| obj.normal_arity() >= 2)
+                    .filter(|obj| obj.normal_arity() >= 2 || obj.memory_arity() >= 2)
                     .collect::<Vec<_>>();
                 (!good_parents.is_empty()).then_some((depth, good_parents))
             })
             .collect::<HashMap<_, _>>();
+
         let good_parent_depths = good_parents_by_depth.keys().copied().collect::<Vec<_>>();
-        let good_parent = || {
-            prop::sample::select(good_parent_depths.clone()).prop_flat_map(move |depth| {
-                prop::sample::select(good_parents_by_depth[&depth].clone())
-            })
-        };
-        let any_parent = if only_good {
-            good_parent().boxed()
-        } else {
-            prop_oneof! [
-                3 => good_parent(),
-                2 => any_object(),
-            ]
-            .boxed()
-        };
+        prop::sample::select(good_parent_depths.clone())
+            .prop_flat_map(move |depth| prop::sample::select(good_parents_by_depth[&depth].clone()))
+    }
 
-        // Given a parent, pick a child set
-        any_parent.prop_flat_map(move |parent| {
-            // Given one of the parent TopologyObject's children lists, select a
-            // subset of it
-            //
-            // There is a bias towards picking no children, one child, and all
-            // children, because all of these configurations hit special code
-            // paths in the group constructor function.
-            fn child_subset(
-                children_set: impl Iterator<Item = &'static TopologyObject>,
-                only_good: bool,
-                machine_like_parent: bool,
-            ) -> impl Strategy<Value = HashSet<TopologyObjectID>> {
-                /// Produces a child subset from an iterable of children
-                fn from_iterable(
-                    children: impl IntoIterator<Item = &'static TopologyObject>
-                ) -> HashSet<TopologyObjectID> {
-                    children
-                        .into_iter()
-                        .map(TopologyObject::global_persistent_index)
-                        .collect()
-                }
-                
-                // Absence of children hits a proptest edge case (can't pick one
-                // element from and empty array) and must be handled separately
-                let children = children_set.collect::<Vec<_>>();
-                if children.is_empty() {
-                    return Just(HashSet::new()).boxed()
-                }
-                
-                // Other cases are handled as appropriate
-                let num_children = children.len();
-                let no_children = Just(from_iterable(std::iter::empty()));
-                let single_child = prop::sample::select(children.clone())
-                    .prop_map(|child| from_iterable(std::iter::once(child)));
-                let all_children = Just(from_iterable(children.clone()));
-                if only_good {
-                    // If asked to only produce good configurations, then we
-                    // must produce at least one child.
-                    assert!(num_children >= 1);
-                    if machine_like_parent {
-                        // hwloc will refuse to create a group that's equivalent
-                        // to the entire Machine, so we must be careful not to
-                        // include all children when the parent is Machine-like
-                        prop_oneof![
-                            2 => single_child,
-                            // At least one child, but not all of them
-                            3 => prop::sample::subsequence(children, 1..num_children).prop_map(from_iterable),
-                        ].boxed()
-                    } else {
-                        // Parent is not Machine-like, can cover whole parent
-                        // without any risk of our group being rejected by hwloc
-                        prop_oneof![
-                            1 => all_children,
-                            1 => single_child,
-                            // At least one child, possibly all of them
-                            3 => prop::sample::subsequence(children, 1..=num_children).prop_map(from_iterable),
-                        ].boxed()
+    /// Given a group parent, generate child filters
+    fn child_filter_from_parent(
+        parent: &TopologyObject,
+    ) -> impl Strategy<Value = GroupChildFilter<DynChildFilter, DynChildFilter>> {
+        // Turn normal and memory child list of parent into 'static objects
+        // using their global persistent ID
+        fn children_ids<'a>(
+            children: impl Iterator<Item = &'a TopologyObject>,
+        ) -> Vec<TopologyObjectID> {
+            children
+                .map(TopologyObject::global_persistent_index)
+                .collect::<Vec<_>>()
+        }
+        let normal_ids = children_ids(parent.normal_children());
+        let memory_ids = children_ids(parent.memory_children());
+
+        // Normal and memory child filtering configurations
+        let normal_child_subset = || child_subset(normal_ids.clone());
+        let normal_child_filter =
+            || normal_child_subset().prop_map(|subset| GroupChildFilter::Normal(filter_fn(subset)));
+        let memory_child_subset = || child_subset(memory_ids.clone());
+        let memory_child_filter =
+            || memory_child_subset().prop_map(|subset| GroupChildFilter::Memory(filter_fn(subset)));
+
+        // Final child filter generation strategy
+        prop_oneof![
+            normal_child_filter(),
+            memory_child_filter(),
+            (any::<bool>(), normal_child_subset(), memory_child_subset()).prop_map(
+                |(strict, normal_subset, memory_subset)| {
+                    GroupChildFilter::Mixed {
+                        strict,
+                        normal: filter_fn(normal_subset),
+                        memory: filter_fn(memory_subset),
                     }
-                } else {
-                    // If not asked to only produce good configurations, yield
-                    // all supported special cases including no children
-                    prop_oneof![
-                        1 => prop_oneof![no_children, all_children],
-                        1 => single_child,
-                        3 => prop::sample::subsequence(children, 0..=num_children).prop_map(from_iterable),
-                    ].boxed()
                 }
+            )
+        ]
+    }
+
+    /// Given one of the parent TopologyObject's children lists, select a
+    /// subset of it
+    ///
+    /// There is a bias towards picking no children, one child, and all
+    /// children, because all of these configurations hit special code paths in
+    /// the group constructor function.
+    fn child_subset<'a>(
+        children_ids: Vec<TopologyObjectID>,
+    ) -> impl Strategy<Value = HashSet<TopologyObjectID>> {
+        // Absence of children hits a proptest edge case (can't pick one
+        // element from and empty array) and must be handled separately
+        if children_ids.is_empty() {
+            return Just(HashSet::new()).boxed();
+        }
+
+        // Other cases are handled as appropriate
+        let num_children = children_ids.len();
+        let no_children = Just(HashSet::new());
+        let single_child = prop::sample::select(children_ids.clone())
+            .prop_map(|child| std::iter::once(child).collect::<HashSet<_>>());
+        let some_children = prop::sample::subsequence(children_ids.clone(), 1..=num_children)
+            .prop_map(|children| children.into_iter().collect::<HashSet<_>>());
+        let all_children = Just(children_ids.into_iter().collect::<HashSet<_>>());
+        prop_oneof![
+            1 => prop_oneof![no_children, all_children],
+            1 => single_child,
+            3 => some_children,
+        ]
+        .boxed()
+    }
+
+    /// Turn a child subset into a child-filtering function
+    fn filter_fn(subset: HashSet<TopologyObjectID>) -> DynChildFilter {
+        Box::new(move |obj| subset.contains(&obj.global_persistent_index()))
+    }
+
+    /// If an object belonged to some initial topology, find the equivalent in a
+    /// copy of that initial topology (that may be modified, but not in a way
+    /// that deletes the parent), otherwise return the parent object as-is
+    fn find_parent_like(
+        initial_topology: &Topology,
+        parent: &'static TopologyObject,
+    ) -> impl FnMut(&Topology) -> &TopologyObject {
+        let valid_parent_info = initial_topology
+            .contains(parent)
+            .then(|| (parent.depth(), parent.global_persistent_index()));
+        move |copied_topology| {
+            if let Some((depth, id)) = valid_parent_info {
+                // If the parent belonged to the initial topology,
+                // find the equivalent in the copied topology
+                copied_topology
+                    .objects_at_depth(depth)
+                    .find(|obj| obj.global_persistent_index() == id)
+                    .expect("parent should still be present in copied_topology")
+            } else {
+                // Foreign parent of initial topology is also
+                // foreign to new topology
+                parent
             }
-
-            // Turn a child subset into a child-filtering function
-            fn filter_fn(subset: HashSet<TopologyObjectID>) -> Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe> {
-                Box::new(move |obj| {
-                    subset.contains(&obj.global_persistent_index())
-                })
-            }
-
-            // Check if the parent covers the whole topology (in which case in
-            // only_good mode we should not return all children)
-            let machine_like_parent = if parent.object_type().is_normal() {
-                parent.cpuset().unwrap() == topology.cpuset()
-                && parent.nodeset().unwrap() == topology.nodeset()
-            } else {
-                false
-            };
-
-            // Generate any of the supported child filtering configurations
-            let normal_child_filter = child_subset(
-                parent.normal_children(),
-                only_good,
-                machine_like_parent,
-            ).prop_map(|subset| GroupChildFilter::Normal(filter_fn(subset)));
-            let memory_child_filter = child_subset(
-                parent.memory_children(),
-                only_good,
-                machine_like_parent,
-            ).prop_map(|subset| GroupChildFilter::Memory(filter_fn(subset)));
-            let child_filter = if only_good {
-                prop_oneof![normal_child_filter, memory_child_filter].boxed()
-            } else {
-                prop_oneof![
-                    normal_child_filter,
-                    memory_child_filter,
-                    (
-                        any::<bool>(),
-                        child_subset(parent.normal_children(), false, false),
-                        child_subset(parent.memory_children(), false, false)
-                    )
-                        .prop_map(|(strict, normal_subset, memory_subset)| GroupChildFilter::Mixed {
-                            strict,
-                            normal: filter_fn(normal_subset),
-                            memory: filter_fn(memory_subset),
-                        })
-                ].boxed()
-            };
-
-            // Add a group merging configuration to conclude
-            let merge = if only_good {
-                Just(Some(GroupMerge::Never)).boxed()
-            } else {
-                any::<Option<GroupMerge>>().boxed()
-            };
-            (child_filter, merge)
-                .prop_map(move |(child_filter, merge)| (parent, child_filter, merge))
-        })
+        }
     }
 
     proptest! {
@@ -2036,7 +1968,7 @@ mod tests {
         /// test, but they are stressed by other tests below.
         #[test]
         fn insert_group_object(
-            (parent, mut child_filter, merge) in group_building_blocks(false),
+            (parent, mut child_filter, dont_merge) in group_building_blocks(),
         ) {
             let initial_topology = Topology::test_instance();
             assert_ne!(
@@ -2056,21 +1988,8 @@ mod tests {
             let mut topology = initial_topology.clone();
             topology.edit(move |editor| {
                 let result = editor.insert_group_object(
-                    merge,
-                    |topology| {
-                        if initial_topology.contains(parent) {
-                            // If the parent belonged to the initial topology,
-                            // find the equivalent in the copied topology
-                            topology
-                                .objects_at_depth(parent.depth())
-                                .find(|obj| obj.global_persistent_index() == parent.global_persistent_index())
-                                .expect("parent was tested to be present")
-                        } else {
-                            // Foreign parent of initial topology is also
-                            // foreign to new topology
-                            parent
-                        }
-                    },
+                    dont_merge,
+                    find_parent_like(initial_topology, parent),
                     child_filter,
                 );
 
@@ -2149,7 +2068,7 @@ mod tests {
                     equivalent_obj: &TopologyObject
                 | {
                     let equivalent_ids = equivalent_obj_ids(&equivalent_obj);
-                    if merge == Some(GroupMerge::Never)
+                    if dont_merge
                         && !equivalent_ids.contains(&initial_topology.root_object().global_persistent_index())
                     {
                         let InsertedGroup::New(group) = result else { unreachable!() };
@@ -2204,15 +2123,6 @@ mod tests {
                     return Ok(());
                 }
 
-                // GroupMerge::Always refuses to create groups below an object
-                // that already has group children
-                if merge == Some(GroupMerge::Always)
-                    && parent.normal_children().any(|child| child.object_type() == ObjectType::Group)
-                {
-                    prop_assert!(matches!(result, InsertedGroup::Existing(_)));
-                    return Ok(());
-                }
-
                 // Outside of the conditions enumerated above, a new group
                 // should have been created, with the expected set of children
                 let InsertedGroup::New(group) = result else { unreachable!() };
@@ -2232,7 +2142,7 @@ mod tests {
         /// Test that group insertion fails when group type filter is KeepNone
         #[test]
         fn ignored_group_insertion(
-            (parent, child_filter, merge) in group_building_blocks(false),
+            (parent, child_filter, dont_merge) in group_building_blocks(),
         ) {
             static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
             let initial_topology = INITIAL_TOPOLOGY.get_or_init(|| {
@@ -2244,7 +2154,7 @@ mod tests {
             let mut topology = initial_topology.clone();
             topology.edit(move |editor| {
                 let result = editor.insert_group_object(
-                    merge,
+                    dont_merge,
                     |topology| {
                         if initial_topology.contains(parent) {
                             // If the parent belonged to the initial topology,
@@ -2270,34 +2180,4 @@ mod tests {
             })?;
         }
     }
-
-    /// Building blocks for the GroupMerge::Always test:
-    ///
-    /// - Group insertion configuration that will always succeed
-    /// - Second child filter that picks a disjoint set of children of the same
-    ///   parent, to be used with the same parent and GroupMerge::Always
-    fn group_merging_test_inputs() -> impl Strategy<
-        Value = (
-            &'static TopologyObject,
-            GroupChildFilter<
-                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
-                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
-            >,
-            Option<GroupMerge>,
-            GroupChildFilter<
-                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
-                Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>,
-            >,
-        ),
-    > {
-        group_building_blocks(true).prop_flat_map(|(parent, first_child_filter, parent_merge)| {
-            unimplemented!("now pick a child filter for the second group")
-        })
-    }
-
-    // TODO: Add stronger test of GroupMerge::Always that immediately inserts
-    //       another group below the same parent after successfully inserting a
-    //       first group. This is probably best handled by a separate test which
-    //       uses a variant of the `group_parent_and_members()` generator that
-    //       always emits a valid (parent, filter_children, merge) tuple.
 }
