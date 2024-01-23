@@ -1325,10 +1325,7 @@ mod tests {
         // Finally, we use the above logic to generate any valid number of roots
         let root = Topology::test_instance().root_object();
         (1..=normal_weight(root))
-            .prop_flat_map(|num_objects| {
-                eprintln!("Asked to pick {num_objects} disjoint topology objects");
-                pick_disjoint_objects(root, num_objects)
-            })
+            .prop_flat_map(|num_objects| pick_disjoint_objects(root, num_objects))
             .prop_shuffle()
     }
 

@@ -31,9 +31,9 @@
 //! as easy to use, cleanly implemented and feature-complete as it should be.
 
 #[cfg(doc)]
-use crate::topology::builder::{BuildFlags, TopologyBuilder, TypeFilter};
+use crate::topology::builder::{BuildFlags, TopologyBuilder};
 use crate::{
-    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObjectError, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
@@ -41,12 +41,10 @@ use crate::{
         transparent::{AsInner, AsNewtype},
     },
     memory::nodeset::NodeSet,
-    object::{attributes::GroupAttributes, types::ObjectType, TopologyObject, TopologyObjectID},
-    topology::Topology,
+    object::{attributes::GroupAttributes, types::ObjectType, TopologyObject},
+    topology::{builder::TypeFilter, Topology},
 };
 use bitflags::bitflags;
-use derive_more::Display;
-use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
     hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
@@ -59,7 +57,7 @@ use libc::{EINVAL, ENOMEM, ENOSYS};
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
-    fmt::{self, Write},
+    fmt::{self, Debug, Write},
     panic::{AssertUnwindSafe, UnwindSafe},
     ptr::{self, NonNull},
 };
@@ -417,39 +415,153 @@ impl<'topology> TopologyEditor<'topology> {
         }
     }
 
-    /// Add more structure to the topology by adding an intermediate [`Group`]
+    /// Add more structure to the topology by creating an intermediate [`Group`]
     ///
-    /// Use the `find_children` callback to specify which [`TopologyObject`]s of
-    /// this topology should be made children of the newly created Group object.
-    /// The resulting set of group children must follow a number of constraints:
+    /// Sibling normal objects below a common parent object can be grouped to
+    /// express that there is a resource shared between the underlying CPU
+    /// cores, which cannot be modeled using a more specific standard hwloc
+    /// object type. For example, this is how the intra-chip NUMA clusters of
+    /// modern high-core-count AMD and Intel CPUs are usually modeled. See the
+    /// ["What are these Group objects in my
+    /// topology"](https://hwloc.readthedocs.io/en/v2.9/faq.html#faq_groups)
+    /// entry of the hwloc FAQ for more information.
     ///
-    /// - They can only be objects with cpusets and/or nodesets, i.e. normal and
-    ///   memory objects are fine but I/O and [`Misc`] objects are not.
-    /// - There has to be at least one child object.
-    /// - Although group children may reside at multiple depths, the child set
-    ///   cannot simultaneously include a topology object and one its ancestors.
+    /// Alas, creating hwloc groups is a lot less straightforward than the above
+    /// summary may suggest, and you are strongly advised to carefully read and
+    /// understand all of the following before using this function.
     ///
-    /// Use the `merge` option to control hwloc's propension to merge groups
-    /// with hierarchically-identical topology objects.
     ///
-    /// After a successful insertion,
+    /// # Group creation guide
+    ///
+    /// ## Basic workflow
+    ///
+    /// This function will first call the `find_parent` callback in order to
+    /// identify the parent object under which a new group should be inserted.
+    ///
+    /// The callback(s) specified by `child_filter` will then be called on
+    /// each normal and/or memory child of this parent, allowing you to tell
+    /// which objects should become members of the newly created group. See
+    /// [`GroupChildFilter`] for more information.
+    ///
+    /// This API design, which may be unexpectedly complex, helps you honor
+    /// hwloc's many group creation rules:
+    ///
+    /// - Only normal and memory objects can be members of a group. I/O and
+    ///   [`Misc`] objects can only be grouped coarsely and indirectly by
+    ///   grouping the normal objects under which they reside.
+    /// - The normal and memory members of an hwloc group must be consistent
+    ///   with each other, as explained in the [`GroupChildFilter`]
+    ///   documentation.
+    /// - It is, generally speaking, not possible to group objects which do not
+    ///   lie below the same parent. For example, you cannot create a group that
+    ///   contains the first hyperthreads of each core of an x86 CPU.
+    ///
+    /// One extra constraint that **you** are responsible for honoring is that
+    /// hwloc does not support empty groups. Therefore your `child_filter`
+    /// callback(s) must select at least one normal or memory child.
+    ///
+    /// Finally, the `dont_merge` parameter allows you to adjust hwloc's
+    /// strategy for merging proposed groups with equivalent topology objects,
+    /// as explained in the following section.
+    ///
+    /// ## Equivalence and merging
+    ///
+    /// hwloc considers a group to be equivalent to one or more existing
+    /// topology objects in the following circumstances:
+    ///
+    /// * A group with a single child object is considered to be equivalent to
+    ///   this child object
+    /// * A group which covers all children of the parent object that was
+    ///   designated by `find_parent` is considered to be equivalent to this
+    ///   parent object
+    ///     - This typically happens as a result of your children selection
+    ///       callbacks returning `true` for all children of the parent object.
+    ///     - If you were using [`GroupChildFilter::Mixed`] with `strict` set to
+    ///       `false`, it may also happen that although one of your callbacks
+    ///       did not pick all children, the remaining children had to be added
+    ///       to follow hwloc's group consistency rules.
+    ///
+    /// In addition to these equivalence relations, topology objects which form
+    /// a single-child chain with identical cpusets and nodesets (a simple
+    /// example being L2 -> L1d -> L1i -> Core chains in x86 topologies), are
+    /// also considered to be equivalent to each other. Therefore, if a group is
+    /// considered to be equivalent to one of these objects, then it is
+    /// considered equivalent to all of them.
+    ///
+    /// When a proposed group is equivalent to an existing topology object, the
+    /// default hwloc behavior is not to create a group, but instead to return
+    /// [`InsertedGroup::Existing`] with one of the objects that is considered
+    /// equivalent to the proposed group as a parameter. The idea is that you do
+    /// not really need a group to model the desired set of CPU cores and NUMA
+    /// nodes, since at least one existing topology object already does so.
+    ///
+    /// If you want to force the creation of a group in a situation where hwloc
+    /// would not create one, you can set `dont_merge` to `true` to force the
+    /// creation of a group even when hwloc considers the proposed group to be
+    /// equivalent to one existing topology object. This comes with two caveats:
+    ///
+    /// - The group may be created above or below any of the objects that it is
+    ///   considered equivalent to, not necessarily below the parent object that
+    ///   you initially had in mind.
+    /// - Even with this option, hwloc will refuse to create a group that is
+    ///   equivalent to the topology root.
+    ///
+    /// ## Documenting groups
+    ///
+    /// By nature, the [`Group`] object type is not very descriptive of what the
+    /// group represents in hardware, so you may want to add extra annotations
+    /// describing what the group is about.
+    ///
+    /// To this end, after a successful group object insertion, you may use
     #[cfg_attr(windows, doc = "[`TopologyObject::set_subtype_unchecked()`]")]
     #[cfg_attr(not(windows), doc = "[`TopologyObject::set_subtype()`]")]
-    /// can be used to display something other
-    /// than "Group" as the type name for this object in `lstopo`, and custom
-    /// name/value info pairs may be added using [`TopologyObject::add_info()`].
+    /// to have `lstopo` display something other than "Group" as the type name.
+    ///
+    /// If needed, you can also complement this basic group type information
+    /// with any number of extra name/value info pairs you need using
+    /// [`TopologyObject::add_info()`].
+    ///
+    /// ## Identifier invalidation
+    ///
+    /// When a group is created, it becomes a child of the group members' former
+    /// parent. To allow for this, the normal children of this parent need to be
+    /// reordered first, so that the group members lie at consecutive indices. A
+    /// new depth level of type [`Group`] may also need to be created to host
+    /// the group, which will push existing depths downwards. As a consequence
+    /// of all these topology changes...
+    ///
+    /// - The logical indices of all objects at the depth where the group
+    ///   members used to lie may change as a result of calling this function.
+    ///   If you want to identify a child object across calls to this function,
+    ///   you should therefore use another identifier than the logical index or
+    ///   sibling rank. [Global persistent
+    ///   indices](TopologyObject::global_persistent_index()) are explicitly
+    ///   designed for this use case.
+    /// - The mapping of depths to object types may change as a result of
+    ///   calling this function, for all depths below the designated group
+    ///   parent. Therefore, you must be very cautious about reusing previously
+    ///   computed depth values across calls to this function.
+    ///
     ///
     /// # Errors
     ///
-    /// - [`ForeignObjectError`] if some of the child `&TopologyObject`s specified
-    ///   by the `find_children` callback do not belong to this [`Topology`].
-    /// - [`RawHwlocError`]s are documented to happen if...
-    ///     - There are conflicting sets in the topology tree
-    ///     - [`Group`] objects are filtered out of the topology through
-    ///       [`TypeFilter::KeepNone`]
-    ///     - The effective CPU set or NUMA node set ends up being empty.
+    /// - [`FilteredOut`] if one attempts to create a group in a topology where
+    ///   groups are filtered out using [`TypeFilter::KeepNone`].
+    /// - [`BadParentType`] if the designated group parent is not a normal
+    ///   object.
+    /// - [`ForeignParent`] if the designated group parent does not belong to
+    ///   the topology that is being edited.
+    /// - [`Empty`] if the [`GroupChildFilter`] did not select any child.
+    /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
+    ///   mode, but the selected normal and memory object sets were not
+    ///   consistent.
     ///
+    /// [`BadParentType`]: GroupInsertError::BadParentType
+    /// [`Empty`]: GroupInsertError::Empty
+    /// [`FilteredOut`]: GroupInsertError::FilteredOut
+    /// [`ForeignParent`]: GroupInsertError::ForeignParent
     /// [`Group`]: ObjectType::Group
+    /// [`Inconsistent`]: GroupInsertError::Inconsistent
     /// [`Misc`]: ObjectType::Misc
     //
     // --- Implementation details ---
@@ -460,16 +572,26 @@ impl<'topology> TopologyEditor<'topology> {
     #[doc(alias = "hwloc_topology_alloc_group_object")]
     #[doc(alias = "hwloc_obj_add_other_obj_sets")]
     #[doc(alias = "hwloc_topology_insert_group_object")]
-    pub fn insert_group_object(
+    pub fn insert_group_object<NormalFilter, MemoryFilter>(
         &mut self,
-        merge: Option<GroupMerge>,
-        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<InsertedGroup<'topology>, HybridError<ForeignObjectError>> {
-        let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
-        group.add_children(find_children)?;
-        if let Some(merge) = merge {
-            group.set_merge_policy(merge);
+        dont_merge: bool,
+        find_parent: impl FnOnce(&Topology) -> &TopologyObject,
+        child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
+    ) -> Result<InsertedGroup<'topology>, HybridError<GroupInsertError>>
+    where
+        NormalFilter: FnMut(&TopologyObject) -> bool,
+        MemoryFilter: FnMut(&TopologyObject) -> bool,
+    {
+        let group_filter = self
+            .topology()
+            .type_filter(ObjectType::Group)
+            .map_err(HybridError::Hwloc)?;
+        if group_filter == TypeFilter::KeepNone {
+            return Err(GroupInsertError::FilteredOut.into());
         }
+        let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
+        group.add_children(find_parent, child_filter)?;
+        group.configure_merging(dont_merge);
         group.insert().map_err(HybridError::Hwloc)
     }
 
@@ -733,33 +855,231 @@ pub enum AllowSetError {
     Unsupported,
 }
 
-/// Control merging of newly inserted groups with existing objects
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
-pub enum GroupMerge {
-    /// Prevent the hwloc core from ever merging this Group with another
-    /// hierarchically-identical object
+/// Callbacks that selects the members of a proposed group object
+///
+/// The basic workflow of [`TopologyEditor::insert_group_object()`] is that you
+/// first specify which topology object should be the parent of the newly
+/// created group, and then you specify (using this enum and its inner
+/// callbacks) which of the normal and memory children of this parent object
+/// should become members of the newly created group.
+///
+/// However, as an extra complication, you must live with the fact that hwloc
+/// only supports groups whose normal and memory member lists follow the
+/// following consistency rules:
+///
+/// 1. If a memory object is a member of a group, then all normal objects which
+///    are attached to this memory object (as evidenced by their PUs being part
+///    of that memory object's cpuset) must also be members of this group.
+/// 2. Conversely, if all normal objects which are attached to a memory object
+///    are members of a group, then this memory object must also be made a
+///    member of this group.
+///
+/// Because following these rules by hand is unpleasant, we provide various
+/// shortcuts which allow you to only specify a subset of the group's members,
+/// and let the remaining members required to follow the consistency rules be
+/// added to the group automatically.
+#[derive(Copy, Clone)]
+pub enum GroupChildFilter<
+    NormalFilter = fn(&TopologyObject) -> bool,
+    MemoryFilter = fn(&TopologyObject) -> bool,
+> where
+    NormalFilter: FnMut(&TopologyObject) -> bool,
+    MemoryFilter: FnMut(&TopologyObject) -> bool,
+{
+    /// Pick the group's normal children in the parent's normal children list
     ///
-    /// This is useful when the Group itself describes an important feature that
-    /// cannot be exposed anywhere else in the hierarchy.
-    #[doc(alias = "hwloc_group_attr_s::dont_merge")]
-    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::dont_merge")]
-    Never,
+    /// Each normal child of the designated parent will be passed to the
+    /// provided callback, which will tell if this child should be made a member
+    /// of the group (`true`) or not (`false`), as in [`Iterator::filter()`].
+    ///
+    /// Memory children will then be automatically added in order to produce a
+    /// group member set that follows the consistency rules.
+    Normal(NormalFilter),
 
-    /// Always discard this new group in favor of any existing Group with the
-    /// same locality
-    #[doc(alias = "hwloc_group_attr_s::kind")]
-    #[doc(alias = "hwloc_obj_attr_u::hwloc_group_attr_s::kind")]
-    Always,
+    /// Pick the group's memory children in the parent's memory children list
+    ///
+    /// Works like `Normal`, except the provided filter is used to select memory
+    /// children instead of normal children, and it is normal children that get
+    /// automatically added to follow the consistency rules.
+    Memory(MemoryFilter),
+
+    /// Pick the group's normal and memory children
+    ///
+    /// The normal **and** memory children of the designated parent are
+    /// traversed and filtered using the `normal` and `memory` filters
+    /// respectively, as in the `Normal` and `Memory` cases.
+    ///
+    /// The resulting normal and memory children sets may or may not be
+    /// subsequently expanded to follow the consistency rules, depending on the
+    /// value of the `strict` flag.
+    Mixed {
+        /// Error out when `normal` and `memory` don't pick consistent sets
+        ///
+        /// If this flag isn't set, then after the `normal` and `memory`
+        /// callbacks have picked preliminary normal and memory children lists,
+        /// these normal and memory children lists are automatically expanded to
+        /// honor the consistency rules. This gives you the smallest valid hwloc
+        /// group that contains **at least** the children you asked for, at the
+        /// cost of possibly getting extra children that you did not expect,
+        /// which your code must handle gracefully.
+        ///
+        /// If this flag is set, then you are responsible for picking normal and
+        /// memory children sets that honor the consistency rules, and
+        /// [`TopologyEditor::insert_group_object()`] will fail if you don't.
+        /// This is for situations where getting unexpected extra group members
+        /// is unacceptable, and you are ready to go through the burden of
+        /// applying the consistency rules yourself in order to avoid this
+        /// outcome.
+        strict: bool,
+
+        /// Filter that selects the future group's normal children amongst the
+        /// parent's normal children list, as in `Normal`
+        normal: NormalFilter,
+
+        /// Filter that selects the future group's memory children amongst the
+        /// parent's memory children list, as in `Memory`
+        memory: MemoryFilter,
+    },
 }
 //
-crate::impl_arbitrary_for_sequence!(GroupMerge);
+impl<NormalFilter, MemoryFilter> GroupChildFilter<NormalFilter, MemoryFilter>
+where
+    NormalFilter: FnMut(&TopologyObject) -> bool,
+    MemoryFilter: FnMut(&TopologyObject) -> bool,
+{
+    /// Pick children of a group's parent according to this filter
+    ///
+    /// The group consistency rules given above actually describe the behavior
+    /// of `hwloc_topology_insert_group_object()`. Because this API is
+    /// cpuset/nodeset-based, you cannot add a NUMA node to a group without
+    /// adding all the associated normal objects (since the normal objects are
+    /// part of the NUMA node's cpuset), and you cannot add all of a NUMA node's
+    /// CPUs without adding the NUMA node (since adding all NUMA node children
+    /// sets all bits from the NUMA node's cpuset and nodeset).
+    ///
+    /// So if the group child set that we compute is destined for
+    /// `hwloc_obj_add_other_obj_sets()` consumption, we do not actually need to
+    /// do anything to expand the group so that it follows the consistency
+    /// rules. What requires work on our side is rejecting inconsistent groups
+    /// and adding objects to represent the group hwloc would actually create.
+    ///
+    /// Consequently, there is a `make_hwloc_input` operating mode which only
+    /// checks groups for consistency and does not perform group expansion,
+    /// meant, for situations where we do not care about group members but only
+    /// about the union of their cpusets/nodesets.
+    ///
+    /// # Errors
+    ///
+    /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
+    ///   mode, but the selected normal and memory object sets were not
+    ///   consistent.
+    ///
+    /// [`Inconsistent`]: GroupInsertError::Inconsistent
+    pub(self) fn filter_children<'topology>(
+        &mut self,
+        parent: &'topology TopologyObject,
+        make_hwloc_input: bool,
+    ) -> Result<Vec<&'topology TopologyObject>, GroupInsertError> {
+        /// Shorthand to get to the cpuset of a normal or memory child
+        fn child_cpuset(child: &TopologyObject) -> BitmapRef<'_, CpuSet> {
+            child
+                .cpuset()
+                .expect("normal & memory children should have cpusets")
+        }
+        /// Shorthand to get to the nodeset of a normal or memory child
+        fn child_nodeset(child: &TopologyObject) -> BitmapRef<'_, NodeSet> {
+            child
+                .nodeset()
+                .expect("normal & memory children should have nodesets")
+        }
+
+        // Pick user-requested group members, only check for group consistency
+        // in strict mode
+        let mut children = Vec::new();
+        match self {
+            Self::Normal(filter) => {
+                children.extend(parent.normal_children().filter(|obj| filter(obj)));
+            }
+            Self::Memory(filter) => {
+                children.extend(parent.memory_children().filter(|obj| filter(obj)));
+            }
+            Self::Mixed {
+                strict,
+                normal,
+                memory,
+            } => {
+                children.extend(parent.normal_children().filter(|obj| normal(obj)));
+                if *strict {
+                    // In strict mixed mode, we need to check that hwloc won't
+                    // add extra objects the users didn't expect to the group
+                    let normal_cpuset = children.iter().fold(CpuSet::new(), |mut acc, child| {
+                        acc |= child_cpuset(child);
+                        acc
+                    });
+                    for memory_child in parent.memory_children() {
+                        let memory_cpuset = child_cpuset(memory_child);
+                        if memory(memory_child) {
+                            // If a memory child is picked, then hwloc will add
+                            // all of its CPU children to the group, so the user
+                            // should have added them to the normal child set.
+                            if !normal_cpuset.includes(memory_cpuset) {
+                                return Err(GroupInsertError::Inconsistent);
+                            }
+                            children.push(memory_child);
+                        } else {
+                            // If a memory child has CPU children and all of
+                            // them are picked, then hwloc will add the memory
+                            // object to the group, so the user should have
+                            // added it to the memory child set.
+                            if !memory_cpuset.is_empty() && normal_cpuset.includes(memory_cpuset) {
+                                return Err(GroupInsertError::Inconsistent);
+                            }
+                        }
+                    }
+                } else {
+                    children.extend(parent.memory_children().filter(|obj| memory(obj)));
+                }
+            }
+        }
+
+        // If the output is user-visible, as opposed to being just for hwloc
+        // consumption, make child set match the group hwloc would create.
+        if !make_hwloc_input {
+            let (group_cpuset, group_nodeset) = children.drain(..).fold(
+                (CpuSet::new(), NodeSet::new()),
+                |(mut cpuset, mut nodeset), child| {
+                    cpuset |= child_cpuset(child);
+                    nodeset |= child_nodeset(child);
+                    (cpuset, nodeset)
+                },
+            );
+            children.extend(
+                parent
+                    .normal_children()
+                    .chain(parent.memory_children())
+                    .filter(|child| {
+                        group_cpuset.includes(child_cpuset(child))
+                            && group_nodeset.includes(child_nodeset(child))
+                    }),
+            );
+        }
+        Ok(children)
+    }
+}
 //
-impl From<bool> for GroupMerge {
-    fn from(value: bool) -> Self {
-        if value {
-            Self::Always
-        } else {
-            Self::Never
+impl<NormalFilter, MemoryFilter> Debug for GroupChildFilter<NormalFilter, MemoryFilter>
+where
+    NormalFilter: FnMut(&TopologyObject) -> bool,
+    MemoryFilter: FnMut(&TopologyObject) -> bool,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal(_) => f.debug_struct("Normal").finish_non_exhaustive(),
+            Self::Memory(_) => f.debug_struct("Memory").finish_non_exhaustive(),
+            Self::Mixed { strict, .. } => f
+                .debug_struct("Mixed")
+                .field("strict", &strict)
+                .finish_non_exhaustive(),
         }
     }
 }
@@ -767,33 +1087,42 @@ impl From<bool> for GroupMerge {
 /// Error while creating a [`Group`](ObjectType::Group) object
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum GroupInsertError {
+    /// Attempted to create a group in a topology where groups are filtered out
+    ///
+    /// This happens when the type filter for [`ObjectType::Group`] is set to
+    /// [`TypeFilter::KeepNone`].
+    #[error("can't create group objects when group type filter is KeepNone")]
+    FilteredOut,
+
+    /// Specified parent is not a normal object
+    ///
+    /// Group objects are normal objects, and a normal object may only have
+    /// another normal object as a parent, therefore the designated parent of a
+    /// group has to be a normal object.
+    #[error("group object parent has non-normal object type {0}")]
+    BadParentType(ObjectType),
+
+    /// Specified parent does not belong to this topology
+    ///
+    /// It is not okay to take an object from a different topology when asked to
+    /// specify a group's parent.
+    #[error("group object parent {0}")]
+    ForeignParent(#[from] ForeignObjectError),
+
     /// Attempted to create a group without children
-    #[error("a Group must have at least one child object")]
-    NoChild,
+    ///
+    /// The position of group objects in the topology is defined by their child
+    /// set, therefore a group object cannot be empty.
+    #[error("a group must have at least one child object")]
+    Empty,
 
-    /// Attempted to add a child without a cpuset or nodeset
-    #[error("{0} objects, which don't have cpusets and nodesets, cannot be children of a Group")]
-    BadChildType(ObjectType),
-
-    /// Attempted to add a [`TopologyObject`] from another [`Topology`]
-    #[error("group child {0}")]
-    ForeignChild(#[from] ForeignObjectError),
-
-    /// Attempted to add both an object and one of its ancestors to the group
-    // FIXME: Find out if having two children of different depths is supported
-    //        at all, it's not clear to me how this could work when Group
-    //        objects can only have a single parent and the link between low
-    //        objects and their parent should not be lost.
-    #[error(
-        "ancestor object #{ancestor} and descendant object #{descendant} cannot be children of the same Group"
-    )]
-    IncompatibleChildren {
-        /// Proposed group child that is an ancestor of `descendant`
-        ancestor: TopologyObjectID,
-
-        /// Proposed group child that has `ancestor` as an ancestor
-        descendant: TopologyObjectID,
-    },
+    /// Attempted to create an inconsistent group by using
+    /// [`GroupChildFilter::Mixed`] in strict mode
+    ///
+    /// The group child set you asked for cannot be handled in hwloc's current
+    /// group creation model, without adding extra objects to the group.
+    #[error("attempted to create an inconsistent group (see GroupChildFilter docs)")]
+    Inconsistent,
 }
 
 /// RAII guard for `Group` objects that have been allocated, but not inserted
@@ -836,15 +1165,51 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
 
     /// Expand cpu sets and node sets to cover designated children
     ///
+    /// This is only meant to be executed once. The children consistency checks
+    /// assume the input child set is the full child set and adding children
+    /// below multiple parents is not supported.
+    ///
     /// # Errors
     ///
-    /// [`ForeignObjectError`] if some of the designated children do not come from
-    /// the same topology as this group.
-    pub(self) fn add_children(
+    /// - [`BadParentType`] if the designated group parent is not a normal
+    ///   object.
+    /// - [`ForeignParent`] if the designated group parent does not belong to
+    ///   the topology that is being edited.
+    /// - [`Empty`] if the [`GroupChildFilter`] did not select any child.
+    /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
+    ///   mode, but the selected normal and memory object sets were not
+    ///   consistent.
+    ///
+    /// [`BadParentType`]: GroupInsertError::BadParentType
+    /// [`Empty`]: GroupInsertError::Empty
+    /// [`ForeignParent`]: GroupInsertError::ForeignParent
+    /// [`Inconsistent`]: GroupInsertError::Inconsistent
+    pub(self) fn add_children<NormalFilter, MemoryFilter>(
         &mut self,
-        find_children: impl FnOnce(&Topology) -> Vec<&TopologyObject>,
-    ) -> Result<(), ForeignObjectError> {
-        /// Polymorphized version of this function (avoids generics code bloat)
+        find_parent: impl FnOnce(&Topology) -> &TopologyObject,
+        mut child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
+    ) -> Result<(), GroupInsertError>
+    where
+        NormalFilter: FnMut(&TopologyObject) -> bool,
+        MemoryFilter: FnMut(&TopologyObject) -> bool,
+    {
+        // Pick the group's parent
+        let topology = self.editor.topology();
+        let parent = find_parent(topology);
+        if !parent.object_type().is_normal() {
+            return Err(GroupInsertError::BadParentType(parent.object_type()));
+        }
+        if !topology.contains(parent) {
+            return Err(GroupInsertError::ForeignParent(parent.into()));
+        }
+
+        // Enumerate children
+        let children = child_filter.filter_children(parent, true)?;
+        if children.is_empty() {
+            return Err(GroupInsertError::Empty);
+        }
+
+        /// Polymorphized subset of this function (avoids generics code bloat)
         ///
         /// # Safety
         ///
@@ -892,18 +1257,9 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             }
         }
 
-        // Enumerate children, check they belong to this topology
-        let topology = self.editor.topology();
-        let children = find_children(topology);
-        for child in children.iter().copied() {
-            if !topology.contains(child) {
-                return Err(child.into());
-            }
-        }
-
         // Call into the polymorphized function
         // SAFETY: - This is indeed the inner group of this AllocatedGroup
-        //         - children have been checked to belong to its topology
+        //         - children can only belong to this topology
         unsafe { polymorphized(self.group, children) };
         Ok(())
     }
@@ -912,7 +1268,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// By default, hwloc may or may not merge identical groups covering the
     /// same objects. You can encourage or inhibit this tendency with this method.
-    pub(self) fn set_merge_policy(&mut self, merge: GroupMerge) {
+    pub(self) fn configure_merging(&mut self, dont_merge: bool) {
         let group_attributes: &mut GroupAttributes =
             // SAFETY: - We know this is a group object as a type invariant, so
             //           accessing the group raw attribute is safe
@@ -920,9 +1276,13 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             //           to a valid state
             //         - We are not changing the raw attributes variant
             unsafe { (&mut (*self.group.as_mut().as_inner().attr).group).as_newtype() };
-        match merge {
-            GroupMerge::Never => group_attributes.prevent_merging(),
-            GroupMerge::Always => group_attributes.favor_merging(),
+        if dont_merge {
+            // Make sure the new group is not merged with an existing object
+            group_attributes.prevent_merging();
+        } else {
+            // Make sure the new group is deterministically always merged with
+            // existing groups that have the same locality.
+            group_attributes.favor_merging();
         }
     }
 
@@ -1021,10 +1381,7 @@ pub enum InsertedGroup<'topology> {
     New(&'topology mut TopologyObject),
 
     /// Existing object that already fulfilled the role of the proposed Group
-    ///
-    /// If the Group adds no hierarchy information, hwloc may merge or discard
-    /// it in favor of existing topology object at the same location.
-    Existing(&'topology mut TopologyObject),
+    Existing(&'topology TopologyObject),
 }
 
 /// Error returned by [`TopologyEditor::insert_misc_object()`]
@@ -1055,15 +1412,21 @@ mod tests {
     use super::*;
     use crate::{
         bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
-        object::{depth::Depth, types::ObjectType, TopologyObjectID},
-        strategies::topology_related_set,
+        object::{
+            depth::{Depth, NormalDepth},
+            types::ObjectType,
+            TopologyObjectID,
+        },
+        strategies::{any_object, topology_related_set},
     };
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
     use std::{
-        collections::{BTreeMap, HashMap},
+        collections::{BTreeMap, HashMap, HashSet},
         ffi::CStr,
+        fmt::Debug,
         panic::RefUnwindSafe,
+        sync::OnceLock,
     };
 
     /// Make sure opening/closing the editor doesn't affect the topology
@@ -1462,6 +1825,390 @@ mod tests {
                 result.unwrap();
                 prop_assert_eq!(&topology, initial_topology);
             }
+        }
+    }
+
+    // --- Grouping objects ---
+
+    /// Child filtering function, as a trait object
+    type DynChildFilter = Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>;
+
+    /// Within the test topology, pick a parent, a set of group members, and a
+    /// group merging configuration
+    fn group_building_blocks() -> impl Strategy<
+        Value = (
+            &'static TopologyObject,
+            GroupChildFilter<DynChildFilter, DynChildFilter>,
+            bool,
+        ),
+    > {
+        // Pick a parent for the group object
+        let any_parent = prop_oneof! [
+            3 => multi_child_parent(),
+            2 => any_object(),
+        ];
+
+        // Given a parent, pick a child set
+        any_parent.prop_flat_map(move |parent| {
+            let child_filter = child_filter_from_parent(parent);
+            (child_filter, any::<bool>())
+                .prop_map(move |(child_filter, merge)| (parent, child_filter, merge))
+        })
+    }
+
+    /// Pick a parent for which group object creation can succeed
+    ///
+    /// The `find_parent` callback to `insert_group_object` could return any
+    /// object as a parent, including objects from different topologies. But
+    /// outside of the `dont_merge` special case, group creation will fail or
+    /// return `Existing` if the parent object is anything but a normal object
+    /// with >= 2 children. This function only picks parents which match this
+    /// criterion, and is used to bias the RNG towards more successful group
+    /// generation.
+    ///
+    /// Furthermore, parents at high depths like CPU cores are more numerous
+    /// than objects at low depths like L3 cache. Therefore, a random pick
+    /// with a uniform distribution is a lot more likely to pick high-depth
+    /// parents than low-depth parents. To give low-depth parents a fair amount
+    /// of test coverage, we bias the parent distribution such that each parent
+    /// depth has an equal chance of coming up.
+    fn multi_child_parent() -> impl Strategy<Value = &'static TopologyObject> {
+        let topology = Topology::test_instance();
+
+        let good_parents_by_depth = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+            .filter_map(|depth| {
+                let good_parents = topology
+                    .objects_at_depth(depth)
+                    .filter(|obj| obj.normal_arity() >= 2 || obj.memory_arity() >= 2)
+                    .collect::<Vec<_>>();
+                (!good_parents.is_empty()).then_some((depth, good_parents))
+            })
+            .collect::<HashMap<_, _>>();
+
+        let good_parent_depths = good_parents_by_depth.keys().copied().collect::<Vec<_>>();
+        prop::sample::select(good_parent_depths)
+            .prop_flat_map(move |depth| prop::sample::select(good_parents_by_depth[&depth].clone()))
+    }
+
+    /// Given a group parent, generate child filters
+    fn child_filter_from_parent(
+        parent: &TopologyObject,
+    ) -> impl Strategy<Value = GroupChildFilter<DynChildFilter, DynChildFilter>> {
+        // Turn normal and memory child list of parent into 'static objects
+        // using their global persistent ID
+        fn children_ids<'a>(
+            children: impl Iterator<Item = &'a TopologyObject>,
+        ) -> Vec<TopologyObjectID> {
+            children
+                .map(TopologyObject::global_persistent_index)
+                .collect::<Vec<_>>()
+        }
+        let normal_ids = children_ids(parent.normal_children());
+        let memory_ids = children_ids(parent.memory_children());
+
+        // Normal and memory child filtering configurations
+        let normal_child_subset = || child_subset(normal_ids.clone());
+        let normal_child_filter =
+            || normal_child_subset().prop_map(|subset| GroupChildFilter::Normal(filter_fn(subset)));
+        let memory_child_subset = || child_subset(memory_ids.clone());
+        let memory_child_filter =
+            || memory_child_subset().prop_map(|subset| GroupChildFilter::Memory(filter_fn(subset)));
+
+        // Final child filter generation strategy
+        prop_oneof![
+            normal_child_filter(),
+            memory_child_filter(),
+            (any::<bool>(), normal_child_subset(), memory_child_subset()).prop_map(
+                |(strict, normal_subset, memory_subset)| {
+                    GroupChildFilter::Mixed {
+                        strict,
+                        normal: filter_fn(normal_subset),
+                        memory: filter_fn(memory_subset),
+                    }
+                }
+            )
+        ]
+    }
+
+    /// Given one of the parent `TopologyObject`'s children lists, select a
+    /// subset of it
+    ///
+    /// There is a bias towards picking no children, one child, and all
+    /// children, because all of these configurations hit special code paths in
+    /// the group constructor function.
+    fn child_subset(
+        children_ids: Vec<TopologyObjectID>,
+    ) -> impl Strategy<Value = HashSet<TopologyObjectID>> {
+        // Absence of children hits a proptest edge case (can't pick one
+        // element from and empty array) and must be handled separately
+        if children_ids.is_empty() {
+            return Just(HashSet::new()).boxed();
+        }
+
+        // Other cases are handled as appropriate
+        let num_children = children_ids.len();
+        let no_children = Just(HashSet::new());
+        let single_child = prop::sample::select(children_ids.clone())
+            .prop_map(|child| std::iter::once(child).collect::<HashSet<_>>());
+        let some_children = prop::sample::subsequence(children_ids.clone(), 1..=num_children)
+            .prop_map(|children| children.into_iter().collect::<HashSet<_>>());
+        let all_children = Just(children_ids.into_iter().collect::<HashSet<_>>());
+        prop_oneof![
+            1 => prop_oneof![no_children, all_children],
+            1 => single_child,
+            3 => some_children,
+        ]
+        .boxed()
+    }
+
+    /// Turn a child subset into a child-filtering function
+    fn filter_fn(subset: HashSet<TopologyObjectID>) -> DynChildFilter {
+        Box::new(move |obj| subset.contains(&obj.global_persistent_index()))
+    }
+
+    /// If an object belonged to some initial topology, find the equivalent in a
+    /// copy of that initial topology (that may be modified, but not in a way
+    /// that deletes the parent), otherwise return the parent object as-is
+    fn find_parent_like(
+        initial_topology: &Topology,
+        parent: &'static TopologyObject,
+    ) -> impl FnMut(&Topology) -> &TopologyObject {
+        let valid_parent_info = initial_topology
+            .contains(parent)
+            .then(|| (parent.depth(), parent.global_persistent_index()));
+        move |copied_topology| {
+            if let Some((depth, id)) = valid_parent_info {
+                // If the parent belonged to the initial topology,
+                // find the equivalent in the copied topology
+                copied_topology
+                    .objects_at_depth(depth)
+                    .find(|obj| obj.global_persistent_index() == id)
+                    .expect("parent should still be present in copied_topology")
+            } else {
+                // Foreign parent of initial topology is also
+                // foreign to new topology
+                parent
+            }
+        }
+    }
+
+    proptest! {
+        /// General-case test for [`TopologyEditor::insert_group_object()`]
+        ///
+        /// Some specific aspects of this function are not well handled by this
+        /// test, but they are stressed by other tests below.
+        #[test]
+        fn insert_group_object(
+            (parent, mut child_filter, dont_merge) in group_building_blocks(),
+        ) {
+            let initial_topology = Topology::test_instance();
+            assert_ne!(
+                initial_topology.type_filter(ObjectType::Group).unwrap(),
+                TypeFilter::KeepNone,
+            );
+            let initial_children = child_filter.filter_children(parent, false);
+            let children_ids = initial_children
+                .as_ref()
+                .map(|children| {
+                    children
+                        .iter()
+                        .map(|child| child.global_persistent_index())
+                        .collect::<HashSet<_>>()
+                })
+                .map_err(Clone::clone);
+            let mut topology = initial_topology.clone();
+            topology.edit(move |editor| {
+                let result = editor.insert_group_object(
+                    dont_merge,
+                    find_parent_like(initial_topology, parent),
+                    child_filter,
+                );
+
+                // Parent must be a normal object
+                if !parent.object_type().is_normal() {
+                    prop_assert_eq!(
+                        result.unwrap_err(),
+                        HybridError::Rust(GroupInsertError::BadParentType(parent.object_type()))
+                    );
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                }
+
+                // Parent must belong to the topology
+                if !initial_topology.contains(parent) {
+                    prop_assert_eq!(
+                        result.unwrap_err(),
+                        HybridError::Rust(GroupInsertError::ForeignParent(parent.into()))
+                    );
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                }
+
+                // Group must have at least one child
+                if children_ids == Ok(HashSet::new()) {
+                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(GroupInsertError::Empty));
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                }
+
+                // Group child set must be consistent
+                let Ok(children_ids) = children_ids else {
+                    prop_assert_eq!(children_ids, Err(GroupInsertError::Inconsistent));
+                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(GroupInsertError::Inconsistent));
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                };
+                let initial_children = initial_children.unwrap();
+
+                // All error paths have been considered, at this point we know
+                // that group creation should succeed
+                let result = result.unwrap();
+
+                // Now we must handle node equivalence and group merging, which
+                // can happen...
+                // - If a single child is selected
+                // - If all children were selected and the complete_cpuset and
+                //   complete_nodeset of the parent do not disambiguate.
+                //
+                // In all cases, we need to be able to tell which topology nodes
+                // are equivalent to each other in hwloc's eyes...
+                fn equivalent_obj_ids(mut obj: &TopologyObject) -> HashSet<TopologyObjectID> {
+                    let is_equivalent = |candidate: &TopologyObject| {
+                        candidate.cpuset() == obj.cpuset()
+                            && candidate.nodeset() == obj.nodeset()
+                            && candidate.complete_cpuset() == obj.complete_cpuset()
+                            && candidate.complete_nodeset() == obj.complete_nodeset()
+                    };
+                    while obj.normal_arity() == 1 {
+                        let only_child = obj.normal_children().next().unwrap();
+                        if is_equivalent(only_child) {
+                            obj = only_child;
+                        } else {
+                            break;
+                        }
+                    }
+                    std::iter::once(obj).chain(obj.ancestors())
+                        .take_while(|ancestor| is_equivalent(ancestor))
+                        .map(TopologyObject::global_persistent_index)
+                        .collect()
+                }
+                //
+                // ...and have a way to handle a group that's equivalent to that
+                let mut handle_group_equivalence = |
+                    result,
+                    equivalent_obj: &TopologyObject
+                | {
+                    let equivalent_ids = equivalent_obj_ids(equivalent_obj);
+                    if dont_merge
+                        && !equivalent_ids.contains(&initial_topology.root_object().global_persistent_index())
+                    {
+                        let InsertedGroup::New(group) = result else { unreachable!() };
+                        // New group can be inserted below an existing object...
+                        if let Some(parent) = group.parent() {
+                            if equivalent_ids.contains(&parent.global_persistent_index()) {
+                                return Ok(());
+                            }
+                        }
+                        // ...or above it
+                        prop_assert_eq!(group.normal_arity(), 1);
+                        let only_child = group.normal_children().next().unwrap();
+                        prop_assert!(equivalent_ids.contains(&only_child.global_persistent_index()));
+                    } else {
+                        // Without GroupMerge::Never, should just point at
+                        // existing object
+                        prop_assert!(matches!(
+                            result,
+                            InsertedGroup::Existing(obj)
+                                if equivalent_ids.contains(&obj.global_persistent_index())
+                        ));
+                        prop_assert_eq!(editor.topology(), initial_topology);
+                    }
+                    Ok(())
+                };
+
+                // Single-child case
+                if initial_children.len() == 1 {
+                    handle_group_equivalence(result, initial_children[0])?;
+                    return Ok(());
+                }
+
+                // Parent-equivalent case
+                let parent_sets = (
+                    parent.cpuset().unwrap().clone_target(),
+                    parent.nodeset().unwrap().clone_target(),
+                    parent.complete_cpuset().unwrap().clone_target(),
+                    parent.complete_nodeset().unwrap().clone_target(),
+                );
+                let children_sets_union = initial_children.iter().fold(
+                    (CpuSet::new(), NodeSet::new(), CpuSet::new(), NodeSet::new()),
+                    |(mut cpuset, mut nodeset, mut complete_cpuset, mut complete_nodeset), child| {
+                        cpuset |= child.cpuset().unwrap();
+                        nodeset |= child.nodeset().unwrap();
+                        complete_cpuset |= child.complete_cpuset().unwrap();
+                        complete_nodeset |= child.complete_nodeset().unwrap();
+                        (cpuset, nodeset, complete_cpuset, complete_nodeset)
+                    }
+                );
+                if parent_sets == children_sets_union {
+                    handle_group_equivalence(result, parent)?;
+                    return Ok(());
+                }
+
+                // Outside of the conditions enumerated above, a new group
+                // should have been created, with the expected set of children
+                let InsertedGroup::New(group) = result else { unreachable!() };
+                prop_assert_eq!(
+                    group.parent().unwrap().global_persistent_index(),
+                    parent.global_persistent_index()
+                );
+                let mut remaining_children_ids = children_ids;
+                for child in group.normal_children().chain(group.memory_children()) {
+                    prop_assert!(remaining_children_ids.remove(&child.global_persistent_index()));
+                }
+                prop_assert!(remaining_children_ids.is_empty());
+                Ok(())
+            })?;
+        }
+
+        /// Test that group insertion fails when group type filter is KeepNone
+        #[test]
+        fn ignored_group_insertion(
+            (parent, child_filter, dont_merge) in group_building_blocks(),
+        ) {
+            static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
+            let initial_topology = INITIAL_TOPOLOGY.get_or_init(|| {
+                Topology::builder()
+                    .with_type_filter(ObjectType::Group, TypeFilter::KeepNone).unwrap()
+                    .build().unwrap()
+            });
+
+            let mut topology = initial_topology.clone();
+            topology.edit(move |editor| {
+                let result = editor.insert_group_object(
+                    dont_merge,
+                    |topology| {
+                        if initial_topology.contains(parent) {
+                            // If the parent belonged to the initial topology,
+                            // find the equivalent in the copied topology
+                            topology
+                                .objects_at_depth(parent.depth())
+                                .find(|obj| obj.global_persistent_index() == parent.global_persistent_index())
+                                .expect("parent was tested to be present")
+                        } else {
+                            // Foreign parent of initial topology is also
+                            // foreign to new topology
+                            parent
+                        }
+                    },
+                    child_filter,
+                );
+                prop_assert_eq!(
+                    result.unwrap_err(),
+                    HybridError::Rust(GroupInsertError::FilteredOut)
+                );
+                prop_assert_eq!(editor.topology(), initial_topology);
+                Ok(())
+            })?;
         }
     }
 }

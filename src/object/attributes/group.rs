@@ -43,8 +43,15 @@ impl GroupAttributes {
         int::expect_usize(self.0.kind)
     }
 
-    /// Tell hwloc that this group object should always be discarded in favor of
-    /// any existing `Group` with the same locality.
+    /// Enable group merging and make sure that this group object is discarded
+    /// in favor of any existing `Group` with the same locality
+    ///
+    /// Normally, if the new group has the same locality as an existing group,
+    /// hwloc keeps the group with the lowest kind value. Given that group kind
+    /// values are, at the time of writing, an undocumented internal of hwloc,
+    /// it is bad for group creation behavior to depend the relative kind value
+    /// of the new group vs other groups, so this method should always be used
+    /// in the presence of merging for predictable group creation behavior.
     #[cfg(feature = "hwloc-2_3_0")]
     pub(crate) fn favor_merging(&mut self) {
         self.0.kind = c_uint::MAX;
