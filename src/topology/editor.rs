@@ -428,7 +428,7 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// Alas, creating hwloc groups is a lot less straightforward than the above
     /// summary may suggest, and you are strongly advised to carefully read and
-    /// understand all of the following explanations before using it.
+    /// understand all of the following before using this function.
     ///
     ///
     /// # Group creation guide
@@ -443,7 +443,7 @@ impl<'topology> TopologyEditor<'topology> {
     /// which objects should become members of the newly created group. See
     /// [`GroupChildFilter`] for more information.
     ///
-    /// This API design, which may feel unexpectedly complex, helps you honor
+    /// This API design, which may be unexpectedly complex, helps you honor
     /// hwloc's many group creation rules:
     ///
     /// - Only normal and memory objects can be members of a group. I/O and
@@ -458,7 +458,7 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// One extra constraint that **you** are responsible for honoring is that
     /// hwloc does not support empty groups. Therefore your `child_filter`
-    /// callback(s) must select at least one normal child or one memory child.
+    /// callback(s) must select at least one normal or memory child.
     ///
     /// Finally, the `dont_merge` parameter allows you to adjust hwloc's
     /// strategy for merging proposed groups with equivalent topology objects,
@@ -545,15 +545,23 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`ForeignObjectError`] if some of the child `&TopologyObject`s specified
-    ///   by the `find_children` callback do not belong to this [`Topology`].
-    /// - [`RawHwlocError`]s are documented to happen if...
-    ///     - There are conflicting sets in the topology tree
-    ///     - [`Group`] objects are filtered out of the topology through
-    ///       [`TypeFilter::KeepNone`]
-    ///     - The effective CPU set or NUMA node set ends up being empty.
+    /// - [`FilteredOut`] if one attempts to create a group in a topology where
+    ///   groups are filtered out using [`TypeFilter::KeepNone`].
+    /// - [`BadParentType`] if the designated group parent is not a normal
+    ///   object.
+    /// - [`ForeignParent`] if the designated group parent does not belong to
+    ///   the topology that is being edited.
+    /// - [`Empty`] if the [`GroupChildFilter`] did not select any child.
+    /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
+    ///   mode, but the selected normal and memory object sets were not
+    ///   consistent.
     ///
+    /// [`BadParentType`]: GroupInsertError::BadParentType
+    /// [`Empty`]: GroupInsertError::Empty
+    /// [`FilteredOut`]: GroupInsertError::FilteredOut
+    /// [`ForeignParent`]: GroupInsertError::ForeignParent
     /// [`Group`]: ObjectType::Group
+    /// [`Inconsistent`]: GroupInsertError::Inconsistent
     /// [`Misc`]: ObjectType::Misc
     //
     // --- Implementation details ---
@@ -959,6 +967,14 @@ where
     /// checks groups for consistency and does not perform group expansion,
     /// meant, for situations where we do not care about group members but only
     /// about the union of their cpusets/nodesets.
+    ///
+    /// # Errors
+    ///
+    /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
+    ///   mode, but the selected normal and memory object sets were not
+    ///   consistent.
+    ///
+    /// [`Inconsistent`]: GroupInsertError::Inconsistent
     pub(self) fn filter_children<'topology>(
         &mut self,
         parent: &'topology TopologyObject,
@@ -1101,7 +1117,7 @@ pub enum GroupInsertError {
     Empty,
 
     /// Attempted to create an inconsistent group by using
-    /// [`GroupChildFilter::Mixed()` in strict mode
+    /// [`GroupChildFilter::Mixed`] in strict mode
     ///
     /// The group child set you asked for cannot be handled in hwloc's current
     /// group creation model, without adding extra objects to the group.
@@ -1155,8 +1171,19 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// # Errors
     ///
-    /// [`ForeignObjectError`] if some of the designated children do not come from
-    /// the same topology as this group.
+    /// - [`BadParentType`] if the designated group parent is not a normal
+    ///   object.
+    /// - [`ForeignParent`] if the designated group parent does not belong to
+    ///   the topology that is being edited.
+    /// - [`Empty`] if the [`GroupChildFilter`] did not select any child.
+    /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
+    ///   mode, but the selected normal and memory object sets were not
+    ///   consistent.
+    ///
+    /// [`BadParentType`]: GroupInsertError::BadParentType
+    /// [`Empty`]: GroupInsertError::Empty
+    /// [`ForeignParent`]: GroupInsertError::ForeignParent
+    /// [`Inconsistent`]: GroupInsertError::Inconsistent
     pub(self) fn add_children<NormalFilter, MemoryFilter>(
         &mut self,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
