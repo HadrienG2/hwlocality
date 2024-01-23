@@ -964,32 +964,35 @@ where
         parent: &'topology TopologyObject,
         make_hwloc_input: bool,
     ) -> Result<Vec<&'topology TopologyObject>, GroupInsertError> {
-        // Pick user-requested group members, only check for group consistency
-        // in strict mode
-        let mut children = Vec::new();
+        /// Shorthand to get to the cpuset of a normal or memory child
         fn child_cpuset(child: &TopologyObject) -> BitmapRef<'_, CpuSet> {
             child
                 .cpuset()
                 .expect("normal & memory children should have cpusets")
         }
+        /// Shorthand to get to the nodeset of a normal or memory child
         fn child_nodeset(child: &TopologyObject) -> BitmapRef<'_, NodeSet> {
             child
                 .nodeset()
                 .expect("normal & memory children should have nodesets")
         }
+
+        // Pick user-requested group members, only check for group consistency
+        // in strict mode
+        let mut children = Vec::new();
         match self {
-            GroupChildFilter::Normal(filter) => {
-                children.extend(parent.normal_children().filter(|obj| filter(*obj)));
+            Self::Normal(filter) => {
+                children.extend(parent.normal_children().filter(|obj| filter(obj)));
             }
-            GroupChildFilter::Memory(filter) => {
-                children.extend(parent.memory_children().filter(|obj| filter(*obj)));
+            Self::Memory(filter) => {
+                children.extend(parent.memory_children().filter(|obj| filter(obj)));
             }
-            GroupChildFilter::Mixed {
+            Self::Mixed {
                 strict,
                 normal,
                 memory,
             } => {
-                children.extend(parent.normal_children().filter(|obj| normal(*obj)));
+                children.extend(parent.normal_children().filter(|obj| normal(obj)));
                 if *strict {
                     // In strict mixed mode, we need to check that hwloc won't
                     // add extra objects the users didn't expect to the group
@@ -1004,7 +1007,7 @@ where
                             // all of its CPU children to the group, so the user
                             // should have added them to the normal child set.
                             if !normal_cpuset.includes(memory_cpuset) {
-                                return Err(GroupInsertError::Inconsistent.into());
+                                return Err(GroupInsertError::Inconsistent);
                             }
                             children.push(memory_child);
                         } else {
@@ -1013,12 +1016,12 @@ where
                             // object to the group, so the user should have
                             // added it to the memory child set.
                             if !memory_cpuset.is_empty() && normal_cpuset.includes(memory_cpuset) {
-                                return Err(GroupInsertError::Inconsistent.into());
+                                return Err(GroupInsertError::Inconsistent);
                             }
                         }
                     }
                 } else {
-                    children.extend(parent.memory_children().filter(|obj| memory(*obj)));
+                    children.extend(parent.memory_children().filter(|obj| memory(obj)));
                 }
             }
         }
@@ -1170,13 +1173,13 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             return Err(GroupInsertError::BadParentType(parent.object_type()));
         }
         if !topology.contains(parent) {
-            return Err(GroupInsertError::ForeignParent(parent.into()).into());
+            return Err(GroupInsertError::ForeignParent(parent.into()));
         }
 
         // Enumerate children
         let children = child_filter.filter_children(parent, true)?;
         if children.is_empty() {
-            return Err(GroupInsertError::Empty.into());
+            return Err(GroupInsertError::Empty);
         }
 
         /// Polymorphized subset of this function (avoids generics code bloat)
@@ -1828,12 +1831,13 @@ mod tests {
 
     /// Pick a parent for which group object creation can succeed
     ///
-    /// The find_parent callback to insert_group_object could return any object
-    /// as a parent, including objects from different topologies. But outside of
-    /// the `dont_merge` special case, group creation will fail or return
-    /// `Existing` if the parent object is anything but a normal object with >=
-    /// 2 children. This function only picks parents which match this criterion,
-    /// and is used to bias the RNG towards more successful group generation.
+    /// The `find_parent` callback to `insert_group_object` could return any
+    /// object as a parent, including objects from different topologies. But
+    /// outside of the `dont_merge` special case, group creation will fail or
+    /// return `Existing` if the parent object is anything but a normal object
+    /// with >= 2 children. This function only picks parents which match this
+    /// criterion, and is used to bias the RNG towards more successful group
+    /// generation.
     ///
     /// Furthermore, parents at high depths like CPU cores are more numerous
     /// than objects at low depths like L3 cache. Therefore, a random pick
@@ -1855,7 +1859,7 @@ mod tests {
             .collect::<HashMap<_, _>>();
 
         let good_parent_depths = good_parents_by_depth.keys().copied().collect::<Vec<_>>();
-        prop::sample::select(good_parent_depths.clone())
+        prop::sample::select(good_parent_depths)
             .prop_flat_map(move |depth| prop::sample::select(good_parents_by_depth[&depth].clone()))
     }
 
@@ -1899,13 +1903,13 @@ mod tests {
         ]
     }
 
-    /// Given one of the parent TopologyObject's children lists, select a
+    /// Given one of the parent `TopologyObject`'s children lists, select a
     /// subset of it
     ///
     /// There is a bias towards picking no children, one child, and all
     /// children, because all of these configurations hit special code paths in
     /// the group constructor function.
-    fn child_subset<'a>(
+    fn child_subset(
         children_ids: Vec<TopologyObjectID>,
     ) -> impl Strategy<Value = HashSet<TopologyObjectID>> {
         // Absence of children hits a proptest edge case (can't pick one
@@ -1984,7 +1988,7 @@ mod tests {
                         .map(|child| child.global_persistent_index())
                         .collect::<HashSet<_>>()
                 })
-                .map_err(|e| e.clone());
+                .map_err(Clone::clone);
             let mut topology = initial_topology.clone();
             topology.edit(move |editor| {
                 let result = editor.insert_group_object(
@@ -2058,7 +2062,7 @@ mod tests {
                     }
                     std::iter::once(obj).chain(obj.ancestors())
                         .take_while(|ancestor| is_equivalent(ancestor))
-                        .map(|obj| obj.global_persistent_index())
+                        .map(TopologyObject::global_persistent_index)
                         .collect()
                 }
                 //
@@ -2067,7 +2071,7 @@ mod tests {
                     result,
                     equivalent_obj: &TopologyObject
                 | {
-                    let equivalent_ids = equivalent_obj_ids(&equivalent_obj);
+                    let equivalent_ids = equivalent_obj_ids(equivalent_obj);
                     if dont_merge
                         && !equivalent_ids.contains(&initial_topology.root_object().global_persistent_index())
                     {
