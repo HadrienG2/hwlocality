@@ -24,14 +24,14 @@ runs:
           hwloc-gather-cpuid
 
     - name: Upload file-based system information
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: runner.os == 'Linux'
       with:
         name: Linux-infos
         path: myhost.*
 
     - name: Upload file-based system information
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: runner.os != 'Linux'
       with:
         name: ${{ runner.os }}-infos
