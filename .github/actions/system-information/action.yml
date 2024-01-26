@@ -28,4 +28,4 @@ runs:
           hwloc-gather-cpuid
           echo ""
           echo "=== Output file 'cpuid' ==="
-          type cpuid
+          Dir -Recurse cpuid | type
