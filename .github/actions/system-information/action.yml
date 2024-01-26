@@ -17,7 +17,7 @@ runs:
       run: |
           hwloc-gather-cpuid
           for f in cpuid/*; do
-            printf "\n=== Output file cpuid/%s ===\n" "${f}"
+            printf "\n=== Output file %s ===\n" "${f}"
             cat "${f}"
           done
 
