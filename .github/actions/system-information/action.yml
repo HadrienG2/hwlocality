@@ -15,8 +15,8 @@ runs:
           sysctl hw
           sysctl machdep
           hwloc-gather-cpuid
-          for f in myhost.*; do
-            printf "\n=== Output file '%s' ===" "${f}"
+          for f in cpuid/*; do
+            printf "\n=== Output file 'cpuid/%s' ===" "${f}"
             cat "${f}"
           done
 
@@ -28,4 +28,7 @@ runs:
           hwloc-gather-cpuid
           echo ""
           echo "=== Output file 'cpuid' ==="
-          Dir -Recurse cpuid | type
+          Dir -Recurse cpuid | ForEach-Object {
+              Get-Childitem $_
+              type $_
+          }
