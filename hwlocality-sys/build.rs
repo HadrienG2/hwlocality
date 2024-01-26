@@ -23,7 +23,9 @@ fn main() {
 /// Configure the hwloc dependency
 fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current features
-    let required_version = if cfg!(feature = "hwloc-2_8_0") {
+    let required_version = if cfg!(feature = "hwloc-2_10_0") {
+        "2.10.0"
+    } else if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
     } else if cfg!(feature = "hwloc-2_5_0") {
         "2.5.0"

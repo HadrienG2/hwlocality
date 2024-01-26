@@ -52,7 +52,7 @@ categories.workspace = true
 # It is not recommended to use this feature in production, since an update to
 # hwlocality can silently bump your hwloc build requirement. But this feature is
 # convenient for scenarios like CI where you want to test with all features on.
-hwloc-latest = ["hwloc-2_8_0"]
+hwloc-latest = ["hwloc-2_10_0"]
 
 # Require at least hwloc v2.0.4, which enables...
 #
@@ -127,6 +127,15 @@ hwloc-2_5_0 = ["hwlocality-sys/hwloc-2_5_0", "hwloc-2_4_0"]
 # ...in addition to all features listed above
 hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 
+# Require at least hwloc v2.10.0
+#
+# This is a maintenance release which does not affect the external hwlocality
+# API, but cleans up hwlocality internals.
+#
+# ...in addition to all features listed above
+hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
+
+
 # To support a new hwloc release that introduces API or ABI changes (see the
 # NEWS file in the hwloc source tree for release notes)...
 #
@@ -142,6 +151,7 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # - Make the binding honor the API/ABI changes with the right cfg()s.
 # - Bump the crate's minor release number unless previous version was unreleased.
 # - Add this feature to the CI's linter matrix and both test matrices.
+# - Once CI has run at least once, add new matrix entry to required checks.
 # - Bump the hwloc version that's installed by CI.
 # - Adjust readthedocs links to point to the new release's documentation.
 # - Tag new minor releases of hwlocality and hwlocality-sys

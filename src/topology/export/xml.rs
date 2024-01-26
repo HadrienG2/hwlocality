@@ -306,16 +306,16 @@ impl Ord for XML<'_> {
 
 impl PartialEq for XML<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.as_str().eq(other.as_str())
+        self.as_str() == other.as_str()
     }
 }
 
 impl<T> PartialEq<T> for XML<'_>
 where
-    str: PartialEq<T>,
+    for<'a> &'a str: PartialEq<T>,
 {
     fn eq(&self, other: &T) -> bool {
-        self.as_str().eq(other)
+        self.as_str() == *other
     }
 }
 

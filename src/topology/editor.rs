@@ -1355,20 +1355,46 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
 impl Drop for AllocatedGroup<'_, '_> {
     #[allow(clippy::print_stderr)]
     fn drop(&mut self) {
-        // FIXME: As of hwloc v2.9.4, there is no API to delete a previously
-        //        allocated Group object without attempting to insert it into
-        //        the topology. An always-failing insertion is the officially
-        //        recommended workaround until such an API is added:
-        //        https://github.com/open-mpi/hwloc/issues/619
-        // SAFETY: - Inner group pointer is assumed valid as a type invariant
-        //         - The state where this invariant is invalidated, produced by
-        //           insert_impl(), is never exposed to Drop
-        unsafe {
-            TopologyObject::delete_all_sets(self.group);
+        // Since hwloc v2.10 there is a way to cleanly free group objects
+        #[cfg(feature = "hwloc-2_10_0")]
+        {
+            let result = errors::call_hwloc_int_normal(
+                "hwloc_topology_free_group_object",
+                // SAFETY: - Inner group pointer is assumed valid as a type invariant
+                //         - The state where this invariant is broken, produced
+                //           by Self::insert_impl() or
+                //           hwloc_topology_free_group_object(), is never
+                //           exposed to Drop.
+                //         - This invalidates the AllocatedGroup, but that's
+                //           fine since it is not reachable after Drop
+                || unsafe {
+                    hwlocality_sys::hwloc_topology_free_group_object(
+                        self.editor.topology_mut_ptr(),
+                        self.group.as_inner().as_ptr(),
+                    )
+                },
+            );
+            if let Err(e) = result {
+                eprintln!("ERROR: Failed to deallocate group object ({e}).");
+            }
         }
-        // SAFETY: - AllocatedGroup will not be droppable again after Drop
-        if unsafe { self.insert_impl().is_ok() } {
-            eprintln!("ERROR: Failed to deallocate group object.");
+
+        // Before hwloc v2.10, there was no API to delete a previously allocated
+        // group object without attempting to insert it into the topology in a
+        // configuration with empty sets, which is guaranteed to fail.
+        #[cfg(not(feature = "hwloc-2_10_0"))]
+        {
+            // SAFETY: - Inner group pointer is assumed valid as a type invariant
+            //         - The state where this invariant is invalidated, produced by
+            //           insert_impl(), is never exposed to Drop
+            unsafe {
+                TopologyObject::delete_all_sets(self.group);
+            }
+            // SAFETY: This invalidates the AllocatedGroup, but that's fine
+            //         since it is not reachable after Drop
+            if unsafe { self.insert_impl().is_ok() } {
+                eprintln!("ERROR: Failed to deallocate group object.");
+            }
         }
     }
 }

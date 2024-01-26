@@ -100,6 +100,7 @@ jobs:
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
+          - 'hwloc-2_10_0'
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
@@ -185,6 +186,7 @@ jobs:
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
+          - 'hwloc-2_10_0'
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
@@ -446,6 +448,7 @@ jobs:
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
+          - 'hwloc-2_10_0'
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
