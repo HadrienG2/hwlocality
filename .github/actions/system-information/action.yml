@@ -15,6 +15,10 @@ runs:
           sysctl hw
           sysctl machdep
           hwloc-gather-cpuid
+          for f in myhost.*; do
+            printf "\n=== Output file '%s' ===" "${f}"
+            cat "${f}"
+          done
 
     - name: Query system information
       if: runner.os == 'Windows'
@@ -22,17 +26,6 @@ runs:
       run: |
           coreinfo64 -accepteula -cgnlsm
           hwloc-gather-cpuid
-
-    - name: Upload file-based system information
-      uses: actions/upload-artifact@v4
-      if: runner.os == 'Linux'
-      with:
-        name: Linux-infos
-        path: myhost.*
-
-    - name: Upload file-based system information
-      uses: actions/upload-artifact@v4
-      if: runner.os != 'Linux'
-      with:
-        name: ${{ runner.os }}-infos
-        path: cpuid
+          echo ""
+          echo "=== Output file 'cpuid' ==="
+          type cpuid
