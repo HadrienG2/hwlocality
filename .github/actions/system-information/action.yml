@@ -3,32 +3,34 @@ description: 'Collect useful system info for hwloc bug reports'
 runs:
   using: "composite"
   steps:
-    - name: Query system information
-      if: runner.os == 'Linux'
-      shell: bash
-      run: hwloc-gather-topology myhost
 
-    - name: Query system information
+    - name: Query system information (macOS-specific)
       if: runner.os == 'macOS'
       shell: bash
       run: |
           sysctl hw
           sysctl machdep
+
+    - name: Query system information (Unix)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      shell: bash
+      run: |
           hwloc-gather-cpuid
           for f in cpuid/*; do
-            printf "\n=== Output file 'cpuid/%s' ===" "${f}"
+            printf "\n=== Output file cpuid/%s ===\n" "${f}"
             cat "${f}"
           done
 
-    - name: Query system information
+    - name: Query system information (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
           coreinfo64 -accepteula -cgnlsm
           hwloc-gather-cpuid
           echo ""
-          echo "=== Output file 'cpuid' ==="
+          echo "=== Output files follow ==="
           Dir -Recurse cpuid | ForEach-Object {
-              Get-Childitem $_
-              type $_
+            echo ""
+            Get-Childitem $_
+            type $_
           }
