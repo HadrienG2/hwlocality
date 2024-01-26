@@ -1009,7 +1009,7 @@ impl TopologyObject {
     /// `self_` must designate a valid `Group` object that has been allocated
     /// with `hwloc_topology_alloc_group_object()` but not yet inserted into a
     /// topology with `hwloc_topology_insert_group_object()`.
-    #[cfg(feature = "hwloc-2_3_0")]
+    #[cfg(all(feature = "hwloc-2_3_0", not(feature = "hwloc-2_10_0")))]
     pub(crate) unsafe fn delete_all_sets(self_: ptr::NonNull<Self>) {
         let self_ = self_.as_ptr();
         debug_assert_eq!(

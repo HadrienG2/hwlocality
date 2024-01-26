@@ -2789,6 +2789,12 @@ macro_rules! extern_c_block {
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_topology_alloc_group_object(topology: hwloc_topology_t) -> hwloc_obj_t;
+            #[cfg(feature = "hwloc-2_10_0")]
+            #[must_use]
+            pub fn hwloc_topology_free_group_object(
+                topology: hwloc_topology_t,
+                group: hwloc_obj_t,
+            ) -> c_int;
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_topology_insert_group_object(
