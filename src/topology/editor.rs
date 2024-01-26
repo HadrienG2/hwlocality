@@ -556,12 +556,12 @@ impl<'topology> TopologyEditor<'topology> {
     ///   mode, but the selected normal and memory object sets were not
     ///   consistent.
     ///
-    /// [`BadParentType`]: GroupInsertError::BadParentType
-    /// [`Empty`]: GroupInsertError::Empty
-    /// [`FilteredOut`]: GroupInsertError::FilteredOut
-    /// [`ForeignParent`]: GroupInsertError::ForeignParent
+    /// [`BadParentType`]: InsertGroupError::BadParentType
+    /// [`Empty`]: InsertGroupError::Empty
+    /// [`FilteredOut`]: InsertGroupError::FilteredOut
+    /// [`ForeignParent`]: InsertGroupError::ForeignParent
     /// [`Group`]: ObjectType::Group
-    /// [`Inconsistent`]: GroupInsertError::Inconsistent
+    /// [`Inconsistent`]: InsertGroupError::Inconsistent
     /// [`Misc`]: ObjectType::Misc
     //
     // --- Implementation details ---
@@ -577,7 +577,7 @@ impl<'topology> TopologyEditor<'topology> {
         dont_merge: bool,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
         child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
-    ) -> Result<InsertedGroup<'topology>, HybridError<GroupInsertError>>
+    ) -> Result<InsertedGroup<'topology>, HybridError<InsertGroupError>>
     where
         NormalFilter: FnMut(&TopologyObject) -> bool,
         MemoryFilter: FnMut(&TopologyObject) -> bool,
@@ -587,7 +587,7 @@ impl<'topology> TopologyEditor<'topology> {
             .type_filter(ObjectType::Group)
             .map_err(HybridError::Hwloc)?;
         if group_filter == TypeFilter::KeepNone {
-            return Err(GroupInsertError::FilteredOut.into());
+            return Err(InsertGroupError::FilteredOut.into());
         }
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_parent, child_filter)?;
@@ -974,12 +974,12 @@ where
     ///   mode, but the selected normal and memory object sets were not
     ///   consistent.
     ///
-    /// [`Inconsistent`]: GroupInsertError::Inconsistent
+    /// [`Inconsistent`]: InsertGroupError::Inconsistent
     pub(self) fn filter_children<'topology>(
         &mut self,
         parent: &'topology TopologyObject,
         make_hwloc_input: bool,
-    ) -> Result<Vec<&'topology TopologyObject>, GroupInsertError> {
+    ) -> Result<Vec<&'topology TopologyObject>, InsertGroupError> {
         /// Shorthand to get to the cpuset of a normal or memory child
         fn child_cpuset(child: &TopologyObject) -> BitmapRef<'_, CpuSet> {
             child
@@ -1023,7 +1023,7 @@ where
                             // all of its CPU children to the group, so the user
                             // should have added them to the normal child set.
                             if !normal_cpuset.includes(memory_cpuset) {
-                                return Err(GroupInsertError::Inconsistent);
+                                return Err(InsertGroupError::Inconsistent);
                             }
                             children.push(memory_child);
                         } else {
@@ -1032,7 +1032,7 @@ where
                             // object to the group, so the user should have
                             // added it to the memory child set.
                             if !memory_cpuset.is_empty() && normal_cpuset.includes(memory_cpuset) {
-                                return Err(GroupInsertError::Inconsistent);
+                                return Err(InsertGroupError::Inconsistent);
                             }
                         }
                     }
@@ -1086,7 +1086,7 @@ where
 
 /// Error while creating a [`Group`](ObjectType::Group) object
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum GroupInsertError {
+pub enum InsertGroupError {
     /// Attempted to create a group in a topology where groups are filtered out
     ///
     /// This happens when the type filter for [`ObjectType::Group`] is set to
@@ -1180,15 +1180,15 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///   mode, but the selected normal and memory object sets were not
     ///   consistent.
     ///
-    /// [`BadParentType`]: GroupInsertError::BadParentType
-    /// [`Empty`]: GroupInsertError::Empty
-    /// [`ForeignParent`]: GroupInsertError::ForeignParent
-    /// [`Inconsistent`]: GroupInsertError::Inconsistent
+    /// [`BadParentType`]: InsertGroupError::BadParentType
+    /// [`Empty`]: InsertGroupError::Empty
+    /// [`ForeignParent`]: InsertGroupError::ForeignParent
+    /// [`Inconsistent`]: InsertGroupError::Inconsistent
     pub(self) fn add_children<NormalFilter, MemoryFilter>(
         &mut self,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
         mut child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
-    ) -> Result<(), GroupInsertError>
+    ) -> Result<(), InsertGroupError>
     where
         NormalFilter: FnMut(&TopologyObject) -> bool,
         MemoryFilter: FnMut(&TopologyObject) -> bool,
@@ -1197,16 +1197,16 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
         let topology = self.editor.topology();
         let parent = find_parent(topology);
         if !parent.object_type().is_normal() {
-            return Err(GroupInsertError::BadParentType(parent.object_type()));
+            return Err(InsertGroupError::BadParentType(parent.object_type()));
         }
         if !topology.contains(parent) {
-            return Err(GroupInsertError::ForeignParent(parent.into()));
+            return Err(InsertGroupError::ForeignParent(parent.into()));
         }
 
         // Enumerate children
         let children = child_filter.filter_children(parent, true)?;
         if children.is_empty() {
-            return Err(GroupInsertError::Empty);
+            return Err(InsertGroupError::Empty);
         }
 
         /// Polymorphized subset of this function (avoids generics code bloat)
@@ -2054,7 +2054,7 @@ mod tests {
                 if !parent.object_type().is_normal() {
                     prop_assert_eq!(
                         result.unwrap_err(),
-                        HybridError::Rust(GroupInsertError::BadParentType(parent.object_type()))
+                        HybridError::Rust(InsertGroupError::BadParentType(parent.object_type()))
                     );
                     prop_assert_eq!(editor.topology(), initial_topology);
                     return Ok(());
@@ -2064,7 +2064,7 @@ mod tests {
                 if !initial_topology.contains(parent) {
                     prop_assert_eq!(
                         result.unwrap_err(),
-                        HybridError::Rust(GroupInsertError::ForeignParent(parent.into()))
+                        HybridError::Rust(InsertGroupError::ForeignParent(parent.into()))
                     );
                     prop_assert_eq!(editor.topology(), initial_topology);
                     return Ok(());
@@ -2072,15 +2072,15 @@ mod tests {
 
                 // Group must have at least one child
                 if children_ids == Ok(HashSet::new()) {
-                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(GroupInsertError::Empty));
+                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(InsertGroupError::Empty));
                     prop_assert_eq!(editor.topology(), initial_topology);
                     return Ok(());
                 }
 
                 // Group child set must be consistent
                 let Ok(children_ids) = children_ids else {
-                    prop_assert_eq!(children_ids, Err(GroupInsertError::Inconsistent));
-                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(GroupInsertError::Inconsistent));
+                    prop_assert_eq!(children_ids, Err(InsertGroupError::Inconsistent));
+                    prop_assert_eq!(result.unwrap_err(), HybridError::Rust(InsertGroupError::Inconsistent));
                     prop_assert_eq!(editor.topology(), initial_topology);
                     return Ok(());
                 };
@@ -2230,11 +2230,15 @@ mod tests {
                 );
                 prop_assert_eq!(
                     result.unwrap_err(),
-                    HybridError::Rust(GroupInsertError::FilteredOut)
+                    HybridError::Rust(InsertGroupError::FilteredOut)
                 );
                 prop_assert_eq!(editor.topology(), initial_topology);
                 Ok(())
             })?;
         }
     }
+
+    // --- Misc objects ---
+
+    // TODO: Test insert_misc_object()
 }
