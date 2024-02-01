@@ -1482,7 +1482,7 @@ mod tests {
             types::ObjectType,
             TopologyObjectID,
         },
-        strategies::{any_object, topology_related_set},
+        strategies::{any_object, any_string, topology_related_set},
     };
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
@@ -2336,10 +2336,7 @@ mod tests {
 
             // Make sure the object name doesn't contain NUL chars
             if name.chars().any(|c| c == '\0') {
-                prop_assert_eq!(
-                    res.unwrap_err(),
-                    HybridError::Rust(InsertMiscError::NameContainsNul)
-                );
+                prop_assert_eq!(res.unwrap_err(), HybridError::Rust(NulError.into()));
                 return Ok(());
             }
 
@@ -2359,23 +2356,23 @@ mod tests {
         /// ...with normal type filter
         #[test]
         fn insert_misc_object(
-            names: [String; 2],
+            (name1, name2) in (any_string(), any_string()),
             parent in any_object(),
         ) {
             // Initial insertion
-            check_insert_misc_object(Topology::test_instance(), &names[0], parent)?;
+            check_insert_misc_object(Topology::test_instance(), &name1, parent)?;
 
-            // Double insertion failure
-            check_insert_misc_object(Topology::test_instance(), &names[0], parent)?;
+            // Double insertion fails
+            check_insert_misc_object(Topology::test_instance(), &name1, parent)?;
 
-            // Different insertion success
-            check_insert_misc_object(Topology::test_instance(), &names[1], parent)?;
+            // Different insertion succeeds
+            check_insert_misc_object(Topology::test_instance(), &name2, parent)?;
         }
 
         /// ...with a type filter that filters out Misc objects
         #[test]
         fn ignored_misc_insertion(
-            name: String,
+            name in any_string(),
             parent in any_object(),
         ) {
             static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
