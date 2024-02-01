@@ -63,31 +63,19 @@ impl Topology {
     #[doc(alias = "hwloc_topology_export_xml")]
     pub fn export_xml_file(
         &self,
-        path: Option<impl AsRef<Path>>,
+        path: Option<&Path>,
         flags: XMLExportFlags,
     ) -> Result<(), HybridError<PathError>> {
-        /// Polymorphized version of this function (avoids generics code bloat)
-        fn polymorphized(
-            self_: &Topology,
-            path: Option<&Path>,
-            flags: XMLExportFlags,
-        ) -> Result<(), HybridError<PathError>> {
-            let path = path::make_hwloc_path(path.unwrap_or_else(|| Path::new("-")))?;
-            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-            //         - hwloc ops are trusted not to modify *const parameters
-            //         - path has been checked to be fit for hwloc consumption
-            //         - flags only allows values supported by the active hwloc version
-            errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
-                hwlocality_sys::hwloc_topology_export_xml(
-                    self_.as_ptr(),
-                    path.borrow(),
-                    flags.bits(),
-                )
-            })
-            .map_err(HybridError::Hwloc)?;
-            Ok(())
-        }
-        polymorphized(self, path.as_ref().map(AsRef::as_ref), flags)
+        let path = path::make_hwloc_path(path.unwrap_or_else(|| Path::new("-")))?;
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - path has been checked to be fit for hwloc consumption
+        //         - flags only allows values supported by the active hwloc version
+        errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
+            hwlocality_sys::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
+        })
+        .map_err(HybridError::Hwloc)?;
+        Ok(())
     }
 
     /// Export the topology into an XML memory buffer

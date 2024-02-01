@@ -16,14 +16,13 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
-    errors::{self, RawHwlocError},
+    errors::{self},
     ffi::{int, string::LibcString, transparent::AsNewtype},
     info::TextualInfo,
     topology::{editor::TopologyEditor, Topology},
 };
 use derive_more::Display;
 use hwlocality_sys::hwloc_info_s;
-use libc::{EINVAL, ENOENT, EXDEV};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -118,10 +117,7 @@ impl Topology {
     pub fn cpu_kinds(
         &self,
     ) -> Result<
-        impl DoubleEndedIterator<Item = (CpuSet, Option<CpuEfficiency>, &[TextualInfo])>
-            + Clone
-            + ExactSizeIterator
-            + FusedIterator,
+        impl DoubleEndedIterator<Item = CpuKind<'_>> + Clone + ExactSizeIterator + FusedIterator,
         NoData,
     > {
         // Iterate over all CPU kinds
@@ -136,10 +132,7 @@ impl Topology {
     ///
     /// This internal method should only be called on CPU kind indices which are
     /// known to be valid by the high-level APIs.
-    unsafe fn cpu_kind(
-        &self,
-        kind_index: usize,
-    ) -> (CpuSet, Option<CpuEfficiency>, &[TextualInfo]) {
+    unsafe fn cpu_kind(&self, kind_index: usize) -> CpuKind<'_> {
         // Let hwloc tell us everything it knows about this CPU kind
         let kind_index =
             c_uint::try_from(kind_index).expect("Should not happen if API contract is honored");
@@ -176,11 +169,13 @@ impl Topology {
                 Some(int::expect_usize(positive))
             }
         };
-        assert!(
-            !infos.is_null(),
-            "Got null infos pointer from hwloc_cpukinds_get_info"
-        );
-        let infos =
+        let infos = if infos.is_null() {
+            assert_eq!(
+                nr_infos, 0,
+                "hwloc pretended to yield {nr_infos} infos but provided a null infos pointer"
+            );
+            &[]
+        } else {
             // SAFETY: - Per hwloc API contract, infos and nr_infos should be
             //           valid and point to valid state if the function returned
             //           successfully
@@ -189,8 +184,13 @@ impl Topology {
             //           these rules ourselves
             //         - Total size should not wrap for any valid allocation
             //         - AsNewtype is trusted to be implemented correctly
-            unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) };
-        (cpuset, efficiency, infos)
+            unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) }
+        };
+        CpuKind {
+            cpuset,
+            efficiency,
+            infos,
+        }
     }
 
     /// Query information about the CPU kind that contains CPUs listed in `set`
@@ -203,50 +203,64 @@ impl Topology {
     ///   (i.e. some CPUs in the set belong to a kind, others to other kind(s))
     /// - [`NotIncluded`] if `set` is not included in any kind, even partially
     ///   (i.e. CPU kind info isn't known or CPU set does not cover real CPUs)
-    /// - [`InvalidSet`] if the CPU set is considered invalid for another reason
     ///
-    /// [`InvalidSet`]: FromSetProblem::InvalidSet
     /// [`NotIncluded`]: FromSetProblem::NotIncluded
     /// [`PartiallyIncluded`]: FromSetProblem::PartiallyIncluded
     #[doc(alias = "hwloc_cpukinds_get_by_cpuset")]
     pub fn cpu_kind_from_set(
         &self,
         set: impl Deref<Target = CpuSet>,
-    ) -> Result<(CpuSet, Option<CpuEfficiency>, &[TextualInfo]), FromSetError> {
+    ) -> Result<CpuKind<'_>, FromSetError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
             set: &CpuSet,
-        ) -> Result<(CpuSet, Option<CpuEfficiency>, &'self_ [TextualInfo]), FromSetError> {
-            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-            //         - Bitmap is trusted to contain a valid ptr (type invariant)
-            //         - hwloc ops are trusted not to modify *const parameters
-            //         - Per documentation, flags should be zero
-            let result = errors::call_hwloc_int_normal("hwloc_cpukinds_get_by_cpuset", || unsafe {
-                hwlocality_sys::hwloc_cpukinds_get_by_cpuset(self_.as_ptr(), set.as_ptr(), 0)
-            });
-            let kind_index = match result {
-                Ok(idx) => int::expect_usize(idx),
-                Err(
-                    raw_error @ RawHwlocError {
-                        errno: Some(errno), ..
-                    },
-                ) => match errno.0 {
-                    EXDEV => {
-                        return Err(FromSetError(set.clone(), FromSetProblem::PartiallyIncluded))
+        ) -> Result<CpuKind<'self_>, FromSetError> {
+            // This reimplements hwloc_cpukinds_get_by_cpuset because it's very
+            // little code and doing it ourselves allows us to work around the
+            // pitfalls of relying on errno availability on Windows
+            let error = |problem| Err(FromSetError(set.clone(), problem));
+            match self_.cpu_kinds() {
+                Ok(kinds) => {
+                    // Find relevant CPU kind, checking if unsuccessful matches
+                    // are at least partial matches
+                    let mut intersects = false;
+                    for kind in kinds {
+                        if kind.cpuset.includes(set) {
+                            return Ok(kind);
+                        } else if kind.cpuset.intersects(set) {
+                            intersects = true;
+                        }
                     }
-                    ENOENT => return Err(FromSetError(set.clone(), FromSetProblem::NotIncluded)),
-                    EINVAL => return Err(FromSetError(set.clone(), FromSetProblem::InvalidSet)),
-                    _ => unreachable!("Unexpected hwloc error: {raw_error}"),
-                },
-                Err(raw_error) => unreachable!("Unexpected hwloc error: {raw_error}"),
-            };
-            // SAFETY: In absence of errors, we trust hwloc_cpukinds_get_by_cpuset
-            //         to produce correct CPU kind indices
-            Ok(unsafe { self_.cpu_kind(kind_index) })
+
+                    // Report lack of matches accordingly
+                    if intersects {
+                        error(FromSetProblem::PartiallyIncluded)
+                    } else {
+                        error(FromSetProblem::NotIncluded)
+                    }
+                }
+                Err(NoData) => error(FromSetProblem::NotIncluded),
+            }
         }
         polymorphized(self, &set)
     }
+}
+
+/// Kind of CPU core
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct CpuKind<'topology> {
+    /// CPUs that use this kind of core
+    pub cpuset: CpuSet,
+
+    /// CPU efficiency metric, if known
+    ///
+    /// A lower metric value means that the CPU is expected to consume less
+    /// power, at the cost of possibly being less performant.
+    pub efficiency: Option<CpuEfficiency>,
+
+    /// Textual information
+    pub infos: &'topology [TextualInfo],
 }
 
 /// # Kinds of CPU cores
@@ -416,10 +430,6 @@ pub enum FromSetProblem {
     /// i.e. CPU kind info isn't known or this CPU set does not cover real CPUs.
     #[display(fmt = "isn't part of any known CPU kind")]
     NotIncluded,
-
-    /// CPU set is considered invalid by hwloc for another reason
-    #[display(fmt = "was rejected by hwloc CPU kind query for unknown reasons")]
-    InvalidSet,
 }
 
 /// Error while registering a new CPU kind

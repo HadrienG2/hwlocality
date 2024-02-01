@@ -106,7 +106,10 @@ use std::{
 //   from one variant to another
 // - subtype may be replaced with another C string allocated by malloc(),
 //   which hwloc will automatically free() on topology destruction (source:
-//   documentation of hwloc_topology_insert_group_object() encourages it)
+//   documentation of hwloc_topology_insert_group_object() encourages it).
+//   However, this is only safe if hwloc is linked against the same libc as the
+//   application, so it should be made unsafe on Windows where linking against
+//   two different CRTs is both easy to do and hard to avoid.
 // - depth is in sync with parent
 // - logical_index is in sync with (next|prev)_cousin
 // - sibling_rank is in sync with (next|prev)_sibling
@@ -146,15 +149,45 @@ impl TopologyObject {
 
     /// Set the subtype string
     ///
+    /// This exposes [`TopologyObject::set_subtype_unchecked()`] as a safe
+    /// method on operating systems which aren't known to facilitate mixing and
+    /// matching libc versions between an application and its dependencies.
+    #[allow(clippy::missing_errors_doc)]
+    #[cfg(all(feature = "hwloc-2_3_0", not(windows)))]
+    pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
+        // SAFETY: Underlying OS is assumed not to ergonomically encourage
+        //         unsafe multi-libc linkage
+        unsafe { self.set_subtype_unchecked(subtype) }
+    }
+
+    /// Set the subtype string
+    ///
     /// This is something you'll often want to do when creating Group or Misc
     /// objects in order to make them more descriptive.
+    ///
+    /// # Safety
+    ///
+    /// This method is only safe to call if you can guarantee that your
+    /// application links against the same libc/CRT as hwloc.
+    ///
+    /// While linking against a different libc is something that is either
+    /// outright UB or strongly advised against on every OS, actually following
+    /// this sanity rule is unfortunately very hard on Windows, where usage of
+    /// multiple CRTs and pre-built DLLs is the norm, and there is no easy way
+    /// to tell which CRT version your pre-built hwloc DLL links against to
+    /// adjust your application build's CRT choice accordingly.
+    ///
+    /// Which is why hwlocality tries hard to accomodate violations of the rule.
+    /// And thus the safe version of this method, which assumes that you do
+    /// follow the rule, is not available on Windows.
     ///
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
     #[cfg(feature = "hwloc-2_3_0")]
-    pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
-        self.0.subtype = LibcString::new(subtype)?.into_raw();
+    pub unsafe fn set_subtype_unchecked(&mut self, subtype: &str) -> Result<(), NulError> {
+        // SAFETY: Per input precondition
+        self.0.subtype = unsafe { LibcString::new(subtype)?.into_raw() };
         Ok(())
     }
 
@@ -1696,6 +1729,70 @@ pub(crate) mod tests {
             let other_ancestor = prev_ancestor_candidate(other, common_ancestor);
             if let (Some(obj_ancestor), Some(other_ancestor)) = (obj_ancestor, other_ancestor) {
                 prop_assert!(!ptr::eq(obj_ancestor, other_ancestor));
+            }
+        }
+    }
+
+    // --- Object editing ---
+
+    #[cfg(feature = "hwloc-2_3_0")]
+    mod editing {
+        use super::*;
+        use std::panic::UnwindSafe;
+
+        // Check that a certain object editing method works
+        fn test_object_editing<R>(check: impl FnOnce(&mut TopologyObject) -> R + UnwindSafe) -> R {
+            let mut topology = Topology::test_instance().clone();
+            topology.edit(|editor| {
+                let misc = editor
+                    .insert_misc_object("This is a modifiable test object trololol", |topology| {
+                        topology.root_object()
+                    })
+                    .unwrap();
+                check(misc)
+            })
+        }
+
+        proptest! {
+            // Try to set an object's subtype
+            #[cfg(not(windows))]
+            #[test]
+            fn set_subtype(subtype in any_string()) {
+                test_object_editing(|obj| {
+                    // Try to set an object's subtype
+                    let res = obj.set_subtype(&subtype);
+
+                    // Handle inner NULs
+                    if subtype.chars().any(|c| c == '\0') {
+                        prop_assert_eq!(res, Err(NulError));
+                        return Ok(());
+                    }
+
+                    // Assume success otherwise
+                    res.unwrap();
+                    prop_assert_eq!(obj.subtype().unwrap().to_str().unwrap(), subtype);
+                    Ok(())
+                })?;
+            }
+
+            // Try to add an info (key, value) pair to an object
+            #[test]
+            fn add_info(name in any_string(), value in any_string()) {
+                test_object_editing(|obj| {
+                    // Try to add a (key, value) pair
+                    let res = obj.add_info(&name, &value);
+
+                    // Handle inner NULs
+                    if name.chars().chain(value.chars()).any(|c| c == '\0') {
+                        prop_assert_eq!(res, Err(NulError.into()));
+                        return Ok(());
+                    }
+
+                    // Assume success otherwise
+                    res.unwrap();
+                    prop_assert_eq!(obj.info(&name).unwrap().to_str().unwrap(), value);
+                    Ok(())
+                })?;
             }
         }
     }

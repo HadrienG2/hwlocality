@@ -24,7 +24,11 @@ use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::transparent::AsNewtype,
     memory::nodeset::NodeSet,
-    object::{depth::NormalDepth, types::ObjectType, TopologyObject},
+    object::{
+        depth::{Depth, NormalDepth},
+        types::ObjectType,
+        TopologyObject,
+    },
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -37,8 +41,9 @@ use libc::EINVAL;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
+    collections::BTreeMap,
     convert::TryInto,
-    fmt::{self, Pointer},
+    fmt::{self, Debug, Pointer},
     ops::Deref,
     ptr::{self, NonNull},
     sync::OnceLock,
@@ -56,7 +61,7 @@ use thiserror::Error;
 /// hwloc documentation:
 ///
 /// - [Topology building](#topology-building)
-/// - [Full object list](#full-object-list) (specific to Rust bindings)
+/// - [Full object lists](#full-object-lists) (specific to Rust bindings)
 /// - [Object levels, depths and types](#object-levels-depths-and-types)
 /// - [CPU cache statistics](#cpu-cache-statistics) (specific to Rust bindings)
 /// - [CPU binding](#cpu-binding)
@@ -103,7 +108,6 @@ use thiserror::Error;
 // Any binding to an hwloc topology function that takes a user-provided
 // &TopologyObject parameter **must** check that this object does belongs to the
 // topology using the Topology::contains() method before passing it to hwloc.
-#[derive(Debug)]
 #[doc(alias = "hwloc_topology")]
 #[doc(alias = "hwloc_topology_t")]
 pub struct Topology(NonNull<hwloc_topology>);
@@ -222,6 +226,14 @@ impl Topology {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => false,
+            #[cfg(all(windows, not(tarpaulin_include)))]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                false
+            }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
     }
@@ -937,12 +949,161 @@ impl Clone for Topology {
     }
 }
 
+impl Debug for Topology {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("Topology");
+
+        // Topology building properties
+        debug
+            .field("is_abi_compatible", &self.is_abi_compatible())
+            .field("build_flags", &self.build_flags())
+            .field("is_this_system", &self.is_this_system())
+            .field("feature_support", self.feature_support());
+        let type_filters = enum_iterator::all::<ObjectType>()
+            .map(|ty| {
+                (
+                    format!("{ty}"),
+                    self.type_filter(ty)
+                        .expect("should always succeed when called with a valid type"),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        debug.field("type_filter", &type_filters);
+
+        // TopologyObject hierarchy
+        let objects_per_depth = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
+            .map(Depth::from)
+            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+            .filter_map(|depth| {
+                let objs = self.objects_at_depth(depth).collect::<Vec<_>>();
+                (!objs.is_empty()).then_some((format!("{depth}"), objs))
+            })
+            .collect::<Vec<_>>();
+        debug
+            // Contains the info from most other topology queries
+            .field("objects_per_depth", &objects_per_depth)
+            .field("memory_parents_depth", &self.memory_parents_depth());
+
+        // CPU and node sets of the entire topology
+        debug
+            .field("cpuset", &self.cpuset())
+            .field("complete_cpuset", &self.complete_cpuset())
+            .field("allowed_cpuset", &self.allowed_cpuset())
+            .field("nodeset", &self.nodeset())
+            .field("complete_nodeset", &self.complete_nodeset())
+            .field("allowed_nodeset", &self.allowed_nodeset());
+
+        // Object distances
+        debug.field("distances", &self.distances(None));
+
+        // Memory attributes
+        #[cfg(feature = "hwloc-2_3_0")]
+        {
+            debug.field("builtin_memory_attributes", &self.dump_builtin_attributes());
+        }
+
+        // Kinds of CPU cores
+        #[cfg(feature = "hwloc-2_4_0")]
+        {
+            let cpu_kinds = self.cpu_kinds().into_iter().flatten().collect::<Vec<_>>();
+            debug.field("cpu_kinds", &cpu_kinds);
+        }
+        debug.finish()
+    }
+}
+
 impl Drop for Topology {
     #[doc(alias = "hwloc_topology_destroy")]
     fn drop(&mut self) {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Topology will not be usable again after Drop
         unsafe { hwlocality_sys::hwloc_topology_destroy(self.as_mut_ptr()) }
+    }
+}
+
+impl PartialEq for Topology {
+    fn eq(&self, other: &Self) -> bool {
+        /// Check equality of basic topology properties
+        macro_rules! check_all_equal {
+            ($($property:ident),*) => {
+                if (
+                    $(
+                        Topology::$property(self) != Topology::$property(other)
+                    )||*
+                ) {
+                    return false;
+                }
+            };
+        }
+        check_all_equal!(
+            is_abi_compatible,
+            build_flags,
+            is_this_system,
+            feature_support,
+            memory_parents_depth,
+            cpuset,
+            complete_cpuset,
+            allowed_cpuset,
+            nodeset,
+            complete_nodeset,
+            allowed_nodeset
+        );
+
+        /// Retrieve all type filters to check they are the same
+        fn type_filters(
+            topology: &Topology,
+        ) -> impl Iterator<Item = Result<TypeFilter, RawHwlocError>> + '_ {
+            enum_iterator::all::<ObjectType>().map(|ty| topology.type_filter(ty))
+        }
+        if !type_filters(self).eq(type_filters(other)) {
+            return false;
+        }
+
+        // Check that the object hierarchy is the same
+        if !self.has_same_object_hierarchy(other) {
+            return false;
+        }
+
+        // Check that object distances are the same
+        let same_distances = match (self.distances(None), other.distances(None)) {
+            (Ok(distances1), Ok(distances2)) => {
+                distances1.len() == distances2.len()
+                    && distances1
+                        .into_iter()
+                        .zip(&distances2)
+                        .all(|(d1, d2)| d1.eq_modulo_topology(d2))
+            }
+            (Err(e1), Err(e2)) => e1 == e2,
+            (Ok(_), Err(_)) | (Err(_), Ok(_)) => false,
+        };
+        if !same_distances {
+            return false;
+        }
+
+        // Check that memory attributes are the same
+        #[cfg(feature = "hwloc-2_3_0")]
+        {
+            if !self
+                .dump_builtin_attributes()
+                .eq_modulo_topology(&other.dump_builtin_attributes())
+            {
+                return false;
+            }
+        }
+
+        // Check that CPU core kinds are the same
+        #[cfg(feature = "hwloc-2_4_0")]
+        {
+            let same_kinds = match (self.cpu_kinds(), other.cpu_kinds()) {
+                (Ok(kinds1), Ok(kinds2)) => kinds1.eq(kinds2),
+                (Err(e1), Err(e2)) => e1 == e2,
+                (Ok(_), Err(_)) | (Err(_), Ok(_)) => false,
+            };
+            if !same_kinds {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -998,11 +1159,11 @@ mod tests {
         fmt::Write, io::Write
     );
     assert_impl_all!(Topology:
-        Clone, Debug, Drop, Pointer, Sized, Sync, Unpin, UnwindSafe
+        Clone, Debug, Drop, PartialEq, Pointer, Sized, Sync, Unpin, UnwindSafe
     );
     assert_not_impl_any!(Topology:
         Binary, Copy, Default, Deref, Display, IntoIterator, LowerExp, LowerHex,
-        Octal, PartialEq, Read, UpperExp, UpperHex, fmt::Write, io::Write
+        Octal, Read, UpperExp, UpperHex, fmt::Write, io::Write
     );
     assert_impl_all!(DistributeError:
         Clone, Error, Hash, Sized, Sync, Unpin, UnwindSafe
@@ -1030,15 +1191,27 @@ mod tests {
             |ty| Ok(topology.type_filter(ty).unwrap()),
         )?;
         assert!(!topology.contains(clone.root_object()));
+        assert_eq!(topology, &clone);
         Ok(())
+    }
+
+    #[allow(clippy::print_stdout, clippy::use_debug)]
+    #[test]
+    fn debug_and_self_eq() {
+        let topology = Topology::test_instance();
+        assert_eq!(topology, topology);
+        println!("{topology:#?}");
     }
 
     /// Bias the `max_depth` input to `distribute_items` tests so that
     /// interesting depth values below the maximum possible depth are sampled
     /// often enough
     fn max_depth() -> impl Strategy<Value = NormalDepth> {
-        (0..(2 * usize::from(Topology::test_instance().depth())))
-            .prop_map(|us| NormalDepth::try_from(us).unwrap())
+        prop_oneof![
+            4 => (0..usize::from(Topology::test_instance().depth()))
+                    .prop_map(|us| NormalDepth::try_from(us).unwrap()),
+            1 => any::<NormalDepth>()
+        ]
     }
 
     proptest! {
@@ -1056,60 +1229,103 @@ mod tests {
     /// Generate valid (disjoint) roots for [`Topology::distribute_items()`],
     /// taken from [`Topology::test_instance()`]
     fn disjoint_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
-        // Starting from processing units, which are the smallest granularity at
-        // which we can distribute work, go up an arbitrary amount of ancestors
-        // from each PU. This gives us a list of root candidates with a few
-        // issues to be adressed:
-        //
-        // - They can overlap, i.e. one proposed root can be the parent of
-        //   another, and a given root may appear multiple times because it has
-        //   been reached from two different leaf PUs.
-        // - They cover the full cpuset of the topology. We also want to test
-        //   non-exhaustive configurations.
-        // - They are ordered by PU index. We also want to test non-ordered
-        //   configurations.
-        let overlapping_exhaustive_ordered_roots = Topology::test_instance()
-            .objects_with_type(ObjectType::PU)
-            .map(|pu| {
-                // Pick an arbitrary ancestor of this PU, or the PU itself
-                (0..=pu.ancestors().count()).prop_map(move |depth| {
-                    std::iter::once(pu)
-                        .chain(pu.ancestors())
-                        .nth(depth)
-                        .unwrap()
-                })
-            })
-            .collect::<Vec<_>>();
+        /// Number of PUs below a normal object
+        fn normal_weight(obj: &TopologyObject) -> usize {
+            obj.cpuset()
+                .expect("normal object should have a cpuset")
+                .weight()
+                .expect("normal object should have a finite cpuset")
+        }
 
-        // Start by eliminating the deepest redundant roots...
-        let exhaustive_ordered_roots =
-            overlapping_exhaustive_ordered_roots.prop_map(|mut roots| {
-                // Sort roots by increasing depth, so parents go before children
-                roots.sort_unstable_by_key(|root| root.depth().expect_normal());
+        /// Pick N objects below a certain root
+        ///
+        /// `root` must be a normal object that has at least `num_objects` PUs
+        /// underneath it.
+        ///
+        /// Objects will be ordered by logical index, the client is responsible
+        /// for shuffling them at the very end.
+        fn pick_disjoint_objects(
+            root: &'static TopologyObject,
+            num_objects: usize,
+        ) -> impl Strategy<Value = Vec<&'static TopologyObject>> {
+            // Validate the request
+            assert!(
+                root.object_type().is_normal(),
+                "root object should be normal"
+            );
+            assert!(num_objects <= normal_weight(root));
 
-                // Iterate from parent to children, keeping track of which CPUs
-                // we already covered and using this to eliminate duplicates.
-                // Due to the above sorting, this will keep the coarsest-grained
-                // roots, avoiding an explosion of small PUs.
-                let mut deduplicated_roots = Vec::new();
-                let mut covered_cpuset = CpuSet::new();
-                for root in roots {
-                    let root_cpuset = root.cpuset().unwrap();
-                    if !covered_cpuset.includes(root_cpuset) {
-                        assert!(!covered_cpuset.intersects(root_cpuset));
-                        deduplicated_roots.push(root);
-                        covered_cpuset |= root_cpuset;
-                    }
+            // Honor the request
+            match num_objects {
+                // Picking no objects is trivial
+                0 => Just(Vec::new()).boxed(),
+
+                // Picking a single object is easy too, just pick any object in
+                // the subtree below this root
+                1 => {
+                    let topology = Topology::test_instance();
+                    let subtree_objects = topology
+                        .normal_objects()
+                        .filter(|obj| obj.is_in_subtree(root) || ptr::eq(*obj, root))
+                        .collect::<Vec<_>>();
+                    prop::sample::select(subtree_objects)
+                        .prop_map(|obj| vec![obj])
+                        .boxed()
                 }
-                deduplicated_roots
-            });
 
-        // Pick a non-empty subset of the roots and reorder it randomly
-        exhaustive_ordered_roots
-            .prop_flat_map(|roots| {
-                let num_roots = roots.len();
-                prop::sample::subsequence(roots, 1..=num_roots)
-            })
+                // If we need to pick 2 or more objects, we must distribute them
+                // across the root's children
+                _ => {
+                    // Each child can at most yield as many objects as there are
+                    // PUs underneath it, and we must not yield more PUs than
+                    // this. This is achieved through the dirty trick of first
+                    // duplicating each child once per underlying PU...
+                    let degenerate_children = root
+                        .normal_children()
+                        .flat_map(|child| std::iter::repeat(child).take(normal_weight(child)))
+                        .collect::<Vec<_>>();
+                    debug_assert_eq!(degenerate_children.len(), normal_weight(root));
+
+                    // Then picking a subsequence of that duplicated sequence...
+                    prop::sample::subsequence(degenerate_children, num_objects)
+                        .prop_flat_map(|selected_degenerate| {
+                            // Then deduplicating again to find out how many
+                            // objects were allocated to each child.
+                            let mut count_per_child =
+                                Vec::<(&'static TopologyObject, usize)>::new();
+                            'children: for child in selected_degenerate {
+                                if let Some((last_child, last_count)) = count_per_child.last_mut() {
+                                    if ptr::eq(child, *last_child) {
+                                        *last_count += 1;
+                                        continue 'children;
+                                    }
+                                }
+                                count_per_child.push((child, 1));
+                            }
+
+                            // Once we have the deduplicated per-child work
+                            // allocation, we do the recursive request, which
+                            // will yield a vector of results for each child...
+                            let nested_objs = count_per_child
+                                .into_iter()
+                                .map(|(child, count)| pick_disjoint_objects(child, count))
+                                .collect::<Vec<_>>();
+
+                            // ...and we flatten that into a single vector of
+                            // merged results
+                            nested_objs.prop_map(|nested_objs| {
+                                nested_objs.into_iter().flatten().collect::<Vec<_>>()
+                            })
+                        })
+                        .boxed()
+                }
+            }
+        }
+
+        // Finally, we use the above logic to generate any valid number of roots
+        let root = Topology::test_instance().root_object();
+        (1..=normal_weight(root))
+            .prop_flat_map(|num_objects| pick_disjoint_objects(root, num_objects))
             .prop_shuffle()
     }
 
@@ -1141,14 +1357,19 @@ mod tests {
         let mut input = roots.to_vec();
         let mut output = Vec::new();
         for _ in PositiveInt::iter_range(PositiveInt::MIN, max_depth) {
+            let mut new_leaves = false;
             for obj in input.drain(..) {
                 if obj.normal_arity() > 0 && obj.depth().expect_normal() < max_depth {
-                    output.extend(obj.normal_children())
+                    output.extend(obj.normal_children());
+                    new_leaves = true;
                 } else {
                     output.push(obj);
                 }
             }
             std::mem::swap(&mut input, &mut output);
+            if !new_leaves {
+                break;
+            }
         }
         input
     }

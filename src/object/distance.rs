@@ -23,7 +23,7 @@ use crate::topology::editor::TopologyEditor;
 use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
-    object::{depth::Depth, types::ObjectType, TopologyObject},
+    object::{depth::Depth, types::ObjectType, TopologyObject, TopologyObjectID},
     topology::Topology,
 };
 #[cfg(feature = "hwloc-2_1_0")]
@@ -32,7 +32,7 @@ use crate::{
     ffi::string::LibcString,
 };
 use bitflags::bitflags;
-#[cfg(all(feature = "hwloc-2_5_0", any(test, feature = "proptest")))]
+#[cfg(feature = "hwloc-2_5_0")]
 use enum_iterator::Sequence;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
@@ -75,7 +75,10 @@ impl Topology {
     /// one of them is returned. The same applies for `MEANS_xyz` options.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
-    pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    pub fn distances(
+        &self,
+        kind: Option<DistancesKind>,
+    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         // SAFETY: - By definition, it's valid to pass hwloc_distances_get
         //         - Parameters are guaranteed valid per get_distances_with_kind
         //           contract
@@ -102,7 +105,7 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_depth")]
     pub fn distances_at_depth<DepthLike>(
         &self,
-        kind: DistancesKind,
+        kind: Option<DistancesKind>,
         depth: DepthLike,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError>
     where
@@ -112,7 +115,7 @@ impl Topology {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &Topology,
-            kind: DistancesKind,
+            kind: Option<DistancesKind>,
             depth: Depth,
         ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
             // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
@@ -153,7 +156,7 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(
         &self,
-        kind: DistancesKind,
+        kind: Option<DistancesKind>,
         ty: ObjectType,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         // SAFETY: - hwloc_distances_get_by_type with the type parameter curried
@@ -230,7 +233,7 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
-        kind: DistancesKind,
+        kind: Option<DistancesKind>,
         getter_name: &'static str,
         mut getter: impl FnMut(
             *const hwloc_topology,
@@ -240,6 +243,7 @@ impl Topology {
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+        let kind = kind.unwrap_or(DistancesKind::empty());
         // SAFETY: - getter with the kind parameters curried away behaves as
         //           get_distances would expect
         //         - There are no invalid kind values for these search APIs
@@ -1247,6 +1251,38 @@ impl<'topology> Distances<'topology> {
         sender * self.num_objects() + receiver
     }
 
+    /// Truth that this set of distances is the same as another set of
+    /// distances, assuming both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
+        #[cfg(feature = "hwloc-2_1_0")]
+        if self.name() != other.name() {
+            return false;
+        }
+        if self.kind() != other.kind() {
+            return false;
+        }
+        /// Translate the objects iterator into a GP index iterator
+        fn object_indices<'out>(
+            distances: &'out Distances<'out>,
+        ) -> impl Iterator<Item = Option<TopologyObjectID>> + 'out {
+            distances
+                .objects()
+                .map(|obj| obj.map(TopologyObject::global_persistent_index))
+        }
+        if object_indices(self).ne(object_indices(other)) {
+            return false;
+        }
+        self.distances().eq(other.distances())
+    }
+
     /// Apply a transformation to this distance matrix
     ///
     /// This modifies the local copy of the distances structures but does not
@@ -1437,7 +1473,6 @@ crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
 
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
 #[derive(
     Copy,
     Clone,
@@ -1448,6 +1483,7 @@ crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
     num_enum::IntoPrimitive,
     num_enum::TryFromPrimitive,
     PartialEq,
+    Sequence,
 )]
 #[doc(alias = "hwloc_distances_transform_e")]
 #[repr(u32)]

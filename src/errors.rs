@@ -89,6 +89,15 @@ pub struct RawHwlocError {
     pub api: &'static str,
 
     /// Observed errno value, if errno was set
+    #[cfg_attr(windows, doc = "")]
+    #[cfg_attr(windows, doc = "Note that even for entry points where hwloc is")]
+    #[cfg_attr(windows, doc = "documented to set errno, this member may be")]
+    #[cfg_attr(windows, doc = "`None` on Windows. This happens because ")]
+    #[cfg_attr(windows, doc = "Windows has multiple implementations of its")]
+    #[cfg_attr(windows, doc = "standard C library, called C RunTimes (CRTs),")]
+    #[cfg_attr(windows, doc = "and getting your application to be link")]
+    #[cfg_attr(windows, doc = "against the same CRT as your hwloc DLL is")]
+    #[cfg_attr(windows, doc = "basically a matter of fragile guesswork...")]
     pub errno: Option<Errno>,
 }
 
@@ -235,6 +244,17 @@ pub enum HybridError<RustError: Error> {
     // I choose to implement From for RustError because that type has unbounded
     // complexity and thus benefits the most from it.
     Hwloc(RawHwlocError),
+}
+//
+impl<RustError: Error> HybridError<RustError> {
+    /// Assume that all expected Rust-side error sources have been handled and
+    /// panic otherwise, but still allow unexpected hwloc errors
+    pub fn expect_only_hwloc(self, msg: &str) -> RawHwlocError {
+        match self {
+            Self::Hwloc(e) => e,
+            Self::Rust(e) => panic!("{msg} (got unexpected Rust error {e}"),
+        }
+    }
 }
 
 /// A string meant for hwloc consumption contained the NUL char

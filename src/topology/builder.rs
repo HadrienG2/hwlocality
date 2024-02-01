@@ -28,7 +28,6 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::From;
-#[cfg(any(test, feature = "proptest"))]
 use enum_iterator::Sequence;
 use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
@@ -194,12 +193,21 @@ impl TopologyBuilder {
                 hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
             )
         });
+        let handle_enosys = || Err(FromPIDError(pid).into());
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                errno: Some(Errno(ENOSYS)) | None,
+                errno: Some(Errno(ENOSYS)),
                 ..
-            }) => Err(FromPIDError(pid).into()),
+            }) => handle_enosys(),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as ENOSYS on Windows.
+                handle_enosys()
+            }
             Err(other_err) => Err(HybridError::Hwloc(other_err)),
         }
     }
@@ -238,9 +246,17 @@ impl TopologyBuilder {
         match result {
             Ok(_) => Ok(self),
             Err(RawHwlocError {
-                errno: Some(Errno(EINVAL)) | None,
+                errno: Some(Errno(EINVAL)),
                 ..
             }) => Err(StringInputError::Invalid),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                Err(StringInputError::Invalid)
+            }
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
@@ -288,6 +304,14 @@ impl TopologyBuilder {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => Err(StringInputError::Invalid),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. Since there is only one expected errno value here,
+                // we'll interpret lack of errno as EINVAL on Windows.
+                Err(StringInputError::Invalid)
+            }
             Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
         }
     }
@@ -328,12 +352,22 @@ impl TopologyBuilder {
             let result = errors::call_hwloc_int_normal("hwloc_topology_set_xml", || unsafe {
                 hwlocality_sys::hwloc_topology_set_xml(self_.as_mut_ptr(), path.borrow())
             });
+            let handle_einval =
+                || Err(FileInputError::Invalid(PathBuf::from(path.as_str()).into()));
             match result {
                 Ok(_) => Ok(self_),
                 Err(RawHwlocError {
                     errno: Some(Errno(EINVAL)),
                     ..
-                }) => Err(FileInputError::Invalid(PathBuf::from(path.as_str()).into())),
+                }) => handle_einval(),
+                #[cfg(windows)]
+                Err(RawHwlocError { errno: None, .. }) => {
+                    // As explained in the RawHwlocError documentation, errno values
+                    // may not correctly propagate from hwloc to hwlocality on
+                    // Windows. Since there is only one expected errno value
+                    // here, we'll interpret lack of errno as EINVAL on Windows.
+                    handle_einval()
+                }
                 Err(other_err) => unreachable!("Unexpected hwloc error: {other_err}"),
             }
         }
@@ -883,8 +917,7 @@ crate::impl_arbitrary_for_bitflags!(BuildFlags, hwloc_topology_flags_e);
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
-#[cfg_attr(any(test, feature = "proptest"), derive(Sequence))]
-#[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, Sequence, TryFromPrimitive)]
 #[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]
 pub enum TypeFilter {
@@ -1167,11 +1200,11 @@ pub(crate) mod tests {
 
         #[cfg(feature = "hwloc-2_8_0")]
         {
-            use crate::{cpu::kind::NoData, object::distance::DistancesKind};
+            use crate::cpu::kind::NoData;
             if build_flags.contains(BuildFlags::IGNORE_DISTANCES) {
                 prop_assert_eq!(
                     topology
-                        .distances(DistancesKind::empty())
+                        .distances(None)
                         .map(|distances| distances.is_empty()),
                     Ok(true)
                 );
