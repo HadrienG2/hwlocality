@@ -1732,4 +1732,68 @@ pub(crate) mod tests {
             }
         }
     }
+
+    // --- Object editing ---
+
+    #[cfg(feature = "hwloc-2_3_0")]
+    mod editing {
+        use super::*;
+        use std::panic::UnwindSafe;
+
+        // Check that a certain object editing method works
+        fn test_object_editing<R>(check: impl FnOnce(&mut TopologyObject) -> R + UnwindSafe) -> R {
+            let mut topology = Topology::test_instance().clone();
+            topology.edit(|editor| {
+                let misc = editor
+                    .insert_misc_object("This is a modifiable test object trololol", |topology| {
+                        topology.root_object()
+                    })
+                    .unwrap();
+                check(misc)
+            })
+        }
+
+        proptest! {
+            // Try to set an object's subtype
+            #[cfg(not(windows))]
+            #[test]
+            fn set_subtype(subtype in any_string()) {
+                test_object_editing(|obj| {
+                    // Try to set an object's subtype
+                    let res = obj.set_subtype(&subtype);
+
+                    // Handle inner NULs
+                    if subtype.chars().any(|c| c == '\0') {
+                        prop_assert_eq!(res, Err(NulError));
+                        return Ok(());
+                    }
+
+                    // Assume success otherwise
+                    res.unwrap();
+                    prop_assert_eq!(obj.subtype().unwrap().to_str().unwrap(), subtype);
+                    Ok(())
+                })?;
+            }
+
+            // Try to add an info (key, value) pair to an object
+            #[test]
+            fn add_info(name in any_string(), value in any_string()) {
+                test_object_editing(|obj| {
+                    // Try to add a (key, value) pair
+                    let res = obj.add_info(&name, &value);
+
+                    // Handle inner NULs
+                    if name.chars().chain(value.chars()).any(|c| c == '\0') {
+                        prop_assert_eq!(res, Err(NulError.into()));
+                        return Ok(());
+                    }
+
+                    // Assume success otherwise
+                    res.unwrap();
+                    prop_assert_eq!(obj.info(&name).unwrap().to_str().unwrap(), value);
+                    Ok(())
+                })?;
+            }
+        }
+    }
 }
