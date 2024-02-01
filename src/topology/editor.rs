@@ -921,6 +921,11 @@ pub enum GroupChildFilter<
     ///
     /// Memory children will then be automatically added in order to produce a
     /// group member set that follows the consistency rules.
+    ///
+    /// Due to a limitation of the Rust compiler, as of Rust 1.75 this type
+    /// constructor mistakenly requires you to specify a MemoryFilter type
+    /// parameter. You can work around this by using the [`Self::normal()`]
+    /// constructor instead.
     Normal(NormalFilter),
 
     /// Pick the group's memory children in the parent's memory children list
@@ -928,6 +933,11 @@ pub enum GroupChildFilter<
     /// Works like `Normal`, except the provided filter is used to select memory
     /// children instead of normal children, and it is normal children that get
     /// automatically added to follow the consistency rules.
+    ///
+    /// Due to a limitation of the Rust compiler, as of Rust 1.75 this type
+    /// constructor mistakenly requires you to specify a NormalFilter type
+    /// parameter. You can work around this by using the [`Self::memory()`]
+    /// constructor instead.
     Memory(MemoryFilter),
 
     /// Pick the group's normal and memory children
@@ -967,6 +977,28 @@ pub enum GroupChildFilter<
         /// parent's memory children list, as in `Memory`
         memory: MemoryFilter,
     },
+}
+//
+impl<NormalFilter> GroupChildFilter<NormalFilter, fn(&TopologyObject) -> bool>
+where
+    NormalFilter: FnMut(&TopologyObject) -> bool,
+{
+    /// Workaround for lack of default type parameter fallback when using the
+    /// [`Self::Normal`] type constructor
+    pub fn normal(filter: NormalFilter) -> Self {
+        Self::Normal(filter)
+    }
+}
+//
+impl<MemoryFilter> GroupChildFilter<fn(&TopologyObject) -> bool, MemoryFilter>
+where
+    MemoryFilter: FnMut(&TopologyObject) -> bool,
+{
+    /// Workaround for lack of default type parameter fallback when using the
+    /// [`Self::Memory`] type constructor
+    pub fn memory(filter: MemoryFilter) -> Self {
+        Self::Memory(filter)
+    }
 }
 //
 impl<NormalFilter, MemoryFilter> GroupChildFilter<NormalFilter, MemoryFilter>
@@ -1769,6 +1801,28 @@ mod tests {
 
     // --- Changing the set of allowed PUs and NUMA nodes ---
 
+    proptest! {
+        /// Test AllowSet construction from CpuSet
+        #[test]
+        fn allowset_from_cpuset(cpuset: CpuSet) {
+            let allow_set = AllowSet::from(&cpuset);
+            let AllowSet::Custom { cpuset: Some(allow_cpuset), nodeset: None } = allow_set else {
+                panic!("Unexpected allow set {allow_set}");
+            };
+            prop_assert_eq!(allow_cpuset, &cpuset);
+        }
+
+        /// Test AllowSet construction from NodeSet
+        #[test]
+        fn allowset_from_nodeset(nodeset: NodeSet) {
+            let allow_set = AllowSet::from(&nodeset);
+            let AllowSet::Custom { cpuset: None, nodeset: Some(allow_nodeset) } = allow_set else {
+                panic!("Unexpected allow set {allow_set}");
+            };
+            prop_assert_eq!(allow_nodeset, &nodeset);
+        }
+    }
+
     /// Owned version of [`AllowSet`]
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     enum OwnedAllowSet {
@@ -1817,6 +1871,29 @@ mod tests {
     }
 
     proptest! {
+        /// Test display implementation of AllowSet
+        #[test]
+        fn allowset_display(owned_allow_set in any_allow_set()) {
+            let allow_set = owned_allow_set.as_allow_set();
+            let display = allow_set.to_string();
+            match allow_set {
+                AllowSet::All => prop_assert_eq!(display, "All"),
+                AllowSet::LocalRestrictions => prop_assert_eq!(display, "LocalRestrictions"),
+                AllowSet::Custom { cpuset: Some(cset), nodeset: Some(nset) } => {
+                    prop_assert_eq!(display, format!("Custom({cset}, {nset})"))
+                }
+                AllowSet::Custom { cpuset: Some(cset), nodeset: None } => {
+                    prop_assert_eq!(display, format!("Custom({cset})"))
+                }
+                AllowSet::Custom { cpuset: None, nodeset: Some(nset) } => {
+                    prop_assert_eq!(display, format!("Custom({nset})"))
+                }
+                AllowSet::Custom { cpuset: None, nodeset: None } => {
+                    prop_assert_eq!(display, "Custom()")
+                }
+            }
+        }
+
         /// Test [`TopologyEditor::allow()`]
         #[test]
         fn allow(owned_allow_set in any_allow_set()) {
@@ -1894,6 +1971,42 @@ mod tests {
     }
 
     // --- Grouping objects ---
+
+    /// Check [`GroupChildFilter`]'s debug printout
+    #[test]
+    fn child_filter_debug() {
+        let filter = |_: &TopologyObject| true;
+        assert_eq!(
+            format!("{:?}", GroupChildFilter::normal(filter)),
+            "Normal { .. }"
+        );
+        assert_eq!(
+            format!("{:?}", GroupChildFilter::memory(filter)),
+            "Memory { .. }"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                GroupChildFilter::Mixed {
+                    strict: false,
+                    normal: filter,
+                    memory: filter
+                }
+            ),
+            "Mixed { strict: false, .. }"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                GroupChildFilter::Mixed {
+                    strict: true,
+                    normal: filter,
+                    memory: filter
+                }
+            ),
+            "Mixed { strict: true, .. }"
+        );
+    }
 
     /// Child filtering function, as a trait object
     type DynChildFilter = Box<dyn FnMut(&TopologyObject) -> bool + UnwindSafe>;
@@ -2284,7 +2397,7 @@ mod tests {
         initial_topology: &Topology,
         name: &str,
         parent: &'static TopologyObject,
-    ) -> Result<(), TestCaseError> {
+    ) -> Result<Topology, TestCaseError> {
         // Check if a misc object with this name already exists
         let name_already_exists = initial_topology
             .objects_with_type(ObjectType::Misc)
@@ -2302,7 +2415,7 @@ mod tests {
         let mut topology = initial_topology.clone();
         topology.edit(|editor| {
             let res = editor
-                .insert_misc_object(&name, find_parent_like(Topology::test_instance(), parent));
+                .insert_misc_object(name, find_parent_like(Topology::test_instance(), parent));
 
             // Make sure Misc objects aren't filtered out
             let topology = editor.topology();
@@ -2349,24 +2462,17 @@ mod tests {
                 .any(|child| child.global_persistent_index() == obj.global_persistent_index()));
             Ok(())
         })?;
-        Ok(())
+        Ok(topology)
     }
 
     proptest! {
-        /// ...with normal type filter
+        /// ...with the normal type filter
         #[test]
         fn insert_misc_object(
-            (name1, name2) in (any_string(), any_string()),
+            name in any_string(),
             parent in any_object(),
         ) {
-            // Initial insertion
-            check_insert_misc_object(Topology::test_instance(), &name1, parent)?;
-
-            // Double insertion fails
-            check_insert_misc_object(Topology::test_instance(), &name1, parent)?;
-
-            // Different insertion succeeds
-            check_insert_misc_object(Topology::test_instance(), &name2, parent)?;
+            check_insert_misc_object(Topology::test_instance(), &name, parent)?;
         }
 
         /// ...with a type filter that filters out Misc objects
@@ -2382,6 +2488,26 @@ mod tests {
                     .build().unwrap()
             });
             check_insert_misc_object(initial_topology, &name, parent)?;
+        }
+
+        /// ...twice with the same name, which should error out
+        #[test]
+        fn duplicate(
+            name in any_string(),
+            (parent1, parent2) in (any_object(), any_object()),
+        ) {
+            let topology = check_insert_misc_object(Topology::test_instance(), &name, parent1)?;
+            check_insert_misc_object(&topology, &name, parent2)?;
+        }
+
+        /// ...twice with separate names, which may succeed
+        #[test]
+        fn separate(
+            (name1, name2) in (any_string(), any_string()),
+            (parent1, parent2) in (any_object(), any_object()),
+        ) {
+            let topology = check_insert_misc_object(Topology::test_instance(), &name1, parent1)?;
+            check_insert_misc_object(&topology, &name2, parent2)?;
         }
     }
 }
