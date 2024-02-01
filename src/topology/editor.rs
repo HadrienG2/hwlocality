@@ -2424,6 +2424,7 @@ mod tests {
                     res.unwrap_err(),
                     HybridError::Rust(InsertMiscError::FilteredOut)
                 );
+                assert_eq!(topology, initial_topology);
                 return Ok(());
             }
 
@@ -2433,6 +2434,7 @@ mod tests {
                     res.unwrap_err(),
                     HybridError::Rust(InsertMiscError::NameAlreadyExists)
                 );
+                assert_eq!(topology, initial_topology);
                 return Ok(());
             }
 
@@ -2444,12 +2446,14 @@ mod tests {
                     res.unwrap_err(),
                     HybridError::Rust(InsertMiscError::ForeignParent(parent.into()))
                 );
+                assert_eq!(topology, initial_topology);
                 return Ok(());
             }
 
             // Make sure the object name doesn't contain NUL chars
             if name.chars().any(|c| c == '\0') {
                 prop_assert_eq!(res.unwrap_err(), HybridError::Rust(NulError.into()));
+                assert_eq!(topology, initial_topology);
                 return Ok(());
             }
 
