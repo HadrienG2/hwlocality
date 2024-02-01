@@ -546,7 +546,7 @@ impl<'topology> TopologyEditor<'topology> {
     /// # Errors
     ///
     /// - [`FilteredOut`] if one attempts to create a group in a topology where
-    ///   groups are filtered out using [`TypeFilter::KeepNone`].
+    ///   they are filtered out using [`TypeFilter::KeepNone`].
     /// - [`BadParentType`] if the designated group parent is not a normal
     ///   object.
     /// - [`ForeignParent`] if the designated group parent does not belong to
@@ -582,6 +582,7 @@ impl<'topology> TopologyEditor<'topology> {
         NormalFilter: FnMut(&TopologyObject) -> bool,
         MemoryFilter: FnMut(&TopologyObject) -> bool,
     {
+        // Check type filter
         let group_filter = self
             .topology()
             .type_filter(ObjectType::Group)
@@ -589,6 +590,8 @@ impl<'topology> TopologyEditor<'topology> {
         if group_filter == TypeFilter::KeepNone {
             return Err(InsertGroupError::FilteredOut.into());
         }
+
+        // Create group object
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_parent, child_filter)?;
         group.configure_merging(dont_merge);
@@ -612,14 +615,17 @@ impl<'topology> TopologyEditor<'topology> {
     ///
     /// # Errors
     ///
+    /// - [`FilteredOut`] if one attempts to create a Misc object in a topology
+    ///   where they are filtered out using [`TypeFilter::KeepNone`].
     /// - [`ForeignParent`] if the parent `&TopologyObject` returned by
     ///   `find_parent` does not belong to this [`Topology`].
     /// - [`NameContainsNul`] if `name` contains NUL chars.
-    /// - An unspecified [`RawHwlocError`] if Misc objects are filtered out of
-    ///   the topology via [`TypeFilter::KeepNone`].
+    /// - [`NameAlreadyExists`] if a Misc object called `name` already exists.
     ///
+    /// [`FilteredOut`]: InsertMiscError::FilteredOut
     /// [`ForeignParent`]: InsertMiscError::ForeignParent
     /// [`Misc`]: ObjectType::Misc
+    /// [`NameAlreadyExists`]: InsertMiscError::NameAlreadyExists
     /// [`NameContainsNul`]: InsertMiscError::NameContainsNul
     #[doc(alias = "hwloc_topology_insert_misc_object")]
     pub fn insert_misc_object(
@@ -672,9 +678,30 @@ impl<'topology> TopologyEditor<'topology> {
             Ok(unsafe { ptr.as_mut().as_newtype() })
         }
 
+        // Check type filter
+        let topology = self.topology();
+        let group_filter = topology
+            .type_filter(ObjectType::Misc)
+            .map_err(HybridError::Hwloc)?;
+        if group_filter == TypeFilter::KeepNone {
+            return Err(InsertMiscError::FilteredOut.into());
+        }
+
+        // Make sure no Misc object with this name exists
+        if topology.objects_with_type(ObjectType::Misc).any(|obj| {
+            let Some(obj_name) = obj.name() else {
+                return false;
+            };
+            let Ok(obj_name) = obj_name.to_str() else {
+                return false;
+            };
+            obj_name == name
+        }) {
+            return Err(InsertMiscError::NameAlreadyExists.into());
+        }
+
         // Find parent object
         let parent: NonNull<TopologyObject> = {
-            let topology = self.topology();
             let parent = find_parent(topology);
             if !topology.contains(parent) {
                 return Err(InsertMiscError::ForeignParent(parent.into()).into());
@@ -1091,7 +1118,7 @@ pub enum InsertGroupError {
     ///
     /// This happens when the type filter for [`ObjectType::Group`] is set to
     /// [`TypeFilter::KeepNone`].
-    #[error("can't create group objects when group type filter is KeepNone")]
+    #[error("can't create Group objects when their type filter is KeepNone")]
     FilteredOut,
 
     /// Specified parent is not a normal object
@@ -1413,6 +1440,14 @@ pub enum InsertedGroup<'topology> {
 /// Error returned by [`TopologyEditor::insert_misc_object()`]
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum InsertMiscError {
+    /// Attempted to create a Misc object in a topology where they are filtered
+    /// out
+    ///
+    /// This happens when the type filter for [`ObjectType::Misc`] is set to
+    /// [`TypeFilter::KeepNone`].
+    #[error("can't create Misc objects when their type filter is KeepNone")]
+    FilteredOut,
+
     /// Specified parent does not belong to this topology
     #[error("Misc object parent {0}")]
     ForeignParent(#[from] ForeignObjectError),
@@ -1420,6 +1455,10 @@ pub enum InsertMiscError {
     /// Object name contains NUL chars, which hwloc can't handle
     #[error("Misc object name can't contain NUL chars")]
     NameContainsNul,
+
+    /// Object name is already present in the topology
+    #[error("Requested Misc object name already exists in the topology")]
+    NameAlreadyExists,
 }
 //
 impl From<NulError> for InsertMiscError {
@@ -2240,5 +2279,112 @@ mod tests {
 
     // --- Misc objects ---
 
-    // TODO: Test insert_misc_object()
+    /// General test of misc object insertion
+    fn check_insert_misc_object(
+        initial_topology: &Topology,
+        name: &str,
+        parent: &'static TopologyObject,
+    ) -> Result<(), TestCaseError> {
+        // Check if a misc object with this name already exists
+        let name_already_exists = initial_topology
+            .objects_with_type(ObjectType::Misc)
+            .any(|obj| {
+                let Some(obj_name) = obj.name() else {
+                    return false;
+                };
+                let Ok(obj_name) = obj_name.to_str() else {
+                    return false;
+                };
+                obj_name == name
+            });
+
+        // Attempt to insert a misc object
+        let mut topology = initial_topology.clone();
+        topology.edit(|editor| {
+            let res = editor
+                .insert_misc_object(&name, find_parent_like(Topology::test_instance(), parent));
+
+            // Make sure Misc objects aren't filtered out
+            let topology = editor.topology();
+            if topology.type_filter(ObjectType::Misc).unwrap() == TypeFilter::KeepNone {
+                prop_assert_eq!(
+                    res.unwrap_err(),
+                    HybridError::Rust(InsertMiscError::FilteredOut)
+                );
+                return Ok(());
+            }
+
+            // Make sure no object with this name already exists
+            if name_already_exists {
+                prop_assert_eq!(
+                    res.unwrap_err(),
+                    HybridError::Rust(InsertMiscError::NameAlreadyExists)
+                );
+                return Ok(());
+            }
+
+            // Make sure the parent does belong to this topology
+            let mut find_parent = find_parent_like(Topology::test_instance(), parent);
+            let parent = find_parent(topology);
+            if !topology.contains(parent) {
+                prop_assert_eq!(
+                    res.unwrap_err(),
+                    HybridError::Rust(InsertMiscError::ForeignParent(parent.into()))
+                );
+                return Ok(());
+            }
+
+            // Make sure the object name doesn't contain NUL chars
+            if name.chars().any(|c| c == '\0') {
+                prop_assert_eq!(
+                    res.unwrap_err(),
+                    HybridError::Rust(InsertMiscError::NameContainsNul)
+                );
+                return Ok(());
+            }
+
+            // If all of the above passed, creation should succeed
+            let obj = res.unwrap();
+            prop_assert_eq!(obj.object_type(), ObjectType::Misc);
+            prop_assert_eq!(obj.name().unwrap().to_str().unwrap(), name);
+            prop_assert!(parent
+                .misc_children()
+                .any(|child| child.global_persistent_index() == obj.global_persistent_index()));
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    proptest! {
+        /// ...with normal type filter
+        #[test]
+        fn insert_misc_object(
+            names: [String; 2],
+            parent in any_object(),
+        ) {
+            // Initial insertion
+            check_insert_misc_object(Topology::test_instance(), &names[0], parent)?;
+
+            // Double insertion failure
+            check_insert_misc_object(Topology::test_instance(), &names[0], parent)?;
+
+            // Different insertion success
+            check_insert_misc_object(Topology::test_instance(), &names[1], parent)?;
+        }
+
+        /// ...with a type filter that filters out Misc objects
+        #[test]
+        fn ignored_misc_insertion(
+            name: String,
+            parent in any_object(),
+        ) {
+            static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
+            let initial_topology = INITIAL_TOPOLOGY.get_or_init(|| {
+                Topology::builder()
+                    .with_type_filter(ObjectType::Misc, TypeFilter::KeepNone).unwrap()
+                    .build().unwrap()
+            });
+            check_insert_misc_object(initial_topology, &name, parent)?;
+        }
+    }
 }
