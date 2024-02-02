@@ -33,9 +33,14 @@ env:
 jobs:
   # Workaround for github CI dropping env var expansion in matrix strategy
   matrix_vars:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
+
     runs-on: ubuntu-latest
+
     outputs:
       MINIMAL_RUST: ${{ env.MINIMAL_RUST }}
+      
     steps:
       - name: Forward env var to output
         run: echo "MINIMAL_RUST=${{ env.MINIMAL_RUST }}" >> $GITHUB_OUTPUT
