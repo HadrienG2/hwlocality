@@ -146,7 +146,8 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 3
 
     // Download hwloc tarball
     eprintln!("Downloading hwloc v{version} from URL {url}...");
-    let tar_gz = reqwest::blocking::get(url)
+    let tar_gz = attohttpc::get(url)
+        .send()
         .expect("failed to GET hwloc source")
         .bytes()
         .expect("failed to parse hwloc source HTTP body");
