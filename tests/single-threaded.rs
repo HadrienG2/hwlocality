@@ -52,6 +52,8 @@ fn single_threaded_test() {
     // TODO: Add other ST tests here
 }
 
+// WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
+
 /// Check that `Topology::bind_cpu()` works as expected for certain inputs
 fn test_bind_cpu(
     topology: &Topology,

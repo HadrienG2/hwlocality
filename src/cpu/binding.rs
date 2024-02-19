@@ -17,12 +17,13 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
+use errno::Errno;
 use hwlocality_sys::{
     hwloc_const_cpuset_t, hwloc_const_topology_t, hwloc_cpubind_flags_t, hwloc_cpuset_t,
     hwloc_pid_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
     HWLOC_CPUBIND_THREAD,
 };
-use libc::{ENOSYS, EXDEV};
+use libc::{EINVAL, ENOSYS, EXDEV};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -536,13 +537,19 @@ impl Topology {
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
             return Err(CpuBindingError::from(flags).into());
         };
-        call_hwloc(api, target, Some(set), || {
+        let result = call_hwloc(api, target, Some(set), || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - flags should be valid if target is valid
             ffi(self.as_ptr(), set.as_ptr(), flags.bits())
-        })
+        });
+        if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = result {
+            if (errno == Some(Errno(EINVAL)) || errno.is_none()) && !self.cpuset().includes(set) {
+                return Err(CpuBindingError::BadCpuSet(set.clone()).into());
+            }
+        }
+        result
     }
 
     /// Binding for `hwloc_get_cpubind`-like functions
@@ -923,4 +930,14 @@ pub(crate) fn call_hwloc(
         }
     }
     translate_result(object, cpuset, errors::call_hwloc_int_normal(api, ffi))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name() {
+        unimplemented!();
+    }
 }
