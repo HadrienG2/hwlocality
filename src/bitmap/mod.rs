@@ -1180,10 +1180,10 @@ impl Arbitrary for Bitmap {
     type Strategy = prop::strategy::Map<
         (
             prop::strategy::TupleUnion<(
+                prop::strategy::WA<Just<HashSet<BitmapIndex>>>,
                 prop::strategy::WA<
                     prop::collection::HashSetStrategy<crate::strategies::BitmapIndexStrategy>,
                 >,
-                prop::strategy::WA<Just<HashSet<BitmapIndex>>>,
             )>,
             prop::bool::Any,
         ),
@@ -1194,10 +1194,10 @@ impl Arbitrary for Bitmap {
         use crate::strategies::bitmap_index;
         use prop::collection::SizeRange;
         let index_set = prop_oneof![
-            4 => prop::collection::hash_set(bitmap_index(), SizeRange::default()),
             // Bias towards generating more empty/full bitmaps, there are an
             // edge case of many algorithms
             1 => Just(HashSet::new()),
+            4 => prop::collection::hash_set(bitmap_index(), SizeRange::default()),
         ];
         (index_set, prop::bool::ANY).prop_map(|(set_indices, invert)| {
             // Start with an arbitrary finite bitmap

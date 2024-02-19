@@ -42,9 +42,9 @@ use thiserror::Error;
 /// which support flags they require.
 ///
 /// By default, when the requested binding operation is not available, hwloc
-/// will go for a similar binding operation (with side-effects, smaller
-/// binding set, etc). You can inhibit this with flag [`STRICT`], at the
-/// expense of reducing portability across operating systems.
+/// will go for a similar binding operation (with side-effects, smaller binding
+/// set, etc). You can inhibit this with the [`STRICT`] flag, at the expense of
+/// reducing portability across operating systems.
 ///
 /// [`STRICT`]: CpuBindingFlags::STRICT
 //
@@ -62,7 +62,8 @@ impl Topology {
     /// call [`singlify()`] on the target CPU set before passing it to the
     /// binding method to avoid these expensive migrations.
     ///
-    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`. The target
+    /// cpuset should be a non-empty subset of the topology's cpuset.
     ///
     /// To unbind, just call the binding method with either a full cpuset or a
     /// cpuset equal to the system cpuset.
@@ -72,7 +73,7 @@ impl Topology {
     /// decreasing portability) when using this method.
     ///
     /// On some operating systems, CPU binding may have effects on memory
-    /// binding, you can forbid this with flag [`NO_MEMORY_BINDING`].
+    /// binding. You can forbid this with flag [`NO_MEMORY_BINDING`].
     ///
     /// Running `lstopo --top` or `hwloc-ps` can be a very convenient tool to
     /// check how binding actually happened.
@@ -529,6 +530,9 @@ impl Topology {
         api: &'static str,
         ffi: impl FnOnce(hwloc_const_topology_t, hwloc_const_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
+        if set.is_empty() || !self.complete_cpuset().includes(set) {
+            return Err(CpuBindingError::BadCpuSet(set.clone()).into());
+        }
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
             return Err(CpuBindingError::from(flags).into());
         };
@@ -843,7 +847,16 @@ pub enum CpuBindingError {
     #[error(transparent)]
     BadFlags(#[from] FlagsError<CpuBindingFlags>),
 
-    /// Cannot bind the requested object to the target cpu set
+    /// The target cpuset is invalid
+    ///
+    /// CPU binding commands cannot bind processes to an empty cpuset, or a
+    /// cpuset that contains invalid CPU indices for the present topology.
+    ///
+    /// This error should only be reported when trying to set CPU bindings.
+    #[error("cannot bind anything to {0}")]
+    BadCpuSet(CpuSet),
+
+    /// Cannot bind the requested object to the target cpuset
     ///
     /// Operating systems can have various restrictions here, e.g. can only bind
     /// to one CPU, one NUMA node, etc.
@@ -855,7 +868,7 @@ pub enum CpuBindingError {
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
     #[error("cannot change the CPU binding of {0} to {1}")]
-    BadCpuSet(CpuBoundObject, CpuSet),
+    UnsupportedCpuSet(CpuBoundObject, CpuSet),
 }
 //
 impl From<CpuBindingFlags> for CpuBindingError {
@@ -897,7 +910,7 @@ pub(crate) fn call_hwloc(
                 // Using errno documentation from
                 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
-                EXDEV => Err(CpuBindingError::BadCpuSet(
+                EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
                     object,
                     cpuset
                         .expect("This error should only be observed on commands that bind to CPUs")
