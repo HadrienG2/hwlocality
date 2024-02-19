@@ -931,13 +931,3 @@ pub(crate) fn call_hwloc(
     }
     translate_result(object, cpuset, errors::call_hwloc_int_normal(api, ffi))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn name() {
-        unimplemented!();
-    }
-}
