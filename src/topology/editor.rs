@@ -1508,10 +1508,8 @@ impl From<NulError> for InsertMiscError {
 mod tests {
     use super::*;
     use crate::{
-        bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
         object::{
             depth::{Depth, NormalDepth},
-            types::ObjectType,
             TopologyObjectID,
         },
         strategies::{any_object, any_string, topology_related_set},

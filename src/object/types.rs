@@ -37,10 +37,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use std::{
-    cmp::{Ordering, PartialOrd},
-    ffi::c_int,
-};
+use std::{cmp::Ordering, ffi::c_int};
 
 /// Type of one side (upstream or downstream) of an I/O bridge
 #[derive(
@@ -493,9 +490,7 @@ impl PartialOrd for ObjectType {
 mod tests {
     use super::*;
     use crate::strategies::test_object;
-    use hwlocality_sys::{
-        hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
-    };
+    use hwlocality_sys::{hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t};
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;

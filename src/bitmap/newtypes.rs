@@ -1025,12 +1025,10 @@ mod tests {
     use super::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
+        fmt::{self, Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
-        ops::{Deref, Drop},
+        ops::Deref,
         panic::UnwindSafe,
     };
 

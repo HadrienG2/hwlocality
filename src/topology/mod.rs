@@ -42,7 +42,6 @@ use libc::EINVAL;
 use similar_asserts::assert_eq;
 use std::{
     collections::BTreeMap,
-    convert::TryInto,
     fmt::{self, Debug, Pointer},
     ops::Deref,
     ptr::{self, NonNull},
@@ -1132,15 +1131,12 @@ mod tests {
     use std::{
         collections::BTreeSet,
         error::Error,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
+        fmt::{Binary, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
         num::NonZeroU8,
         ops::{
-            BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref, Not, Sub,
-            SubAssign,
+            BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Sub, SubAssign,
         },
         panic::UnwindSafe,
     };

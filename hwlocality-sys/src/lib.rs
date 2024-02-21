@@ -3349,7 +3349,7 @@ mod tests {
         hash::Hash,
         io::{self, Read},
         ops::{Deref, Drop},
-        panic::{RefUnwindSafe, UnwindSafe},
+        panic::UnwindSafe,
     };
 
     // Opaque types implement almost no trait since the user shouldn't

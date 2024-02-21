@@ -71,11 +71,10 @@ use std::collections::HashSet;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
-    convert::TryFrom,
     ffi::{c_int, c_uint},
     fmt::{self, Debug, Display, Formatter, Pointer},
     hash::{self, Hash},
-    iter::{FromIterator, FusedIterator},
+    iter::FusedIterator,
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Deref, Not,
         RangeBounds, Sub, SubAssign,
@@ -1660,14 +1659,11 @@ pub(crate) mod tests {
         collections::hash_map::RandomState,
         error::Error,
         ffi::c_ulonglong,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-            Write,
-        },
-        hash::{BuildHasher, Hash},
+        fmt::{Binary, LowerExp, LowerHex, Octal, UpperExp, UpperHex, Write},
+        hash::BuildHasher,
         io::{self, Read},
         mem::ManuallyDrop,
-        ops::{Deref, RangeFrom, RangeInclusive},
+        ops::{RangeFrom, RangeInclusive},
         panic::UnwindSafe,
         ptr,
     };
