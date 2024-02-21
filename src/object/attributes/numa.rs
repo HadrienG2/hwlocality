@@ -204,10 +204,8 @@ pub(super) mod tests {
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         collections::hash_map::RandomState,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
-        hash::{BuildHasher, Hash},
+        fmt::{Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
+        hash::BuildHasher,
         io::{self, Read},
         ops::Deref,
         panic::UnwindSafe,

@@ -280,9 +280,7 @@ mod tests {
     use static_assertions::{assert_impl_all, assert_not_impl_any, assert_type_eq_all};
     use std::{
         error::Error,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
+        fmt::{Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
         ops::Deref,

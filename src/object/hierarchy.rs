@@ -742,7 +742,7 @@ pub(crate) mod tests {
     use crate::tests::assert_panics;
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
-    use std::{collections::HashMap, collections::HashSet, ptr, sync::OnceLock};
+    use std::{collections::HashSet, ptr, sync::OnceLock};
 
     /// Check that reported topology depth matches hwloc rule that PUs are the
     /// deepest kind of normal object

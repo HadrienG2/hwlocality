@@ -114,7 +114,7 @@ unsafe impl TransparentNewtype for TextualInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi::{string::LibcString, transparent::AsNewtype};
+    use crate::ffi::transparent::AsNewtype;
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
@@ -122,12 +122,10 @@ mod tests {
     use std::{
         collections::hash_map::RandomState,
         ffi::CString,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
-        hash::{BuildHasher, Hash, Hasher},
+        fmt::{Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
+        hash::{BuildHasher, Hasher},
         io::{self, Read},
-        ops::{Deref, Drop},
+        ops::Deref,
         panic::UnwindSafe,
     };
 

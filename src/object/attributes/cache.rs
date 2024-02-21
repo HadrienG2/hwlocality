@@ -228,20 +228,17 @@ pub(super) mod tests {
                 ObjectAttributes,
             },
             depth::NormalDepth,
-            types::{CacheType, ObjectType},
+            types::ObjectType,
             TopologyObject,
         },
         tests::assert_panics,
     };
-    use hwlocality_sys::{hwloc_cache_attr_s, hwloc_obj_attr_u};
+    use hwlocality_sys::hwloc_obj_attr_u;
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
-        hash::Hash,
+        fmt::{Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         io::{self, Read},
         ops::Deref,
         panic::UnwindSafe,

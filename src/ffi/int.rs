@@ -30,7 +30,6 @@ use std::ops::{Range, RangeFrom, RangeInclusive};
 use std::{
     borrow::Borrow,
     cmp::Ordering,
-    convert::TryFrom,
     ffi::{c_int, c_uint},
     fmt::{self, Debug, Formatter},
     iter::{FusedIterator, Product, Sum},
@@ -3405,8 +3404,7 @@ mod tests {
     use std::{
         collections::hash_map::DefaultHasher,
         error::Error,
-        ffi::c_uint,
-        fmt::{self, Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
+        fmt::{Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::{Hash, Hasher},
         io::{self, Read},
         num::IntErrorKind,

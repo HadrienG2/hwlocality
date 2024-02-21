@@ -1051,9 +1051,7 @@ pub(crate) mod tests {
     use std::{
         collections::HashSet,
         error::Error,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
+        fmt::{Binary, Debug, Display, LowerExp, LowerHex, Octal, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
         ops::{
