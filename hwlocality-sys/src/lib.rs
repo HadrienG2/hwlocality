@@ -244,7 +244,9 @@ struct IncompleteType {
 
 /// Thread identifier (OS-specific)
 ///
-/// This is `HANDLE` on Windows and `libc::pthread_t` on all other platforms.
+/// This is `HANDLE` on Windows and `libc::pthread_t` on most other platforms,
+/// except on musl where it must be hardcoded to `c_ulong` to [preserve
+/// sanity](https://elixir.bootlin.com/musl/v1.2.4/source/include/alltypes.h.in#L53).
 #[cfg(target_os = "windows")]
 #[cfg_attr(docsrs, doc(cfg(all())))]
 pub type hwloc_thread_t = windows_sys::Win32::Foundation::HANDLE;
@@ -258,10 +260,21 @@ pub type hwloc_pid_t = u32;
 
 /// Thread identifier (OS-specific)
 ///
-/// This is `HANDLE` on Windows and `libc::pthread_t` on all other platforms.
-#[cfg(not(target_os = "windows"))]
+/// This is `HANDLE` on Windows and `libc::pthread_t` on most other platforms,
+/// except on musl where it must be hardcoded to `c_ulong` to [preserve
+/// sanity](https://elixir.bootlin.com/musl/v1.2.4/source/include/alltypes.h.in#L53)
+#[cfg(not(any(target_os = "windows", target_env = "musl")))]
 #[cfg_attr(docsrs, doc(cfg(all())))]
 pub type hwloc_thread_t = libc::pthread_t;
+
+/// Thread identifier (OS-specific)
+///
+/// This is `HANDLE` on Windows and `libc::pthread_t` on most other platforms,
+/// except on musl where it must be hardcoded to `c_ulong` to [preserve
+/// sanity](https://elixir.bootlin.com/musl/v1.2.4/source/include/alltypes.h.in#L53)
+#[cfg(target_env = "musl")]
+#[cfg_attr(docsrs, doc(cfg(all())))]
+pub type hwloc_thread_t = c_ulong;
 
 /// Process identifier (OS-specific)
 ///
