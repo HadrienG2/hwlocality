@@ -263,7 +263,18 @@ pub type ThreadId = hwloc_thread_t;
 #[cfg_attr(docsrs, doc(cfg()))]
 pub fn current_thread_id() -> ThreadId {
     // SAFETY: Should be always safe to call
-    unsafe { libc::pthread_self() }
+    let id = unsafe { libc::pthread_self() };
+    #[cfg(target_env = "musl")]
+    {
+        // SAFETY: Musl exposes pthread_t as c_ulong when linked to C++ code
+        //         (see include/alltypes.h.in in the musl source code). If they
+        //         consider this reinterpretation to be fine, we do as well.
+        unsafe { std::mem::transmute::<libc::pthread_t, std::ffi::c_ulong>(id) }
+    }
+    #[cfg(not(target_env = "musl"))]
+    {
+        id
+    }
 }
 //
 /// Get the current thread's identifier through the libc or windows API
