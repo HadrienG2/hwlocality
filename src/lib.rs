@@ -260,7 +260,7 @@ pub type ThreadId = hwloc_thread_t;
 
 /// Get the current thread's identifier through the libc or windows API
 #[cfg(not(target_os = "windows"))]
-#[cfg_attr(docsrs, doc(cfg()))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub fn current_thread_id() -> ThreadId {
     // SAFETY: Should be always safe to call
     let id = unsafe { libc::pthread_self() };
@@ -279,7 +279,7 @@ pub fn current_thread_id() -> ThreadId {
 //
 /// Get the current thread's identifier through the libc or windows API
 #[cfg(target_os = "windows")]
-#[cfg_attr(docsrs, doc(cfg()))]
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub fn current_thread_id() -> ThreadId {
     // SAFETY: Should be always safe to call on Windows
     unsafe { windows_sys::Win32::System::Threading::GetCurrentThread() }
