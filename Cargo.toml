@@ -189,7 +189,7 @@ bitflags = "2.3"
 derive_more = { version = "0.99", default-features = false, features = ["as_mut", "as_ref", "display", "from", "into", "into_iterator", "not"] }
 
 # Used for optional proptest feature and in topology debug output
-enum-iterator = "1.4"
+enum-iterator = "2.0"
 
 # Used to interpret and report hwloc error codes
 errno = "0.3"
