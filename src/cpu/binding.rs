@@ -914,10 +914,13 @@ pub(crate) fn call_hwloc(
                     errno: Some(errno), ..
                 },
             ) => match errno.0 {
-                // Using errno documentation from
+                // Mostly using errno documentation from
                 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
-                EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
+                // ...but on Windows, hwloc forwards the errno from
+                // SetProcessAffinityMask as-is, and it happens to be EINVAL not
+                // EXDEV as announced by the docs...
+                EXDEV | EINVAL => Err(CpuBindingError::UnsupportedCpuSet(
                     object,
                     cpuset
                         .expect("This error should only be observed on commands that bind to CPUs")
