@@ -25,6 +25,8 @@ fn single_threaded_test() {
     // Set up test harness
     let topology = Topology::test_instance();
     let mut runner = TestRunner::default();
+    dbg!(topology.cpuset());
+    dbg!(topology.complete_cpuset());
 
     // Test CPU binding setup for current process
     if topology.supports(
@@ -65,18 +67,26 @@ fn test_bind_cpu(
     let result = topology.bind_cpu(set, flags);
     let set = set2.deref();
 
-    // Make sure set is valid
+    // Make sure set can be valid
     if set.is_empty() || !topology.complete_cpuset().includes(set) {
         prop_assert_eq!(result, Err(CpuBindingError::BadCpuSet(set.clone())));
         return Ok(());
     }
 
-    // Also treat cpusets outside the topology's main cpuset as invalid when
-    // bind_cpu errors out: it is not guaranteed to work with these sets.
+    // Handle invalid cpuset errors
     if let Err(CpuBindingError::BadCpuSet(set2)) = &result {
-        if !topology.cpuset().includes(set) {
-            prop_assert_eq!(set2, set);
+        prop_assert_eq!(set2, set);
+
+        // cpusets outside the topology's main cpuset are likely to be invalid
+        // binding targets, hence failure is expected upon encountering them.
+        //
+        // Non-Linux platforms may also have arbitrary restrictions on what
+        // constitutes a valid CPU binding target. In the case of Windows, this
+        // is known to happen due to this OS' "processor group" notion.
+        if !topology.cpuset().includes(set) || !cfg!(target_os = "linux") {
             return Ok(());
+        } else {
+            return Err(TestCaseError::Fail("Unexpected CpuBindingError".into()));
         }
     }
 
