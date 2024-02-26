@@ -71,6 +71,15 @@ fn test_bind_cpu(
         return Ok(());
     }
 
+    // Also treat cpusets outside the topology's main cpuset as invalid when
+    // bind_cpu errors out: it is not guaranteed to work with these sets.
+    if let Err(CpuBindingError::BadCpuSet(set2)) = &result {
+        if !topology.cpuset().includes(set) {
+            prop_assert_eq!(set2, set);
+            return Ok(());
+        }
+    }
+
     // Make sure flags are valid
     let target_flags =
         CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS;
