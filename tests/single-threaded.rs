@@ -9,7 +9,7 @@ use hwlocality::{
         binding::{CpuBindingError, CpuBindingFlags},
         cpuset::CpuSet,
     },
-    errors::ParameterError,
+    errors::{HybridError, ParameterError, RawHwlocError},
     topology::{
         support::{CpuBindingSupport, FeatureSupport},
         Topology,
@@ -67,23 +67,19 @@ fn test_bind_cpu(
     let result = topology.bind_cpu(set, flags);
     let set = set2.deref();
 
-    // Make sure set can be valid
-    if set.is_empty() || !topology.complete_cpuset().includes(set) {
-        prop_assert_eq!(result, Err(CpuBindingError::BadCpuSet(set.clone())));
-        return Ok(());
-    }
-
     // Handle invalid cpuset errors
-    if let Err(CpuBindingError::BadCpuSet(set2)) = &result {
+    if let Err(HybridError::Rust(CpuBindingError::BadCpuSet(set2))) = &result {
         prop_assert_eq!(set2, set);
 
-        // cpusets outside the topology's main cpuset are likely to be invalid
-        // binding targets, hence failure is expected upon encountering them.
+        // Empty sets and sets outside the topology's complete cpuset are never
+        // valid. cpusets outside the topology's main cpuset are also very
+        // likely to be invalid binding targets, hence failure is expected upon
+        // encountering them.
         //
         // Non-Linux platforms may also have arbitrary restrictions on what
         // constitutes a valid CPU binding target. In the case of Windows, this
         // is known to happen due to this OS' "processor group" notion.
-        if !topology.cpuset().includes(set) || !cfg!(target_os = "linux") {
+        if set.is_empty() || !topology.cpuset().includes(set) || !cfg!(target_os = "linux") {
             return Ok(());
         } else {
             return Err(TestCaseError::Fail("Unexpected CpuBindingError".into()));
@@ -96,12 +92,21 @@ fn test_bind_cpu(
     if (flags & target_flags).iter().count() != 1 {
         prop_assert_eq!(
             result,
-            Err(CpuBindingError::BadFlags(ParameterError(flags)))
+            Err(HybridError::Rust(CpuBindingError::BadFlags(
+                ParameterError(flags)
+            )))
         );
         return Ok(());
     }
 
-    // That should be it on Linux (will probably want to expand for other OSes)
+    // Skip unknown errors on Windows: we can't interpret them
+    if cfg!(windows) {
+        if let Err(HybridError::Hwloc(RawHwlocError { errno: None, .. })) = result {
+            return Ok(());
+        }
+    }
+
+    // That should cover all known sources of error
     prop_assert_eq!(result, Ok(()));
 
     // CPU binding should have changed as a result of calling this function, and

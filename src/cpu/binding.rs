@@ -110,17 +110,17 @@ impl Topology {
         &self,
         set: impl Deref<Target = CpuSet>,
         flags: CpuBindingFlags,
-    ) -> Result<(), CpuBindingError> {
+    ) -> Result<(), HybridError<CpuBindingError>> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &Topology,
             set: &CpuSet,
             flags: CpuBindingFlags,
-        ) -> Result<(), CpuBindingError> {
+        ) -> Result<(), HybridError<CpuBindingError>> {
             // SAFETY: - ThisProgram is the correct target for this operation
             //         - hwloc_set_cpubind is accepted by definition
             //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
-            let res = unsafe {
+            unsafe {
                 self_.bind_cpu_impl(
                     set,
                     flags,
@@ -130,11 +130,6 @@ impl Topology {
                         hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
                     },
                 )
-            };
-            match res {
-                Ok(()) => Ok(()),
-                Err(HybridError::Rust(e)) => Err(e),
-                Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error: {e}"),
             }
         }
         polymorphized(self, &set, flags)
