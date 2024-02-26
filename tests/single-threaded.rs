@@ -25,6 +25,8 @@ fn single_threaded_test() {
     // Set up test harness
     let topology = Topology::test_instance();
     let mut runner = TestRunner::default();
+
+    // Display some debug information about the host to ease interpretation
     dbg!(topology.cpuset());
     dbg!(topology.complete_cpuset());
 
@@ -42,16 +44,25 @@ fn single_threaded_test() {
                 |(cpuset, flags)| {
                     test_bind_cpu(topology, &cpuset, flags)?;
                     let cpuset_ref = BitmapRef::from(&cpuset);
-                    test_bind_cpu(topology, cpuset_ref, flags)?;
-                    Ok(())
+                    test_bind_cpu(topology, cpuset_ref, flags)
                 },
             )
             .unwrap();
     }
 
-    // TODO: Test CPU binding queries for current process
+    // Test CPU binding queries for current process
+    if topology.supports(
+        FeatureSupport::cpu_binding,
+        CpuBindingSupport::get_current_process,
+    ) {
+        runner
+            .run(&any_cpubind_flags(), |flags| {
+                test_cpu_binding(topology, flags)
+            })
+            .unwrap();
+    }
 
-    // TODO: Add other ST tests here
+    // TODO: Add other single-threaded tests here
 }
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
@@ -86,16 +97,8 @@ fn test_bind_cpu(
         }
     }
 
-    // Make sure flags are valid
-    let target_flags =
-        CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS;
-    if (flags & target_flags).iter().count() != 1 {
-        prop_assert_eq!(
-            result,
-            Err(HybridError::Rust(CpuBindingError::BadFlags(
-                ParameterError(flags)
-            )))
-        );
+    // Make sure the target flags are valid
+    if check_bad_target_flags(flags, result.as_ref().err())? {
         return Ok(());
     }
 
@@ -116,14 +119,70 @@ fn test_bind_cpu(
         CpuBindingSupport::get_current_process,
     ) && flags.contains(CpuBindingFlags::STRICT)
     {
-        prop_assert_eq!(topology.cpu_binding(flags & target_flags), Ok(set.clone()));
+        prop_assert_eq!(
+            topology.cpu_binding(flags & target_flags()),
+            Ok(set.clone())
+        );
     }
     Ok(())
 }
 
+/// Check that `Topology::cpu_binding()` works as expected for certain inputs
+fn test_cpu_binding(topology: &Topology, flags: CpuBindingFlags) -> Result<(), TestCaseError> {
+    // Query the thread or process' current cpuset
+    let result = topology.cpu_binding(flags);
+
+    // Make sure the target flags are valid
+    if check_bad_target_flags(flags, result.as_ref().err())? {
+        return Ok(());
+    }
+
+    // Make sure the `NO_MEMORY_BINDING` flag was not specified
+    if flags.contains(CpuBindingFlags::NO_MEMORY_BINDING) {
+        prop_assert_eq!(
+            result,
+            Err(HybridError::Rust(CpuBindingError::BadFlags(flags.into())))
+        );
+        return Ok(());
+    }
+
+    // That should cover all known sources of error
+    let cpuset = result.unwrap();
+
+    // The retrieved cpu binding should at least somewhat make sense
+    prop_assert!(!cpuset.is_empty());
+    prop_assert!(topology.complete_cpuset().includes(&cpuset));
+    Ok(())
+}
+
+/// CPU binding flags which specify whether a thread or process is targeted
+fn target_flags() -> CpuBindingFlags {
+    CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS
+}
+
+/// Check that the "target flags" of CPU binding operations are set correctly or
+/// the error was reported correctly.
+///
+/// Return true if an error was detected, so that the output of the underlying
+/// CPU binding function is not examined further.
+fn check_bad_target_flags(
+    flags: CpuBindingFlags,
+    error: Option<&HybridError<CpuBindingError>>,
+) -> Result<bool, TestCaseError> {
+    let target_flags = target_flags();
+    if (flags & target_flags).iter().count() != 1 {
+        let expected_err = Some(HybridError::Rust(CpuBindingError::BadFlags(
+            ParameterError(flags),
+        )));
+        prop_assert_eq!(error, expected_err.as_ref());
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
-// === The following is copypasted from hwlocality's testing code ===
+// === The following is copypasted from hwlocality's unit testing code ===
 //
 // This is a workaround for the fact that integration tests do not link against
 // the cfg(test) version of the crate and cannot request that the crate be built
