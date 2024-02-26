@@ -180,9 +180,7 @@ pub(super) mod tests {
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
         error::Error,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
+        fmt::{self, Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
         iter::{Product, Sum},

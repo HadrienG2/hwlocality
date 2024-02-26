@@ -149,10 +149,7 @@ mod tests {
     use super::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
-    use std::{
-        ffi::CString,
-        fmt::{self, Debug},
-    };
+    use std::{ffi::CString, fmt::Debug};
 
     #[test]
     fn deref_ptr_like() {

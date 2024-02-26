@@ -593,12 +593,10 @@ pub(super) mod tests {
     use std::{
         collections::hash_map::RandomState,
         error::Error,
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
-        hash::{BuildHasher, Hash},
+        fmt::{Binary, LowerExp, LowerHex, Octal, UpperExp, UpperHex},
+        hash::BuildHasher,
         io::{self, Read},
-        ops::{BitAndAssign, BitOrAssign, BitXorAssign, Deref, Drop, SubAssign},
+        ops::{BitAndAssign, BitOrAssign, BitXorAssign, SubAssign},
         panic::UnwindSafe,
     };
 
