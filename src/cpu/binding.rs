@@ -545,7 +545,16 @@ impl Topology {
             ffi(self.as_ptr(), set.as_ptr(), flags.bits())
         });
         if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = result {
-            if (errno == Some(Errno(EINVAL)) || errno.is_none()) && !self.cpuset().includes(set) {
+            // If an unexpected EINVAL is encountered, consider easy causes:
+            //
+            // - Fishy cpusets which fit into Topology::complete_cpuset() but
+            //   not Topology::cpuset() are likely invalid and reported as such.
+            // - On Windows, hwloc does not translate the EINVAL error code to
+            //   its own EXDEV/ENOSYS convention. Therefore, invalid CPU sets
+            //   are reported using EINVAL, not EXDEV.
+            if (errno == Some(Errno(EINVAL)) || errno.is_none())
+                && (cfg!(windows) || !self.cpuset().includes(set))
+            {
                 return Err(CpuBindingError::BadCpuSet(set.clone()).into());
             }
         }
@@ -914,13 +923,10 @@ pub(crate) fn call_hwloc(
                     errno: Some(errno), ..
                 },
             ) => match errno.0 {
-                // Mostly using errno documentation from
+                // Using errno documentation from
                 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
-                // ...but on Windows, hwloc forwards the errno from
-                // SetProcessAffinityMask as-is, and it happens to be EINVAL not
-                // EXDEV as announced by the docs...
-                EXDEV | EINVAL => Err(CpuBindingError::UnsupportedCpuSet(
+                EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
                     object,
                     cpuset
                         .expect("This error should only be observed on commands that bind to CPUs")
