@@ -550,10 +550,10 @@ impl Topology {
             // - Fishy cpusets which fit into Topology::complete_cpuset() but
             //   not Topology::cpuset() are likely invalid and reported as such.
             // - On Windows, hwloc does not translate the EINVAL error code to
-            //   its own EXDEV/ENOSYS convention. Therefore, invalid CPU sets
-            //   are reported using EINVAL, not EXDEV.
-            if (errno == Some(Errno(EINVAL)) || errno.is_none())
-                && (cfg!(windows) || !self.cpuset().includes(set))
+            //   its own EXDEV/ENOSYS convention. Hence invalid CPU sets are
+            //   reported as ERROR_INVALID_PARAMETER (errno = 87), not EXDEV.
+            if ((errno == Some(Errno(EINVAL)) || errno.is_none()) && !self.cpuset().includes(set))
+                || (cfg!(windows) && errno == Some(Errno(87)))
             {
                 return Err(CpuBindingError::BadCpuSet(set.clone()).into());
             }
