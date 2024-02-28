@@ -17,12 +17,15 @@ use crate::{
 };
 use bitflags::bitflags;
 use derive_more::Display;
+use errno::Errno;
 use hwlocality_sys::{
     hwloc_const_cpuset_t, hwloc_const_topology_t, hwloc_cpubind_flags_t, hwloc_cpuset_t,
     hwloc_pid_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
     HWLOC_CPUBIND_THREAD,
 };
-use libc::{ENOSYS, EXDEV};
+use libc::{EINVAL, ENOSYS, EXDEV};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -42,9 +45,9 @@ use thiserror::Error;
 /// which support flags they require.
 ///
 /// By default, when the requested binding operation is not available, hwloc
-/// will go for a similar binding operation (with side-effects, smaller
-/// binding set, etc). You can inhibit this with flag [`STRICT`], at the
-/// expense of reducing portability across operating systems.
+/// will go for a similar binding operation (with side-effects, smaller binding
+/// set, etc). You can inhibit this with the [`STRICT`] flag, at the expense of
+/// reducing portability across operating systems.
 ///
 /// [`STRICT`]: CpuBindingFlags::STRICT
 //
@@ -62,7 +65,8 @@ impl Topology {
     /// call [`singlify()`] on the target CPU set before passing it to the
     /// binding method to avoid these expensive migrations.
     ///
-    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
+    /// `set` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`. The target
+    /// cpuset should be a non-empty subset of the topology's cpuset.
     ///
     /// To unbind, just call the binding method with either a full cpuset or a
     /// cpuset equal to the system cpuset.
@@ -72,7 +76,7 @@ impl Topology {
     /// decreasing portability) when using this method.
     ///
     /// On some operating systems, CPU binding may have effects on memory
-    /// binding, you can forbid this with flag [`NO_MEMORY_BINDING`].
+    /// binding. You can forbid this with flag [`NO_MEMORY_BINDING`].
     ///
     /// Running `lstopo --top` or `hwloc-ps` can be a very convenient tool to
     /// check how binding actually happened.
@@ -108,17 +112,17 @@ impl Topology {
         &self,
         set: impl Deref<Target = CpuSet>,
         flags: CpuBindingFlags,
-    ) -> Result<(), CpuBindingError> {
+    ) -> Result<(), HybridError<CpuBindingError>> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &Topology,
             set: &CpuSet,
             flags: CpuBindingFlags,
-        ) -> Result<(), CpuBindingError> {
+        ) -> Result<(), HybridError<CpuBindingError>> {
             // SAFETY: - ThisProgram is the correct target for this operation
             //         - hwloc_set_cpubind is accepted by definition
             //         - FFI is guaranteed to be passed valid (topology, cpuset, flags)
-            let res = unsafe {
+            unsafe {
                 self_.bind_cpu_impl(
                     set,
                     flags,
@@ -128,11 +132,6 @@ impl Topology {
                         hwlocality_sys::hwloc_set_cpubind(topology, cpuset, flags)
                     },
                 )
-            };
-            match res {
-                Ok(()) => Ok(()),
-                Err(HybridError::Rust(e)) => Err(e),
-                Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error: {e}"),
             }
         }
         polymorphized(self, &set, flags)
@@ -529,16 +528,34 @@ impl Topology {
         api: &'static str,
         ffi: impl FnOnce(hwloc_const_topology_t, hwloc_const_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
+        if set.is_empty() || !self.complete_cpuset().includes(set) {
+            return Err(CpuBindingError::BadCpuSet(set.clone()).into());
+        }
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
             return Err(CpuBindingError::from(flags).into());
         };
-        call_hwloc(api, target, Some(set), || {
+        let result = call_hwloc(api, target, Some(set), || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - flags should be valid if target is valid
             ffi(self.as_ptr(), set.as_ptr(), flags.bits())
-        })
+        });
+        if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = result {
+            // If an unexpected EINVAL is encountered, consider easy causes:
+            //
+            // - Fishy cpusets which fit into Topology::complete_cpuset() but
+            //   not Topology::cpuset() are likely invalid and reported as such.
+            // - On Windows, hwloc does not translate the EINVAL error code to
+            //   its own EXDEV/ENOSYS convention. Hence invalid CPU sets are
+            //   reported as ERROR_INVALID_PARAMETER (errno = 87), not EXDEV.
+            if ((errno == Some(Errno(EINVAL)) || errno.is_none()) && !self.cpuset().includes(set))
+                || (cfg!(windows) && errno == Some(Errno(87)))
+            {
+                return Err(CpuBindingError::BadCpuSet(set.clone()).into());
+            }
+        }
+        result
     }
 
     /// Binding for `hwloc_get_cpubind`-like functions
@@ -647,6 +664,7 @@ bitflags! {
     /// Please check the documentation of the [cpu binding
     /// method](../../topology/struct.Topology.html#cpu-binding) that you are
     /// calling for more information.
+    #[cfg(not(tarpaulin_include))]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
     pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
@@ -735,8 +753,8 @@ impl CpuBindingFlags {
         target: CpuBoundObject,
         operation: CpuBindingOperation,
     ) -> Option<Self> {
-        // THREAD can only be specified on process binding methods on Linux,
-        // to turn them into thread binding methods.
+        // THREAD can only be specified on process binding methods on Linux, to
+        // turn them into thread binding methods.
         let is_linux_thread_special_case =
             self.contains(Self::THREAD) && matches!(target, CpuBoundObject::ProcessOrThread(_));
         if is_linux_thread_special_case && cfg!(not(target_os = "linux")) {
@@ -763,7 +781,9 @@ impl CpuBindingFlags {
             }
             CpuBindingOperation::SetBinding => {}
             CpuBindingOperation::GetBinding => {
-                if (self.contains(Self::STRICT) && matches!(target, CpuBoundObject::Thread(_)))
+                if (self.contains(Self::STRICT)
+                    && (matches!(target, CpuBoundObject::Thread(_))
+                        || self.intersects(Self::THREAD)))
                     || self.contains(Self::NO_MEMORY_BINDING)
                 {
                     return None;
@@ -792,11 +812,33 @@ pub enum CpuBoundObject {
     ThisProgram,
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for CpuBoundObject {
+    type Parameters = ();
+    type Strategy = prop::strategy::TupleUnion<(
+        prop::strategy::WA<Just<Self>>,
+        prop::strategy::WA<
+            prop::strategy::Map<<ThreadId as Arbitrary>::Strategy, fn(ThreadId) -> Self>,
+        >,
+        prop::strategy::WA<
+            prop::strategy::Map<<ProcessId as Arbitrary>::Strategy, fn(ProcessId) -> Self>,
+        >,
+    )>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            1 => Just(Self::ThisProgram),
+            2 => any::<ThreadId>().prop_map(Self::Thread),
+            2 => any::<ProcessId>().prop_map(Self::ProcessOrThread),
+        ]
+    }
+}
+//
 impl Display for CpuBoundObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
             Self::ProcessOrThread(id) => {
-                if cfg!(linux) {
+                if cfg!(target_os = "linux") {
                     format!("the process/thread with ID {id}")
                 } else {
                     format!("the process with PID {id}")
@@ -843,7 +885,16 @@ pub enum CpuBindingError {
     #[error(transparent)]
     BadFlags(#[from] FlagsError<CpuBindingFlags>),
 
-    /// Cannot bind the requested object to the target cpu set
+    /// The target cpuset is invalid
+    ///
+    /// CPU binding commands cannot bind processes to an empty cpuset, or a
+    /// cpuset that contains invalid CPU indices for the present topology.
+    ///
+    /// This error should only be reported when trying to set CPU bindings.
+    #[error("cannot bind anything to {0}")]
+    BadCpuSet(CpuSet),
+
+    /// Cannot bind the requested object to the target cpuset
     ///
     /// Operating systems can have various restrictions here, e.g. can only bind
     /// to one CPU, one NUMA node, etc.
@@ -855,7 +906,7 @@ pub enum CpuBindingError {
     /// different operation (with side-effects, smaller binding set, etc.) when
     /// the requested operation is not exactly supported.
     #[error("cannot change the CPU binding of {0} to {1}")]
-    BadCpuSet(CpuBoundObject, CpuSet),
+    UnsupportedCpuSet(CpuBoundObject, CpuSet),
 }
 //
 impl From<CpuBindingFlags> for CpuBindingError {
@@ -897,7 +948,7 @@ pub(crate) fn call_hwloc(
                 // Using errno documentation from
                 // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
-                EXDEV => Err(CpuBindingError::BadCpuSet(
+                EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
                     object,
                     cpuset
                         .expect("This error should only be observed on commands that bind to CPUs")
@@ -910,4 +961,47 @@ pub(crate) fn call_hwloc(
         }
     }
     translate_result(object, cpuset, errors::call_hwloc_int_normal(api, ffi))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused)]
+    #[cfg(test)]
+    use similar_asserts::assert_eq;
+
+    // Most of the functionality in this module must be tested in the
+    // single_threaded integration test because of ASSUME_SINGLE_THREAD, but
+    // some things can be tested here.
+
+    proptest! {
+        #[test]
+        fn display_cpu_bound_object(object: CpuBoundObject) {
+            let display = object.to_string();
+            match object {
+                CpuBoundObject::ThisProgram => {
+                    prop_assert!(display.contains("current"));
+                    prop_assert!(display.contains("process"));
+                    prop_assert!(display.contains("thread"));
+                }
+                CpuBoundObject::Thread(tid) => {
+                    let tid = tid.to_string();
+                    prop_assert!(display.contains(&tid));
+                    prop_assert!(!display.contains("process"));
+                    prop_assert!(display.contains("thread"));
+                }
+                CpuBoundObject::ProcessOrThread(id) => {
+                    let id = id.to_string();
+                    prop_assert!(display.contains(&id));
+                    prop_assert!(display.contains("process"));
+                    prop_assert!(!cfg!(target_os = "linux") ^ display.contains("thread"));
+                }
+            }
+        }
+
+        #[test]
+        fn cpu_bound_object_to_error(object: CpuBoundObject) {
+            prop_assert_eq!(CpuBindingError::from(object), CpuBindingError::BadObject(object));
+        }
+    }
 }

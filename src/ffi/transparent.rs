@@ -270,23 +270,29 @@ mod tests {
         }
     }
 
+    // SAFETY: This is actually unsafe, don't do this!
+    //
+    // The only purpose of this impl is to test the last-resort safety nets.
+    unsafe impl TransparentNewtype for () {
+        type Inner = u8;
+    }
+    //
+    // SAFETY: This is actually unsafe, don't do this!
+    //
+    // The only purpose of this impl is to test the last-resort safety nets.
+    unsafe impl TransparentNewtype for u16 {
+        type Inner = [u8; 2];
+    }
+
     #[test]
     #[should_panic]
     fn bad_transparent_newtype_size() {
-        // SAFETY: This is actually unsafe, don't do this!
-        unsafe impl TransparentNewtype for () {
-            type Inner = u8;
-        }
         <()>::check_basic_layout();
     }
 
     #[test]
     #[should_panic]
     fn bad_transparent_newtype_alignment() {
-        // SAFETY: This is actually unsafe, don't do this!
-        unsafe impl TransparentNewtype for u16 {
-            type Inner = [u8; 2];
-        }
         u16::check_basic_layout();
     }
 }
