@@ -6,58 +6,127 @@
 use hwlocality::{
     bitmap::{Bitmap, BitmapIndex, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::{
-        binding::{CpuBindingError, CpuBindingFlags},
+        binding::{CpuBindingError, CpuBindingFlags, CpuBoundObject},
         cpuset::CpuSet,
     },
     errors::{HybridError, ParameterError, RawHwlocError},
-    topology::{
-        support::{CpuBindingSupport, FeatureSupport},
-        Topology,
-    },
+    topology::Topology,
 };
 use proptest::{prelude::*, test_runner::TestRunner};
-use std::{collections::HashSet, ffi::c_uint, ops::Deref};
+use std::{collections::HashSet, ffi::c_uint, fmt::Debug, ops::Deref};
+
+/// Check that some FnMut that takes `impl Deref<Target = XyzSet>` works with
+/// both `&XyzSet` and `BitmapRef<'_, XyzSet>`.
+macro_rules! test_deref_set {
+    ($fn_mut_of_deref_set:expr, $topology:expr, $set:expr $(, $other_args:expr)*) => {{
+        $fn_mut_of_deref_set($topology, &$set $(, $other_args)*)?;
+        let set_ref = BitmapRef::from(&$set);
+        $fn_mut_of_deref_set($topology, set_ref $(, $other_args)*)
+    }};
+}
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
 #[test]
 fn single_threaded_test() {
     // Set up test harness
+    tracing_subscriber::fmt::init();
     let topology = Topology::test_instance();
-    let mut runner = TestRunner::default();
+    let my_pid = std::process::id();
+    let my_tid = hwlocality::current_thread_id();
 
     // Display some debug information about the host to ease interpretation
+    dbg!(topology.feature_support());
     dbg!(topology.cpuset());
     dbg!(topology.complete_cpuset());
 
-    // Test CPU binding setup for current process
-    if topology.supports(
-        FeatureSupport::cpu_binding,
-        CpuBindingSupport::set_current_process,
-    ) {
-        runner
+    // Test CPU binding operations for current process
+    if let Some(cpubind_support) = topology.feature_support().cpu_binding() {
+        // Setting CPU bindings
+        TestRunner::default()
             .run(
                 &(
                     topology_related_set(Topology::complete_cpuset),
                     any_cpubind_flags(),
                 ),
                 |(cpuset, flags)| {
-                    test_bind_cpu(topology, &cpuset, flags)?;
-                    let cpuset_ref = BitmapRef::from(&cpuset);
-                    test_bind_cpu(topology, cpuset_ref, flags)
+                    let target_flags = flags & target_flags();
+                    let curr_proc = cpubind_support.set_current_process();
+                    let curr_thr = cpubind_support.set_current_thread();
+                    let can_set_self = match target_flags {
+                        CpuBindingFlags::PROCESS => curr_proc,
+                        CpuBindingFlags::THREAD => curr_thr,
+                        CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
+                        _ => true, // Doesn't matter, will fail flag validation
+                    };
+                    if can_set_self {
+                        test_deref_set!(
+                            test_bind_cpu,
+                            topology,
+                            cpuset,
+                            flags,
+                            CpuBoundObject::ThisProgram
+                        )?;
+                    }
+                    if cpubind_support.set_process() {
+                        test_deref_set!(
+                            test_bind_cpu,
+                            topology,
+                            cpuset,
+                            flags,
+                            CpuBoundObject::ProcessOrThread(my_pid)
+                        )?;
+                    }
+                    if cpubind_support.set_thread() {
+                        test_deref_set!(
+                            test_bind_cpu,
+                            topology,
+                            cpuset,
+                            flags,
+                            CpuBoundObject::Thread(my_tid)
+                        )?;
+                    }
+                    Ok(())
                 },
             )
             .unwrap();
-    }
 
-    // Test CPU binding queries for current process
-    if topology.supports(
-        FeatureSupport::cpu_binding,
-        CpuBindingSupport::get_current_process,
-    ) {
-        runner
+        // Querying CPU bindings
+        TestRunner::default()
             .run(&any_cpubind_flags(), |flags| {
-                test_cpu_binding(topology, flags)
+                let target_flags = flags & target_flags();
+                let can_get_self = |curr_proc, curr_thr| match target_flags {
+                    CpuBindingFlags::PROCESS => curr_proc,
+                    CpuBindingFlags::THREAD => curr_thr,
+                    CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
+                    _ => true, // Doesn't matter, will fail flag validation
+                };
+                if can_get_self(
+                    cpubind_support.get_current_process(),
+                    cpubind_support.get_current_thread(),
+                ) {
+                    test_cpu_binding(topology, flags, CpuBoundObject::ThisProgram)?;
+                }
+                if cpubind_support.get_process() {
+                    test_cpu_binding(topology, flags, CpuBoundObject::ProcessOrThread(my_pid))?;
+                }
+                if cpubind_support.set_thread() {
+                    test_cpu_binding(topology, flags, CpuBoundObject::Thread(my_tid))?;
+                }
+                if can_get_self(
+                    cpubind_support.get_current_process_last_cpu_location(),
+                    cpubind_support.get_current_thread_last_cpu_location(),
+                ) {
+                    test_last_cpu_location(topology, flags, CpuBoundObject::ThisProgram)?;
+                }
+                if cpubind_support.get_process_last_cpu_location() {
+                    test_last_cpu_location(
+                        topology,
+                        flags,
+                        CpuBoundObject::ProcessOrThread(my_pid),
+                    )?;
+                }
+                Ok(())
             })
             .unwrap();
     }
@@ -67,15 +136,23 @@ fn single_threaded_test() {
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
-/// Check that `Topology::bind_cpu()` works as expected for certain inputs
+/// Target for CPU binding operations
+
+/// Check that methods that set CPU bindings work as expected for some inputs
+#[tracing::instrument(skip(topology))]
 fn test_bind_cpu(
     topology: &Topology,
-    set: impl Deref<Target = CpuSet> + Copy,
+    set: impl Deref<Target = CpuSet> + Copy + Debug,
     flags: CpuBindingFlags,
+    target: CpuBoundObject,
 ) -> Result<(), TestCaseError> {
     // Run the CPU binding function
     let set2 = set;
-    let result = topology.bind_cpu(set, flags);
+    let result = match target {
+        CpuBoundObject::ThisProgram => topology.bind_cpu(set, flags),
+        CpuBoundObject::ProcessOrThread(pid) => topology.bind_process_cpu(pid, set, flags),
+        CpuBoundObject::Thread(pid) => topology.bind_thread_cpu(pid, set, flags),
+    };
     let set = set2.deref();
 
     // Handle invalid cpuset errors
@@ -98,7 +175,7 @@ fn test_bind_cpu(
     }
 
     // Make sure the target flags are valid
-    if check_bad_target_flags(flags, result.as_ref().err())? {
+    if check_bad_target_flags(target, flags, result.as_ref().err())? {
         return Ok(());
     }
 
@@ -110,30 +187,95 @@ fn test_bind_cpu(
     }
 
     // That should cover all known sources of error
-    prop_assert_eq!(result, Ok(()));
+    if let Err(e) = result {
+        tracing::error!("Got unexpected CPU binding setup error: {e}");
+        return Err(TestCaseError::fail(format!("{e}")));
+    }
 
     // CPU binding should have changed as a result of calling this function, and
     // in strict mode we know what it should have changed into.
-    if topology.supports(
-        FeatureSupport::cpu_binding,
-        CpuBindingSupport::get_current_process,
-    ) && flags.contains(CpuBindingFlags::STRICT)
-    {
-        prop_assert_eq!(
-            topology.cpu_binding(flags & target_flags()),
-            Ok(set.clone())
-        );
+    if flags.contains(CpuBindingFlags::STRICT) {
+        let target_flags = flags & target_flags();
+        let expected_binding = Ok(set.clone());
+        // Here I'm taking the shortcut of assuming that if we can set CPU
+        // bindings for a certain target, we can also query them. Introduce more
+        // rigorous feature support checks if we find an OS where this is wrong.
+        let actual_binding = match target {
+            CpuBoundObject::ThisProgram => topology.cpu_binding(target_flags),
+            CpuBoundObject::ProcessOrThread(pid) => topology.process_cpu_binding(pid, target_flags),
+            CpuBoundObject::Thread(tid) => topology.thread_cpu_binding(tid, target_flags),
+        };
+        prop_assert_eq!(expected_binding, actual_binding);
     }
     Ok(())
 }
 
-/// Check that `Topology::cpu_binding()` works as expected for certain inputs
-fn test_cpu_binding(topology: &Topology, flags: CpuBindingFlags) -> Result<(), TestCaseError> {
-    // Query the thread or process' current cpuset
-    let result = topology.cpu_binding(flags);
+/// Check that methods that get CPU bindings work as expected for some inputs
+#[tracing::instrument(skip(topology))]
+fn test_cpu_binding(
+    topology: &Topology,
+    flags: CpuBindingFlags,
+    target: CpuBoundObject,
+) -> Result<(), TestCaseError> {
+    // Query the thread or process' current CPU affinity
+    let result = match target {
+        CpuBoundObject::ThisProgram => topology.cpu_binding(flags),
+        CpuBoundObject::ProcessOrThread(pid) => topology.process_cpu_binding(pid, flags),
+        CpuBoundObject::Thread(tid) => topology.thread_cpu_binding(tid, flags),
+    };
 
+    // Make sure the `STRICT` flag is not specified when querying threads
+    if flags.contains(CpuBindingFlags::STRICT)
+        && (matches!(target, CpuBoundObject::Thread(_)) || flags.contains(CpuBindingFlags::THREAD))
+    {
+        prop_assert_eq!(
+            result,
+            Err(HybridError::Rust(CpuBindingError::BadFlags(flags.into())))
+        );
+        return Ok(());
+    }
+
+    // Common code path with CPU location check
+    check_cpubind_query_result(result, topology, flags, target)
+}
+
+/// Check that methods that get CPU locations work as expected for some inputs
+#[tracing::instrument(skip(topology))]
+fn test_last_cpu_location(
+    topology: &Topology,
+    flags: CpuBindingFlags,
+    target: CpuBoundObject,
+) -> Result<(), TestCaseError> {
+    // Query the thread or process' current CPU location
+    let result = match target {
+        CpuBoundObject::ThisProgram => topology.last_cpu_location(flags),
+        CpuBoundObject::ProcessOrThread(pid) => topology.last_process_cpu_location(pid, flags),
+        CpuBoundObject::Thread(_) => panic!("Not currently supported by hwloc"),
+    };
+
+    // Make sure the `STRICT` flag was not specified
+    if flags.contains(CpuBindingFlags::STRICT) {
+        prop_assert_eq!(
+            result,
+            Err(HybridError::Rust(CpuBindingError::BadFlags(flags.into())))
+        );
+        return Ok(());
+    }
+
+    // Common code path with CPU affinity check
+    check_cpubind_query_result(result, topology, flags, target)
+}
+
+/// Check the result of a CPU binding or CPU location query
+#[tracing::instrument(skip(topology))]
+fn check_cpubind_query_result(
+    result: Result<CpuSet, HybridError<CpuBindingError>>,
+    topology: &Topology,
+    flags: CpuBindingFlags,
+    target: CpuBoundObject,
+) -> Result<(), TestCaseError> {
     // Make sure the target flags are valid
-    if check_bad_target_flags(flags, result.as_ref().err())? {
+    if check_bad_target_flags(target, flags, result.as_ref().err())? {
         return Ok(());
     }
 
@@ -147,7 +289,13 @@ fn test_cpu_binding(topology: &Topology, flags: CpuBindingFlags) -> Result<(), T
     }
 
     // That should cover all known sources of error
-    let cpuset = result.unwrap();
+    let cpuset = match result {
+        Ok(cpuset) => cpuset,
+        Err(e) => {
+            tracing::error!("Got unexpected CPU binding query error: {e}");
+            return Err(TestCaseError::fail(format!("{e}")));
+        }
+    };
 
     // The retrieved cpu binding should at least somewhat make sense
     prop_assert!(!cpuset.is_empty());
@@ -160,21 +308,39 @@ fn target_flags() -> CpuBindingFlags {
     CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS
 }
 
-/// Check that the "target flags" of CPU binding operations are set correctly or
-/// the error was reported correctly.
+/// Check that either the "target flags" of CPU binding operations are used
+/// correctly correctly or errors are reported correctly.
 ///
 /// Return true if an error was detected, so that the output of the underlying
 /// CPU binding function is not examined further.
+#[tracing::instrument]
 fn check_bad_target_flags(
+    target: CpuBoundObject,
     flags: CpuBindingFlags,
     error: Option<&HybridError<CpuBindingError>>,
 ) -> Result<bool, TestCaseError> {
-    let target_flags = target_flags();
-    if (flags & target_flags).iter().count() != 1 {
-        let expected_err = Some(HybridError::Rust(CpuBindingError::BadFlags(
-            ParameterError(flags),
-        )));
-        prop_assert_eq!(error, expected_err.as_ref());
+    // We are only concerned with flags that specify the target
+    let target_flags = flags & target_flags();
+
+    // If flags validation fails, we should get this error
+    let expected_err = Some(HybridError::Rust(CpuBindingError::BadFlags(
+        ParameterError(flags),
+    )));
+    let expected_err = expected_err.as_ref();
+
+    // Handle Linux edge case where THREAD can be used on processes
+    let is_linux_special_case = target_flags.contains(CpuBindingFlags::THREAD)
+        && matches!(target, CpuBoundObject::ProcessOrThread(_));
+    if is_linux_special_case && cfg!(not(target_os = "linux")) {
+        prop_assert_eq!(error, expected_err);
+        return Ok(true);
+    }
+
+    // Check that the number of target flags is right
+    if (flags & target_flags).iter().count()
+        != ((target == CpuBoundObject::ThisProgram) || is_linux_special_case) as usize
+    {
+        prop_assert_eq!(error, expected_err);
         return Ok(true);
     }
     Ok(false)

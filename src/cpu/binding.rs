@@ -750,8 +750,8 @@ impl CpuBindingFlags {
         target: CpuBoundObject,
         operation: CpuBindingOperation,
     ) -> Option<Self> {
-        // THREAD can only be specified on process binding methods on Linux,
-        // to turn them into thread binding methods.
+        // THREAD can only be specified on process binding methods on Linux, to
+        // turn them into thread binding methods.
         let is_linux_thread_special_case =
             self.contains(Self::THREAD) && matches!(target, CpuBoundObject::ProcessOrThread(_));
         if is_linux_thread_special_case && cfg!(not(target_os = "linux")) {
@@ -778,7 +778,9 @@ impl CpuBindingFlags {
             }
             CpuBindingOperation::SetBinding => {}
             CpuBindingOperation::GetBinding => {
-                if (self.contains(Self::STRICT) && matches!(target, CpuBoundObject::Thread(_)))
+                if (self.contains(Self::STRICT)
+                    && (matches!(target, CpuBoundObject::Thread(_))
+                        || self.intersects(Self::THREAD)))
                     || self.contains(Self::NO_MEMORY_BINDING)
                 {
                     return None;

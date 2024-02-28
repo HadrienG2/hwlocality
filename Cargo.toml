@@ -214,7 +214,6 @@ proptest = { workspace = true, optional = true }
 windows-sys.workspace = true
 
 [dev-dependencies]
-
 # Used to simplify examples and test error reporting
 eyre = "0.6"
 
@@ -232,6 +231,10 @@ sysinfo = { version = "0.30", default-features = false }
 
 # Used to test file I/O
 tempfile = "3.8"
+
+# Used to trace control flow in some tests to make failure investigation easier
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", default-features = false, features = ["std", "fmt"] }
 
 [package.metadata.docs.rs]
 all-features = true
