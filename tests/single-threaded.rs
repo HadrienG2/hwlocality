@@ -3,6 +3,7 @@
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
+use errno::Errno;
 use hwlocality::{
     bitmap::{Bitmap, BitmapIndex, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
     cpu::{
@@ -136,7 +137,30 @@ fn single_threaded_test() {
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
-/// Target for CPU binding operations
+/// Handle some windows error edge cases
+macro_rules! handle_windows_edge_cases {
+    ($result:expr, $target:expr) => {
+        if cfg!(windows) {
+            if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = $result {
+                match errno {
+                    // Ignore unknown errors: we can't make sense of them and they
+                    // originate from a fishy CRT setup to begin with.
+                    None => return Ok(()),
+
+                    // Ignore invalid handle errors that occur when manipulating
+                    // bindings by PID as this hwloc feature is known to be brittle
+                    // (see https://github.com/open-mpi/hwloc/issues/78 )
+                    Some(Errno(6)) if matches!($target, CpuBoundObject::ProcessOrThread(_)) => {
+                        return Ok(())
+                    }
+
+                    // Nothing else is known to be particularly faillible on Windows
+                    _ => {}
+                }
+            }
+        }
+    };
+}
 
 /// Check that methods that set CPU bindings work as expected for some inputs
 #[tracing::instrument(skip(topology))]
@@ -179,12 +203,8 @@ fn test_bind_cpu(
         return Ok(());
     }
 
-    // Skip unknown errors on Windows: we can't interpret them
-    if cfg!(windows) {
-        if let Err(HybridError::Hwloc(RawHwlocError { errno: None, .. })) = result {
-            return Ok(());
-        }
-    }
+    // Handle some Windows edge cases
+    handle_windows_edge_cases!(&result, target);
 
     // That should cover all known sources of error
     if let Err(e) = result {
@@ -287,6 +307,9 @@ fn check_cpubind_query_result(
         );
         return Ok(());
     }
+
+    // Handle some Windows edge cases
+    handle_windows_edge_cases!(&result, target);
 
     // That should cover all known sources of error
     let cpuset = match result {
