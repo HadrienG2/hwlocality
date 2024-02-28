@@ -24,6 +24,8 @@ use hwlocality_sys::{
     HWLOC_CPUBIND_THREAD,
 };
 use libc::{EINVAL, ENOSYS, EXDEV};
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -662,6 +664,7 @@ bitflags! {
     /// Please check the documentation of the [cpu binding
     /// method](../../topology/struct.Topology.html#cpu-binding) that you are
     /// calling for more information.
+    #[cfg(not(tarpaulin_include))]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
     pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
@@ -809,11 +812,33 @@ pub enum CpuBoundObject {
     ThisProgram,
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for CpuBoundObject {
+    type Parameters = ();
+    type Strategy = prop::strategy::TupleUnion<(
+        prop::strategy::WA<Just<Self>>,
+        prop::strategy::WA<
+            prop::strategy::Map<<ThreadId as Arbitrary>::Strategy, fn(ThreadId) -> Self>,
+        >,
+        prop::strategy::WA<
+            prop::strategy::Map<<ProcessId as Arbitrary>::Strategy, fn(ProcessId) -> Self>,
+        >,
+    )>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            1 => Just(Self::ThisProgram),
+            2 => any::<ThreadId>().prop_map(Self::Thread),
+            2 => any::<ProcessId>().prop_map(Self::ProcessOrThread),
+        ]
+    }
+}
+//
 impl Display for CpuBoundObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
             Self::ProcessOrThread(id) => {
-                if cfg!(linux) {
+                if cfg!(target_os = "linux") {
                     format!("the process/thread with ID {id}")
                 } else {
                     format!("the process with PID {id}")
@@ -936,4 +961,47 @@ pub(crate) fn call_hwloc(
         }
     }
     translate_result(object, cpuset, errors::call_hwloc_int_normal(api, ffi))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused)]
+    #[cfg(test)]
+    use similar_asserts::assert_eq;
+
+    // Most of the functionality in this module must be tested in the
+    // single_threaded integration test because of ASSUME_SINGLE_THREAD, but
+    // some things can be tested here.
+
+    proptest! {
+        #[test]
+        fn display_cpu_bound_object(object: CpuBoundObject) {
+            let display = object.to_string();
+            match object {
+                CpuBoundObject::ThisProgram => {
+                    prop_assert!(display.contains("current"));
+                    prop_assert!(display.contains("process"));
+                    prop_assert!(display.contains("thread"));
+                }
+                CpuBoundObject::Thread(tid) => {
+                    let tid = tid.to_string();
+                    prop_assert!(display.contains(&tid));
+                    prop_assert!(!display.contains("process"));
+                    prop_assert!(display.contains("thread"));
+                }
+                CpuBoundObject::ProcessOrThread(id) => {
+                    let id = id.to_string();
+                    prop_assert!(display.contains(&id));
+                    prop_assert!(display.contains("process"));
+                    prop_assert!(!cfg!(target_os = "linux") ^ display.contains("thread"));
+                }
+            }
+        }
+
+        #[test]
+        fn cpu_bound_object_to_error(object: CpuBoundObject) {
+            prop_assert_eq!(CpuBindingError::from(object), CpuBindingError::BadObject(object));
+        }
+    }
 }

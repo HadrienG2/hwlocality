@@ -2,6 +2,9 @@
 //! functions that are only valid on a single thread.
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
+//
+// If you need more tests, create more integration tests (but beware that they
+// won't be able to share code.
 
 use errno::Errno;
 use hwlocality::{
