@@ -249,13 +249,15 @@ use std::{process::Child, thread::JoinHandle};
 
 /// Thread identifier (OS-specific)
 ///
-/// This is `HANDLE` on Windows and `libc::pthread_t` on all other platforms.
-/// This type unfortunately cannot be mapped to and from the [`ThreadId` type of
-/// the standard Rust library](std::thread::ThreadId)].
+/// This is `HANDLE` on Windows and `libc::pthread_t` on most other platforms,
+/// except on musl where it must be hardcoded to `c_ulong` to [preserve
+/// sanity](https://elixir.bootlin.com/musl/v1.2.4/source/include/alltypes.h.in#L53).
 ///
-/// You can get the identifier of the current thread using
-/// [`current_thread_id()`], and the identifier of a thread that you spawned
-/// using the [`AsThreadId`] extension trait.
+/// This type unfortunately cannot be mapped to and from the [`ThreadId` type of
+/// the standard Rust library](std::thread::ThreadId). But you can get the
+/// identifier of the current thread using [`current_thread_id()`], and the
+/// identifier of a thread that you spawned using the [`AsThreadId`] extension
+/// trait.
 pub type ThreadId = hwloc_thread_t;
 
 /// Get the current thread's identifier through the libc or windows API
