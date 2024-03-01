@@ -1029,7 +1029,6 @@ mod tests {
         fmt::{self, Binary, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
-        ops::Deref,
         panic::UnwindSafe,
     };
 
