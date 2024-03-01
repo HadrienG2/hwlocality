@@ -1541,7 +1541,7 @@ pub(crate) mod tests {
         ) -> Option<impl Strategy<Value = (&'static TopologyObject, CpuSet)>> {
             (!objects.is_empty()).then(move || {
                 prop::sample::select(objects)
-                    .prop_flat_map(move |obj| (Just(obj), set_with_reference(&ref_cpuset(obj))))
+                    .prop_flat_map(move |obj| (Just(obj), set_with_reference(ref_cpuset(obj))))
             })
         }
         let with_cpuset = with_reference(with_cpuset, |obj| obj.cpuset().unwrap());

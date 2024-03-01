@@ -9,6 +9,7 @@ use crate::{cpu::cpuset::CpuSet, memory::nodeset::NodeSet};
 use std::{
     borrow::{Borrow, BorrowMut},
     fmt::{Debug, Display},
+    ops::Deref,
     ptr::NonNull,
 };
 
@@ -56,39 +57,44 @@ unsafe impl OwnedBitmap for Bitmap {
     }
 }
 
-/// A specialized bitmap ([`CpuSet`], [`NodeSet`]) or a [`BitmapRef`] thereof
+/// An owned specialized bitmap ([`CpuSet`] or [`NodeSet`])
 ///
 /// hwlocality avoids the need for error-prone hwloc-style `BYNODESET` flags by
 /// making [`CpuSet`] and [`NodeSet`] full-blown types, not typedefs. Functions
-/// which accept either of these specialized bitmap types can be made generic
-/// over this [`SpecializedBitmap`] trait, which can be used to query which
-/// specialized bitmap type was passed in.
+/// which want to accept either of these specialized bitmap types can be made
+/// generic over this [`SpecializedBitmap`] trait, which can be used to query
+/// which specialized bitmap type was passed in and then switch to generic
+/// [`Bitmap`] processing.
+///
+/// See also [`SpecializedBitmapRef`].
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 #[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]
-pub trait SpecializedBitmap:
-    AsRef<Bitmap> + Borrow<Self::Owned> + Debug + PartialEq + Sealed
-{
+pub trait SpecializedBitmap: OwnedBitmap {
     /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;
+}
 
+/// A reference (typically `&T` or [`BitmapRef`]) to a [`SpecializedBitmap`]
+pub trait SpecializedBitmapRef: Deref<Target = Self::Owned> {
     /// Owned form of this specialized bitmap
-    type Owned: OwnedSpecializedBitmap;
+    type Owned: SpecializedBitmap;
 
     /// Construct an owned specialized bitmap from a borrowed one
     ///
-    /// This is a generalization of [`Clone`] that also works for [`BitmapRef`].
-    fn to_owned(&self) -> Self::Owned;
-}
+    /// This is a generalization of [`ToOwned`] that supports [`BitmapRef`].
+    fn to_owned(&self) -> Self::Owned {
+        (**self).clone()
+    }
 
-/// An owned specialized bitmaps ([`CpuSet`], [`NodeSet`])
-///
-/// This is a little bit more than an alias for `OwnedBitmap +
-/// SpecializedBitmap` because if `Self` is owned, we know that `Self::Owned`
-/// will be `Self` and can use this to hint type inference and simplify method
-/// signatures.
-pub trait OwnedSpecializedBitmap: OwnedBitmap + SpecializedBitmap<Owned = Self> {}
+    /// Reinterpret as a reference to a non-specialized bitmap
+    fn as_bitmap_ref(&self) -> &Bitmap {
+        (**self).borrow()
+    }
+}
 //
-impl<B: OwnedBitmap + SpecializedBitmap<Owned = Self>> OwnedSpecializedBitmap for B {}
+impl<Owned: SpecializedBitmap, Ref: Deref<Target = Owned>> SpecializedBitmapRef for Ref {
+    type Owned = Owned;
+}
 
 /// Kind of specialized bitmap
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -123,7 +129,7 @@ macro_rules! impl_bitmap_newtype {
             use $crate::{
                 bitmap::{
                     Bitmap, BitmapIndex, BitmapKind, BitmapRef, OwnedBitmap,
-                    Iter, SpecializedBitmap
+                    Iter, SpecializedBitmap,
                 },
             };
             use derive_more::{AsMut, AsRef, From, Into, IntoIterator, Not};
@@ -163,12 +169,6 @@ macro_rules! impl_bitmap_newtype {
 
             impl SpecializedBitmap for $newtype {
                 const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
-
-                type Owned = Self;
-
-                fn to_owned(&self) -> Self {
-                    self.clone()
-                }
             }
 
             /// # Re-export of the Bitmap API
@@ -681,7 +681,7 @@ macro_rules! impl_bitmap_newtype {
                 use $crate::{
                     bitmap::{
                         tests::{index_range, index_vec, INFINITE_EXPLORE_ITERS},
-                        OwnedSpecializedBitmap,
+                        SpecializedBitmap, SpecializedBitmapRef,
                     },
                     strategies::bitmap_index,
                 };
@@ -719,7 +719,7 @@ macro_rules! impl_bitmap_newtype {
                     From<Bitmap>, From<BitmapIndex>, From<&'static BitmapIndex>,
                     FromIterator<BitmapIndex>, FromIterator<&'static BitmapIndex>,
                     Hash, Into<Bitmap>, IntoIterator<Item=BitmapIndex>, Not, Ord,
-                    OwnedSpecializedBitmap,
+                    SpecializedBitmap,
                     PartialEq<&'static $newtype>,
                     PartialOrd<&'static $newtype>,
                     Pointer, Sized,
@@ -737,6 +737,7 @@ macro_rules! impl_bitmap_newtype {
                     BitXor<$newtype>, BitXor<&'static $newtype>,
                     IntoIterator<Item=BitmapIndex>,
                     Not<Output=$newtype>,
+                    SpecializedBitmapRef,
                     Sub<$newtype>, Sub<&'static $newtype>,
                 );
 
@@ -869,9 +870,9 @@ macro_rules! impl_bitmap_newtype {
                             buf.0.as_ptr()
                         );
 
-                        // Test SpecializedBitmap operations
-                        prop_assert_eq!(&SpecializedBitmap::to_owned(&new), &new);
-                        prop_assert_eq!(&SpecializedBitmap::to_owned(&BitmapRef::from(&new)), &new);
+                        // Test SpecializedBitmapRef operations
+                        prop_assert_eq!(&SpecializedBitmapRef::to_owned(&&new), &new);
+                        prop_assert_eq!(&SpecializedBitmapRef::to_owned(&BitmapRef::from(&new)), &new);
 
                         // Test low-level functions and BitmapRef<$newtype>
                         test_newtype_ref_unary(&&new, BitmapRef::from(&new))?;

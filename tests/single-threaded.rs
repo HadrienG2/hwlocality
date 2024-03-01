@@ -8,12 +8,13 @@
 
 use errno::Errno;
 use hwlocality::{
-    bitmap::{Bitmap, BitmapIndex, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapIndex, BitmapRef, SpecializedBitmap, SpecializedBitmapRef},
     cpu::{
         binding::{CpuBindingError, CpuBindingFlags, CpuBoundObject},
         cpuset::CpuSet,
     },
     errors::{HybridError, ParameterError, RawHwlocError},
+    memory::binding::{Bytes, MemoryAllocationError, MemoryBindingFlags, MemoryBindingPolicy},
     topology::Topology,
 };
 use proptest::{prelude::*, test_runner::TestRunner};
@@ -41,11 +42,13 @@ fn single_threaded_test() {
 
     // Display some debug information about the host to ease interpretation
     dbg!(topology.feature_support());
-    dbg!(topology.cpuset());
-    dbg!(topology.complete_cpuset());
 
     // Test CPU binding operations for current process
     if let Some(cpubind_support) = topology.feature_support().cpu_binding() {
+        // Display the host's CPU configuration
+        dbg!(topology.cpuset());
+        dbg!(topology.complete_cpuset());
+
         // Setting CPU bindings
         TestRunner::default()
             .run(
@@ -382,10 +385,10 @@ fn check_bad_target_flags(
 
 /// Specialization of `set_with_reference` that uses the topology-wide cpuset or
 /// nodeset as a reference
-fn topology_related_set<Set: OwnedSpecializedBitmap>(
+fn topology_related_set<Set: SpecializedBitmap>(
     topology_set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
 ) -> impl Strategy<Value = Set> {
-    set_with_reference(topology_set(Topology::test_instance()).as_ref())
+    set_with_reference(topology_set(Topology::test_instance()))
 }
 
 /// [`CpuSet`] and [`NodeSet`] generator that is biased towards covering all
@@ -401,13 +404,15 @@ fn topology_related_set<Set: OwnedSpecializedBitmap>(
 /// - Equal (everything inside, nothing outside)
 /// - Superset (everything inside, some outside)
 /// - Everything (everything inside, everything outside)
-fn set_with_reference<Set: SpecializedBitmap>(ref_set: &Set) -> impl Strategy<Value = Set::Owned> {
+fn set_with_reference<SetRef: SpecializedBitmapRef>(
+    reference: SetRef,
+) -> impl Strategy<Value = SetRef::Owned> {
     // First, one of the reference set and its complement has to be finite
-    let ref_set: &Bitmap = ref_set.as_ref();
-    let finite_set = if ref_set.weight().is_some() {
-        ref_set.clone()
+    let reference = reference.as_bitmap_ref();
+    let finite_set = if reference.weight().is_some() {
+        reference.clone()
     } else {
-        !ref_set
+        !reference
     };
     assert!(
         finite_set.weight().is_some(),
@@ -437,7 +442,7 @@ fn set_with_reference<Set: SpecializedBitmap>(ref_set: &Set) -> impl Strategy<Va
     // (nothing inside, some inside, everything inside) configurations of their
     // reference set, we get good coverage of all desired set configurations
     (inside_elems, outside_elems)
-        .prop_map(|(inside_elems, outside_elems)| Set::Owned::from(inside_elems | outside_elems))
+        .prop_map(|(inside_elems, outside_elems)| SetRef::Owned::from(inside_elems | outside_elems))
 }
 
 /// Generate an arbitrary Bitmap
