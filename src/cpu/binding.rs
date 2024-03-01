@@ -539,7 +539,7 @@ impl Topology {
         api: &'static str,
         ffi: impl FnOnce(hwloc_const_topology_t, hwloc_const_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
-        if self.is_invalid_binding_set(set) {
+        if !self.is_valid_binding_set(set) {
             return Err(CpuBindingError::BadCpuSet(set.clone()).into());
         }
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
