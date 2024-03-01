@@ -8,13 +8,15 @@
 
 use errno::Errno;
 use hwlocality::{
-    bitmap::{Bitmap, BitmapIndex, BitmapRef, SpecializedBitmap, SpecializedBitmapRef},
+    bitmap::{Bitmap, BitmapIndex, BitmapKind, BitmapRef, SpecializedBitmap, SpecializedBitmapRef},
     cpu::{
         binding::{CpuBindingError, CpuBindingFlags, CpuBoundObject},
         cpuset::CpuSet,
     },
     errors::{HybridError, ParameterError, RawHwlocError},
-    memory::binding::{Bytes, MemoryAllocationError, MemoryBindingFlags, MemoryBindingPolicy},
+    memory::binding::{
+        Bytes, MemoryAllocationError, MemoryBindingError, MemoryBindingFlags, MemoryBindingPolicy,
+    },
     topology::Topology,
 };
 use proptest::{prelude::*, test_runner::TestRunner};
@@ -27,6 +29,15 @@ macro_rules! test_deref_set {
         $fn_mut_of_deref_set($topology, &$set $(, $other_args)*)?;
         let set_ref = BitmapRef::from(&$set);
         $fn_mut_of_deref_set($topology, set_ref $(, $other_args)*)
+    }};
+}
+
+/// Check that some FnMut that takes `impl SpecializedBitmap` works with all of
+/// `&CpuSet`, `&NodeSet`, `BitmapRef<'_, CpuSet>` and `BitmapRef<'_, NodeSet>`.
+macro_rules! test_specialized_bitmap {
+    ($fn_mut_of_deref_set:expr, $topology:expr, $cpuset:expr, $nodeset:expr $(, $other_args:expr)*) => {{
+        test_deref_set!($fn_mut_of_deref_set, $topology, $cpuset $(, $other_args)*)?;
+        test_deref_set!($fn_mut_of_deref_set, $topology, $nodeset $(, $other_args)*)
     }};
 }
 
@@ -57,7 +68,7 @@ fn single_threaded_test() {
                     any_cpubind_flags(),
                 ),
                 |(cpuset, flags)| {
-                    let target_flags = flags & target_flags();
+                    let target_flags = flags & target_cpubind_flags();
                     let curr_proc = cpubind_support.set_current_process();
                     let curr_thr = cpubind_support.set_current_thread();
                     let can_set_self = match target_flags {
@@ -101,7 +112,7 @@ fn single_threaded_test() {
         // Querying CPU bindings
         TestRunner::default()
             .run(&any_cpubind_flags(), |flags| {
-                let target_flags = flags & target_flags();
+                let target_flags = flags & target_cpubind_flags();
                 let can_get_self = |curr_proc, curr_thr| match target_flags {
                     CpuBindingFlags::PROCESS => curr_proc,
                     CpuBindingFlags::THREAD => curr_thr,
@@ -138,10 +149,263 @@ fn single_threaded_test() {
             .unwrap();
     }
 
-    // TODO: Add other single-threaded tests here
+    // Test memory binding operations for current process
+    if let Some(membind_support) = topology.feature_support().memory_binding() {
+        // Display the host's NUMA configuration
+        dbg!(topology.nodeset());
+        dbg!(topology.complete_nodeset());
+
+        // Test unbound memory allocations
+        //
+        // The allocation size range is chosen such that it can cover 2-3 pages
+        // on typical architectures (Arm's max page size is 16 MiB, x86's is
+        // actually 1 GiB but you'll never get that from a typical OS and it
+        // gets costly to test with such large allocations).
+        let len_range = 0usize..(48 * 1024 * 1024);
+        TestRunner::default()
+            .run(&len_range, |len| test_allocate_memory(topology, len))
+            .unwrap();
+
+        // Test bound memory allocations in all supported configurations
+        TestRunner::default()
+            .run(
+                &(
+                    &len_range,
+                    topology_related_set(Topology::complete_cpuset),
+                    topology_related_set(Topology::complete_nodeset),
+                    any_membind_policy(),
+                    any_membind_flags(),
+                ),
+                |(len, cpuset, nodeset, policy, flags)| {
+                    // Test direct allocation of bound memory
+                    if membind_support.allocate_bound() {
+                        test_specialized_bitmap!(
+                            test_allocate_bound_memory,
+                            topology,
+                            cpuset,
+                            nodeset,
+                            len,
+                            policy,
+                            flags
+                        )?;
+                    }
+
+                    // Test allocation of bound memory that may require
+                    // rebinding the process
+                    let target_flags = flags & target_membind_flags();
+                    let curr_proc = membind_support.set_current_process();
+                    let curr_thr = membind_support.set_current_thread();
+                    let can_bind_self = match target_flags {
+                        MemoryBindingFlags::PROCESS => curr_proc,
+                        MemoryBindingFlags::THREAD => curr_thr,
+                        MemoryBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
+                        _ => true, // Doesn't matter, will fail flag validation
+                    };
+                    if membind_support.allocate_bound() || can_bind_self {
+                        test_specialized_bitmap!(
+                            test_binding_allocate_memory,
+                            topology,
+                            cpuset,
+                            nodeset,
+                            len,
+                            policy,
+                            flags
+                        )?;
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        // TODO: Add more memory binding tests here. They should mostly follow
+        //       the example of CPU binding, but they are a bit more involved
+    }
 }
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
+
+// === Memory binding test logic ===
+
+/// Test that hwloc's basic memory allocator works.
+#[tracing::instrument(skip(topology))]
+fn test_allocate_memory(topology: &Topology, len: usize) -> Result<(), TestCaseError> {
+    let result = topology.allocate_memory(len);
+    match result {
+        Ok(bytes) => check_memory_allocation(bytes, len),
+        Err(HybridError::Rust(MemoryAllocationError::AllocationFailed)) => Ok(()),
+        Err(other) => {
+            let other = format!("{other}");
+            tracing::error!("Got unexpected memory allocation error: {other}");
+            Err(TestCaseError::fail(other))
+        },
+    }
+}
+
+/// Test that hwloc's pure bound memory allocator works
+#[tracing::instrument(skip(topology))]
+fn test_allocate_bound_memory(
+    topology: &Topology,
+    set: impl SpecializedBitmapRef + Copy + Debug,
+    len: usize,
+    policy: MemoryBindingPolicy,
+    flags: MemoryBindingFlags,
+) -> Result<(), TestCaseError> {
+    let result = topology.allocate_bound_memory(len, set, policy, flags);
+    check_allocate_bound(result, false, topology, &*set, len, policy, flags)
+}
+
+/// Test that hwloc's bound memory allocator that may rebind the process/thread
+/// if necessary works
+#[tracing::instrument(skip(topology))]
+fn test_binding_allocate_memory(
+    topology: &Topology,
+    set: impl SpecializedBitmapRef + Copy + Debug,
+    len: usize,
+    policy: MemoryBindingPolicy,
+    flags: MemoryBindingFlags,
+) -> Result<(), TestCaseError> {
+    let result = topology.binding_allocate_memory(len, set, policy, flags);
+    check_allocate_bound(result, true, topology, &*set, len, policy, flags)
+}
+
+/// Common code path for bound memory allocations
+#[tracing::instrument(skip(result, topology))]
+fn check_allocate_bound<Set: SpecializedBitmap>(
+    result: Result<Bytes<'_>, HybridError<MemoryBindingError<Set>>>,
+    can_bind_program: bool,
+    topology: &Topology,
+    set: &Set,
+    len: usize,
+    policy: MemoryBindingPolicy,
+    flags: MemoryBindingFlags,
+) -> Result<(), TestCaseError> {
+    // Handle invalid cpuset/nodeset errors
+    if let Err(HybridError::Rust(MemoryBindingError::BadSet(object, set2))) = &result {
+        prop_assert_eq!(set2, set);
+
+        // Reinterpret the set as an untyped bitmap and find the associated
+        // reference set (cpuset/nodeset) of the topology
+        let set = set.as_bitmap_ref();
+        let topology_set = match Set::BITMAP_KIND {
+            BitmapKind::CpuSet => Bitmap::from(topology.cpuset().clone_target()),
+            BitmapKind::NodeSet => Bitmap::from(topology.nodeset().clone_target()),
+        };
+
+        // Empty sets and sets outside the topology's complete cpuset/nodeset
+        // are never valid. cpusets/nodesets outside the topology's main
+        // cpuset/nodeset are also very likely to be invalid binding targets,
+        // hence failure is expected upon encountering them.
+        //
+        // Non-Linux platforms may have arbitrary restrictions on what
+        // constitutes a good CPU/memory binding target. In the case of Windows,
+        // this is known to happen due to this OS' "processor group" notion.
+        if set.is_empty() || !topology_set.includes(set) || !cfg!(target_os = "linux") {
+            return Ok(());
+        } else {
+            let error = format!("{}", MemoryBindingError::BadSet(*object, set2.clone()));
+            tracing::error!("Got unexpected {error}");
+            return Err(TestCaseError::Fail(error.into()));
+        }
+    }
+
+    // Make sure a single target flag is set if the allocation method can rebind
+    // the current process/thread, no flag otherwise.
+    if let Ok(true) = check_bad_membind_target_flags(can_bind_program, flags, result.as_ref().err())
+    {
+        return Ok(());
+    }
+
+    // The MIGRATE flag should not be used with pure memory allocation functions
+    if !can_bind_program && flags.contains(MemoryBindingFlags::MIGRATE) {
+        prop_assert!(
+            matches!(result, 
+            Err(HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(err_flags)))) if err_flags == flags)
+        );
+        return Ok(());
+    }
+
+    // Handle unsupported policy/operation errors
+    if let Err(HybridError::Rust(MemoryBindingError::Unsupported)) = result.as_ref() {
+        // Detect use of an unsupported policy
+        let membind_support = topology.feature_support().memory_binding().unwrap();
+        let policy_supported = match policy {
+            MemoryBindingPolicy::Bind => membind_support.bind_policy(),
+            MemoryBindingPolicy::FirstTouch => membind_support.first_touch_policy(),
+            MemoryBindingPolicy::Interleave => membind_support.interleave_policy(),
+            MemoryBindingPolicy::NextTouch => membind_support.next_touch_policy(),
+        };
+        if !policy_supported {
+            return Ok(());
+        }
+
+        // Non-Linux OSes have weird limitations, always tolerate the
+        // Unsupported error on these platforms
+        if cfg!(not(target_os = "linux")) {
+            return Ok(());
+        }
+    }
+    
+    // At this point, all known error paths should have been considered
+    let bytes = match result {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("Got unexpected memory binding setup error: {e}");
+            return Err(TestCaseError::fail(format!("{e}")));
+        }
+    };
+
+    // Check that the final memory allocation makes sense
+    check_memory_allocation(bytes, len)
+}
+
+/// Check that one hwloc memory allocator works
+#[tracing::instrument(skip(bytes))]
+fn check_memory_allocation(mut bytes: Bytes<'_>, len: usize) -> Result<(), TestCaseError> {
+    prop_assert_eq!(bytes.len(), len);
+    // If we allocated any bytes, check that we can write without
+    // segfaults as a minimal sanity check
+    if len > 0 {
+        let first_byte = bytes.first_mut().unwrap().as_mut_ptr();
+        // SAFETY: Originates from a valid reference
+        unsafe { first_byte.write_volatile(42) };
+        let last_byte = bytes.last_mut().unwrap().as_mut_ptr();
+        // SAFETY: Originates from a valid reference
+        unsafe { last_byte.write_volatile(142) };
+    }
+    Ok(())
+}
+
+/// Check that either the "target flags" of CPU binding operations are used
+/// correctly correctly or errors are reported correctly.
+///
+/// Return true if an error was detected, so that the output of the underlying
+/// CPU binding function is not examined further.
+#[tracing::instrument]
+fn check_bad_membind_target_flags<Set: SpecializedBitmap>(
+    can_bind_program: bool,
+    flags: MemoryBindingFlags,
+    error: Option<&HybridError<MemoryBindingError<Set>>>,
+) -> Result<bool, TestCaseError> {
+    // We are only concerned with flags that specify the target
+    let target_flags = flags & target_membind_flags();
+
+    // Check that the number of target flags is right
+    if (flags & target_flags).iter().count() != (can_bind_program as usize) {
+        let expected_err = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
+        prop_assert_eq!(error, Some(&expected_err));
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// CPU binding flags which specify whether a thread or process is targeted
+fn target_membind_flags() -> MemoryBindingFlags {
+    MemoryBindingFlags::ASSUME_SINGLE_THREAD
+        | MemoryBindingFlags::THREAD
+        | MemoryBindingFlags::PROCESS
+}
+
+// === CPU binding test logic ===
 
 /// Handle some windows error edge cases
 macro_rules! handle_windows_edge_cases {
@@ -200,12 +464,14 @@ fn test_bind_cpu(
         if set.is_empty() || !topology.cpuset().includes(set) || !cfg!(target_os = "linux") {
             return Ok(());
         } else {
-            return Err(TestCaseError::Fail("Unexpected CpuBindingError".into()));
+            let error = format!("{}", CpuBindingError::BadCpuSet(set2.clone()));
+            tracing::error!("Got unexpected {error}");
+            return Err(TestCaseError::Fail(error.into()));
         }
     }
 
     // Make sure the target flags are valid
-    if check_bad_target_flags(target, flags, result.as_ref().err())? {
+    if check_bad_cpubind_target_flags(target, flags, result.as_ref().err())? {
         return Ok(());
     }
 
@@ -221,7 +487,7 @@ fn test_bind_cpu(
     // CPU binding should have changed as a result of calling this function, and
     // in strict mode we know what it should have changed into.
     if flags.contains(CpuBindingFlags::STRICT) {
-        let target_flags = flags & target_flags();
+        let target_flags = flags & target_cpubind_flags();
         let expected_binding = Ok(set.clone());
         // Here I'm taking the shortcut of assuming that if we can set CPU
         // bindings for a certain target, we can also query them. Introduce more
@@ -301,7 +567,7 @@ fn check_cpubind_query_result(
     target: CpuBoundObject,
 ) -> Result<(), TestCaseError> {
     // Make sure the target flags are valid
-    if check_bad_target_flags(target, flags, result.as_ref().err())? {
+    if check_bad_cpubind_target_flags(target, flags, result.as_ref().err())? {
         return Ok(());
     }
 
@@ -332,24 +598,19 @@ fn check_cpubind_query_result(
     Ok(())
 }
 
-/// CPU binding flags which specify whether a thread or process is targeted
-fn target_flags() -> CpuBindingFlags {
-    CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS
-}
-
 /// Check that either the "target flags" of CPU binding operations are used
 /// correctly correctly or errors are reported correctly.
 ///
 /// Return true if an error was detected, so that the output of the underlying
 /// CPU binding function is not examined further.
 #[tracing::instrument]
-fn check_bad_target_flags(
+fn check_bad_cpubind_target_flags(
     target: CpuBoundObject,
     flags: CpuBindingFlags,
     error: Option<&HybridError<CpuBindingError>>,
 ) -> Result<bool, TestCaseError> {
     // We are only concerned with flags that specify the target
-    let target_flags = flags & target_flags();
+    let target_flags = flags & target_cpubind_flags();
 
     // If flags validation fails, we should get this error
     let expected_err = Some(HybridError::Rust(CpuBindingError::BadFlags(
@@ -373,6 +634,11 @@ fn check_bad_target_flags(
         return Ok(true);
     }
     Ok(false)
+}
+
+/// CPU binding flags which specify whether a thread or process is targeted
+fn target_cpubind_flags() -> CpuBindingFlags {
+    CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS
 }
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
@@ -472,7 +738,24 @@ fn any_cpubind_flags() -> impl Strategy<Value = CpuBindingFlags> {
     let all_flags = CpuBindingFlags::all().iter().collect::<Vec<_>>();
     let num_flags = all_flags.len();
     prop::sample::subsequence(all_flags, 0..=num_flags)
-        .prop_map(|some_flags| some_flags.into_iter().collect::<CpuBindingFlags>())
+        .prop_map(|some_flags| some_flags.into_iter().collect())
+}
+
+/// Generate an arbitrary memory binding policy
+fn any_membind_policy() -> impl Strategy<Value = MemoryBindingPolicy> {
+    let policies = enum_iterator::all::<MemoryBindingPolicy>().collect::<Vec<_>>();
+    prop::sample::select(policies)
+}
+
+/// Generate an arbitrary set of user-accessible memory binding flags
+fn any_membind_flags() -> impl Strategy<Value = MemoryBindingFlags> {
+    let all_flags = MemoryBindingFlags::all()
+        .iter()
+        .filter(|flag| *flag != MemoryBindingFlags::BY_NODE_SET)
+        .collect::<Vec<_>>();
+    let num_flags = all_flags.len();
+    prop::sample::subsequence(all_flags, 0..=num_flags)
+        .prop_map(|some_flags| some_flags.into_iter().collect())
 }
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
