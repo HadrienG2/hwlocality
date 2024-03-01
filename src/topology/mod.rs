@@ -19,7 +19,7 @@ use self::{
 #[cfg(all(feature = "hwloc-2_3_0", doc))]
 use crate::topology::support::MiscSupport;
 use crate::{
-    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap},
+    bitmap::{Bitmap, BitmapRef, SpecializedBitmap},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::transparent::AsNewtype,
@@ -875,11 +875,11 @@ impl Topology {
     ///
     /// - Cannot return NULL
     /// - Must return a pointer attached to the topology
-    unsafe fn topology_set<'topology, OwnedSet: OwnedSpecializedBitmap>(
+    unsafe fn topology_set<'topology, Set: SpecializedBitmap>(
         &'topology self,
         getter_name: &'static str,
         getter: unsafe extern "C" fn(*const hwloc_topology) -> *const hwloc_bitmap_s,
-    ) -> BitmapRef<'topology, OwnedSet> {
+    ) -> BitmapRef<'topology, Set> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - If this operation is successful, it should return a valid

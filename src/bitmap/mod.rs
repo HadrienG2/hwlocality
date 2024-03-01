@@ -43,9 +43,8 @@
 //! dedicated [`BitmapRef`] type which behaves analogously must be used.
 //!
 //! For convenience, many hwlocality methods achieve genericity with respect to
-//! [`BitmapRef`] and the specialized [`CpuSet`] and [`NodeSet`] bitmap types
-//! by leveraging the [`OwnedBitmap`] and [`SpecializedBitmap`] traits, along
-//! with their [`OwnedSpecializedBitmap`] combination.
+//! [`BitmapRef`] and standard Rust references to the specialized [`CpuSet`] and
+//! [`NodeSet`] bitmap types by leveraging the [`SpecializedBitmapRef`] trait.
 //
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
 
@@ -87,7 +86,7 @@ pub type BitmapIndex = PositiveInt;
 
 // Re-export BitmapRef so users don't need to know about the reference submodule
 pub use self::{
-    newtypes::{BitmapKind, OwnedBitmap, OwnedSpecializedBitmap, SpecializedBitmap},
+    newtypes::{BitmapKind, OwnedBitmap, SpecializedBitmap, SpecializedBitmapRef},
     reference::BitmapRef,
 };
 

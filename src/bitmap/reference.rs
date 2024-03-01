@@ -359,16 +359,6 @@ macro_rules! impl_bitmap_newtype_ref {
         $(#[$attr:meta])*
         $newtype:ident
     ) => {
-        impl SpecializedBitmap for BitmapRef<'_, $newtype> {
-            const BITMAP_KIND: BitmapKind = BitmapKind::$newtype;
-
-            type Owned = $newtype;
-
-            fn to_owned(&self) -> $newtype {
-                self.clone_target()
-            }
-        }
-
         impl<'target> AsRef<Bitmap> for BitmapRef<'_, $newtype> {
             fn as_ref(&self) -> &Bitmap {
                 let newtype: &$newtype = self.as_ref();
@@ -468,7 +458,7 @@ macro_rules! impl_bitmap_newtype_ref_tests {
             PartialOrd<&'static $newtype>,
             PartialOrd<BitmapRef<'static, $newtype>>,
             PartialOrd<&'static BitmapRef<'static, $newtype>>,
-            Pointer, Sized, SpecializedBitmap<Owned=$newtype>,
+            Pointer, Sized, SpecializedBitmapRef<Owned=$newtype>,
             Sub<$newtype>, Sub<&'static $newtype>,
             Sub<BitmapRef<'static, $newtype>>,
             Sub<&'static BitmapRef<'static, $newtype>>,
@@ -498,7 +488,7 @@ macro_rules! impl_bitmap_newtype_ref_tests {
         #[test]
         fn static_checks_newtype() {
             assert_eq!(
-                BitmapRef::<'static, $newtype>::BITMAP_KIND,
+                <$newtype as SpecializedBitmap>::BITMAP_KIND,
                 BitmapKind::$newtype
             );
         }

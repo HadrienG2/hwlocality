@@ -33,7 +33,7 @@
 #[cfg(doc)]
 use crate::topology::builder::{BuildFlags, TopologyBuilder};
 use crate::{
-    bitmap::{Bitmap, BitmapKind, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapKind, BitmapRef, SpecializedBitmap, SpecializedBitmapRef},
     cpu::cpuset::CpuSet,
     errors::{self, ForeignObjectError, HybridError, NulError, ParameterError, RawHwlocError},
     ffi::{
@@ -226,13 +226,13 @@ impl<'topology> TopologyEditor<'topology> {
     /// but we have no way to prevent this in a safe API.
     #[allow(clippy::print_stderr)]
     #[doc(alias = "hwloc_topology_restrict")]
-    pub fn restrict<Set: SpecializedBitmap>(
+    pub fn restrict<SetRef: SpecializedBitmapRef>(
         &mut self,
-        set: &Set,
+        set: SetRef,
         flags: RestrictFlags,
-    ) -> Result<(), ParameterError<Set::Owned>> {
+    ) -> Result<(), ParameterError<SetRef::Owned>> {
         /// Polymorphized version of this function (avoids generics code bloat)
-        fn polymorphized<OwnedSet: OwnedSpecializedBitmap>(
+        fn polymorphized<OwnedSet: SpecializedBitmap>(
             self_: &mut TopologyEditor<'_>,
             set: &OwnedSet,
             mut flags: RestrictFlags,
@@ -243,7 +243,7 @@ impl<'topology> TopologyEditor<'topology> {
             // reduces the odds that in the presence of errno reporting issues
             // on Windows, the process will abort when it shouldn't.
             let topology = self_.topology();
-            let erased_set: &Bitmap = set.as_ref();
+            let erased_set = set.as_bitmap_ref();
             let (affected, other) = match OwnedSet::BITMAP_KIND {
                 BitmapKind::CpuSet => {
                     let topology_set = topology.cpuset();
@@ -295,7 +295,7 @@ impl<'topology> TopologyEditor<'topology> {
             let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
                 hwlocality_sys::hwloc_topology_restrict(
                     self_.topology_mut_ptr(),
-                    set.as_ref().as_ptr(),
+                    set.as_bitmap_ref().as_ptr(),
                     flags.bits(),
                 )
             });
@@ -328,7 +328,7 @@ impl<'topology> TopologyEditor<'topology> {
                 }
             }
         }
-        polymorphized(self, set.borrow(), flags)
+        polymorphized(self, &*set, flags)
     }
 
     /// Change the sets of allowed PUs and NUMA nodes in the topology
@@ -1556,7 +1556,7 @@ mod tests {
     }
 
     /// Set-generic test for [`TopologyEditor::restrict()`]
-    fn check_restrict<Set: OwnedSpecializedBitmap + RefUnwindSafe>(
+    fn check_restrict<Set: SpecializedBitmap + RefUnwindSafe>(
         initial_topology: &Topology,
         restrict_set: &Set,
         flags: RestrictFlags,
@@ -1702,7 +1702,7 @@ mod tests {
     //
     impl ErasedSets {
         /// Get [`ErasedSets`] from a [`Topology`]
-        fn from_topology<RestrictedSet: OwnedSpecializedBitmap>(topology: &Topology) -> Self {
+        fn from_topology<RestrictedSet: SpecializedBitmap>(topology: &Topology) -> Self {
             match RestrictedSet::BITMAP_KIND {
                 BitmapKind::CpuSet => Self {
                     target: Self::ref_to_bitmap(topology.cpuset()),
@@ -1716,9 +1716,7 @@ mod tests {
         }
 
         /// Get [`ErasedSets`] from a [`TopologyObject`]
-        fn from_object<RestrictedSet: OwnedSpecializedBitmap>(
-            obj: &TopologyObject,
-        ) -> Option<Self> {
+        fn from_object<RestrictedSet: SpecializedBitmap>(obj: &TopologyObject) -> Option<Self> {
             Some(match RestrictedSet::BITMAP_KIND {
                 BitmapKind::CpuSet => Self {
                     target: Self::ref_to_bitmap(obj.cpuset()?),
@@ -1732,7 +1730,7 @@ mod tests {
         }
 
         /// Predict the [`ErasedSets`] after restricting the source topology
-        fn predict_restricted<RestrictedSet: OwnedSpecializedBitmap>(
+        fn predict_restricted<RestrictedSet: SpecializedBitmap>(
             &self,
             initial_topology: &Topology,
             restrict_set: &RestrictedSet,
@@ -1756,7 +1754,7 @@ mod tests {
         }
 
         /// Convert a [`BitmapRef`] to a type-erased [`Bitmap`]
-        fn ref_to_bitmap<Set: OwnedSpecializedBitmap>(set: BitmapRef<'_, Set>) -> Bitmap {
+        fn ref_to_bitmap<Set: SpecializedBitmap>(set: BitmapRef<'_, Set>) -> Bitmap {
             set.clone_target().into()
         }
     }
@@ -1848,7 +1846,7 @@ mod tests {
 
     /// Generate an `OwnedAllowSet` for `TopologyEditor::allow()` testing
     fn any_allow_set() -> impl Strategy<Value = OwnedAllowSet> {
-        fn topology_related_set_opt<Set: OwnedSpecializedBitmap>(
+        fn topology_related_set_opt<Set: SpecializedBitmap>(
             topology_set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
         ) -> impl Strategy<Value = Option<Set>> {
             prop_oneof![
