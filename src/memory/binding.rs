@@ -250,7 +250,7 @@ impl Topology {
         flags: MemoryBindingFlags,
     ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<SetRef::Owned>>> {
         // Try allocate_bound_memory first
-        let set: &SetRef::Owned = set.borrow();
+        let set: &SetRef::Owned = &set;
         let flags_wo_target = flags.difference(
             MemoryBindingFlags::ASSUME_SINGLE_THREAD
                 | MemoryBindingFlags::PROCESS
@@ -323,7 +323,7 @@ impl Topology {
         unsafe {
             self.bind_memory_impl(
                 "hwloc_set_membind",
-                set.borrow(),
+                &set,
                 policy,
                 flags,
                 MemoryBoundObject::ThisProgram,
@@ -498,7 +498,7 @@ impl Topology {
         unsafe {
             self.bind_memory_impl(
                 "hwloc_set_proc_membind",
-                set.borrow(),
+                &set,
                 policy,
                 flags,
                 MemoryBoundObject::Process(pid),
@@ -685,7 +685,7 @@ impl Topology {
         unsafe {
             self.bind_memory_impl(
                 "hwloc_set_area_membind",
-                set.borrow(),
+                &set,
                 policy,
                 flags,
                 MemoryBoundObject::Area,
@@ -1026,7 +1026,7 @@ impl Topology {
             //         - flags should be valid if target is valid
             ffi(
                 self.as_ptr(),
-                set.borrow().as_ptr(),
+                set.as_bitmap_ref().as_ptr(),
                 policy.into(),
                 flags.bits(),
             )
