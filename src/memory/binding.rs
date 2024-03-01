@@ -170,7 +170,7 @@ impl Topology {
     ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<SetRef::Owned>>> {
         // Detect invalid binding sets
         let object = MemoryBoundObject::Area;
-        if self.is_invalid_binding_set(&*set) {
+        if !self.is_valid_binding_set(&*set) {
             return Err(MemoryBindingError::BadSet(object, set.to_owned()).into());
         }
 
@@ -920,17 +920,17 @@ impl Topology {
     ///
     /// This check is used to weed out blatantly incorrect requests without even
     /// trying to call hwloc, thus bypassing hwloc's finnicky error handling.
-    pub(crate) fn is_invalid_binding_set<Set: SpecializedBitmap>(&self, set: &Set) -> bool {
+    pub(crate) fn is_valid_binding_set<Set: SpecializedBitmap>(&self, set: &Set) -> bool {
         // It is never legal to bind a process/thread to an empty resource set
         let set = set.as_bitmap_ref();
         if set.is_empty() {
-            return true;
+            return false;
         }
 
         // Resources indices outside the topology's complete set are never valid
         match Set::BITMAP_KIND {
-            BitmapKind::CpuSet => !self.allowed_cpuset().as_bitmap_ref().includes(set),
-            BitmapKind::NodeSet => !self.allowed_nodeset().as_bitmap_ref().includes(set),
+            BitmapKind::CpuSet => self.allowed_cpuset().as_bitmap_ref().includes(set),
+            BitmapKind::NodeSet => self.allowed_nodeset().as_bitmap_ref().includes(set),
         }
     }
 
@@ -1006,7 +1006,7 @@ impl Topology {
         ) -> c_int,
     ) -> Result<(), HybridError<MemoryBindingError<Set>>> {
         // Detect invalid binding sets
-        if self.is_invalid_binding_set(set) {
+        if !self.is_valid_binding_set(set) {
             return Err(MemoryBindingError::BadSet(target, set.to_owned()).into());
         }
 
