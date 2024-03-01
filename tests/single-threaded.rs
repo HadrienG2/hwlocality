@@ -237,7 +237,7 @@ fn test_allocate_memory(topology: &Topology, len: usize) -> Result<(), TestCaseE
             let other = format!("{other}");
             tracing::error!("Got unexpected memory allocation error: {other}");
             Err(TestCaseError::fail(other))
-        },
+        }
     }
 }
 
@@ -317,10 +317,8 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
 
     // The MIGRATE flag should not be used with pure memory allocation functions
     if !can_bind_program && flags.contains(MemoryBindingFlags::MIGRATE) {
-        prop_assert!(
-            matches!(result, 
-            Err(HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(err_flags)))) if err_flags == flags)
-        );
+        prop_assert!(matches!(result,
+            Err(HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(err_flags)))) if err_flags == flags));
         return Ok(());
     }
 
@@ -344,7 +342,7 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
             return Ok(());
         }
     }
-    
+
     // At this point, all known error paths should have been considered
     let bytes = match result {
         Ok(bytes) => bytes,
