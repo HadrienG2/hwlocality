@@ -898,6 +898,25 @@ impl Topology {
         }
     }
 
+    /// Truth that a certain [`CpuSet`] or [`NodeSet`] **certainly** cannot be
+    /// used to bind a process/thread to CPU/memory resources
+    ///
+    /// This check is used to weed out blatantly incorrect requests without even
+    /// trying to call hwloc, thus bypassing hwloc's finnicky error handling.
+    pub(crate) fn is_invalid_binding_set<Set: SpecializedBitmap>(&self, set: &Set) -> bool {
+        // It is never legal to bind a process/thread to an empty resource set
+        let set = set.as_bitmap_ref();
+        if set.is_empty() {
+            return true;
+        }
+
+        // Resources indices outside the topology's complete set are never valid
+        match Set::BITMAP_KIND {
+            BitmapKind::CpuSet => !self.allowed_cpuset().as_bitmap_ref().includes(set),
+            BitmapKind::NodeSet => !self.allowed_nodeset().as_bitmap_ref().includes(set),
+        }
+    }
+
     /// Adjust binding flags for a certain kind of Set
     fn adjust_flags_for<Set: SpecializedBitmap>(flags: &mut MemoryBindingFlags) {
         match Set::BITMAP_KIND {
