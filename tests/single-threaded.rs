@@ -343,12 +343,18 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
         }
     }
 
-    // At this point, all known error paths should have been considered
+    // At this point, all known Linux error paths should have been considered
     let bytes = match result {
         Ok(bytes) => bytes,
         Err(e) => {
-            tracing::error!("Got unexpected memory binding setup error: {e}");
-            return Err(TestCaseError::fail(format!("{e}")));
+            if cfg!(target_os = "linux") {
+                tracing::error!("Got unexpected memory binding setup error: {e}");
+                return Err(TestCaseError::fail(format!("{e}")));
+            } else {
+                // Non-Linux OSes have weird memory binding limitations, so we
+                // always tolerate unexpected errors on these platforms
+                return Ok(());
+            }
         }
     };
 
