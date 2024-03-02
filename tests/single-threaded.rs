@@ -161,16 +161,22 @@ fn single_threaded_test() {
         // on typical architectures (Arm's max page size is 16 MiB, x86's is
         // actually 1 GiB but you'll never get that from a typical OS and it
         // gets costly to test with such large allocations).
-        let len_range = 0usize..(48 * 1024 * 1024);
+        //
+        // We also bias towards zero-sized allocations as that's a special case
+        // that goes through a dedicated code path.
+        let any_len = prop_oneof![
+            1 => Just(0usize),
+            2 => 1usize..(48 * 1024 * 1024)
+        ];
         TestRunner::default()
-            .run(&len_range, |len| test_allocate_memory(topology, len))
+            .run(&any_len, |len| test_allocate_memory(topology, len))
             .unwrap();
 
         // Test bound memory allocations in all supported configurations
         TestRunner::default()
             .run(
                 &(
-                    &len_range,
+                    &any_len,
                     topology_related_set(Topology::complete_cpuset),
                     topology_related_set(Topology::complete_nodeset),
                     any_membind_policy(),
