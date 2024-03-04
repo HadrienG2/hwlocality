@@ -48,9 +48,10 @@ use thiserror::Error;
 ///
 /// - Explicit memory allocation through [`allocate_bound_memory()`] and friends:
 ///   the binding will have effect on the memory allocated by these methods.
-/// - Implicit memory binding through process/thread binding policy through
-///   [`bind_memory()`] and friends: the binding will be applied to subsequent
-///   memory allocations by the target process/thread.
+/// - Implicit memory binding via process/thread binding through
+///   [`bind_memory()`] and friends: unless [`MIGRATE`] is also used, the
+///   binding will only apply to subsequent memory allocations by the target
+///   process/thread.
 /// - Migration of existing memory ranges through [`bind_memory_area()`] and
 ///   friends: already-allocated data will be migrated to the target NUMA
 ///   nodes.
@@ -84,6 +85,7 @@ use thiserror::Error;
 /// [`bind_memory_area()`]: Topology::bind_memory_area()
 /// [`bind_memory()`]: Topology::bind_memory()
 /// [`binding_allocate_memory()`]: Topology::binding_allocate_memory()
+/// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
 /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
 /// [`PROCESS`]: MemoryBindingFlags::PROCESS
 /// [`STRICT`]: MemoryBindingFlags::STRICT
@@ -283,7 +285,11 @@ impl Topology {
     }
 
     /// Set the default memory binding policy of the current process or thread
-    /// to prefer the NUMA node(s) specified by `set`.
+    /// to prefer the NUMA node(s) specified by `set`
+    ///
+    /// By default, only future allocations by the process/thread will be bound
+    /// to the target NUMA node. You can attempt to migrate existing allocations
+    /// using the [`MIGRATE`] flag, at the expense of reducing portability.
     ///
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
@@ -306,6 +312,7 @@ impl Topology {
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
@@ -642,9 +649,9 @@ impl Topology {
     /// Beware that only the memory directly targeted by the `target` reference
     /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
     /// expect the Vec's contents to be covered, instead you must pass in the
-    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may want
-    /// to manually specify the `Target` type via turbofish to make sure that
-    /// you don't get tripped up by references of references like `&&[T]`.
+    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may also
+    /// want to manually specify the `Target` type via turbofish to make sure
+    /// that you don't get tripped up by references of references like `&&[T]`.
     ///
     /// See also [`Topology::bind_memory()`] for general semantics, except
     /// binding target flags should not be used with this method, and it
