@@ -38,7 +38,7 @@ use std::{
     fmt::{self, Debug},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
 use thiserror::Error;
 
@@ -661,13 +661,13 @@ impl Topology {
     ///
     /// - [`BadFlags`] if a binding target flag was specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`Unsupported`] if the system cannot bind the specified memory area
     ///   with the requested policy
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
+    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_area_membind")]
     pub fn bind_memory_area<Target: ?Sized, SetRef: SpecializedBitmapRef>(
@@ -679,7 +679,7 @@ impl Topology {
     ) -> Result<(), HybridError<MemoryBindingError<SetRef::Owned>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget.into());
+            return Err(MemoryBindingError::BadArea.into());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -724,11 +724,11 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`STRICT`] was specified,
     ///   or if a binding target flag was specified.
-    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`Unsupported`] if the system cannot unbind the specified memory area
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
+    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`Unsupported`]: MemoryBindingError::Unsupported
@@ -739,7 +739,7 @@ impl Topology {
     ) -> Result<(), HybridError<MemoryBindingError<NodeSet>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget.into());
+            return Err(MemoryBindingError::BadArea.into());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -795,14 +795,14 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
     ///   specified, or if a binding target flag was specified.
-    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`MixedResults`] if flag [`STRICT`] was specified and memory binding
     ///   is inhomogeneous across target memory pages
     /// - [`Unsupported`] if the system cannot query the specified
     ///   memory area's binding
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
+    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
@@ -816,7 +816,7 @@ impl Topology {
     ) -> Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget.into());
+            return Err(MemoryBindingError::BadArea.into());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -868,14 +868,14 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
     ///   specified, or if a binding target flag was specified.
-    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`MixedResults`] if flag [`STRICT`] was specified and memory binding
     ///   is inhomogeneous across target memory pages
     /// - [`Unsupported`] if the system cannot query the specified
     ///   memory area's location
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
+    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
@@ -889,7 +889,7 @@ impl Topology {
     ) -> Result<Set, HybridError<MemoryBindingError<Set>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget.into());
+            return Err(MemoryBindingError::BadArea.into());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - ThisProgram is the correct target for this FFI
@@ -1068,13 +1068,13 @@ impl Topology {
         call_hwloc_int::<NodeSet>(api, target, operation, &|| None, || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
-            //         - Passing a null set and the default policy is an
+            //         - Passing any valid set and the default policy is an
             //           hwloc-accepted way to reset the binding policy
             //         - All user-visible policies are accepted by hwloc
             //         - flags should be valid if target is valid
             ffi(
                 self.as_ptr(),
-                ptr::null(),
+                self.nodeset().as_ptr(),
                 HWLOC_MEMBIND_DEFAULT,
                 flags.bits(),
             )
@@ -1473,7 +1473,7 @@ pub enum MemoryBindingError<Set: SpecializedBitmap> {
 
     /// Cannot get/set the memory binding of a zero-sized memory region
     #[error("cannot query the memory location of a zero-sized target")]
-    BadTarget,
+    BadArea,
 
     /// Memory policies and nodesets vary from one thread to another
     ///
