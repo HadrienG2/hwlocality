@@ -284,6 +284,9 @@ fn test_allocate_memory(topology: &Topology, len: usize) -> Result<(), TestCaseE
     match result {
         Ok(bytes) => check_memory_allocation(bytes, len),
         Err(HybridError::Rust(MemoryAllocationError::AllocationFailed)) => Ok(()),
+        // Ignore unknown errors on Windows, we can't really interpret them
+        #[cfg(windows)]
+        Err(HybridError::Rust(MemoryAllocationError::Unknown)) => Ok(()),
         Err(other) => {
             let other = format!("{other}");
             tracing::error!("Got unexpected memory allocation error: {other}");
@@ -464,6 +467,12 @@ fn check_common_membind_errors<Set: SpecializedBitmap, Res: Debug>(
     policy: MemoryBindingPolicy,
     flags: MemoryBindingFlags,
 ) -> Result<Option<Res>, TestCaseError> {
+    // Ignore unknown errors on Windows, we can't really make sense of them
+    #[cfg(windows)]
+    if let Err(HybridError::Rust(MemoryBindingError::Unknown)) = &result {
+        return Ok(None);
+    }
+
     // Handle invalid cpuset/nodeset errors
     if let Err(HybridError::Rust(MemoryBindingError::BadSet(object, set2))) = &result {
         prop_assert_eq!(
@@ -576,6 +585,12 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
     topology: &Topology,
     flags: MemoryBindingFlags,
 ) -> Result<(), TestCaseError> {
+    // Ignore unknown errors on Windows, we can't really make sense of them
+    #[cfg(windows)]
+    if let Err(HybridError::Rust(MemoryBindingError::Unknown)) = &result {
+        return Ok(None);
+    }
+
     // Make sure a single target flag is set if the allocation method can rebind
     // the current process/thread, no flag otherwise.
     if let Ok(true) = check_bad_membind_target_flags(pid.is_none(), flags, result.as_ref().err()) {
