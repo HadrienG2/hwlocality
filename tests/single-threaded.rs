@@ -441,12 +441,16 @@ fn check_bind_memory<Set: SpecializedBitmap>(
                 .get_process()
                 .then(|| topology.process_memory_binding(pid, MemoryBindingFlags::STRICT))
         } else {
-            membind_support
-                .get_current_process()
-                .then(|| topology.memory_binding(MemoryBindingFlags::STRICT))
+            (membind_support.get_current_process() || membind_support.get_current_thread()).then(
+                || {
+                    topology.memory_binding(
+                        (flags & target_membind_flags()) | MemoryBindingFlags::STRICT,
+                    )
+                },
+            )
         };
-        if let Some(final_binding) = final_binding {
-            if final_binding != Ok((set.clone(), Some(policy))) {
+        if let Some(Ok(set_and_policy)) = &final_binding {
+            if set_and_policy != &(set.clone(), Some(policy)) {
                 tracing::error!("Got unexpected final process memory binding {final_binding:?}");
                 return Err(TestCaseError::fail(
                     "Unexpected final process memory binding",
@@ -626,13 +630,14 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
             .get_process()
             .then(|| topology.process_memory_binding::<NodeSet>(pid, MemoryBindingFlags::STRICT))
     } else {
-        membind_support
-            .get_current_process()
-            .then(|| topology.memory_binding::<NodeSet>(MemoryBindingFlags::STRICT))
+        (membind_support.get_current_process() || membind_support.get_current_thread()).then(|| {
+            topology.memory_binding::<NodeSet>(
+                (flags & target_membind_flags()) | MemoryBindingFlags::STRICT,
+            )
+        })
     };
-    if let Some(query_result) = query_result {
-        if !matches!(&query_result, Ok((nodeset, Some(_))) if nodeset == &*topology.allowed_nodeset())
-        {
+    if let Some(Ok((nodeset, _policy))) = &query_result {
+        if nodeset != &*topology.allowed_nodeset() {
             tracing::error!("Got unexpected unbound process binding: {query_result:?}");
             return Err(TestCaseError::fail("Unexpected unbound process binding"));
         }
