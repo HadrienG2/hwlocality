@@ -592,7 +592,7 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
     // Ignore unknown errors on Windows, we can't really make sense of them
     #[cfg(windows)]
     if let Err(HybridError::Rust(MemoryBindingError::Unknown)) = &result {
-        return Ok(None);
+        return Ok(());
     }
 
     // Make sure a single target flag is set if the allocation method can rebind
