@@ -251,7 +251,15 @@ impl Topology {
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
     ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<SetRef::Owned>>> {
-        // Try allocate_bound_memory first
+        // Reject invalid flags first
+        if flags
+            .validate(MemoryBoundObject::ThisProgram, MemoryBindingOperation::Bind)
+            .is_none()
+        {
+            return Err(MemoryBindingError::BadFlags(flags.into()).into());
+        }
+
+        // Try to allocate_bound_memory first
         let set: &SetRef::Owned = &set;
         let flags_wo_target = flags.difference(
             MemoryBindingFlags::ASSUME_SINGLE_THREAD

@@ -340,7 +340,7 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
     // If possible, check that the final memory allocation is indeed bound at
     // the right location. This requires...
     //
-    // - Support for querying the memory binding of memory area (duh)
+    // - Support for querying the memory binding of a memory area (duh)
     // - Strict binding mode (otherwise the actual location may be different)
     // - Nonzero allocation size (otherwise binding cannot be queried)
     // - Binding by NodeSet (result of binding by CpuSet is harder to predict)
@@ -351,10 +351,13 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
         && len > 0
         && Set::BITMAP_KIND == BitmapKind::NodeSet
     {
-        prop_assert_eq!(
-            topology.area_memory_binding(&bytes[..], MemoryBindingFlags::STRICT),
-            Ok((set.clone(), Some(policy)))
-        );
+        let result = topology.area_memory_binding::<_, Set>(&bytes[..], MemoryBindingFlags::STRICT);
+        if result != Ok((set.clone(), Some(policy))) {
+            tracing::error!("Got unexpected final allocation memory binding {result:?}");
+            return Err(TestCaseError::fail(
+                "Unexpected final allocation memory binding",
+            ));
+        }
     }
 
     // Check that the final memory allocation makes sense
@@ -364,7 +367,11 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
 /// Check that one hwloc memory allocator works
 #[tracing::instrument(skip(bytes))]
 fn check_memory_allocation(mut bytes: Bytes<'_>, len: usize) -> Result<(), TestCaseError> {
-    prop_assert_eq!(bytes.len(), len);
+    prop_assert_eq!(
+        bytes.len(),
+        len,
+        "Final allocation has the wrong number of bytes"
+    );
     // If we allocated any bytes, check that we can write without
     // segfaults as a minimal sanity check
     if len > 0 {
@@ -426,18 +433,22 @@ fn check_bind_memory<Set: SpecializedBitmap>(
     // - Binding by NodeSet (result of binding by CpuSet is harder to predict)
     if flags.contains(MemoryBindingFlags::STRICT) && Set::BITMAP_KIND == BitmapKind::NodeSet {
         let membind_support = topology.feature_support().memory_binding().unwrap();
-        if let Some(pid) = pid {
-            if membind_support.get_process() {
-                prop_assert_eq!(
-                    topology.process_memory_binding(pid, MemoryBindingFlags::STRICT),
-                    Ok((set.clone(), Some(policy)))
-                );
+        let final_binding = if let Some(pid) = pid {
+            membind_support
+                .get_process()
+                .then(|| topology.process_memory_binding(pid, MemoryBindingFlags::STRICT))
+        } else {
+            membind_support
+                .get_current_process()
+                .then(|| topology.memory_binding(MemoryBindingFlags::STRICT))
+        };
+        if let Some(final_binding) = final_binding {
+            if final_binding != Ok((set.clone(), Some(policy))) {
+                tracing::error!("Got unexpected final process memory binding {final_binding:?}");
+                return Err(TestCaseError::fail(
+                    "Unexpected final process memory binding",
+                ));
             }
-        } else if membind_support.get_current_process() {
-            prop_assert_eq!(
-                topology.memory_binding(MemoryBindingFlags::STRICT),
-                Ok((set.clone(), Some(policy)))
-            );
         }
     }
     Ok(())
@@ -455,7 +466,11 @@ fn check_common_membind_errors<Set: SpecializedBitmap, Res: Debug>(
 ) -> Result<Option<Res>, TestCaseError> {
     // Handle invalid cpuset/nodeset errors
     if let Err(HybridError::Rust(MemoryBindingError::BadSet(object, set2))) = &result {
-        prop_assert_eq!(set2, set);
+        prop_assert_eq!(
+            set2,
+            set,
+            "Memory binding error set doesn't match input set"
+        );
 
         // Reinterpret the set as an untyped bitmap and find the associated
         // reference set (cpuset/nodeset) of the topology
@@ -478,7 +493,7 @@ fn check_common_membind_errors<Set: SpecializedBitmap, Res: Debug>(
         } else {
             let error = format!("{}", MemoryBindingError::BadSet(*object, set2.clone()));
             tracing::error!("Got unexpected {error}");
-            return Err(TestCaseError::Fail(error.into()));
+            return Err(TestCaseError::fail(error));
         }
     }
 
@@ -491,8 +506,11 @@ fn check_common_membind_errors<Set: SpecializedBitmap, Res: Debug>(
 
     // The MIGRATE flag should not be used with pure memory allocation functions
     if !can_bind_program && flags.contains(MemoryBindingFlags::MIGRATE) {
-        prop_assert!(matches!(result,
-            Err(HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(err_flags)))) if err_flags == flags));
+        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
+        if result.as_ref().err() != Some(&expected_error) {
+            tracing::error!("Expected bad flags error, got {result:?}");
+            return Err(TestCaseError::fail("Unexpected bad flags outcome"));
+        }
         return Ok(None);
     }
 
@@ -566,8 +584,11 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
 
     // The MIGRATE and STRUCT flag should not be used with unbinding functions
     if flags.intersects(MemoryBindingFlags::MIGRATE | MemoryBindingFlags::STRICT) {
-        prop_assert!(matches!(result,
-            Err(HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(err_flags)))) if err_flags == flags));
+        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
+        if result.as_ref().err() != Some(&expected_error) {
+            tracing::error!("Expected bad flags error, got {result:?}");
+            return Err(TestCaseError::fail("Unexpected bad flags outcome"));
+        }
         return Ok(());
     }
 
@@ -585,19 +606,21 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
 
     // If possible, check that memory was indeed un-bound
     let membind_support = topology.feature_support().memory_binding().unwrap();
-    let topology_nodeset = topology.allowed_nodeset().clone_target();
-    if let Some(pid) = pid {
-        if membind_support.get_process() {
-            prop_assert!(matches!(
-                topology.process_memory_binding::<NodeSet>(pid, MemoryBindingFlags::STRICT),
-                Ok((nodeset, Some(_))) if nodeset == topology_nodeset
-            ));
+    let query_result = if let Some(pid) = pid {
+        membind_support
+            .get_process()
+            .then(|| topology.process_memory_binding::<NodeSet>(pid, MemoryBindingFlags::STRICT))
+    } else {
+        membind_support
+            .get_current_process()
+            .then(|| topology.memory_binding::<NodeSet>(MemoryBindingFlags::STRICT))
+    };
+    if let Some(query_result) = query_result {
+        if !matches!(&query_result, Ok((nodeset, Some(_))) if nodeset == &*topology.allowed_nodeset())
+        {
+            tracing::error!("Got unexpected unbound process binding: {query_result:?}");
+            return Err(TestCaseError::fail("Unexpected unbound process binding"));
         }
-    } else if membind_support.get_current_process() {
-        prop_assert!(matches!(
-            topology.memory_binding::<NodeSet>(MemoryBindingFlags::STRICT),
-            Ok((nodeset, Some(_))) if nodeset == topology_nodeset
-        ));
     }
     Ok(())
 }
@@ -618,8 +641,11 @@ fn check_bad_membind_target_flags<Set: SpecializedBitmap>(
 
     // Check that the number of target flags is right
     if (flags & target_flags).iter().count() != (can_bind_thisprogram as usize) {
-        let expected_err = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
-        prop_assert_eq!(error, Some(&expected_err));
+        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
+        if error != Some(&expected_error) {
+            tracing::error!("Expected bad target flags error, got {error:?}");
+            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
+        }
         return Ok(true);
     }
     Ok(false)
@@ -678,7 +704,7 @@ fn test_bind_cpu(
 
     // Handle invalid cpuset errors
     if let Err(HybridError::Rust(CpuBindingError::BadCpuSet(set2))) = &result {
-        prop_assert_eq!(set2, set);
+        prop_assert_eq!(set2, set, "CPU binding error set doesn't match input set");
 
         // Empty sets and sets outside the topology's complete cpuset are never
         // valid. cpusets outside the topology's main cpuset are also very
@@ -692,8 +718,8 @@ fn test_bind_cpu(
             return Ok(());
         } else {
             let error = format!("{}", CpuBindingError::BadCpuSet(set2.clone()));
-            tracing::error!("Got unexpected {error}");
-            return Err(TestCaseError::Fail(error.into()));
+            tracing::error!("Got unexpected bad CPU set error {error}");
+            return Err(TestCaseError::fail(error));
         }
     }
 
@@ -715,16 +741,30 @@ fn test_bind_cpu(
     // in strict mode we know what it should have changed into.
     if flags.contains(CpuBindingFlags::STRICT) {
         let target_flags = flags & target_cpubind_flags();
-        let expected_binding = Ok(set.clone());
-        // Here I'm taking the shortcut of assuming that if we can set CPU
-        // bindings for a certain target, we can also query them. Introduce more
-        // rigorous feature support checks if we find an OS where this is wrong.
+        let cpubind_support = topology.feature_support().cpu_binding().unwrap();
         let actual_binding = match target {
-            CpuBoundObject::ThisProgram => topology.cpu_binding(target_flags),
-            CpuBoundObject::ProcessOrThread(pid) => topology.process_cpu_binding(pid, target_flags),
-            CpuBoundObject::Thread(tid) => topology.thread_cpu_binding(tid, target_flags),
+            // This is a bit of a logical shortcut, it assumes that if we can
+            // set CPU binding for the current process/thread we can also query
+            // it if we are able to query CPU bindings at all. Fix it if we ever
+            // find a system where this is wrong.
+            CpuBoundObject::ThisProgram => (cpubind_support.get_current_process()
+                || cpubind_support.get_current_thread())
+            .then(|| topology.cpu_binding(target_flags)),
+            CpuBoundObject::ProcessOrThread(pid) => cpubind_support
+                .get_process()
+                .then(|| topology.process_cpu_binding(pid, target_flags)),
+            CpuBoundObject::Thread(tid) => cpubind_support
+                .get_thread()
+                .then(|| topology.thread_cpu_binding(tid, target_flags)),
         };
-        prop_assert_eq!(expected_binding, actual_binding);
+        if let Some(actual_binding) = actual_binding {
+            if actual_binding != Ok(set.clone()) {
+                tracing::error!("Unexpected final process/thread CPU binding {actual_binding:?}");
+                return Err(TestCaseError::fail(
+                    "Unexpected final process/thread CPU binding",
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -747,10 +787,11 @@ fn test_cpu_binding(
     if flags.contains(CpuBindingFlags::STRICT)
         && (matches!(target, CpuBoundObject::Thread(_)) || flags.contains(CpuBindingFlags::THREAD))
     {
-        prop_assert_eq!(
-            result,
-            Err(HybridError::Rust(CpuBindingError::BadFlags(flags.into())))
-        );
+        let expected_error = HybridError::Rust(CpuBindingError::BadFlags(ParameterError(flags)));
+        if result.as_ref().err() != Some(&expected_error) {
+            tracing::error!("Expected bad target flags error, got {result:?}");
+            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
+        }
         return Ok(());
     }
 
@@ -774,10 +815,11 @@ fn test_last_cpu_location(
 
     // Make sure the `STRICT` flag was not specified
     if flags.contains(CpuBindingFlags::STRICT) {
-        prop_assert_eq!(
-            result,
-            Err(HybridError::Rust(CpuBindingError::BadFlags(flags.into())))
-        );
+        let expected_error = HybridError::Rust(CpuBindingError::BadFlags(ParameterError(flags)));
+        if result.as_ref().err() != Some(&expected_error) {
+            tracing::error!("Expected bad target flags error, got {result:?}");
+            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
+        }
         return Ok(());
     }
 
@@ -800,10 +842,11 @@ fn check_cpubind_query_result(
 
     // Make sure the `NO_MEMORY_BINDING` flag was not specified
     if flags.contains(CpuBindingFlags::NO_MEMORY_BINDING) {
-        prop_assert_eq!(
-            result,
-            Err(HybridError::Rust(CpuBindingError::BadFlags(flags.into())))
-        );
+        let expected_error = HybridError::Rust(CpuBindingError::BadFlags(ParameterError(flags)));
+        if result.as_ref().err() != Some(&expected_error) {
+            tracing::error!("Expected bad target flags error, got {result:?}");
+            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
+        }
         return Ok(());
     }
 
@@ -820,8 +863,14 @@ fn check_cpubind_query_result(
     };
 
     // The retrieved cpu binding should at least somewhat make sense
-    prop_assert!(!cpuset.is_empty());
-    prop_assert!(topology.complete_cpuset().includes(&cpuset));
+    prop_assert!(
+        !cpuset.is_empty(),
+        "Should never observe an empty CPU binding"
+    );
+    prop_assert!(
+        topology.complete_cpuset().includes(&cpuset),
+        "Should never observe a CPU binding that overflows the topology"
+    );
     Ok(())
 }
 
@@ -849,7 +898,10 @@ fn check_bad_cpubind_target_flags(
     let is_linux_special_case = target_flags.contains(CpuBindingFlags::THREAD)
         && matches!(target, CpuBoundObject::ProcessOrThread(_));
     if is_linux_special_case && cfg!(not(target_os = "linux")) {
-        prop_assert_eq!(error, expected_err);
+        if error != expected_err {
+            tracing::error!("Expected bad target flags error, got {error:?}");
+            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
+        }
         return Ok(true);
     }
 
@@ -857,7 +909,10 @@ fn check_bad_cpubind_target_flags(
     if (flags & target_flags).iter().count()
         != ((target == CpuBoundObject::ThisProgram) || is_linux_special_case) as usize
     {
-        prop_assert_eq!(error, expected_err);
+        if error != expected_err {
+            tracing::error!("Expected bad target flags error, got {error:?}");
+            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
+        }
         return Ok(true);
     }
     Ok(false)
