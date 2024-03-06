@@ -69,6 +69,14 @@ fn single_threaded_test() {
         dbg!(topology.complete_cpuset());
 
         // Setting CPU bindings
+        let curr_proc = cpubind_support.set_current_process();
+        let curr_thr = cpubind_support.set_current_thread();
+        let can_bind_self = |flags| match flags & target_cpubind_flags() {
+            CpuBindingFlags::PROCESS => curr_proc,
+            CpuBindingFlags::THREAD => curr_thr,
+            CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
+            _ => true, // Doesn't matter, will fail flag validation
+        };
         TestRunner::default()
             .run(
                 &(
@@ -76,16 +84,7 @@ fn single_threaded_test() {
                     any_cpubind_flags(),
                 ),
                 |(cpuset, flags)| {
-                    let target_flags = flags & target_cpubind_flags();
-                    let curr_proc = cpubind_support.set_current_process();
-                    let curr_thr = cpubind_support.set_current_thread();
-                    let can_set_self = match target_flags {
-                        CpuBindingFlags::PROCESS => curr_proc,
-                        CpuBindingFlags::THREAD => curr_thr,
-                        CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
-                        _ => true, // Doesn't matter, will fail flag validation
-                    };
-                    if can_set_self {
+                    if can_bind_self(flags) {
                         test_deref_set!(
                             test_bind_cpu,
                             topology,
@@ -121,13 +120,13 @@ fn single_threaded_test() {
         TestRunner::default()
             .run(&any_cpubind_flags(), |flags| {
                 let target_flags = flags & target_cpubind_flags();
-                let can_get_self = |curr_proc, curr_thr| match target_flags {
+                let can_query_self = |curr_proc, curr_thr| match target_flags {
                     CpuBindingFlags::PROCESS => curr_proc,
                     CpuBindingFlags::THREAD => curr_thr,
                     CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
                     _ => true, // Doesn't matter, will fail flag validation
                 };
-                if can_get_self(
+                if can_query_self(
                     cpubind_support.get_current_process(),
                     cpubind_support.get_current_thread(),
                 ) {
@@ -139,7 +138,7 @@ fn single_threaded_test() {
                 if cpubind_support.set_thread() {
                     test_cpu_binding(topology, flags, CpuBoundObject::Thread(my_tid))?;
                 }
-                if can_get_self(
+                if can_query_self(
                     cpubind_support.get_current_process_last_cpu_location(),
                     cpubind_support.get_current_thread_last_cpu_location(),
                 ) {
@@ -183,7 +182,7 @@ fn single_threaded_test() {
         // Test bound memory allocations in all supported configurations
         let can_bind_thisproc = membind_support.set_current_process();
         let can_bind_thisthread = membind_support.set_current_thread();
-        let can_bind_this = |flags| match flags & target_membind_flags() {
+        let can_bind_self = |flags| match flags & target_membind_flags() {
             MemoryBindingFlags::PROCESS => can_bind_thisproc,
             MemoryBindingFlags::THREAD => can_bind_thisthread,
             MemoryBindingFlags::ASSUME_SINGLE_THREAD => can_bind_thisproc | can_bind_thisthread,
@@ -214,7 +213,7 @@ fn single_threaded_test() {
 
                     // Test allocation of bound memory that may require
                     // rebinding the process
-                    if membind_support.allocate_bound() || can_bind_this(flags) {
+                    if membind_support.allocate_bound() || can_bind_self(flags) {
                         test_specialized_bitmap!(
                             test_binding_allocate_memory,
                             topology,
@@ -240,7 +239,7 @@ fn single_threaded_test() {
                     any_membind_flags(),
                 ),
                 |(cpuset, nodeset, policy, flags)| {
-                    if can_bind_this(flags) {
+                    if can_bind_self(flags) {
                         test_specialized_bitmap!(
                             test_bind_memory,
                             topology,
