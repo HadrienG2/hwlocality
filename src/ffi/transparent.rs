@@ -144,6 +144,7 @@ unsafe impl<T, NewT: TransparentNewtype<Inner = T>> AsNewtype<NewT> for *mut T {
 ///
 /// Unsafe code can rely on this trait being implemented correctly for safety
 #[allow(clippy::wrong_self_convention)]
+#[allow(unused)]
 pub(crate) unsafe trait AsInner {
     /// Like this type, but with the newtype replaced with its inner struct
     type Unwrapped;

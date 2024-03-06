@@ -858,25 +858,25 @@ impl<'set> From<&'set NodeSet> for AllowSet<'set> {
 /// Error while trying to set the allow-set of a topology
 #[derive(Copy, Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum AllowSetError {
-    /// `AllowSet::Custom` was specified but both the `cpuset` and `nodeset`
+    /// [`AllowSet::Custom`] was specified but both the `cpuset` and `nodeset`
     /// were empty, so it isn't clear how the allow set should change
     #[error("AllowSet::Custom cannot have both empty cpuset AND nodeset members")]
     EmptyCustom,
 
-    /// `AllowSet::Custom` was specified with a cpuset that would disallow all
+    /// [`AllowSet::Custom`] was specified with a cpuset that would disallow all
     /// CPUs from the topology
     #[error("AllowSet::Custom cannot be used to clear the topology's allowed cpuset")]
     InvalidCpuset,
 
-    /// `AllowSet::Custom` was specified with a nodeset that would disallow all
-    /// NUMA nodes from the topology
+    /// [`AllowSet::Custom`] was specified with a nodeset that would disallow
+    /// all NUMA nodes from the topology
     #[error("AllowSet::Custom cannot be used to clear the topology's allowed nodeset")]
     InvalidNodeset,
 
-    /// An unsupported AllowSet was passed in
+    /// An unsupported [`AllowSet`] was passed in
     ///
     /// At the time of writing (2024-01-08), this happens when using
-    /// `AllowSet::LocalRestrictions` on any operating system other than Linux
+    /// [`AllowSet::LocalRestrictions`] on any operating system other than Linux
     /// and Solaris.
     #[error("this operation is not supported on this OS")]
     Unsupported,
@@ -923,7 +923,7 @@ pub enum GroupChildFilter<
     /// group member set that follows the consistency rules.
     ///
     /// Due to a limitation of the Rust compiler, as of Rust 1.75 this type
-    /// constructor mistakenly requires you to specify a MemoryFilter type
+    /// constructor mistakenly requires you to specify a `MemoryFilter` type
     /// parameter. You can work around this by using the [`Self::normal()`]
     /// constructor instead.
     Normal(NormalFilter),
@@ -935,7 +935,7 @@ pub enum GroupChildFilter<
     /// automatically added to follow the consistency rules.
     ///
     /// Due to a limitation of the Rust compiler, as of Rust 1.75 this type
-    /// constructor mistakenly requires you to specify a NormalFilter type
+    /// constructor mistakenly requires you to specify a `NormalFilter` type
     /// parameter. You can work around this by using the [`Self::memory()`]
     /// constructor instead.
     Memory(MemoryFilter),
@@ -1198,7 +1198,7 @@ struct AllocatedGroup<'editor, 'topology> {
     /// Group object
     group: NonNull<TopologyObject>,
 
-    /// Underlying TopologyEditor the Group is allocated from
+    /// Underlying [`TopologyEditor`] the Group is allocated from
     editor: &'editor mut TopologyEditor<'topology>,
 }
 //
