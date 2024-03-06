@@ -17,7 +17,7 @@ use hwlocality::{
     memory::{
         binding::{
             Bytes, MemoryAllocationError, MemoryBindingError, MemoryBindingFlags,
-            MemoryBindingPolicy,
+            MemoryBindingPolicy, MemoryBoundObject,
         },
         nodeset::NodeSet,
     },
@@ -267,8 +267,28 @@ fn single_threaded_test() {
             )
             .unwrap();
 
-        // TODO: Add more memory binding tests here. They should mostly follow
-        //       the example of CPU binding, but they are a bit more involved
+        // Test memory binding queries
+        let can_query_thisproc = membind_support.get_current_process();
+        let can_query_thisthread = membind_support.get_current_thread();
+        let can_query_self = |flags| match flags & target_membind_flags() {
+            MemoryBindingFlags::PROCESS => can_query_thisproc,
+            MemoryBindingFlags::THREAD => can_query_thisthread,
+            MemoryBindingFlags::ASSUME_SINGLE_THREAD => can_query_thisproc | can_query_thisthread,
+            _ => true, // Doesn't matter, will fail flag validation
+        };
+        TestRunner::default()
+            .run(&any_membind_flags(), |flags| {
+                if can_query_self(flags) {
+                    test_query_membind(topology, flags)?;
+                }
+                if membind_support.get_process() {
+                    test_query_process_membind(topology, my_pid, flags)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        // TODO: Area-related tests (bind, unbind, query binding & location)
     }
 }
 
@@ -522,6 +542,7 @@ fn check_common_membind_errors<Set: SpecializedBitmap, Res: Debug>(
     if let Ok(true) = check_membind_flags(
         forbidden_flags,
         can_bind_program,
+        false,
         flags,
         result.as_ref().err(),
     ) {
@@ -601,6 +622,7 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
     if let Ok(true) = check_membind_flags(
         MemoryBindingFlags::MIGRATE | MemoryBindingFlags::STRICT,
         pid.is_none(),
+        false,
         flags,
         result.as_ref().err(),
     ) {
@@ -641,6 +663,108 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
     Ok(())
 }
 
+/// Test that querying the memory binding of the current process/thread works
+#[tracing::instrument(skip(topology))]
+fn test_query_membind(topology: &Topology, flags: MemoryBindingFlags) -> Result<(), TestCaseError> {
+    check_membind_query_result::<NodeSet>(
+        topology,
+        topology.memory_binding(flags),
+        MemoryBoundObject::ThisProgram,
+        flags,
+    )?;
+    check_membind_query_result::<CpuSet>(
+        topology,
+        topology.memory_binding(flags),
+        MemoryBoundObject::ThisProgram,
+        flags,
+    )
+}
+
+/// Test that querying the memory binding of a process works
+#[tracing::instrument(skip(topology))]
+fn test_query_process_membind(
+    topology: &Topology,
+    pid: ProcessId,
+    flags: MemoryBindingFlags,
+) -> Result<(), TestCaseError> {
+    check_membind_query_result::<NodeSet>(
+        topology,
+        topology.process_memory_binding(pid, flags),
+        MemoryBoundObject::Process(pid),
+        flags,
+    )?;
+    check_membind_query_result::<CpuSet>(
+        topology,
+        topology.process_memory_binding(pid, flags),
+        MemoryBoundObject::Process(pid),
+        flags,
+    )
+}
+
+// TODO: Check out the results of a certain memory binding query (by cpuset or
+//       nodeset)
+#[tracing::instrument(skip(topology))]
+fn check_membind_query_result<Set: SpecializedBitmap>(
+    topology: &Topology,
+    result: Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>>,
+    target: MemoryBoundObject,
+    flags: MemoryBindingFlags,
+) -> Result<(), TestCaseError> {
+    // Ignore unknown errors on Windows, we can't really make sense of them
+    #[cfg(windows)]
+    if let Err(HybridError::Rust(MemoryBindingError::Unknown)) = &result {
+        return Ok(());
+    }
+
+    // Detect invalid target flags using the general logic
+    if check_membind_flags(
+        MemoryBindingFlags::MIGRATE | MemoryBindingFlags::NO_CPU_BINDING,
+        target == MemoryBoundObject::ThisProgram,
+        true,
+        flags,
+        result.as_ref().err(),
+    )? {
+        return Ok(());
+    }
+
+    // A query with good flags should always succeed on Linux, on other OSes we
+    // don't know so we tolerate failure
+    let (set, policy) = match result {
+        Ok(tuple) => tuple,
+        Err(e) => {
+            if cfg!(target_os = "linux") {
+                tracing::error!("Unexpected memory binding query failure on Linux: {e}");
+                return Err(TestCaseError::fail(
+                    "Unexpected memory binding query failure on Linux",
+                ));
+            } else {
+                return Ok(());
+            }
+        }
+    };
+
+    // The returned set should make sense
+    let erased_set: Bitmap = set.into();
+    let erased_ref: Bitmap = match Set::BITMAP_KIND {
+        BitmapKind::CpuSet => topology.complete_cpuset().clone_target().into(),
+        BitmapKind::NodeSet => topology.complete_nodeset().clone_target().into(),
+    };
+    if erased_set.is_empty() || !erased_ref.includes(&erased_set) {
+        tracing::error!("Invalid memory binding: {erased_set} (reference: {erased_ref})");
+        return Err(TestCaseError::fail("Unexpected result set"));
+    }
+
+    // The policy can only be None when querying a multi-threaded process
+    // (or a multi-allocation memory area)
+    if policy.is_none()
+        && !(flags.contains(MemoryBindingFlags::PROCESS) || target == MemoryBoundObject::Area)
+    {
+        tracing::error!("Unexpected mixed policy");
+        return Err(TestCaseError::fail("Unexpected mixed policy"));
+    }
+    Ok(())
+}
+
 /// Check that either the "target flags" of CPU binding operations are used
 /// correctly correctly or errors are reported correctly.
 ///
@@ -650,18 +774,32 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
 fn check_membind_flags<Set: SpecializedBitmap>(
     forbidden_flags: MemoryBindingFlags,
     can_bind_thisprogram: bool,
+    is_binding_query: bool,
     actual_flags: MemoryBindingFlags,
     error: Option<&HybridError<MemoryBindingError<Set>>>,
 ) -> Result<bool, TestCaseError> {
     // Make sure no forbidden flags are used
-    let has_forbidden_flags = actual_flags.intersects(forbidden_flags);
+    let mut bad_flags = actual_flags.intersects(forbidden_flags);
+
+    // In memory binding, unlike in CPU binding, the THREAD target flag only
+    // makes sense when targeting the current process
+    bad_flags |= !can_bind_thisprogram && actual_flags.contains(MemoryBindingFlags::THREAD);
+
+    // In memory binding queries, the STRICT flag can only be used in
+    // combination with the PROCESS flag.
+    if is_binding_query {
+        bad_flags |= (actual_flags & (MemoryBindingFlags::STRICT | MemoryBindingFlags::PROCESS))
+            .iter()
+            .count()
+            == 1;
+    }
 
     // Make sure target flags are used correctly
-    let target_flags = actual_flags & target_membind_flags();
-    let has_bad_target_flags = target_flags.iter().count() != (can_bind_thisprogram as usize);
+    let num_target_flags = (actual_flags & target_membind_flags()).iter().count();
+    bad_flags |= num_target_flags != (can_bind_thisprogram | is_binding_query) as usize;
 
     // Check that the number of target flags is right
-    if has_forbidden_flags || has_bad_target_flags {
+    if bad_flags {
         let expected_error =
             HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(actual_flags)));
         if error != Some(&expected_error) {
