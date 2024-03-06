@@ -1259,21 +1259,27 @@ impl MemoryBindingFlags {
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
     ) -> Option<Self> {
-        // Target flags should be specified for operations that target a
-        // process, and only those operations
+        // Target flags should always be specified for operations that target
+        // the current process, for other operations they are assumed not to be
+        // accepted unless the hwloc docs say otherwise
         let num_target_flags = (self & (Self::PROCESS | Self::THREAD | Self::ASSUME_SINGLE_THREAD))
             .bits()
             .count_ones();
         let expected_num_target_flags = match target {
-            MemoryBoundObject::ThisProgram | MemoryBoundObject::Process(_) => 1,
+            MemoryBoundObject::ThisProgram => 1,
             MemoryBoundObject::Area => 0,
+            MemoryBoundObject::Process(_) => match operation {
+                MemoryBindingOperation::Bind | MemoryBindingOperation::Unbind => 0,
+                MemoryBindingOperation::GetBinding | MemoryBindingOperation::GetLastLocation => 1,
+                MemoryBindingOperation::Allocate => unreachable!(),
+            },
         };
         if num_target_flags != expected_num_target_flags {
             return None;
         }
 
-        // The THREAD target flag should not be used when targeting other processes
-        if matches!(target, MemoryBoundObject::Process(_)) && self.contains(Self::THREAD) {
+        // The THREAD flag should only be used for the current process
+        if target != MemoryBoundObject::ThisProgram && self.contains(Self::THREAD) {
             return None;
         }
 
