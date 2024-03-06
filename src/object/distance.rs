@@ -799,7 +799,8 @@ impl TopologyEditor<'_> {
 // - values array should contain nbobj*nbobj values
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
-    /// Pointer to a valid hwloc_distances_s struct that originates from `topology`
+    /// Pointer to a valid [`hwloc_distances_s`] struct that originates from
+    /// `topology`
     ///
     /// # Safety
     ///
