@@ -294,6 +294,29 @@ fn single_threaded_test() {
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
+/// Handle some windows error edge cases
+macro_rules! handle_windows_edge_cases {
+    ($result:expr, $may_target_pid:expr) => {
+        if cfg!(windows) {
+            if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = $result {
+                match errno {
+                    // Ignore unknown errors: we can't make sense of them and they
+                    // originate from a fishy CRT setup to begin with.
+                    None => return Ok(()),
+
+                    // Ignore invalid handle errors that occur when manipulating
+                    // bindings by PID as this hwloc feature is known to be brittle
+                    // (see https://github.com/open-mpi/hwloc/issues/78 )
+                    Some(Errno(6)) if $may_target_pid => return Ok(()),
+
+                    // Nothing else is known to be particularly faillible on Windows
+                    _ => {}
+                }
+            }
+        }
+    };
+}
+
 // === Memory binding test logic ===
 
 /// Test that hwloc's basic memory allocator works.
@@ -443,6 +466,9 @@ fn check_bind_memory<Set: SpecializedBitmap>(
     policy: MemoryBindingPolicy,
     flags: MemoryBindingFlags,
 ) -> Result<(), TestCaseError> {
+    // Handle some Windows edge cases
+    handle_windows_edge_cases!(&result, pid.is_some());
+
     // Check for common memory binding errors
     let Some(()) = check_common_membind_errors(result, true, topology, set, policy, flags)? else {
         return Ok(());
@@ -617,6 +643,9 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
         return Ok(());
     }
 
+    // Handle some Windows edge cases
+    handle_windows_edge_cases!(&result, pid.is_some());
+
     // Make sure a single target flag is set if the allocation method can rebind
     // the current process/thread, no flag otherwise.
     if let Ok(true) = check_membind_flags(
@@ -715,6 +744,9 @@ fn check_membind_query_result<Set: SpecializedBitmap>(
     if let Err(HybridError::Rust(MemoryBindingError::Unknown)) = &result {
         return Ok(());
     }
+
+    // Handle some Windows edge cases
+    handle_windows_edge_cases!(&result, matches!(target, MemoryBoundObject::Process(_)));
 
     // Detect invalid target flags using the general logic
     if check_membind_flags(
@@ -820,31 +852,6 @@ fn target_membind_flags() -> MemoryBindingFlags {
 
 // === CPU binding test logic ===
 
-/// Handle some windows error edge cases
-macro_rules! handle_windows_edge_cases {
-    ($result:expr, $target:expr) => {
-        if cfg!(windows) {
-            if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = $result {
-                match errno {
-                    // Ignore unknown errors: we can't make sense of them and they
-                    // originate from a fishy CRT setup to begin with.
-                    None => return Ok(()),
-
-                    // Ignore invalid handle errors that occur when manipulating
-                    // bindings by PID as this hwloc feature is known to be brittle
-                    // (see https://github.com/open-mpi/hwloc/issues/78 )
-                    Some(Errno(6)) if matches!($target, CpuBoundObject::ProcessOrThread(_)) => {
-                        return Ok(())
-                    }
-
-                    // Nothing else is known to be particularly faillible on Windows
-                    _ => {}
-                }
-            }
-        }
-    };
-}
-
 /// Check that methods that set CPU bindings work as expected for some inputs
 #[tracing::instrument(skip(topology))]
 fn test_bind_cpu(
@@ -894,7 +901,10 @@ fn test_bind_cpu(
     }
 
     // Handle some Windows edge cases
-    handle_windows_edge_cases!(&result, target);
+    handle_windows_edge_cases!(
+        &result,
+        matches!(target, CpuBoundObject::ProcessOrThread(_))
+    );
 
     // That should cover all known sources of error
     if let Err(e) = result {
@@ -1003,7 +1013,10 @@ fn check_cpubind_query_result(
     }
 
     // Handle some Windows edge cases
-    handle_windows_edge_cases!(&result, target);
+    handle_windows_edge_cases!(
+        &result,
+        matches!(target, CpuBoundObject::ProcessOrThread(_))
+    );
 
     // That should cover all known sources of error
     let cpuset = match result {
