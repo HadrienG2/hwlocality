@@ -511,20 +511,21 @@ fn check_common_membind_errors<Set: SpecializedBitmap, Res: Debug>(
         }
     }
 
+    // The MIGRATE flag should not be used with pure memory allocation functions
+    let forbidden_flags = if can_bind_program {
+        MemoryBindingFlags::empty()
+    } else {
+        MemoryBindingFlags::MIGRATE
+    };
+
     // Make sure a single target flag is set if the allocation method can rebind
     // the current process/thread, no flag otherwise.
-    if let Ok(true) = check_bad_membind_target_flags(can_bind_program, flags, result.as_ref().err())
-    {
-        return Ok(None);
-    }
-
-    // The MIGRATE flag should not be used with pure memory allocation functions
-    if !can_bind_program && flags.contains(MemoryBindingFlags::MIGRATE) {
-        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
-        if result.as_ref().err() != Some(&expected_error) {
-            tracing::error!("Expected bad flags error, got {result:?}");
-            return Err(TestCaseError::fail("Unexpected bad flags outcome"));
-        }
+    if let Ok(true) = check_membind_flags(
+        forbidden_flags,
+        can_bind_program,
+        flags,
+        result.as_ref().err(),
+    ) {
         return Ok(None);
     }
 
@@ -598,17 +599,12 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
 
     // Make sure a single target flag is set if the allocation method can rebind
     // the current process/thread, no flag otherwise.
-    if let Ok(true) = check_bad_membind_target_flags(pid.is_none(), flags, result.as_ref().err()) {
-        return Ok(());
-    }
-
-    // The MIGRATE and STRUCT flag should not be used with unbinding functions
-    if flags.intersects(MemoryBindingFlags::MIGRATE | MemoryBindingFlags::STRICT) {
-        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
-        if result.as_ref().err() != Some(&expected_error) {
-            tracing::error!("Expected bad flags error, got {result:?}");
-            return Err(TestCaseError::fail("Unexpected bad flags outcome"));
-        }
+    if let Ok(true) = check_membind_flags(
+        MemoryBindingFlags::MIGRATE | MemoryBindingFlags::STRICT,
+        pid.is_none(),
+        flags,
+        result.as_ref().err(),
+    ) {
         return Ok(());
     }
 
@@ -652,17 +648,23 @@ fn check_unbind_memory<Set: SpecializedBitmap>(
 /// Return true if an error was detected, so that the output of the underlying
 /// CPU binding function is not examined further.
 #[tracing::instrument]
-fn check_bad_membind_target_flags<Set: SpecializedBitmap>(
+fn check_membind_flags<Set: SpecializedBitmap>(
+    forbidden_flags: MemoryBindingFlags,
     can_bind_thisprogram: bool,
-    flags: MemoryBindingFlags,
+    actual_flags: MemoryBindingFlags,
     error: Option<&HybridError<MemoryBindingError<Set>>>,
 ) -> Result<bool, TestCaseError> {
-    // We are only concerned with flags that specify the target
-    let target_flags = flags & target_membind_flags();
+    // Make sure no forbidden flags are used
+    let has_forbidden_flags = actual_flags.intersects(forbidden_flags);
+
+    // Make sure target flags are used correctly
+    let target_flags = actual_flags & target_membind_flags();
+    let has_bad_target_flags = target_flags.iter().count() != (can_bind_thisprogram as usize);
 
     // Check that the number of target flags is right
-    if (flags & target_flags).iter().count() != (can_bind_thisprogram as usize) {
-        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(flags)));
+    if has_forbidden_flags || has_bad_target_flags {
+        let expected_error =
+            HybridError::Rust(MemoryBindingError::BadFlags(ParameterError(actual_flags)));
         if error != Some(&expected_error) {
             tracing::error!("Expected bad target flags error, got {error:?}");
             return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
@@ -745,7 +747,12 @@ fn test_bind_cpu(
     }
 
     // Make sure the target flags are valid
-    if check_bad_cpubind_target_flags(target, flags, result.as_ref().err())? {
+    if check_cpubind_flags(
+        CpuBindingFlags::empty(),
+        target,
+        flags,
+        result.as_ref().err(),
+    )? {
         return Ok(());
     }
 
@@ -805,19 +812,15 @@ fn test_cpu_binding(
     };
 
     // Make sure the `STRICT` flag is not specified when querying threads
-    if flags.contains(CpuBindingFlags::STRICT)
-        && (matches!(target, CpuBoundObject::Thread(_)) || flags.contains(CpuBindingFlags::THREAD))
-    {
-        let expected_error = HybridError::Rust(CpuBindingError::BadFlags(ParameterError(flags)));
-        if result.as_ref().err() != Some(&expected_error) {
-            tracing::error!("Expected bad target flags error, got {result:?}");
-            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
-        }
-        return Ok(());
-    }
+    let forbidden_flags =
+        if matches!(target, CpuBoundObject::Thread(_)) || flags.contains(CpuBindingFlags::THREAD) {
+            CpuBindingFlags::STRICT
+        } else {
+            CpuBindingFlags::empty()
+        };
 
     // Common code path with CPU location check
-    check_cpubind_query_result(result, topology, flags, target)
+    check_cpubind_query_result(result, topology, flags, target, forbidden_flags)
 }
 
 /// Check that methods that get CPU locations work as expected for some inputs
@@ -834,18 +837,8 @@ fn test_last_cpu_location(
         CpuBoundObject::Thread(_) => panic!("Not currently supported by hwloc"),
     };
 
-    // Make sure the `STRICT` flag was not specified
-    if flags.contains(CpuBindingFlags::STRICT) {
-        let expected_error = HybridError::Rust(CpuBindingError::BadFlags(ParameterError(flags)));
-        if result.as_ref().err() != Some(&expected_error) {
-            tracing::error!("Expected bad target flags error, got {result:?}");
-            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
-        }
-        return Ok(());
-    }
-
     // Common code path with CPU affinity check
-    check_cpubind_query_result(result, topology, flags, target)
+    check_cpubind_query_result(result, topology, flags, target, CpuBindingFlags::STRICT)
 }
 
 /// Check the result of a CPU binding or CPU location query
@@ -855,9 +848,10 @@ fn check_cpubind_query_result(
     topology: &Topology,
     flags: CpuBindingFlags,
     target: CpuBoundObject,
+    forbidden_flags: CpuBindingFlags,
 ) -> Result<(), TestCaseError> {
     // Make sure the target flags are valid
-    if check_bad_cpubind_target_flags(target, flags, result.as_ref().err())? {
+    if check_cpubind_flags(forbidden_flags, target, flags, result.as_ref().err())? {
         return Ok(());
     }
 
@@ -901,35 +895,33 @@ fn check_cpubind_query_result(
 /// Return true if an error was detected, so that the output of the underlying
 /// CPU binding function is not examined further.
 #[tracing::instrument]
-fn check_bad_cpubind_target_flags(
+fn check_cpubind_flags(
+    forbidden_flags: CpuBindingFlags,
     target: CpuBoundObject,
-    flags: CpuBindingFlags,
+    actual_flags: CpuBindingFlags,
     error: Option<&HybridError<CpuBindingError>>,
 ) -> Result<bool, TestCaseError> {
-    // We are only concerned with flags that specify the target
-    let target_flags = flags & target_cpubind_flags();
-
     // If flags validation fails, we should get this error
     let expected_err = Some(HybridError::Rust(CpuBindingError::BadFlags(
-        ParameterError(flags),
+        ParameterError(actual_flags),
     )));
     let expected_err = expected_err.as_ref();
 
-    // Handle Linux edge case where THREAD can be used on processes
+    // Make sure no forbidden flags are present
+    let mut bad_flags = actual_flags.intersects(forbidden_flags);
+
+    // Otherwise, we are concerned with flags that specify the target
+    let target_flags = actual_flags & target_cpubind_flags();
+
+    // Only on Linux can THREAD can be used on processes
     let is_linux_special_case = target_flags.contains(CpuBindingFlags::THREAD)
         && matches!(target, CpuBoundObject::ProcessOrThread(_));
-    if is_linux_special_case && cfg!(not(target_os = "linux")) {
-        if error != expected_err {
-            tracing::error!("Expected bad target flags error, got {error:?}");
-            return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
-        }
-        return Ok(true);
-    }
+    bad_flags |= is_linux_special_case && cfg!(not(target_os = "linux"));
 
-    // Check that the number of target flags is right
-    if (flags & target_flags).iter().count()
-        != ((target == CpuBoundObject::ThisProgram) || is_linux_special_case) as usize
-    {
+    // Number of target flags should be correct for this operation
+    bad_flags |= (actual_flags & target_flags).iter().count()
+        != (target == CpuBoundObject::ThisProgram || is_linux_special_case) as usize;
+    if bad_flags {
         if error != expected_err {
             tracing::error!("Expected bad target flags error, got {error:?}");
             return Err(TestCaseError::fail("Unexpected bad target flags outcome"));
