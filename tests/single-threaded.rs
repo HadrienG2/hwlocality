@@ -344,9 +344,10 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
     // the right location. This requires...
     //
     // - Support for querying the memory binding of a memory area (duh)
-    // - Strict binding mode (otherwise the actual location may be different)
-    // - Nonzero allocation size (otherwise binding cannot be queried)
-    // - Binding by NodeSet (result of binding by CpuSet is harder to predict)
+    // - Strict binding mode (otherwise the actual location may be slightly
+    //   different from what was requested)
+    // - Nonzero allocation size (otherwise the location cannot be queried)
+    // - Binding by NodeSet (as result of binding by CpuSet is hard to predict)
     if topology.supports(
         FeatureSupport::memory_binding,
         MemoryBindingSupport::get_area,
@@ -379,10 +380,10 @@ fn check_memory_allocation(mut bytes: Bytes<'_>, len: usize) -> Result<(), TestC
     // segfaults as a minimal sanity check
     if len > 0 {
         let first_byte = bytes.first_mut().unwrap().as_mut_ptr();
-        // SAFETY: Originates from a valid reference
+        // SAFETY: Simple use of a valid reference
         unsafe { first_byte.write_volatile(42) };
         let last_byte = bytes.last_mut().unwrap().as_mut_ptr();
-        // SAFETY: Originates from a valid reference
+        // SAFETY: Simple use of a valid reference
         unsafe { last_byte.write_volatile(142) };
     }
     Ok(())
@@ -431,9 +432,9 @@ fn check_bind_memory<Set: SpecializedBitmap>(
     // If possible, check that the final process is indeed bound at the right
     // location. This requires...
     //
-    // - Support for querying the memory binding of memory area (duh)
+    // - Support for querying the memory binding of processes (duh)
     // - Strict binding mode (otherwise the actual location may be different)
-    // - Binding by NodeSet (result of binding by CpuSet is harder to predict)
+    // - Binding by NodeSet (result of binding by CpuSet is hard to predict)
     if flags.contains(MemoryBindingFlags::STRICT) && Set::BITMAP_KIND == BitmapKind::NodeSet {
         let membind_support = topology.feature_support().memory_binding().unwrap();
         let final_binding = if let Some(pid) = pid {
@@ -942,8 +943,6 @@ fn check_bad_cpubind_target_flags(
 fn target_cpubind_flags() -> CpuBindingFlags {
     CpuBindingFlags::ASSUME_SINGLE_THREAD | CpuBindingFlags::THREAD | CpuBindingFlags::PROCESS
 }
-
-// WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
 // === The following is copypasted from hwlocality's unit testing code ===
 //
