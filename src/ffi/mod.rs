@@ -207,6 +207,7 @@ mod tests {
         // Must be called with correct snprintf inputs
         unsafe fn snprintf(buf: *mut c_char, len: usize) -> i32 {
             assert!(!(buf.is_null() && len != 0));
+            isize::try_from(len).expect("Allocation is too large");
             let original_bytes = ORIGINAL.as_bytes();
             if !buf.is_null() {
                 let truncated_len = len.min(original_bytes.len());
