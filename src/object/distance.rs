@@ -501,8 +501,12 @@ impl TopologyEditor<'_> {
             }
         }
         let object_ptrs =
-            // SAFETY: TopologyObject is a repr(transparent) newtype of
-            //         hwloc_obj, and the (ptr, len) tuple is consistent
+            // SAFETY: - TopologyObject is a repr(transparent) newtype of
+            //           hwloc_obj so Option<&TopologyObject> matches *const
+            //           hwloc_obj in layout and semantics.
+            //         - The output slice covers the same memory span as the
+            //           original objects vec, so if the length was right for
+            //           the former, it is right for the latter too.
             unsafe {
                 std::slice::from_raw_parts(
                     objects.as_ptr().cast::<*const hwloc_obj>(),
@@ -838,6 +842,13 @@ impl<'topology> Distances<'topology> {
             !inner_ref.values.is_null(),
             "Got unexpected null matrix in distances"
         );
+        let num_objects = int::expect_usize(inner_ref.nbobj);
+        int::assert_slice_len::<*const TopologyObject>(num_objects);
+        int::assert_slice_len::<u64>(
+            num_objects
+                .checked_add(num_objects)
+                .expect("distance count should fit usize"),
+        );
         // SAFETY: inner is assumed to originate from topology per precondition
         Self { inner, topology }
     }
@@ -922,7 +933,9 @@ impl<'topology> Distances<'topology> {
     ///
     /// # Safety
     ///
-    /// Output can be trusted by unsafe code
+    /// Output can be trusted by unsafe code to be the actual number of elements
+    /// in the target allocation, and this number can be trusted to fit within
+    /// Rust's limit of `isize::MAX` slice length limit.
     #[doc(alias = "hwloc_distances_s::nbobjs")]
     pub fn num_objects(&self) -> usize {
         // SAFETY: No invalid mutation of inner state occurs
@@ -967,6 +980,7 @@ impl<'topology> Distances<'topology> {
         //           to the lifetime of self.topology and thus to self
         //         - No invalid mutation of inner state is possible in safe code
         //           using this API
+        //         - num_objects guarantees a target smaller than isize::MAX
         unsafe {
             let objs = self.raw_objects();
             let objs = std::slice::from_raw_parts(objs.cast_const(), self.num_objects());
@@ -1004,9 +1018,11 @@ impl<'topology> Distances<'topology> {
     unsafe fn objects_mut(&mut self) -> &mut [*const TopologyObject] {
         // SAFETY: Allowed mutations are covered by the function's safety contract
         let objs = unsafe { self.raw_objects() };
-        // SAFETY: inner is assumed valid as a type invariant, thus objs &
-        //         num_objects() are trusted to be consistent, objs is assumed
-        //         unaliased and bound to the lifetime of self.topology
+        // SAFETY: - inner is assumed valid as a type invariant, thus objs &
+        //           num_objects() are trusted to be consistent
+        //         - objs is assumed unaliased and bound to the lifetime of
+        //           self.topology
+        //         - num_objects guarantees a target smaller than isize::MAX
         unsafe { std::slice::from_raw_parts_mut(objs, self.num_objects()) }
     }
 
@@ -1097,7 +1113,9 @@ impl<'topology> Distances<'topology> {
     ///
     /// # Safety
     ///
-    /// Output can be trusted by unsafe code
+    /// Output can be trusted by unsafe code to be the actual number of elements
+    /// in the target allocation, and this number can be trusted to fit within
+    /// Rust's limit of `isize::MAX` slice length limit.
     fn num_distances(&self) -> usize {
         self.num_objects().pow(2)
     }
@@ -1121,6 +1139,7 @@ impl<'topology> Distances<'topology> {
         //           self.topology, and thus to that of self
         //         - No invalid mutation of inner state is possible in safe code
         //           using this API
+        //         - num_distances guarantees a target smaller than isize::MAX
         unsafe { std::slice::from_raw_parts(self.inner().values, self.num_distances()) }
     }
 
@@ -1134,6 +1153,7 @@ impl<'topology> Distances<'topology> {
         //           self.topology, and thus to that of self
         //         - No invalid mutation of inner state is possible in safe code
         //           using this API
+        //         - num_distances guarantees a target smaller than isize::MAX
         unsafe { std::slice::from_raw_parts_mut(self.inner_mut().values, self.num_distances()) }
     }
 
@@ -1197,6 +1217,7 @@ impl<'topology> Distances<'topology> {
         // SAFETY: - inner is assumed valid as a type invariant, thus objs &
         //           num_objects() are trusted to be consistent, objs is assumed
         //           unaliased and bound to the lifetime of self.topology
+        //         - num_objects guarantees a target smaller than isize::MAX
         let objects = unsafe { std::slice::from_raw_parts(objs, self.num_objects()) };
         self.enumerate_distances_mut()
             .map(move |((sender_idx, receiver_idx), distance)| {

@@ -103,7 +103,8 @@ impl Topology {
     /// # Errors
     ///
     /// - [`AllocationFailed`] if memory allocation failed
-    /// - [`Unsupported`] if the system cannot allocate page-aligned memory
+    /// - [`Unsupported`] if the system cannot allocate page-aligned memory or
+    ///   if more than `isize::MAX` bytes of memory are requested
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`Unsupported`]: MemoryBindingError::Unsupported
@@ -152,7 +153,8 @@ impl Topology {
     /// - [`BadFlags`] if binding target flags were specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`Unsupported`] if the system cannot allocate bound memory with the
-    ///   requested policy
+    ///   requested policy or if more than `isize::MAX` bytes of memory are
+    ///   requested
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
@@ -233,8 +235,9 @@ impl Topology {
     /// - [`BadFlags`] if the number of specified binding target flags is not
     ///   exactly one
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`Unsupported`] if the system can neither allocate bound memory
-    ///   nor rebind the current thread/process with the requested policy
+    /// - [`Unsupported`] if the system can neither allocate bound memory nor
+    ///   rebind the current thread/process with the requested policy or if more
+    ///   than `isize::MAX` bytes of memory are requested
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
@@ -974,7 +977,9 @@ impl Topology {
         len: usize,
         ffi: impl FnOnce(hwloc_const_topology_t, usize) -> *mut c_void,
     ) -> Result<Bytes<'_>, HybridError<MemoryBindingError<Set>>> {
-        if len > 0 {
+        if len > isize::MAX as usize {
+            Err(MemoryAllocationError::Unsupported.into())
+        } else if len > 0 {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - len was checked to be nonzero above
@@ -1614,15 +1619,17 @@ pub struct Bytes<'topology> {
 impl<'topology> Bytes<'topology> {
     /// Wrap an hwloc allocation
     ///
+    /// # Panics
+    ///
+    /// Panics if the slice covers more than `isize::MAX` bytes, as this is not
+    /// supported by Rust.
+    ///
     /// # Safety
     ///
     /// If the size is nonzero, `base` must originate from an hwloc memory
     /// allocation function that was called on `topology` for `size` bytes.
-    pub(crate) unsafe fn wrap(
-        topology: &'topology Topology,
-        base: NonNull<c_void>,
-        size: usize,
-    ) -> Self {
+    unsafe fn wrap(topology: &'topology Topology, base: NonNull<c_void>, size: usize) -> Self {
+        isize::try_from(size).expect("Unsupported allocation size");
         Self {
             topology,
             data: NonNull::slice_from_raw_parts(base.cast::<MaybeUninit<u8>>(), size),
