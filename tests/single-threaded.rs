@@ -54,7 +54,7 @@ macro_rules! test_specialized_bitmap {
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
 
 #[test]
-fn single_threaded_test() {
+fn single_threaded_test() -> Result<(), TestCaseError> {
     // Set up span traces
     let subscriber = tracing_subscriber::Registry::default().with(ErrorLayer::default());
     tracing::subscriber::set_global_default(subscriber).unwrap();
@@ -82,83 +82,75 @@ fn single_threaded_test() {
             CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
             _ => true, // Doesn't matter, will fail flag validation
         };
-        TestRunner::default()
-            .run(
-                &(
-                    topology_related_set(Topology::complete_cpuset),
-                    any_cpubind_flags(),
-                ),
-                |(cpuset, flags)| {
-                    if can_bind_self(flags) {
-                        test_deref_set!(
-                            test_bind_cpu,
-                            topology,
-                            cpuset,
-                            flags,
-                            CpuBoundObject::ThisProgram
-                        )?;
-                    }
-                    if cpubind_support.set_process() {
-                        test_deref_set!(
-                            test_bind_cpu,
-                            topology,
-                            cpuset,
-                            flags,
-                            CpuBoundObject::ProcessOrThread(my_pid)
-                        )?;
-                    }
-                    if cpubind_support.set_thread() {
-                        test_deref_set!(
-                            test_bind_cpu,
-                            topology,
-                            cpuset,
-                            flags,
-                            CpuBoundObject::Thread(my_tid)
-                        )?;
-                    }
-                    Ok(())
-                },
-            )
-            .unwrap();
-
-        // Querying CPU bindings
-        TestRunner::default()
-            .run(&any_cpubind_flags(), |flags| {
-                let target_flags = flags & target_cpubind_flags();
-                let can_query_self = |curr_proc, curr_thr| match target_flags {
-                    CpuBindingFlags::PROCESS => curr_proc,
-                    CpuBindingFlags::THREAD => curr_thr,
-                    CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
-                    _ => true, // Doesn't matter, will fail flag validation
-                };
-                if can_query_self(
-                    cpubind_support.get_current_process(),
-                    cpubind_support.get_current_thread(),
-                ) {
-                    test_cpu_binding(topology, flags, CpuBoundObject::ThisProgram)?;
+        TestRunner::default().run(
+            &(
+                topology_related_set(Topology::complete_cpuset),
+                any_cpubind_flags(),
+            ),
+            |(cpuset, flags)| {
+                if can_bind_self(flags) {
+                    test_deref_set!(
+                        test_bind_cpu,
+                        topology,
+                        cpuset,
+                        flags,
+                        CpuBoundObject::ThisProgram
+                    )?;
                 }
-                if cpubind_support.get_process() {
-                    test_cpu_binding(topology, flags, CpuBoundObject::ProcessOrThread(my_pid))?;
+                if cpubind_support.set_process() {
+                    test_deref_set!(
+                        test_bind_cpu,
+                        topology,
+                        cpuset,
+                        flags,
+                        CpuBoundObject::ProcessOrThread(my_pid)
+                    )?;
                 }
                 if cpubind_support.set_thread() {
-                    test_cpu_binding(topology, flags, CpuBoundObject::Thread(my_tid))?;
-                }
-                if can_query_self(
-                    cpubind_support.get_current_process_last_cpu_location(),
-                    cpubind_support.get_current_thread_last_cpu_location(),
-                ) {
-                    test_last_cpu_location(topology, flags, CpuBoundObject::ThisProgram)?;
-                }
-                if cpubind_support.get_process_last_cpu_location() {
-                    test_last_cpu_location(
+                    test_deref_set!(
+                        test_bind_cpu,
                         topology,
+                        cpuset,
                         flags,
-                        CpuBoundObject::ProcessOrThread(my_pid),
+                        CpuBoundObject::Thread(my_tid)
                     )?;
                 }
                 Ok(())
-            })
-            .unwrap();
+            },
+        )?;
+
+        // Querying CPU bindings
+        TestRunner::default().run(&any_cpubind_flags(), |flags| {
+            let target_flags = flags & target_cpubind_flags();
+            let can_query_self = |curr_proc, curr_thr| match target_flags {
+                CpuBindingFlags::PROCESS => curr_proc,
+                CpuBindingFlags::THREAD => curr_thr,
+                CpuBindingFlags::ASSUME_SINGLE_THREAD => curr_proc | curr_thr,
+                _ => true, // Doesn't matter, will fail flag validation
+            };
+            if can_query_self(
+                cpubind_support.get_current_process(),
+                cpubind_support.get_current_thread(),
+            ) {
+                test_cpu_binding(topology, flags, CpuBoundObject::ThisProgram)?;
+            }
+            if cpubind_support.get_process() {
+                test_cpu_binding(topology, flags, CpuBoundObject::ProcessOrThread(my_pid))?;
+            }
+            if cpubind_support.set_thread() {
+                test_cpu_binding(topology, flags, CpuBoundObject::Thread(my_tid))?;
+            }
+            if can_query_self(
+                cpubind_support.get_current_process_last_cpu_location(),
+                cpubind_support.get_current_thread_last_cpu_location(),
+            ) {
+                test_last_cpu_location(topology, flags, CpuBoundObject::ThisProgram)?;
+            }
+            if cpubind_support.get_process_last_cpu_location() {
+                test_last_cpu_location(topology, flags, CpuBoundObject::ProcessOrThread(my_pid))?;
+            }
+            Ok(())
+        })?;
     }
 
     // Test memory binding operations for current process
@@ -180,9 +172,7 @@ fn single_threaded_test() {
             1 => Just(0usize),
             2 => 1usize..(48 * 1024 * 1024)
         ];
-        TestRunner::default()
-            .run(&any_len, |len| test_allocate_memory(topology, len))
-            .unwrap();
+        TestRunner::default().run(&any_len, |len| test_allocate_memory(topology, len))?;
 
         // Test bound memory allocations in all supported configurations
         let can_bind_thisproc = membind_support.set_current_process();
@@ -193,84 +183,80 @@ fn single_threaded_test() {
             MemoryBindingFlags::ASSUME_SINGLE_THREAD => can_bind_thisproc | can_bind_thisthread,
             _ => true, // Doesn't matter, will fail flag validation
         };
-        TestRunner::default()
-            .run(
-                &(
-                    &any_len,
-                    topology_related_set(Topology::complete_cpuset),
-                    topology_related_set(Topology::complete_nodeset),
-                    any_membind_policy(),
-                    any_membind_flags(),
-                ),
-                |(len, cpuset, nodeset, policy, flags)| {
-                    // Test direct allocation of bound memory
-                    if membind_support.allocate_bound() {
-                        test_specialized_bitmap!(
-                            test_allocate_bound_memory,
-                            topology,
-                            cpuset,
-                            nodeset,
-                            len,
-                            policy,
-                            flags
-                        )?;
-                    }
+        TestRunner::default().run(
+            &(
+                &any_len,
+                topology_related_set(Topology::complete_cpuset),
+                topology_related_set(Topology::complete_nodeset),
+                any_membind_policy(),
+                any_membind_flags(),
+            ),
+            |(len, cpuset, nodeset, policy, flags)| {
+                // Test direct allocation of bound memory
+                if membind_support.allocate_bound() {
+                    test_specialized_bitmap!(
+                        test_allocate_bound_memory,
+                        topology,
+                        cpuset,
+                        nodeset,
+                        len,
+                        policy,
+                        flags
+                    )?;
+                }
 
-                    // Test allocation of bound memory that may require
-                    // rebinding the process
-                    if membind_support.allocate_bound() || can_bind_self(flags) {
-                        test_specialized_bitmap!(
-                            test_binding_allocate_memory,
-                            topology,
-                            cpuset,
-                            nodeset,
-                            len,
-                            policy,
-                            flags
-                        )?;
-                    }
-                    Ok(())
-                },
-            )
-            .unwrap();
+                // Test allocation of bound memory that may require
+                // rebinding the process
+                if membind_support.allocate_bound() || can_bind_self(flags) {
+                    test_specialized_bitmap!(
+                        test_binding_allocate_memory,
+                        topology,
+                        cpuset,
+                        nodeset,
+                        len,
+                        policy,
+                        flags
+                    )?;
+                }
+                Ok(())
+            },
+        )?;
 
         // Test process memory binding in all supported configurations
-        TestRunner::default()
-            .run(
-                &(
-                    topology_related_set(Topology::complete_cpuset),
-                    topology_related_set(Topology::complete_nodeset),
-                    any_membind_policy(),
-                    any_membind_flags(),
-                ),
-                |(cpuset, nodeset, policy, flags)| {
-                    if can_bind_self(flags) {
-                        test_specialized_bitmap!(
-                            test_bind_memory,
-                            topology,
-                            cpuset,
-                            nodeset,
-                            policy,
-                            flags
-                        )?;
-                        test_unbind_memory(topology, flags)?;
-                    }
-                    if membind_support.set_process() {
-                        test_specialized_bitmap!(
-                            test_bind_process_memory,
-                            topology,
-                            cpuset,
-                            nodeset,
-                            my_pid,
-                            policy,
-                            flags
-                        )?;
-                        test_unbind_process_memory(topology, my_pid, flags)?;
-                    }
-                    Ok(())
-                },
-            )
-            .unwrap();
+        TestRunner::default().run(
+            &(
+                topology_related_set(Topology::complete_cpuset),
+                topology_related_set(Topology::complete_nodeset),
+                any_membind_policy(),
+                any_membind_flags(),
+            ),
+            |(cpuset, nodeset, policy, flags)| {
+                if can_bind_self(flags) {
+                    test_specialized_bitmap!(
+                        test_bind_memory,
+                        topology,
+                        cpuset,
+                        nodeset,
+                        policy,
+                        flags
+                    )?;
+                    test_unbind_memory(topology, flags)?;
+                }
+                if membind_support.set_process() {
+                    test_specialized_bitmap!(
+                        test_bind_process_memory,
+                        topology,
+                        cpuset,
+                        nodeset,
+                        my_pid,
+                        policy,
+                        flags
+                    )?;
+                    test_unbind_process_memory(topology, my_pid, flags)?;
+                }
+                Ok(())
+            },
+        )?;
 
         // Test memory binding queries
         let can_query_thisproc = membind_support.get_current_process();
@@ -281,20 +267,19 @@ fn single_threaded_test() {
             MemoryBindingFlags::ASSUME_SINGLE_THREAD => can_query_thisproc | can_query_thisthread,
             _ => true, // Doesn't matter, will fail flag validation
         };
-        TestRunner::default()
-            .run(&any_membind_flags(), |flags| {
-                if can_query_self(flags) {
-                    test_query_membind(topology, flags)?;
-                }
-                if membind_support.get_process() {
-                    test_query_process_membind(topology, my_pid, flags)?;
-                }
-                Ok(())
-            })
-            .unwrap();
+        TestRunner::default().run(&any_membind_flags(), |flags| {
+            if can_query_self(flags) {
+                test_query_membind(topology, flags)?;
+            }
+            if membind_support.get_process() {
+                test_query_process_membind(topology, my_pid, flags)?;
+            }
+            Ok(())
+        })?;
 
         // TODO: Area-related tests (bind, unbind, query binding & location)
     }
+    Ok(())
 }
 
 // WARNING: DO NOT CREATE ANY OTHER #[test] FUNCTION IN THIS INTEGRATION TEST!
@@ -329,7 +314,7 @@ macro_rules! fail {
     ($message:expr) => {{
         let trace = SpanTrace::capture();
         let error = if trace.status() == SpanTraceStatus::CAPTURED {
-            TestCaseError::fail(format!("{} with spantrace\n\n{trace}", $message))
+            TestCaseError::fail(format!("{}\nSpantrace:\n{trace}", $message))
         } else {
             TestCaseError::fail($message)
         };
