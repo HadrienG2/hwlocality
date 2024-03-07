@@ -823,10 +823,8 @@ fn check_membind_flags<Set: SpecializedBitmap>(
     // In memory binding queries, the STRICT flag can only be used in
     // combination with the PROCESS flag.
     if is_binding_query {
-        bad_flags |= (actual_flags & (MemoryBindingFlags::STRICT | MemoryBindingFlags::PROCESS))
-            .iter()
-            .count()
-            == 1;
+        bad_flags |= actual_flags.contains(MemoryBindingFlags::STRICT)
+            && !actual_flags.contains(MemoryBindingFlags::PROCESS);
     }
 
     // Make sure target flags are used correctly
