@@ -21,7 +21,7 @@ concurrency:
 env:
   RUSTFLAGS: '-D warnings'
   RUSTDOCFLAGS: '-D warnings'
-  RUST_LOG: 'debug'
+  RUST_LOG: 'info'
   MINIMAL_RUST: '1.75.0'  # Minimal Supported Rust Version
   HWLOC_VERSION: '2.10.0'
   HWLOC_VERSION_SHORT: '2.10'  # Used in URL to official tarball/binaries
