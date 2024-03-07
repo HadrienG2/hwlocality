@@ -913,6 +913,7 @@ impl TopologyObject {
 
         // Handle unsupported size slice edge case
         let infos_len = int::expect_usize(self.0.infos_count);
+        #[allow(clippy::missing_docs_in_private_items)]
         type Element = TextualInfo;
         int::assert_slice_len::<Element>(infos_len);
 

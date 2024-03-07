@@ -63,6 +63,7 @@ impl<'object> NUMANodeAttributes<'object> {
             return &[];
         }
         let page_types_len = int::expect_usize(self.0.page_types_len);
+        #[allow(clippy::missing_docs_in_private_items)]
         type Element = MemoryPageType;
         int::assert_slice_len::<Element>(page_types_len);
         // SAFETY: - Pointer and length assumed valid per type invariant

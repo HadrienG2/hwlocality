@@ -180,6 +180,7 @@ impl Topology {
             );
             &[]
         } else {
+            #[allow(clippy::missing_docs_in_private_items)]
             type Element = TextualInfo;
             let infos_len = int::expect_usize(nr_infos);
             int::assert_slice_len::<Element>(infos_len);
