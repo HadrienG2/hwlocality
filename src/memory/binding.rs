@@ -1490,7 +1490,13 @@ pub enum MemoryBindingError<Set: SpecializedBitmap> {
     #[error("cannot bind memory of {0} to {1}")]
     BadSet(MemoryBoundObject, Set),
 
-    /// Cannot get/set the memory binding of a zero-sized memory region
+    /// Cannot query the memory binding of a zero-sized memory region
+    ///
+    /// Since the target memory region contains no bytes, the memory binding of
+    /// these absent bytes cannot be queried from the OS.
+    ///
+    /// Note that in contrast, attempting to _set_ the memory binding of a
+    /// zero-sized memory region will succeed, but have no effect.
     #[error("cannot query the memory location of a zero-sized target")]
     BadArea,
 
