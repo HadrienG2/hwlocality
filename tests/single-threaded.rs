@@ -13,7 +13,7 @@ use hwlocality::{
         binding::{CpuBindingError, CpuBindingFlags, CpuBoundObject},
         cpuset::CpuSet,
     },
-    errors::{HybridError, ParameterError, RawHwlocError},
+    errors::{HybridError, RawHwlocError},
     memory::{
         binding::{
             Bytes, MemoryAllocationError, MemoryBindingError, MemoryBindingFlags,
@@ -1054,7 +1054,7 @@ fn check_membind_flags<Set: SpecializedBitmap>(
 ) -> Result<bool, TestCaseError> {
     // If the flags fail any assumption, we shall return this error
     let bad_flags_outcome = |failed_assumption: &str| {
-        let expected_error = HybridError::Rust(MemoryBindingError::BadFlags(actual_flags.into()));
+        let expected_error = HybridError::Rust(MemoryBindingError::from(actual_flags));
         if error != Some(&expected_error) {
             fail!("Expected {expected_error} error due to {failed_assumption}, but got {error:?}");
         }
@@ -1255,7 +1255,7 @@ fn check_cpubind_query_result(
 
     // Make sure the `NO_MEMORY_BINDING` flag was not specified
     if flags.contains(CpuBindingFlags::NO_MEMORY_BINDING) {
-        let expected_error = HybridError::Rust(CpuBindingError::BadFlags(ParameterError(flags)));
+        let expected_error = HybridError::Rust(CpuBindingError::from(flags));
         if result.as_ref().err() != Some(&expected_error) {
             fail!("Expected bad target flags error, got {result:?}");
         }
@@ -1291,9 +1291,7 @@ fn check_cpubind_flags(
     error: Option<&HybridError<CpuBindingError>>,
 ) -> Result<bool, TestCaseError> {
     // If flags validation fails, we should get this error
-    let expected_err = Some(HybridError::Rust(CpuBindingError::BadFlags(
-        ParameterError(actual_flags),
-    )));
+    let expected_err = Some(HybridError::Rust(CpuBindingError::from(actual_flags)));
     let expected_err = expected_err.as_ref();
 
     // Make sure no forbidden flags are present
