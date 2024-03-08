@@ -1153,6 +1153,7 @@ impl Topology {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Memory binding flags.
     ///

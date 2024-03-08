@@ -650,6 +650,7 @@ impl Topology {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Process/Thread binding flags
     ///
@@ -669,7 +670,6 @@ bitflags! {
     /// Please check the documentation of the [cpu binding
     /// method](../../topology/struct.Topology.html#cpu-binding) that you are
     /// calling for more information.
-    #[cfg(not(tarpaulin_include))]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
     pub struct CpuBindingFlags: hwloc_cpubind_flags_t {
