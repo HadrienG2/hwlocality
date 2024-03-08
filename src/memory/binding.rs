@@ -672,13 +672,11 @@ impl Topology {
     ///
     /// - [`BadFlags`] if a binding target flag was specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`Unsupported`] if the system cannot bind the specified memory area
     ///   with the requested policy
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
-    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_area_membind")]
     pub fn bind_memory_area<Target: ?Sized, SetRef: SpecializedBitmapRef>(
@@ -690,7 +688,7 @@ impl Topology {
     ) -> Result<(), HybridError<MemoryBindingError<SetRef::Owned>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadArea.into());
+            return Ok(());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -735,11 +733,9 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`STRICT`] was specified,
     ///   or if a binding target flag was specified.
-    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`Unsupported`] if the system cannot unbind the specified memory area
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`Unsupported`]: MemoryBindingError::Unsupported
@@ -750,7 +746,7 @@ impl Topology {
     ) -> Result<(), HybridError<MemoryBindingError<NodeSet>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadArea.into());
+            return Ok(());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -1318,7 +1314,11 @@ impl MemoryBindingFlags {
                     return None;
                 }
             }
-            MemoryBindingOperation::Bind => {}
+            MemoryBindingOperation::Bind => {
+                if target == MemoryBoundObject::Area && self.contains(Self::MIGRATE) {
+                    return None;
+                }
+            }
         }
 
         // Clear virtual ASSUME_SINGLE_THREAD flag, which served its purpose
