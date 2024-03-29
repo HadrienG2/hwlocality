@@ -1,7 +1,7 @@
 allow-unwrap-in-tests = true
 doc-valid-idents = [
-    "CoreType", "FrequencyMaxMHz", "NUMALatency", "NVLink", "NVLinkBandwidth",
-    "NVSwitch", "NVSwitches", "OpenCL", "OpenFabrics", ".."
+    "CoreType", "FrequencyMaxMHz", "InfiniBand", "NUMALatency", "NVLink",
+    "NVLinkBandwidth", "NVSwitch", "NVSwitches", "OpenCL", "OpenFabrics", ".."
 ]
 msrv = "1.71.0"
 semicolon-inside-block-ignore-singleline = true

@@ -110,8 +110,8 @@ pub enum OSDeviceType {
 
     /// Operating system openfabrics device
     ///
-    /// For instance the "mlx4_0" InfiniBand HCA, "hfi1_0" Omni-Path interface,
-    /// or "bxi0" Atos/Bull BXI HCA on Linux.
+    /// For instance the `mlx4_0` InfiniBand HCA, `hfi1_0` Omni-Path interface,
+    /// or `bxi0` Atos/Bull BXI HCA on Linux.
     #[doc(alias = "HWLOC_OBJ_OSDEV_OPENFABRICS")]
     OpenFabrics = HWLOC_OBJ_OSDEV_OPENFABRICS,
 
@@ -305,7 +305,7 @@ pub enum ObjectType {
     ///
     /// Objects without particular meaning, that can e.g. be added by the
     /// application for its own use, or by hwloc for miscellaneous objects such
-    /// as MemoryModule (DIMMs).
+    /// as `MemoryModule` (DIMMs).
     ///
     /// They are not added to the topology unless their filtering is
     /// changed (see [`TopologyBuilder::with_type_filter()`]).

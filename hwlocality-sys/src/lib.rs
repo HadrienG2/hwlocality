@@ -614,7 +614,7 @@ pub struct hwloc_obj {
     /// Horizontal index in the whole list of similar objects, hence guaranteed
     /// unique across the entire machine
     ///
-    /// Could be a "cousin_rank" since it's the rank within the "cousin" list.
+    /// Could be a `cousin_rank` since it's the rank within the "cousin" list.
     ///
     /// Note that this index may change when restricting the topology
     /// or when inserting a group.
@@ -762,12 +762,12 @@ pub struct hwloc_obj {
     /// [`HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED`] topology building
     /// configuration flag is not set.
     ///
-    /// Thus no corresponding NUMANode object may be found in the topology,
+    /// Thus no corresponding `NUMANode` object may be found in the topology,
     /// because the precise position is undefined. It is however known that it
     /// would be somewhere under this object.
     ///
     /// If there are no NUMA nodes in the machine, all the memory is close to
-    /// this object, so complete_nodeset is full.
+    /// this object, so `complete_nodeset` is full.
     ///
     /// [`nodeset`]: Self::nodeset
     pub complete_nodeset: hwloc_nodeset_t,
@@ -3356,12 +3356,10 @@ mod tests {
     use super::*;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::{
-        fmt::{
-            self, Binary, Debug, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex,
-        },
+        fmt::{self, Binary, Display, LowerExp, LowerHex, Octal, Pointer, UpperExp, UpperHex},
         hash::Hash,
         io::{self, Read},
-        ops::{Deref, Drop},
+        ops::Deref,
         panic::UnwindSafe,
     };
 

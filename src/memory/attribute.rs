@@ -814,7 +814,10 @@ macro_rules! wrap_ids_unchecked {
     ) => {
         $(
             $(#[$attr])*
-            #[doc(alias = stringify!($id))]
+            // FIXME: Not supported by rustdoc yet, see
+            //        https://github.com/rust-lang/rust/issues/94180
+            //
+            // #[doc(alias = stringify!($id))]
             pub const fn $constructor(topology: &'topology Topology) -> Self {
                 // SAFETY: Per macro precondition
                 unsafe { Self::wrap(topology, $id) }
