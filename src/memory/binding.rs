@@ -1450,7 +1450,7 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// An error occured, but we don't know which one
     ///
     /// This may only happen on Windows. On this operating system, there are
-    /// multiple versions of the standard library (called the C RunTimes or
+    /// multiple versions of the standard library (called the C Run-Times or
     /// CRTs), and it is very easy to end up in a situation where your program
     /// links against a different CRT than your hwloc build, which breaks
     /// errno-based error reporting among other things.
