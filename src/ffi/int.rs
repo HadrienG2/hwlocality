@@ -2923,7 +2923,7 @@ macro_rules! shl_with_int {
         impl Shl<$int> for PositiveInt {
             type Output = Self;
 
-            #[allow(trivial_numeric_casts)]
+            #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
             fn shl(self, mut rhs: $int) -> Self {
                 if cfg!(debug_assertions) {
                     // Debug mode checks if the shift is in range
