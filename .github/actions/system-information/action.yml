@@ -4,15 +4,15 @@ runs:
   using: "composite"
   steps:
 
-    - name: Query system information (macOS-specific)
+    - name: Query system information (macOS)
       if: runner.os == 'macOS'
       shell: bash
       run: |
           sysctl hw
           sysctl machdep
 
-    - name: Query system information (Unix)
-      if: runner.os == 'Linux' || runner.os == 'macOS'
+    - name: Query system information (Linux)
+      if: runner.os == 'Linux'
       shell: bash
       run: |
           hwloc-gather-cpuid
