@@ -21,6 +21,8 @@ use crate::{
 };
 use derive_more::Display;
 use enum_iterator::Sequence;
+#[cfg(feature = "hwloc-3_0_0")]
+use hwlocality_sys::HWLOC_OBJ_OSDEV_MEMORY;
 use hwlocality_sys::{
     hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
     HWLOC_OBJ_CACHE_DATA, HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE,
