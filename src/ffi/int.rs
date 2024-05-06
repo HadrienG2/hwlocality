@@ -2923,7 +2923,12 @@ macro_rules! shl_with_int {
         impl Shl<$int> for PositiveInt {
             type Output = Self;
 
-            #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
+            #[allow(
+                trivial_numeric_casts,
+                clippy::cast_lossless,
+                clippy::cast_possible_truncation,
+                clippy::cast_possible_wrap
+            )]
             fn shl(self, mut rhs: $int) -> Self {
                 if cfg!(debug_assertions) {
                     // Debug mode checks if the shift is in range
@@ -3015,7 +3020,12 @@ macro_rules! shr_with_int {
         impl Shr<$int> for PositiveInt {
             type Output = Self;
 
-            #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
+            #[allow(
+                trivial_numeric_casts,
+                clippy::cast_lossless,
+                clippy::cast_possible_truncation,
+                clippy::cast_possible_wrap
+            )]
             fn shr(self, mut rhs: $int) -> Self {
                 if cfg!(debug_assertions) {
                     // Debug mode checks if the shift is in range

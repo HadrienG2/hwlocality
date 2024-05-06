@@ -135,6 +135,8 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # ...in addition to all features listed above
 hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
 
+# WIP hwloc v3.0.0 support, do not use yet!
+hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_10_0"]
 
 # To support a new hwloc release that introduces API or ABI changes (see the
 # NEWS file in the hwloc source tree for release notes)...
