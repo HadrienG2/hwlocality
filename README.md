@@ -3,7 +3,7 @@
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Package on crates.io](https://img.shields.io/crates/v/hwlocality.svg)](https://crates.io/crates/hwlocality)
 [![Documentation](https://docs.rs/hwlocality/badge.svg)](https://docs.rs/hwlocality/)
-[![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=master)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
+[![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=main)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
 [![Code coverage](https://codecov.io/gh/HadrienG2/hwlocality/graph/badge.svg?token=OYWLNUD9AI)](https://codecov.io/gh/HadrienG2/hwlocality)
 [![CII Best Practices Summary](https://img.shields.io/cii/summary/7876)](https://www.bestpractices.dev/en/projects/7876)
 ![Requires rustc 1.71.0+](https://img.shields.io/badge/rustc-1.71.0+-lightgray.svg)
@@ -65,7 +65,7 @@ default.
 You can enable them, at the cost of losing compatibility with older
 hwloc 2.x releases, by enabling the cargo feature that matches the lowest hwloc
 release you need to be compatible with. See [the `[features]` section of this
-crate's Cargo.toml](https://github.com/hadrieng2/hwlocality/tree/master/Cargo.toml#L15)
+crate's Cargo.toml](https://github.com/hadrieng2/hwlocality/tree/main/Cargo.toml#L15)
 for more information.
 
 ## Usage
@@ -148,7 +148,7 @@ One possible output is:
 ```
 
 More examples are available [in the source
-repository](https://github.com/hadrieng2/hwlocality/tree/master/examples).
+repository](https://github.com/hadrieng2/hwlocality/tree/main/examples).
 
 ## hwloc API coverage
 
@@ -175,5 +175,5 @@ ergonomics improvements permitted by the Rust type system. For example...
 ## License
 
 This project uses the MIT license, please see the
-[LICENSE](https://github.com/hadrieng2/hwlocality/blob/master/LICENSE) file for
+[LICENSE](https://github.com/hadrieng2/hwlocality/blob/main/LICENSE) file for
 more information.

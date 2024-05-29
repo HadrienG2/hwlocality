@@ -3,7 +3,7 @@
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![On crates.io](https://img.shields.io/crates/v/hwlocality-sys.svg)](https://crates.io/crates/hwlocality-sys)
 [![On docs.rs](https://docs.rs/hwlocality-sys/badge.svg)](https://docs.rs/hwlocality-sys/)
-[![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=master)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
+[![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=main)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
 [![CII Best Practices Summary](https://img.shields.io/cii/summary/7876)](https://www.bestpractices.dev/en/projects/7876)
 ![Requires rustc 1.71.0+](https://img.shields.io/badge/rustc-1.71.0+-lightgray.svg)
 
