@@ -197,7 +197,7 @@ enum-iterator = "2.0"
 errno = "0.3"
 
 # Part of this project (raw FFI binding)
-hwlocality-sys = "0.4.1"
+hwlocality-sys = { path = "./hwlocality-sys" }
 
 # Used for malloc, free, OS typedefs, and example thread queries
 libc.workspace = true
