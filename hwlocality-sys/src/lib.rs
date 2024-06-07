@@ -170,7 +170,6 @@
     missing_debug_implementations,
     // FIXME: Bring back missing_docs,
     non_ascii_idents,
-    pointer_structural_match,
     rust_2018_compatibility,
     rust_2021_compatibility,
     rustdoc::bare_urls,
