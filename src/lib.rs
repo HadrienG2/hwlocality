@@ -33,7 +33,6 @@
     rustdoc::unescaped_backticks,
     invalid_reference_casting,
     missing_abi,
-    pointer_structural_match,
     rust_2018_compatibility,
     rust_2021_compatibility,
     unsafe_op_in_unsafe_fn
