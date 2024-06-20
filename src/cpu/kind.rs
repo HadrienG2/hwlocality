@@ -103,11 +103,15 @@ impl Topology {
         NonZeroUsize::new(int::expect_usize(count)).ok_or(NoData)
     }
 
-    /// Enumerate CPU kinds, from least efficient efficient to most efficient
+    /// Enumerate CPU kinds, sorted by decreasing power-efficiency
     ///
-    /// For each CPU kind, provide the [`CpuSet`] of PUs belonging to that kind,
-    /// how efficient this CPU kind is (if CPU kind efficiencies are known) and
-    /// [other things we know about
+    /// The first listed CPU kind is most power-efficient, but has the weakest
+    /// peak performance. Subsequent CPU kinds will process computations faster,
+    /// but at the expense of consuming more power.
+    ///
+    /// For each CPU kind, we provide the [`CpuSet`] of PUs belonging to that
+    /// kind, how efficient this CPU kind is (if CPU kind efficiencies are
+    /// known) and [other things we know about
     /// it](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_cpukinds).
     ///
     /// # Errors
