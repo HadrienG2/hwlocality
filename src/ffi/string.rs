@@ -62,7 +62,7 @@ impl LibcString {
             //   dereferenced
             // - len was checked to fit Rust's slice size requirements
             let buf = NonNull::slice_from_raw_parts(buf, len);
-            let result = Self(buf);
+            let result = LibcString(buf);
 
             // Fill the string and return it
             let start = buf.as_ptr().cast::<u8>();
