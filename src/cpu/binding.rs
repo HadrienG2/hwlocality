@@ -322,6 +322,12 @@ impl Topology {
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(Thread)`]: CpuBindingError::BadObject
+    //
+    // --- Implementation notes ---
+    //
+    // Allowing clippy lint because we cannot prevent Windows ThreadId from
+    // being a void*, but no sane user of windows APIs should dereference it.
+    #[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
     #[doc(alias = "hwloc_set_thread_cpubind")]
     pub fn bind_thread_cpu(
         &self,
@@ -371,6 +377,12 @@ impl Topology {
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    //
+    // --- Implementation notes ---
+    //
+    // Allowing clippy lint because we cannot prevent Windows ThreadId from
+    // being a void*, but no sane user of windows APIs should dereference it.
+    #[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
     #[doc(alias = "hwloc_get_thread_cpubind")]
     pub fn thread_cpu_binding(
         &self,
@@ -850,6 +862,13 @@ impl Display for CpuBoundObject {
         f.pad(&display)
     }
 }
+//
+#[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
+// SAFETY: No sane user of windows APIs should dereference the void* of ThreadId
+unsafe impl Send for CpuBoundObject {}
+#[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
+// SAFETY: No sane user of windows APIs should dereference the void* of ThreadId
+unsafe impl Sync for CpuBoundObject {}
 
 /// Operation on that object's CPU binding
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
