@@ -393,13 +393,9 @@ pub(crate) mod tests {
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
-    use std::{
-        cell::Cell,
-        fmt::Debug,
-        panic::{PanicHookInfo, UnwindSafe},
-        sync::OnceLock,
-        thread_local,
-    };
+    #[allow(deprecated)] // Cannot change until MSRV bump to 1.82
+    use std::panic::PanicInfo;
+    use std::{cell::Cell, fmt::Debug, panic::UnwindSafe, sync::OnceLock, thread_local};
 
     /// Assert that performing some action results in a panic
     #[track_caller]
@@ -458,7 +454,8 @@ pub(crate) mod tests {
     struct SilentPanicGuard;
     //
     /// Panic hook as understood by [`std::panic()`]
-    type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
+    #[allow(deprecated)] // Cannot change until MSRV bump to 1.82
+    type PanicHook = Box<dyn Fn(&PanicInfo<'_>) + Sync + Send + 'static>;
     //
     /// Original panic hook before the first [`SilentPanicGuard::new()`] call
     static NORMAL_HOOK: OnceLock<PanicHook> = OnceLock::new();
@@ -489,7 +486,8 @@ pub(crate) mod tests {
 
         /// Panic hook that forwards to the normal panic hook if there are
         /// no active `SilentPanicGuards` in this thread
-        fn hook(info: &PanicHookInfo<'_>) {
+        #[allow(deprecated)] // Cannot change until MSRV bump to 1.82
+        fn hook(info: &PanicInfo<'_>) {
             if SILENCE_DEPTH.with(Cell::get) == 0 {
                 (NORMAL_HOOK.get().unwrap())(info)
             }
