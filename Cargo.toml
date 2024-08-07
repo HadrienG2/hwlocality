@@ -229,7 +229,7 @@ proptest.workspace = true
 static_assertions.workspace = true
 
 # Used in examples to portably query the OS process list
-sysinfo = { version = "0.30", default-features = false }
+sysinfo = { version = "0.31", default-features = false, features = ["system"] }
 
 # Used to test file I/O
 tempfile = "3.8"
