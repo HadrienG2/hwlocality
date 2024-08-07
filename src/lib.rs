@@ -396,7 +396,7 @@ pub(crate) mod tests {
     use std::{
         cell::Cell,
         fmt::Debug,
-        panic::{PanicInfo, UnwindSafe},
+        panic::{PanicHookInfo, UnwindSafe},
         sync::OnceLock,
         thread_local,
     };
@@ -458,7 +458,7 @@ pub(crate) mod tests {
     struct SilentPanicGuard;
     //
     /// Panic hook as understood by [`std::panic()`]
-    type PanicHook = Box<dyn Fn(&PanicInfo<'_>) + Sync + Send + 'static>;
+    type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
     //
     /// Original panic hook before the first [`SilentPanicGuard::new()`] call
     static NORMAL_HOOK: OnceLock<PanicHook> = OnceLock::new();
@@ -489,7 +489,7 @@ pub(crate) mod tests {
 
         /// Panic hook that forwards to the normal panic hook if there are
         /// no active `SilentPanicGuards` in this thread
-        fn hook(info: &PanicInfo<'_>) {
+        fn hook(info: &PanicHookInfo<'_>) {
             if SILENCE_DEPTH.with(Cell::get) == 0 {
                 (NORMAL_HOOK.get().unwrap())(info)
             }
