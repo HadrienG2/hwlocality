@@ -322,6 +322,12 @@ impl Topology {
     /// [`BadCpuSet`]: CpuBindingError::BadCpuSet
     /// [`BadFlags`]: CpuBindingError::BadFlags
     /// [`BadObject(Thread)`]: CpuBindingError::BadObject
+    //
+    // --- Implementation notes ---
+    //
+    // Allowing clippy lint because we cannot prevent Windows ThreadId from
+    // being a void*, but no sane user of windows APIs should dereference it.
+    #[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
     #[doc(alias = "hwloc_set_thread_cpubind")]
     pub fn bind_thread_cpu(
         &self,
@@ -371,6 +377,12 @@ impl Topology {
     /// [`PROCESS`]: CpuBindingFlags::PROCESS
     /// [`STRICT`]: CpuBindingFlags::STRICT
     /// [`THREAD`]: CpuBindingFlags::THREAD
+    //
+    // --- Implementation notes ---
+    //
+    // Allowing clippy lint because we cannot prevent Windows ThreadId from
+    // being a void*, but no sane user of windows APIs should dereference it.
+    #[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
     #[doc(alias = "hwloc_get_thread_cpubind")]
     pub fn thread_cpu_binding(
         &self,
@@ -817,9 +829,7 @@ impl Arbitrary for CpuBoundObject {
     type Parameters = ();
     type Strategy = prop::strategy::TupleUnion<(
         prop::strategy::WA<Just<Self>>,
-        prop::strategy::WA<
-            prop::strategy::Map<<ThreadId as Arbitrary>::Strategy, fn(ThreadId) -> Self>,
-        >,
+        prop::strategy::WA<Just<Self>>,
         prop::strategy::WA<
             prop::strategy::Map<<ProcessId as Arbitrary>::Strategy, fn(ProcessId) -> Self>,
         >,
@@ -828,7 +838,7 @@ impl Arbitrary for CpuBoundObject {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
             1 => Just(Self::ThisProgram),
-            2 => any::<ThreadId>().prop_map(Self::Thread),
+            2 => Just(Self::Thread(crate::current_thread_id())),
             2 => any::<ProcessId>().prop_map(Self::ProcessOrThread),
         ]
     }
@@ -844,12 +854,19 @@ impl Display for CpuBoundObject {
                     format!("the process with PID {id}")
                 }
             }
-            Self::Thread(id) => format!("the thread with TID {id}"),
+            Self::Thread(id) => format!("the thread with TID {id:?}"),
             Self::ThisProgram => "the current process/thread".to_owned(),
         };
         f.pad(&display)
     }
 }
+//
+#[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
+// SAFETY: No sane user of windows APIs should dereference the void* of ThreadId
+unsafe impl Send for CpuBoundObject {}
+#[cfg_attr(windows, allow(clippy::not_unsafe_ptr_arg_deref))]
+// SAFETY: No sane user of windows APIs should dereference the void* of ThreadId
+unsafe impl Sync for CpuBoundObject {}
 
 /// Operation on that object's CPU binding
 #[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
@@ -985,7 +1002,7 @@ mod tests {
                     prop_assert!(display.contains("thread"));
                 }
                 CpuBoundObject::Thread(tid) => {
-                    let tid = tid.to_string();
+                    let tid = format!("{tid:?}");
                     prop_assert!(display.contains(&tid));
                     prop_assert!(!display.contains("process"));
                     prop_assert!(display.contains("thread"));
