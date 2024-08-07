@@ -1002,7 +1002,7 @@ mod tests {
                     prop_assert!(display.contains("thread"));
                 }
                 CpuBoundObject::Thread(tid) => {
-                    let tid = tid.to_string();
+                    let tid = format!("{tid:?}");
                     prop_assert!(display.contains(&tid));
                     prop_assert!(!display.contains("process"));
                     prop_assert!(display.contains("thread"));
