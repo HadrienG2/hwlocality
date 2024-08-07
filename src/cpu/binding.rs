@@ -829,9 +829,7 @@ impl Arbitrary for CpuBoundObject {
     type Parameters = ();
     type Strategy = prop::strategy::TupleUnion<(
         prop::strategy::WA<Just<Self>>,
-        prop::strategy::WA<
-            prop::strategy::Map<<ThreadId as Arbitrary>::Strategy, fn(ThreadId) -> Self>,
-        >,
+        prop::strategy::WA<Just<Self>>,
         prop::strategy::WA<
             prop::strategy::Map<<ProcessId as Arbitrary>::Strategy, fn(ProcessId) -> Self>,
         >,
@@ -840,7 +838,7 @@ impl Arbitrary for CpuBoundObject {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
             1 => Just(Self::ThisProgram),
-            2 => any::<ThreadId>().prop_map(Self::Thread),
+            2 => Just(Self::Thread(crate::current_thread_id())),
             2 => any::<ProcessId>().prop_map(Self::ProcessOrThread),
         ]
     }
