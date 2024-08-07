@@ -306,7 +306,7 @@ impl<T> AsThreadId for std::thread::JoinHandle<T> {
 impl<T> AsThreadId for std::thread::JoinHandle<T> {
     fn as_thread_id(&self) -> ThreadId {
         use std::os::windows::io::AsRawHandle;
-        self.as_raw_handle() as ThreadId
+        self.as_raw_handle()
     }
 }
 

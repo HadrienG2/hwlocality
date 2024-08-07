@@ -844,7 +844,7 @@ impl Display for CpuBoundObject {
                     format!("the process with PID {id}")
                 }
             }
-            Self::Thread(id) => format!("the thread with TID {id}"),
+            Self::Thread(id) => format!("the thread with TID {id:?}"),
             Self::ThisProgram => "the current process/thread".to_owned(),
         };
         f.pad(&display)
