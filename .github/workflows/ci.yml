@@ -22,7 +22,7 @@ env:
   RUSTFLAGS: '-D warnings'
   RUSTDOCFLAGS: '-D warnings'
   RUST_LOG: 'warn'
-  MINIMAL_RUST: '1.71.0'  # Minimal Supported Rust Version
+  MINIMAL_RUST: '1.74.0'  # Minimal Supported Rust Version
   HWLOC_VERSION: '2.10.0'
   HWLOC_VERSION_SHORT: '2.10'  # Used in URL to official tarball/binaries
   HWLOC_DEBUG_VERBOSE: 0  # Set to 1 when debugging issues inside of hwloc
