@@ -3,6 +3,6 @@ doc-valid-idents = [
     "CoreType", "FrequencyMaxMHz", "InfiniBand", "NUMALatency", "NVLink",
     "NVLinkBandwidth", "NVSwitch", "NVSwitches", "OpenCL", "OpenFabrics", ".."
 ]
-msrv = "1.71.0"
+msrv = "1.74.0"
 semicolon-inside-block-ignore-singleline = true
 semicolon-outside-block-ignore-multiline = true

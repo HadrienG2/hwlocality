@@ -4,7 +4,7 @@ members = ["hwlocality-sys"]
 [workspace.package]
 authors = ["Hadrien G. <knights_of_ni@gmx.com>", "Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
 edition = "2021"
-rust-version = "1.71.0"
+rust-version = "1.74.0"
 repository = "https://github.com/HadrienG2/hwlocality"
 license = "MIT"
 keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
@@ -36,7 +36,7 @@ overflow-checks = false
 
 [package]
 name = "hwlocality"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -229,7 +229,7 @@ proptest.workspace = true
 static_assertions.workspace = true
 
 # Used in examples to portably query the OS process list
-sysinfo = { version = "0.30", default-features = false }
+sysinfo = { version = "0.31", default-features = false, features = ["system"] }
 
 # Used to test file I/O
 tempfile = "3.8"
