@@ -1740,13 +1740,14 @@ pub(crate) mod tests {
         // If this bitmap is infinite...
         if bitmap.weight().is_none() {
             // ...and it has a finite part...
-            bitmap
-                .last_unset()
-                .map_or((Bitmap::new(), Some(BitmapIndex::MIN..)), |last_unset| {
+            bitmap.last_unset().map_or_else(
+                || (Bitmap::new(), Some(BitmapIndex::MIN..)),
+                |last_unset| {
                     let infinite_part = last_unset.checked_add_signed(1).unwrap()..;
                     bitmap.unset_range(infinite_part.clone());
                     (bitmap, Some(infinite_part))
-                })
+                },
+            )
         } else {
             (bitmap, None)
         }
@@ -1788,7 +1789,7 @@ pub(crate) mod tests {
         // account for off-by-one-word errors.
         let max_iters = initial
             .weight()
-            .unwrap_or(usize::from(index) + INFINITE_EXPLORE_ITERS);
+            .unwrap_or_else(|| usize::from(index) + INFINITE_EXPLORE_ITERS);
 
         prop_assert_eq!(initial.is_set(index), initially_set);
 
