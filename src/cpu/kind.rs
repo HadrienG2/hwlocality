@@ -426,13 +426,13 @@ pub enum FromSetProblem {
     ///
     /// i.e. some CPUs in the set belong to one kind, other CPUs belong to one
     /// or more other kinds.
-    #[display(fmt = "is only partially included in some CPU kind")]
+    #[display("is only partially included in some CPU kind")]
     PartiallyIncluded,
 
     /// CPU set is not included in any kind, even partially
     ///
     /// i.e. CPU kind info isn't known or this CPU set does not cover real CPUs.
-    #[display(fmt = "isn't part of any known CPU kind")]
+    #[display("isn't part of any known CPU kind")]
     NotIncluded,
 }
 

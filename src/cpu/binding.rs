@@ -31,7 +31,6 @@ use proptest::prelude::*;
 use similar_asserts::assert_eq;
 use std::{
     ffi::{c_int, c_uint},
-    fmt::Display,
     ops::Deref,
 };
 use thiserror::Error;
