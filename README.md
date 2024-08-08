@@ -6,7 +6,7 @@
 [![Continuous Integration](https://img.shields.io/github/actions/workflow/status/HadrienG2/hwlocality/ci.yml?branch=main)](https://github.com/HadrienG2/hwlocality/actions?query=workflow%3A%22Continuous+Integration%22)
 [![Code coverage](https://codecov.io/gh/HadrienG2/hwlocality/graph/badge.svg?token=OYWLNUD9AI)](https://codecov.io/gh/HadrienG2/hwlocality)
 [![CII Best Practices Summary](https://img.shields.io/cii/summary/7876)](https://www.bestpractices.dev/en/projects/7876)
-![Requires rustc 1.74.0+](https://img.shields.io/badge/rustc-1.74.0+-lightgray.svg)
+![Requires rustc 1.75.0+](https://img.shields.io/badge/rustc-1.75.0+-lightgray.svg)
 
 ## What is this?
 
