@@ -4,7 +4,7 @@ members = ["hwlocality-sys"]
 [workspace.package]
 authors = ["Hadrien G. <knights_of_ni@gmx.com>", "Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
 edition = "2021"
-rust-version = "1.74.0"
+rust-version = "1.75.0"
 repository = "https://github.com/HadrienG2/hwlocality"
 license = "MIT"
 keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
@@ -188,7 +188,7 @@ arrayvec = "0.7"
 bitflags = "2.3"
 
 # Used to simplify the implementation of newtypes
-derive_more = { version = "0.99", default-features = false, features = ["as_mut", "as_ref", "display", "from", "into", "into_iterator", "not"] }
+derive_more = { version = "1.0", default-features = false, features = ["as_ref", "display", "from", "into", "into_iterator", "not"] }
 
 # Used for optional proptest feature and in topology debug output
 enum-iterator = "2.0"

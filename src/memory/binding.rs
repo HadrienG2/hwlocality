@@ -35,7 +35,7 @@ use similar_asserts::assert_eq;
 use std::{
     borrow::{Borrow, BorrowMut},
     ffi::{c_int, c_void},
-    fmt::{self, Debug, Display},
+    fmt::{self, Debug},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     ptr::{self, NonNull},
