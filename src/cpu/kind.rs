@@ -180,6 +180,10 @@ impl Topology {
             );
             &[]
         } else {
+            #[allow(clippy::missing_docs_in_private_items)]
+            type Element = TextualInfo;
+            let infos_len = int::expect_usize(nr_infos);
+            int::assert_slice_len::<Element>(infos_len);
             // SAFETY: - Per hwloc API contract, infos and nr_infos should be
             //           valid and point to valid state if the function returned
             //           successfully
@@ -187,8 +191,9 @@ impl Topology {
             //           that violates Rust aliasing rules, as long as we honor
             //           these rules ourselves
             //         - Total size should not wrap for any valid allocation
+            //         - infos_len was checked to fit Rust slice limits above
             //         - AsNewtype is trusted to be implemented correctly
-            unsafe { std::slice::from_raw_parts(infos.as_newtype(), int::expect_usize(nr_infos)) }
+            unsafe { std::slice::from_raw_parts::<Element>(infos.as_newtype(), infos_len) }
         };
         CpuKind {
             cpuset,

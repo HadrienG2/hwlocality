@@ -2,7 +2,10 @@
 //!
 //! [`NUMANode`]: ObjectType::NUMANode
 
-use crate::ffi::transparent::{AsNewtype, TransparentNewtype};
+use crate::ffi::{
+    int,
+    transparent::{AsNewtype, TransparentNewtype},
+};
 #[cfg(doc)]
 use crate::{object::types::ObjectType, topology::support::DiscoverySupport};
 use hwlocality_sys::{hwloc_memory_page_type_s, hwloc_numanode_attr_s};
@@ -59,18 +62,15 @@ impl<'object> NUMANodeAttributes<'object> {
             );
             return &[];
         }
+        let page_types_len = int::expect_usize(self.0.page_types_len);
+        #[allow(clippy::missing_docs_in_private_items)]
+        type Element = MemoryPageType;
+        int::assert_slice_len::<Element>(page_types_len);
         // SAFETY: - Pointer and length assumed valid per type invariant
         //         - AsNewtype is trusted to be implemented correctly
+        //         - pages_types_len was checked for slice-safety above
         unsafe {
-            std::slice::from_raw_parts(
-                self.0.page_types.as_newtype(),
-                // If this fails, it means pages_types_len does not fit in a
-                // size_t, but by definition of size_t that cannot happen
-                self.0
-                    .page_types_len
-                    .try_into()
-                    .expect("should fit in usize"),
-            )
+            std::slice::from_raw_parts::<Element>(self.0.page_types.as_newtype(), page_types_len)
         }
     }
 }

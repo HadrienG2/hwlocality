@@ -23,7 +23,7 @@ use hwlocality_sys::{
     hwloc_pid_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
     HWLOC_CPUBIND_THREAD,
 };
-use libc::{EINVAL, ENOSYS, EXDEV};
+use libc::{ENOSYS, EXDEV};
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
 #[allow(unused)]
@@ -539,7 +539,7 @@ impl Topology {
         api: &'static str,
         ffi: impl FnOnce(hwloc_const_topology_t, hwloc_const_cpuset_t, hwloc_cpubind_flags_t) -> c_int,
     ) -> Result<(), HybridError<CpuBindingError>> {
-        if set.is_empty() || !self.complete_cpuset().includes(set) {
+        if !self.is_valid_binding_set(set) {
             return Err(CpuBindingError::BadCpuSet(set.clone()).into());
         }
         let Some(flags) = flags.validate(target, CpuBindingOperation::SetBinding) else {
@@ -553,16 +553,10 @@ impl Topology {
             ffi(self.as_ptr(), set.as_ptr(), flags.bits())
         });
         if let Err(HybridError::Hwloc(RawHwlocError { errno, .. })) = result {
-            // If an unexpected EINVAL is encountered, consider easy causes:
-            //
-            // - Fishy cpusets which fit into Topology::complete_cpuset() but
-            //   not Topology::cpuset() are likely invalid and reported as such.
-            // - On Windows, hwloc does not translate the EINVAL error code to
-            //   its own EXDEV/ENOSYS convention. Hence invalid CPU sets are
-            //   reported as ERROR_INVALID_PARAMETER (errno = 87), not EXDEV.
-            if ((errno == Some(Errno(EINVAL)) || errno.is_none()) && !self.cpuset().includes(set))
-                || (cfg!(windows) && errno == Some(Errno(87)))
-            {
+            // On Windows, hwloc does not translate the system error code to its
+            // own EXDEV/ENOSYS convention. Hence invalid CPU sets are reported
+            // as ERROR_INVALID_PARAMETER (errno = 87), not EXDEV as expected.
+            if cfg!(windows) && errno == Some(Errno(87)) {
                 return Err(CpuBindingError::BadCpuSet(set.clone()).into());
             }
         }
@@ -656,6 +650,7 @@ impl Topology {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Process/Thread binding flags
     ///
@@ -675,7 +670,6 @@ bitflags! {
     /// Please check the documentation of the [cpu binding
     /// method](../../topology/struct.Topology.html#cpu-binding) that you are
     /// calling for more information.
-    #[cfg(not(tarpaulin_include))]
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_cpubind_flags_t")]
     pub struct CpuBindingFlags: hwloc_cpubind_flags_t {

@@ -8,8 +8,8 @@
 //! itself only hosts type definitions that are related to this functionality.
 
 use crate::{
-    bitmap::{Bitmap, BitmapKind, OwnedSpecializedBitmap, SpecializedBitmap},
-    errors::{self, FlagsError, RawHwlocError},
+    bitmap::{Bitmap, BitmapKind, SpecializedBitmap, SpecializedBitmapRef},
+    errors::{self, FlagsError, HybridError, RawHwlocError},
     memory::nodeset::NodeSet,
     topology::Topology,
     ProcessId,
@@ -38,7 +38,7 @@ use std::{
     fmt::{self, Debug},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
 use thiserror::Error;
 
@@ -48,9 +48,10 @@ use thiserror::Error;
 ///
 /// - Explicit memory allocation through [`allocate_bound_memory()`] and friends:
 ///   the binding will have effect on the memory allocated by these methods.
-/// - Implicit memory binding through process/thread binding policy through
-///   [`bind_memory()`] and friends: the binding will be applied to subsequent
-///   memory allocations by the target process/thread.
+/// - Implicit memory binding via process/thread binding through
+///   [`bind_memory()`] and friends: unless [`MIGRATE`] is also used, the
+///   binding will only apply to subsequent memory allocations by the target
+///   process/thread.
 /// - Migration of existing memory ranges through [`bind_memory_area()`] and
 ///   friends: already-allocated data will be migrated to the target NUMA
 ///   nodes.
@@ -84,6 +85,7 @@ use thiserror::Error;
 /// [`bind_memory_area()`]: Topology::bind_memory_area()
 /// [`bind_memory()`]: Topology::bind_memory()
 /// [`binding_allocate_memory()`]: Topology::binding_allocate_memory()
+/// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
 /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
 /// [`PROCESS`]: MemoryBindingFlags::PROCESS
 /// [`STRICT`]: MemoryBindingFlags::STRICT
@@ -101,22 +103,26 @@ impl Topology {
     /// # Errors
     ///
     /// - [`AllocationFailed`] if memory allocation failed
-    /// - [`Unsupported`] if the system cannot allocate page-aligned memory
+    /// - [`Unsupported`] if the system cannot allocate page-aligned memory or
+    ///   if more than `isize::MAX` bytes of memory are requested
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc")]
-    pub fn allocate_memory(&self, len: usize) -> Result<Bytes<'_>, MemoryAllocationError<NodeSet>> {
+    pub fn allocate_memory(
+        &self,
+        len: usize,
+    ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<NodeSet>>> {
         self.allocate_memory_generic(len)
     }
 
-    /// Like [`allocate_memory()`], but polymorphic on `OwnedSet`
+    /// Like [`allocate_memory()`], but generic over `Set`
     ///
     /// [`allocate_memory`]: Topology::allocate_memory
-    fn allocate_memory_generic<OwnedSet: OwnedSpecializedBitmap>(
+    fn allocate_memory_generic<Set: SpecializedBitmap>(
         &self,
         len: usize,
-    ) -> Result<Bytes<'_>, MemoryAllocationError<OwnedSet>> {
+    ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<Set>>> {
         // SAFETY: - hwloc_alloc is accepted by definition
         //         - FFI is guaranteed to be passed valid (topology, len)
         unsafe {
@@ -147,7 +153,8 @@ impl Topology {
     /// - [`BadFlags`] if binding target flags were specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
     /// - [`Unsupported`] if the system cannot allocate bound memory with the
-    ///   requested policy
+    ///   requested policy or if more than `isize::MAX` bytes of memory are
+    ///   requested
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
@@ -158,18 +165,26 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc_membind")]
-    pub fn allocate_bound_memory<Set: SpecializedBitmap>(
+    pub fn allocate_bound_memory<SetRef: SpecializedBitmapRef>(
         &self,
         len: usize,
-        set: &Set,
+        set: SetRef,
         policy: MemoryBindingPolicy,
-        mut flags: MemoryBindingFlags,
-    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
-        Self::adjust_flags_for::<Set::Owned>(&mut flags);
-        let Some(flags) = flags.validate(MemoryBoundObject::Area, MemoryBindingOperation::Allocate)
-        else {
-            return Err(MemoryBindingError::BadFlags(flags.into()));
+        original_flags: MemoryBindingFlags,
+    ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<SetRef::Owned>>> {
+        // Detect invalid binding sets
+        let object = MemoryBoundObject::Area;
+        if !self.is_valid_binding_set(&*set) {
+            return Err(MemoryBindingError::BadSet(object, set.to_owned()).into());
+        }
+
+        // Adjust flags for target set type and detect problems with them
+        let flags = Self::adjust_flags_for::<SetRef::Owned>(original_flags);
+        let Some(flags) = flags.validate(object, MemoryBindingOperation::Allocate) else {
+            return Err(MemoryBindingError::BadFlags(original_flags.into()).into());
         };
+
+        // Perform the memory allocation
         // SAFETY: - Bitmap is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - hwloc_alloc_membind with set, policy and flags
@@ -186,7 +201,7 @@ impl Topology {
                     hwlocality_sys::hwloc_alloc_membind(
                         topology,
                         len,
-                        set.as_ref().as_ptr(),
+                        set.as_bitmap_ref().as_ptr(),
                         policy.into(),
                         flags.bits(),
                     )
@@ -220,8 +235,9 @@ impl Topology {
     /// - [`BadFlags`] if the number of specified binding target flags is not
     ///   exactly one
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`Unsupported`] if the system can neither allocate bound memory
-    ///   nor rebind the current thread/process with the requested policy
+    /// - [`Unsupported`] if the system can neither allocate bound memory nor
+    ///   rebind the current thread/process with the requested policy or if more
+    ///   than `isize::MAX` bytes of memory are requested
     ///
     /// [`AllocationFailed`]: MemoryBindingError::AllocationFailed
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
@@ -231,16 +247,30 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_alloc_membind_policy")]
-    pub fn binding_allocate_memory<Set: SpecializedBitmap>(
+    pub fn binding_allocate_memory<SetRef: SpecializedBitmapRef>(
         &self,
         len: usize,
-        set: &Set,
+        set: SetRef,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<Bytes<'_>, MemoryAllocationError<Set::Owned>> {
-        // Try allocate_bound_memory first
-        let set: &Set::Owned = set.borrow();
-        if let Ok(bytes) = self.allocate_bound_memory(len, set, policy, flags) {
+    ) -> Result<Bytes<'_>, HybridError<MemoryAllocationError<SetRef::Owned>>> {
+        // Reject invalid flags first
+        if flags
+            .validate(MemoryBoundObject::ThisProgram, MemoryBindingOperation::Bind)
+            .is_none()
+        {
+            return Err(MemoryBindingError::BadFlags(flags.into()).into());
+        }
+
+        // Try to allocate_bound_memory first
+        let set: &SetRef::Owned = &set;
+        let flags_wo_target = flags.difference(
+            MemoryBindingFlags::ASSUME_SINGLE_THREAD
+                | MemoryBindingFlags::PROCESS
+                | MemoryBindingFlags::THREAD
+                | MemoryBindingFlags::MIGRATE,
+        );
+        if let Ok(bytes) = self.allocate_bound_memory(len, set, policy, flags_wo_target) {
             return Ok(bytes);
         }
 
@@ -248,7 +278,7 @@ impl Topology {
         self.bind_memory(set, policy, flags)?;
 
         // If that succeeds, try allocating more memory
-        let mut bytes = self.allocate_memory_generic::<Set::Owned>(len)?;
+        let mut bytes = self.allocate_memory_generic::<SetRef::Owned>(len)?;
 
         // Depending on policy, we may or may not need to touch the memory to
         // enforce the binding
@@ -266,7 +296,11 @@ impl Topology {
     }
 
     /// Set the default memory binding policy of the current process or thread
-    /// to prefer the NUMA node(s) specified by `set`.
+    /// to prefer the NUMA node(s) specified by `set`
+    ///
+    /// By default, only future allocations by the process/thread will be bound
+    /// to the target NUMA node. You can attempt to migrate existing allocations
+    /// using the [`MIGRATE`] flag, at the expense of reducing portability.
     ///
     /// Memory can be bound by either [`CpuSet`] or [`NodeSet`]. Binding by
     /// [`NodeSet`] is preferred because some NUMA memory nodes are not attached
@@ -289,16 +323,17 @@ impl Topology {
     /// [`ASSUME_SINGLE_THREAD`]: MemoryBindingFlags::ASSUME_SINGLE_THREAD
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
+    /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`PROCESS`]: MemoryBindingFlags::PROCESS
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_membind")]
-    pub fn bind_memory<Set: SpecializedBitmap>(
+    pub fn bind_memory<SetRef: SpecializedBitmapRef>(
         &self,
-        set: &Set,
+        set: SetRef,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<Set::Owned>> {
+    ) -> Result<(), HybridError<MemoryBindingError<SetRef::Owned>>> {
         // SAFETY: - ThisProgram is the correct target for this FFI
         //         - hwloc_set_membind is accepted by definition
         //         - FFI is guaranteed to be passed valid (topology,
@@ -306,7 +341,7 @@ impl Topology {
         unsafe {
             self.bind_memory_impl(
                 "hwloc_set_membind",
-                set.borrow(),
+                &set,
                 policy,
                 flags,
                 MemoryBoundObject::ThisProgram,
@@ -350,7 +385,7 @@ impl Topology {
     pub fn unbind_memory(
         &self,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<NodeSet>> {
+    ) -> Result<(), HybridError<MemoryBindingError<NodeSet>>> {
         // SAFETY: - ThisProgram is the correct target for this FFI
         //         - hwloc_set_membind is accepted by definition
         //         - FFI is guaranteed to be passed valid (topology,
@@ -416,10 +451,10 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_membind")]
-    pub fn memory_binding<OwnedSet: OwnedSpecializedBitmap>(
+    pub fn memory_binding<Set: SpecializedBitmap>(
         &self,
         flags: MemoryBindingFlags,
-    ) -> Result<(OwnedSet, Option<MemoryBindingPolicy>), MemoryBindingError<OwnedSet>> {
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>> {
         // SAFETY: - ThisProgram is the correct target for this FFI
         //         - GetBinding is the correct operation for this FFI
         //         - hwloc_get_membind is accepted by definition
@@ -464,13 +499,13 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_proc_membind")]
-    pub fn bind_process_memory<Set: SpecializedBitmap>(
+    pub fn bind_process_memory<SetRef: SpecializedBitmapRef>(
         &self,
         pid: ProcessId,
-        set: &Set,
+        set: SetRef,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<Set::Owned>> {
+    ) -> Result<(), HybridError<MemoryBindingError<SetRef::Owned>>> {
         // SAFETY: - Process is the correct target for this FFI
         //         - hwloc_set_proc_membind with pid argument curried away
         //           behaves like hwloc_set_membind
@@ -481,7 +516,7 @@ impl Topology {
         unsafe {
             self.bind_memory_impl(
                 "hwloc_set_proc_membind",
-                set.borrow(),
+                &set,
                 policy,
                 flags,
                 MemoryBoundObject::Process(pid),
@@ -528,7 +563,7 @@ impl Topology {
         &self,
         pid: ProcessId,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<NodeSet>> {
+    ) -> Result<(), HybridError<MemoryBindingError<NodeSet>>> {
         // SAFETY: - Process is the correct target for this FFI
         //         - hwloc_set_proc_membind with pid argument curried away
         //           behaves like hwloc_set_membind
@@ -587,11 +622,11 @@ impl Topology {
     /// [`THREAD`]: MemoryBindingFlags::THREAD
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_proc_membind")]
-    pub fn process_memory_binding<OwnedSet: OwnedSpecializedBitmap>(
+    pub fn process_memory_binding<Set: SpecializedBitmap>(
         &self,
         pid: ProcessId,
         flags: MemoryBindingFlags,
-    ) -> Result<(OwnedSet, Option<MemoryBindingPolicy>), MemoryBindingError<OwnedSet>> {
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>> {
         // SAFETY: - Process is the correct target for this FFI
         //         - GetBinding is the correct operation for this FFI
         //         - hwloc_get_proc_membind with pid argument curried away
@@ -625,9 +660,9 @@ impl Topology {
     /// Beware that only the memory directly targeted by the `target` reference
     /// will be covered. So for example, you cannot pass in an `&Vec<T>` and
     /// expect the Vec's contents to be covered, instead you must pass in the
-    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may want
-    /// to manually specify the `Target` type via turbofish to make sure that
-    /// you don't get tripped up by references of references like `&&[T]`.
+    /// `&[T]` corresponding to the Vec's contents as `&vec[..]`. You may also
+    /// want to manually specify the `Target` type via turbofish to make sure
+    /// that you don't get tripped up by references of references like `&&[T]`.
     ///
     /// See also [`Topology::bind_memory()`] for general semantics, except
     /// binding target flags should not be used with this method, and it
@@ -637,25 +672,23 @@ impl Topology {
     ///
     /// - [`BadFlags`] if a binding target flag was specified
     /// - [`BadSet`] if the system can't bind memory to that CPU/node set
-    /// - [`BadTarget`] if `target` is a zero-sized object
     /// - [`Unsupported`] if the system cannot bind the specified memory area
     ///   with the requested policy
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
     /// [`BadSet`]: MemoryBindingError::BadSet
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_set_area_membind")]
-    pub fn bind_memory_area<Target: ?Sized, Set: SpecializedBitmap>(
+    pub fn bind_memory_area<Target: ?Sized, SetRef: SpecializedBitmapRef>(
         &self,
         target: &Target,
-        set: &Set,
+        set: SetRef,
         policy: MemoryBindingPolicy,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<Set::Owned>> {
+    ) -> Result<(), HybridError<MemoryBindingError<SetRef::Owned>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget);
+            return Ok(());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -668,7 +701,7 @@ impl Topology {
         unsafe {
             self.bind_memory_impl(
                 "hwloc_set_area_membind",
-                set.borrow(),
+                &set,
                 policy,
                 flags,
                 MemoryBoundObject::Area,
@@ -700,11 +733,9 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`STRICT`] was specified,
     ///   or if a binding target flag was specified.
-    /// - [`BadTarget`] if `target` is a zero-sized object
     /// - [`Unsupported`] if the system cannot unbind the specified memory area
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`Unsupported`]: MemoryBindingError::Unsupported
@@ -712,10 +743,10 @@ impl Topology {
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
-    ) -> Result<(), MemoryBindingError<NodeSet>> {
+    ) -> Result<(), HybridError<MemoryBindingError<NodeSet>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget);
+            return Ok(());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -771,28 +802,28 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
     ///   specified, or if a binding target flag was specified.
-    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`MixedResults`] if flag [`STRICT`] was specified and memory binding
     ///   is inhomogeneous across target memory pages
     /// - [`Unsupported`] if the system cannot query the specified
     ///   memory area's binding
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
+    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_area_membind")]
-    pub fn area_memory_binding<Target: ?Sized, OwnedSet: OwnedSpecializedBitmap>(
+    pub fn area_memory_binding<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
-    ) -> Result<(OwnedSet, Option<MemoryBindingPolicy>), MemoryBindingError<OwnedSet>> {
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget);
+            return Err(MemoryBindingError::BadArea.into());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - Area is the correct target for this FFI
@@ -844,28 +875,28 @@ impl Topology {
     ///
     /// - [`BadFlags`] if one of flags [`MIGRATE`] and [`NO_CPU_BINDING`] was
     ///   specified, or if a binding target flag was specified.
-    /// - [`BadTarget`] if `target` is a zero-sized object
+    /// - [`BadArea`] if `target` is a zero-sized object
     /// - [`MixedResults`] if flag [`STRICT`] was specified and memory binding
     ///   is inhomogeneous across target memory pages
     /// - [`Unsupported`] if the system cannot query the specified
     ///   memory area's location
     ///
     /// [`BadFlags`]: MemoryBindingError::BadFlags
-    /// [`BadTarget`]: MemoryBindingError::BadTarget
+    /// [`BadArea`]: MemoryBindingError::BadArea
     /// [`MIGRATE`]: MemoryBindingFlags::MIGRATE
     /// [`MixedResults`]: MemoryBindingError::MixedResults
     /// [`NO_CPU_BINDING`]: MemoryBindingFlags::NO_CPU_BINDING
     /// [`STRICT`]: MemoryBindingFlags::STRICT
     /// [`Unsupported`]: MemoryBindingError::Unsupported
     #[doc(alias = "hwloc_get_area_memlocation")]
-    pub fn area_memory_location<Target: ?Sized, OwnedSet: OwnedSpecializedBitmap>(
+    pub fn area_memory_location<Target: ?Sized, Set: SpecializedBitmap>(
         &self,
         target: &Target,
         flags: MemoryBindingFlags,
-    ) -> Result<OwnedSet, MemoryBindingError<OwnedSet>> {
+    ) -> Result<Set, HybridError<MemoryBindingError<Set>>> {
         let target_size = std::mem::size_of_val(target);
         if target_size == 0 {
-            return Err(MemoryBindingError::BadTarget);
+            return Err(MemoryBindingError::BadArea.into());
         }
         let target_ptr: *const Target = target;
         // SAFETY: - ThisProgram is the correct target for this FFI
@@ -881,7 +912,7 @@ impl Topology {
             self.memory_binding_impl(
                 "hwloc_get_area_memlocation",
                 flags,
-                MemoryBoundObject::ThisProgram,
+                MemoryBoundObject::Area,
                 MemoryBindingOperation::GetLastLocation,
                 |topology, set, policy, flags| {
                     *policy = -1;
@@ -898,12 +929,34 @@ impl Topology {
         }
     }
 
+    /// Truth that a certain [`CpuSet`] or [`NodeSet`] **certainly** cannot be
+    /// used to bind a process/thread to CPU/memory resources
+    ///
+    /// This check is used to weed out blatantly incorrect requests without even
+    /// trying to call hwloc, thus bypassing hwloc's finnicky error handling.
+    pub(crate) fn is_valid_binding_set<Set: SpecializedBitmap>(&self, set: &Set) -> bool {
+        // It is never legal to bind a process/thread to an empty resource set
+        let set = set.as_bitmap_ref();
+        if set.is_empty() {
+            return false;
+        }
+
+        // Resources indices outside the topology's complete set are never valid
+        match Set::BITMAP_KIND {
+            BitmapKind::CpuSet => self.allowed_cpuset().as_bitmap_ref().includes(set),
+            BitmapKind::NodeSet => self.allowed_nodeset().as_bitmap_ref().includes(set),
+        }
+    }
+
     /// Adjust binding flags for a certain kind of Set
-    fn adjust_flags_for<OwnedSet: OwnedSpecializedBitmap>(flags: &mut MemoryBindingFlags) {
-        match OwnedSet::BITMAP_KIND {
+    fn adjust_flags_for<Set: SpecializedBitmap>(
+        mut flags: MemoryBindingFlags,
+    ) -> MemoryBindingFlags {
+        match Set::BITMAP_KIND {
             BitmapKind::CpuSet => flags.remove(MemoryBindingFlags::BY_NODE_SET),
             BitmapKind::NodeSet => flags.insert(MemoryBindingFlags::BY_NODE_SET),
         }
+        flags
     }
 
     /// Binding for `hwloc_alloc`-like functions
@@ -913,14 +966,16 @@ impl Topology {
     /// - `ffi` should have semantics analogous to `hwloc_alloc`
     /// - If so, this is guaranteed to call `ffi` with a valid (topology, size)
     ///   tuple
-    unsafe fn allocate_memory_impl<OwnedSet: OwnedSpecializedBitmap>(
+    unsafe fn allocate_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
-        clone_set: &dyn Fn() -> Option<OwnedSet>,
+        clone_set: &dyn Fn() -> Option<Set>,
         len: usize,
         ffi: impl FnOnce(hwloc_const_topology_t, usize) -> *mut c_void,
-    ) -> Result<Bytes<'_>, MemoryBindingError<OwnedSet>> {
-        if len > 0 {
+    ) -> Result<Bytes<'_>, HybridError<MemoryBindingError<Set>>> {
+        if len > isize::MAX as usize {
+            Err(MemoryAllocationError::Unsupported.into())
+        } else if len > 0 {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - len was checked to be nonzero above
@@ -932,7 +987,7 @@ impl Topology {
                         clone_set,
                         raw_err.errno,
                     )
-                    .expect("Unexpected errno value")
+                    .map_or_else(|| HybridError::Hwloc(raw_err), HybridError::Rust)
                 })
                 // SAFETY: If hwloc allocation successfully returns, this is
                 //         assumed to be a valid allocation pointer
@@ -952,12 +1007,12 @@ impl Topology {
     ///   is applied to, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, bitmap, policy, flags) tuple
-    unsafe fn bind_memory_impl<OwnedSet: OwnedSpecializedBitmap>(
+    unsafe fn bind_memory_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
-        set: &OwnedSet,
+        set: &Set,
         policy: MemoryBindingPolicy,
-        mut flags: MemoryBindingFlags,
+        original_flags: MemoryBindingFlags,
         target: MemoryBoundObject,
         ffi: impl FnOnce(
             hwloc_const_topology_t,
@@ -965,12 +1020,20 @@ impl Topology {
             hwloc_membind_policy_t,
             hwloc_membind_flags_t,
         ) -> c_int,
-    ) -> Result<(), MemoryBindingError<OwnedSet>> {
+    ) -> Result<(), HybridError<MemoryBindingError<Set>>> {
+        // Detect invalid binding sets
+        if !self.is_valid_binding_set(set) {
+            return Err(MemoryBindingError::BadSet(target, set.to_owned()).into());
+        }
+
+        // Adjust flags for target set type and detect problems with them
         let operation = MemoryBindingOperation::Bind;
-        Self::adjust_flags_for::<OwnedSet>(&mut flags);
+        let flags = Self::adjust_flags_for::<Set>(original_flags);
         let Some(flags) = flags.validate(target, operation) else {
-            return Err(MemoryBindingError::BadFlags(flags.into()));
+            return Err(MemoryBindingError::BadFlags(original_flags.into()).into());
         };
+
+        // Perform the memory binding operation
         call_hwloc_int(api, target, operation, &|| Some(set.clone()), || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
@@ -979,7 +1042,7 @@ impl Topology {
             //         - flags should be valid if target is valid
             ffi(
                 self.as_ptr(),
-                set.as_ref().as_ptr(),
+                set.as_bitmap_ref().as_ptr(),
                 policy.into(),
                 flags.bits(),
             )
@@ -1006,21 +1069,21 @@ impl Topology {
             hwloc_membind_policy_t,
             hwloc_membind_flags_t,
         ) -> c_int,
-    ) -> Result<(), MemoryBindingError<NodeSet>> {
+    ) -> Result<(), HybridError<MemoryBindingError<NodeSet>>> {
         let operation = MemoryBindingOperation::Unbind;
         let Some(flags) = flags.validate(target, operation) else {
-            return Err(MemoryBindingError::BadFlags(flags.into()));
+            return Err(MemoryBindingError::BadFlags(flags.into()).into());
         };
         call_hwloc_int::<NodeSet>(api, target, operation, &|| None, || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
-            //         - Passing a null set and the default policy is an
+            //         - Passing any valid set and the default policy is an
             //           hwloc-accepted way to reset the binding policy
             //         - All user-visible policies are accepted by hwloc
             //         - flags should be valid if target is valid
             ffi(
                 self.as_ptr(),
-                ptr::null(),
+                self.nodeset().as_ptr(),
                 HWLOC_MEMBIND_DEFAULT,
                 flags.bits(),
             )
@@ -1038,10 +1101,10 @@ impl Topology {
     ///   performed, for flags validation purposes
     /// - If all of the above is true, this is guaranteed to only call `ffi`
     ///   with a valid (topology, out bitmap, out policy, flags) tuple
-    unsafe fn memory_binding_impl<OwnedSet: OwnedSpecializedBitmap>(
+    unsafe fn memory_binding_impl<Set: SpecializedBitmap>(
         &self,
         api: &'static str,
-        mut flags: MemoryBindingFlags,
+        original_flags: MemoryBindingFlags,
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
         ffi: impl FnOnce(
@@ -1050,14 +1113,14 @@ impl Topology {
             *mut hwloc_membind_policy_t,
             hwloc_membind_flags_t,
         ) -> c_int,
-    ) -> Result<(OwnedSet, Option<MemoryBindingPolicy>), MemoryBindingError<OwnedSet>> {
-        Self::adjust_flags_for::<OwnedSet>(&mut flags);
+    ) -> Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>> {
+        let flags = Self::adjust_flags_for::<Set>(original_flags);
         let Some(flags) = flags.validate(target, operation) else {
-            return Err(MemoryBindingError::BadFlags(flags.into()));
+            return Err(MemoryBindingError::BadFlags(original_flags.into()).into());
         };
         let mut set = Bitmap::new();
         let mut raw_policy = hwloc_membind_policy_t::MAX;
-        call_hwloc_int::<OwnedSet>(api, target, operation, &|| None, || {
+        call_hwloc_int::<Set>(api, target, operation, &|| None, || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Bitmap is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
@@ -1090,6 +1153,7 @@ impl Topology {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Memory binding flags.
     ///
@@ -1197,21 +1261,27 @@ impl MemoryBindingFlags {
         target: MemoryBoundObject,
         operation: MemoryBindingOperation,
     ) -> Option<Self> {
-        // Target flags should be specified for the Area and Process targets
-        // and only for these targets
+        // Target flags should always be specified for operations that target
+        // the current process, for other operations they are assumed not to be
+        // accepted unless the hwloc docs say otherwise
         let num_target_flags = (self & (Self::PROCESS | Self::THREAD | Self::ASSUME_SINGLE_THREAD))
             .bits()
             .count_ones();
         let expected_num_target_flags = match target {
-            MemoryBoundObject::Area | MemoryBoundObject::Process(_) => 1,
-            MemoryBoundObject::ThisProgram => 0,
+            MemoryBoundObject::ThisProgram => 1,
+            MemoryBoundObject::Area => 0,
+            MemoryBoundObject::Process(_) => match operation {
+                MemoryBindingOperation::Bind | MemoryBindingOperation::Unbind => 0,
+                MemoryBindingOperation::GetBinding | MemoryBindingOperation::GetLastLocation => 1,
+                MemoryBindingOperation::Allocate => unreachable!(),
+            },
         };
         if num_target_flags != expected_num_target_flags {
             return None;
         }
 
-        // The THREAD target flag should not be used when targeting other processes
-        if matches!(target, MemoryBoundObject::Process(_)) && self.contains(Self::THREAD) {
+        // The THREAD flag should only be used for the current process
+        if target != MemoryBoundObject::ThisProgram && self.contains(Self::THREAD) {
             return None;
         }
 
@@ -1245,7 +1315,11 @@ impl MemoryBindingFlags {
                     return None;
                 }
             }
-            MemoryBindingOperation::Bind => {}
+            MemoryBindingOperation::Bind => {
+                if target == MemoryBoundObject::Area && self.contains(Self::MIGRATE) {
+                    return None;
+                }
+            }
         }
 
         // Clear virtual ASSUME_SINGLE_THREAD flag, which served its purpose
@@ -1271,6 +1345,30 @@ pub enum MemoryBoundObject {
     ThisProgram,
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl proptest::prelude::Arbitrary for MemoryBoundObject {
+    type Parameters = ();
+    type Strategy = proptest::strategy::TupleUnion<(
+        proptest::strategy::WA<proptest::strategy::Just<Self>>,
+        proptest::strategy::WA<proptest::strategy::Just<Self>>,
+        proptest::strategy::WA<
+            proptest::strategy::Map<
+                <ProcessId as proptest::arbitrary::Arbitrary>::Strategy,
+                fn(ProcessId) -> Self,
+            >,
+        >,
+    )>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        prop_oneof![
+            1 => Just(Self::ThisProgram),
+            1 => Just(Self::Area),
+            3 => any::<ProcessId>().prop_map(Self::Process)
+        ]
+    }
+}
+//
 impl Display for MemoryBoundObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
@@ -1289,7 +1387,7 @@ impl From<ProcessId> for MemoryBoundObject {
 }
 
 /// Binding operation
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
 pub(crate) enum MemoryBindingOperation {
     /// Allocate memory
     Allocate,
@@ -1306,6 +1404,8 @@ pub(crate) enum MemoryBindingOperation {
     /// Un-bind memory
     Unbind,
 }
+//
+crate::impl_arbitrary_for_sequence!(MemoryBindingOperation);
 
 /// Memory binding policy
 ///
@@ -1387,11 +1487,11 @@ crate::impl_arbitrary_for_sequence!(MemoryBindingPolicy);
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory
 #[derive(Clone, Debug, Error, Eq, Hash, PartialEq)]
-pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
+pub enum MemoryBindingError<Set: SpecializedBitmap> {
     /// Memory allocation failed even before trying to bind
     ///
-    /// This error may only be returned by [`Topology::allocate_bound_memory()`]
-    /// and [`Topology::binding_allocate_memory()`].
+    /// This error may only be returned by [`Topology`] methods that allocate
+    /// memory (recognizable by the fact that they all return [`Bytes`]).
     #[error("failed to allocate memory")]
     AllocationFailed,
 
@@ -1415,11 +1515,17 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     /// not set. Instead, the implementation is allowed to try using a smaller
     /// or larger set to make the operation succeed.
     #[error("cannot bind memory of {0} to {1}")]
-    BadSet(MemoryBoundObject, OwnedSet),
+    BadSet(MemoryBoundObject, Set),
 
-    /// Cannot get/set the memory binding of a zero-sized memory region
+    /// Cannot query the memory binding of a zero-sized memory region
+    ///
+    /// Since the target memory region contains no bytes, the memory binding of
+    /// these absent bytes cannot be queried from the OS.
+    ///
+    /// Note that in contrast, attempting to _set_ the memory binding of a
+    /// zero-sized memory region will succeed, but have no effect.
     #[error("cannot query the memory location of a zero-sized target")]
-    BadTarget,
+    BadArea,
 
     /// Memory policies and nodesets vary from one thread to another
     ///
@@ -1459,7 +1565,7 @@ pub enum MemoryBindingError<OwnedSet: OwnedSpecializedBitmap> {
     Unknown,
 }
 //
-impl<OwnedSet: OwnedSpecializedBitmap> From<MemoryBindingFlags> for MemoryBindingError<OwnedSet> {
+impl<Set: SpecializedBitmap> From<MemoryBindingFlags> for MemoryBindingError<Set> {
     fn from(value: MemoryBindingFlags) -> Self {
         Self::BadFlags(value.into())
     }
@@ -1470,31 +1576,32 @@ impl<OwnedSet: OwnedSpecializedBitmap> From<MemoryBindingFlags> for MemoryBindin
 ///
 /// Validating flags is left up to the caller, to avoid allocating result
 /// objects when it can be proved upfront that the request is invalid.
-pub(crate) fn call_hwloc_int<OwnedSet: OwnedSpecializedBitmap>(
+pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
     api: &'static str,
     object: MemoryBoundObject,
     operation: MemoryBindingOperation,
-    clone_set: &dyn Fn() -> Option<OwnedSet>,
+    clone_set: &dyn Fn() -> Option<Set>,
     ffi: impl FnOnce() -> c_int,
-) -> Result<(), MemoryBindingError<OwnedSet>> {
+) -> Result<(), HybridError<MemoryBindingError<Set>>> {
     match errors::call_hwloc_int_normal(api, ffi) {
         Ok(_) => Ok(()),
-        Err(RawHwlocError { errno, .. }) => {
-            Err(decode_errno(object, operation, clone_set, errno).expect("Unexpected errno value"))
+        Err(e @ RawHwlocError { errno, .. }) => {
+            Err(decode_errno(object, operation, clone_set, errno)
+                .map_or_else(|| HybridError::Hwloc(e), HybridError::Rust))
         }
     }
 }
 
 /// Errors that can occur when allocating memory
-pub type MemoryAllocationError<OwnedSet> = MemoryBindingError<OwnedSet>;
+pub type MemoryAllocationError<Set> = MemoryBindingError<Set>;
 
 /// Translating hwloc errno into high-level errors
-fn decode_errno<OwnedSet: OwnedSpecializedBitmap>(
+fn decode_errno<Set: SpecializedBitmap>(
     object: MemoryBoundObject,
     operation: MemoryBindingOperation,
-    clone_set: &dyn Fn() -> Option<OwnedSet>,
+    clone_set: &dyn Fn() -> Option<Set>,
     errno: Option<Errno>,
-) -> Option<MemoryBindingError<OwnedSet>> {
+) -> Option<MemoryBindingError<Set>> {
     match errno {
         Some(Errno(ENOSYS)) => Some(MemoryBindingError::Unsupported),
         Some(Errno(EXDEV)) => match operation {
@@ -1545,15 +1652,17 @@ pub struct Bytes<'topology> {
 impl<'topology> Bytes<'topology> {
     /// Wrap an hwloc allocation
     ///
+    /// # Panics
+    ///
+    /// Panics if the slice covers more than `isize::MAX` bytes, as this is not
+    /// supported by Rust.
+    ///
     /// # Safety
     ///
     /// If the size is nonzero, `base` must originate from an hwloc memory
     /// allocation function that was called on `topology` for `size` bytes.
-    pub(crate) unsafe fn wrap(
-        topology: &'topology Topology,
-        base: NonNull<c_void>,
-        size: usize,
-    ) -> Self {
+    unsafe fn wrap(topology: &'topology Topology, base: NonNull<c_void>, size: usize) -> Self {
+        isize::try_from(size).expect("Unsupported allocation size");
         Self {
             topology,
             data: NonNull::slice_from_raw_parts(base.cast::<MaybeUninit<u8>>(), size),
@@ -1637,3 +1746,37 @@ unsafe impl Send for Bytes<'_> {}
 //
 // SAFETY: Exposes no internal mutability
 unsafe impl Sync for Bytes<'_> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+
+    proptest! {
+        #[test]
+        fn display_membound_object(
+            obj: MemoryBoundObject,
+        ) {
+            let display = obj.to_string();
+            match obj {
+                MemoryBoundObject::Process(pid) => {
+                    let expected_pid = format!("PID {pid}");
+                    prop_assert!(display.contains("process"));
+                    prop_assert!(display.contains(&expected_pid));
+                }
+                MemoryBoundObject::ThisProgram => {
+                    prop_assert!(display.contains("current process/thread"));
+                }
+                MemoryBoundObject::Area => {}
+            }
+        }
+
+        #[test]
+        fn pid_to_membound(pid: ProcessId) {
+            let obj = MemoryBoundObject::from(pid);
+            prop_assert_eq!(obj, MemoryBoundObject::Process(pid));
+        }
+    }
+}

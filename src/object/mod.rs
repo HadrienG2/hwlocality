@@ -902,6 +902,7 @@ impl TopologyObject {
     /// exist, although sane users should not leverage this possibility.
     #[doc(alias = "hwloc_obj::infos")]
     pub fn infos(&self) -> &[TextualInfo] {
+        // Handle null infos pointer
         if self.0.infos.is_null() {
             assert_eq!(
                 self.0.infos_count, 0,
@@ -909,15 +910,19 @@ impl TopologyObject {
             );
             return &[];
         }
+
+        // Handle unsupported size slice edge case
+        let infos_len = int::expect_usize(self.0.infos_count);
+        #[allow(clippy::missing_docs_in_private_items)]
+        type Element = TextualInfo;
+        int::assert_slice_len::<Element>(infos_len);
+
+        // Build the output slice
         // SAFETY: - infos and count are assumed in sync per type invariant
         //         - infos are assumed to be valid per type invariant
         //         - AsNewtype is trusted to be implemented correctly
-        unsafe {
-            std::slice::from_raw_parts(
-                self.0.infos.as_newtype(),
-                int::expect_usize(self.0.infos_count),
-            )
-        }
+        //         - infos_len was checked to be slice-compatible above
+        unsafe { std::slice::from_raw_parts::<Element>(self.0.infos.as_newtype(), infos_len) }
     }
 
     /// Search the given key name in object infos and return the corresponding value
@@ -1541,7 +1546,7 @@ pub(crate) mod tests {
         ) -> Option<impl Strategy<Value = (&'static TopologyObject, CpuSet)>> {
             (!objects.is_empty()).then(move || {
                 prop::sample::select(objects)
-                    .prop_flat_map(move |obj| (Just(obj), set_with_reference(&ref_cpuset(obj))))
+                    .prop_flat_map(move |obj| (Just(obj), set_with_reference(ref_cpuset(obj))))
             })
         }
         let with_cpuset = with_reference(with_cpuset, |obj| obj.cpuset().unwrap());

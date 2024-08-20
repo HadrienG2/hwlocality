@@ -6,7 +6,7 @@
 use crate::bitmap::BitmapIndex;
 #[cfg(test)]
 use crate::{
-    bitmap::{Bitmap, BitmapRef, OwnedSpecializedBitmap, SpecializedBitmap},
+    bitmap::{Bitmap, BitmapRef, SpecializedBitmap, SpecializedBitmapRef},
     object::TopologyObject,
     topology::Topology,
 };
@@ -136,11 +136,11 @@ pub(crate) fn test_object() -> impl Strategy<Value = &'static TopologyObject> {
 /// - Superset (everything inside, some outside)
 /// - Everything (everything inside, everything outside)
 #[cfg(test)]
-pub(crate) fn set_with_reference<Set: SpecializedBitmap>(
-    ref_set: &Set,
-) -> impl Strategy<Value = Set::Owned> {
+pub(crate) fn set_with_reference<SetRef: SpecializedBitmapRef>(
+    reference: SetRef,
+) -> impl Strategy<Value = SetRef::Owned> {
     // First, one of the reference set and its complement has to be finite
-    let ref_set: &Bitmap = ref_set.as_ref();
+    let ref_set = reference.as_bitmap_ref();
     let finite_set = if ref_set.weight().is_some() {
         ref_set.clone()
     } else {
@@ -171,14 +171,14 @@ pub(crate) fn set_with_reference<Set: SpecializedBitmap>(
     // (nothing inside, some inside, everything inside) configurations of their
     // reference set, we get good coverage of all desired set configurations
     (inside_elems, outside_elems)
-        .prop_map(|(inside_elems, outside_elems)| Set::Owned::from(inside_elems | outside_elems))
+        .prop_map(|(inside_elems, outside_elems)| SetRef::Owned::from(inside_elems | outside_elems))
 }
 
 /// Specialization of `set_with_reference` that uses the topology-wide cpuset or
 /// nodeset as a reference
 #[cfg(test)]
-pub(crate) fn topology_related_set<Set: OwnedSpecializedBitmap>(
+pub(crate) fn topology_related_set<Set: SpecializedBitmap>(
     topology_set: impl FnOnce(&Topology) -> BitmapRef<'_, Set>,
 ) -> impl Strategy<Value = Set> {
-    set_with_reference(topology_set(Topology::test_instance()).as_ref())
+    set_with_reference(topology_set(Topology::test_instance()))
 }

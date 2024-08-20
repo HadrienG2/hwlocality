@@ -36,7 +36,7 @@ overflow-checks = false
 
 [package]
 name = "hwlocality"
-version = "1.0.0-alpha.6"
+version = "1.0.0-alpha.7"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -237,6 +237,7 @@ tempfile = "3.8"
 # Used to trace control flow in some tests to make failure investigation easier
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", default-features = false, features = ["std", "fmt"] }
+tracing-error = { version = "0.2.0", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -32,7 +32,7 @@ fn main() -> eyre::Result<()> {
     println!("Will now allocate {ALLOC_SIZE} bytes of memory bound to NUMA node {nodeset}");
     let _bytes = topology.binding_allocate_memory(
         ALLOC_SIZE,
-        &nodeset,
+        nodeset,
         MemoryBindingPolicy::default(),
         MemoryBindingFlags::ASSUME_SINGLE_THREAD,
     )?;

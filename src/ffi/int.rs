@@ -48,7 +48,7 @@ use std::{
 /// supported by hwloc. However, counter-examples are welcome!
 pub(crate) fn expect_isize(x: c_int) -> isize {
     x.try_into()
-        .expect("Expected on any platform supported by hwloc")
+        .expect("expected on any platform supported by hwloc")
 }
 
 /// Assert that a [`c_uint`] can be converted to a [`usize`]
@@ -57,7 +57,16 @@ pub(crate) fn expect_isize(x: c_int) -> isize {
 /// supported by hwloc. However, counter-examples are welcome!
 pub(crate) fn expect_usize(x: c_uint) -> usize {
     x.try_into()
-        .expect("Expected on any platform supported by hwloc")
+        .expect("expected on any platform supported by hwloc")
+}
+
+/// Assert that `len` is a valid length for a `[T]` slice
+pub(crate) fn assert_slice_len<T>(len: usize) {
+    assert!(
+        len.checked_mul(std::mem::size_of::<T>())
+            .map_or(false, |prod| isize::try_from(prod).is_ok()),
+        "got an unsupported slice length from hwloc"
+    )
 }
 
 /// Integer ranging from 0 to the implementation-defined [`c_int::MAX`] limit
