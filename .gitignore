@@ -1,8 +1,8 @@
 # Binary outputs
-target
+/target
 
 # Precise dep list
-Cargo.lock
+/Cargo.lock
 
 # macOS caches
 **/*.DS_Store
@@ -12,9 +12,12 @@ Cargo.lock
 **/*.bk
 
 # Code coverage
-*.profraw
-tarpaulin-report.html
+/*.profraw
+/tarpaulin-report.html
 
 # It normally does not make sense to share proptest regression files across
 # machines because they are largely specific to a machine's topology.
-proptest-regressions/
+/proptest-regressions/
+
+# Mutation testing
+/mutants.out/
