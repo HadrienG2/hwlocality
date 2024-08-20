@@ -1345,6 +1345,30 @@ pub enum MemoryBoundObject {
     ThisProgram,
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl proptest::prelude::Arbitrary for MemoryBoundObject {
+    type Parameters = ();
+    type Strategy = proptest::strategy::TupleUnion<(
+        proptest::strategy::WA<proptest::strategy::Just<Self>>,
+        proptest::strategy::WA<proptest::strategy::Just<Self>>,
+        proptest::strategy::WA<
+            proptest::strategy::Map<
+                <ProcessId as proptest::arbitrary::Arbitrary>::Strategy,
+                fn(ProcessId) -> Self,
+            >,
+        >,
+    )>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        prop_oneof![
+            1 => Just(Self::ThisProgram),
+            1 => Just(Self::Area),
+            3 => any::<ProcessId>().prop_map(Self::Process)
+        ]
+    }
+}
+//
 impl Display for MemoryBoundObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
@@ -1380,6 +1404,8 @@ pub(crate) enum MemoryBindingOperation {
     /// Un-bind memory
     Unbind,
 }
+//
+crate::impl_arbitrary_for_sequence!(MemoryBindingOperation);
 
 /// Memory binding policy
 ///
@@ -1720,3 +1746,26 @@ unsafe impl Send for Bytes<'_> {}
 //
 // SAFETY: Exposes no internal mutability
 unsafe impl Sync for Bytes<'_> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+
+    proptest! {
+        #[test]
+        fn validate_flags(
+            flags: MemoryBindingFlags,
+            target: MemoryBoundObject,
+            operation: MemoryBindingOperation
+        ) {
+            let result = flags.validate(target, operation);
+            let num_target_fags = (flags & (MemoryBindingFlags::PROCESS | MemoryBindingFlags::THREAD | MemoryBindingFlags::ASSUME_SINGLE_THREAD)).iter().count();
+            match target {
+                MemoryBoundObject::ThisProgram => prop_assert_eq!(result, None),
+            }
+        }
+    }
+}
