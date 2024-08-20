@@ -1754,6 +1754,10 @@ mod tests {
     #[allow(unused)]
     use similar_asserts::assert_eq;
 
+    // Most of the functionality in this module must be tested in the
+    // single_threaded integration test because of ASSUME_SINGLE_THREAD, but
+    // some things can be tested here.
+
     proptest! {
         #[test]
         fn display_membound_object(
