@@ -104,6 +104,7 @@ jobs:
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
           - 'hwloc-2_10_0'
+          # Remember to also update scheduled-semver-checks matrix
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
@@ -140,7 +141,50 @@ jobs:
       - name: Build docs
         run: cargo doc ${{ env.JOB_FLAGS }}
 
-      - name: Check semver compliance
+      - name: Check semver compliance (push/PR version)
+        # Not guaranteed to run on nightly, so we use the separate job below
+        if: github.event_name != 'schedule'
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          feature-group: default-features
+          features: ${{ matrix.features }}
+          rust-toolchain: manual
+
+  # Workaround for cargo-semver-checks not guaranteeing nightly support
+  scheduled-semver-checks:
+    if: github.event_name == 'schedule'
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        features:
+          - '""'
+          - 'hwloc-2_0_4'
+          - 'hwloc-2_1_0'
+          - 'hwloc-2_2_0'
+          - 'hwloc-2_3_0'
+          - 'hwloc-2_4_0'
+          - 'hwloc-2_5_0'
+          - 'hwloc-2_8_0'
+          - 'hwloc-2_10_0'
+          # Remember to also update lints matrix
+          - 'hwloc-latest,vendored'
+          - 'hwloc-latest,proptest'
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up stable toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt,clippy
+
+      - name: Check semver compliance (scheduled version)
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           feature-group: default-features
