@@ -33,7 +33,8 @@ use std::{
 
 /// Set of flags describing actual hwloc feature support for this topology
 ///
-/// You cannot create an owned object of this type, it belongs to the topology.
+/// This can be queried using the
+/// [`feature_support()`](Topology::feature_support()) method of a `Topology`.
 //
 // --- Implementation details ---
 //
@@ -146,6 +147,9 @@ unsafe impl TransparentNewtype for FeatureSupport {
 }
 
 /// Support for discovering information about the topology
+///
+/// This can be queried using the
+/// [`feature_support()`](Topology::feature_support()) method of a `Topology`.
 #[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_discovery_support")]
 #[repr(transparent)]
@@ -246,6 +250,9 @@ unsafe impl TransparentNewtype for DiscoverySupport {
 }
 
 /// Support for getting and setting thread/process CPU bindings
+///
+/// This can be queried using the
+/// [`feature_support()`](Topology::feature_support()) method of a `Topology`.
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
@@ -399,6 +406,9 @@ unsafe impl TransparentNewtype for CpuBindingSupport {
 }
 
 /// Support for getting and setting thread/process NUMA node bindings
+///
+/// This can be queried using the
+/// [`feature_support()`](Topology::feature_support()) method of a `Topology`.
 ///
 /// A flag may be set even if the feature isn't supported in all cases
 /// (e.g. binding to random sets of non-contiguous objects).
@@ -580,6 +590,9 @@ unsafe impl TransparentNewtype for MemoryBindingSupport {
 }
 
 /// Miscellaneous support information
+///
+/// This can be queried using the
+/// [`feature_support()`](Topology::feature_support()) method of a `Topology`.
 #[cfg(feature = "hwloc-2_3_0")]
 #[derive(Copy, Clone, Default, Eq, Hash, PartialEq)]
 #[doc(alias = "hwloc_topology_misc_support")]
