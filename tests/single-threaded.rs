@@ -28,7 +28,14 @@ use hwlocality::{
     ProcessId,
 };
 use proptest::{prelude::*, test_runner::TestRunner};
-use std::{collections::HashSet, ffi::c_uint, fmt::Debug, ops::Deref};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    collections::HashSet,
+    ffi::c_uint,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+    ptr,
+};
 use tracing_error::{ErrorLayer, SpanTrace, SpanTraceStatus};
 use tracing_subscriber::prelude::*;
 
@@ -475,12 +482,31 @@ fn check_allocate_bound<Set: SpecializedBitmap>(
 /// Check that one hwloc memory allocator works
 #[tracing::instrument(skip(bytes))]
 fn check_memory_allocation(mut bytes: Bytes<'_>, len: usize) -> Result<(), TestCaseError> {
+    // Make sure allocation matches requests
     if bytes.len() != len {
         fail!(
             "Final allocation has {} bytes but {len} were requested",
             bytes.len()
         );
     }
+
+    // Make sure output Bytes object behaves sensibly
+    prop_assert!(ptr::eq(AsRef::as_ref(&bytes), AsMut::as_mut(&mut bytes)));
+    prop_assert!(ptr::eq(AsRef::as_ref(&bytes), Borrow::borrow(&bytes)));
+    prop_assert!(ptr::eq(
+        AsRef::as_ref(&bytes),
+        BorrowMut::borrow_mut(&mut bytes)
+    ));
+    prop_assert!(ptr::eq(AsRef::as_ref(&bytes), Deref::deref(&bytes)));
+    prop_assert!(ptr::eq(
+        AsRef::as_ref(&bytes),
+        DerefMut::deref_mut(&mut bytes)
+    ));
+    if len < 10 {
+        let bytes_debug = format!("{bytes:?}");
+        prop_assert!(bytes_debug.starts_with("[") && bytes_debug.ends_with("]"));
+    }
+
     // If we allocated any bytes, check that we can write without
     // segfaults as a minimal sanity check
     if len > 0 {

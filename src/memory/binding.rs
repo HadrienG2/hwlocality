@@ -1387,7 +1387,7 @@ impl From<ProcessId> for MemoryBoundObject {
 }
 
 /// Binding operation
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
 pub(crate) enum MemoryBindingOperation {
     /// Allocate memory
     Allocate,
@@ -1756,16 +1756,27 @@ mod tests {
 
     proptest! {
         #[test]
-        fn validate_flags(
-            flags: MemoryBindingFlags,
-            target: MemoryBoundObject,
-            operation: MemoryBindingOperation
+        fn display_membound_object(
+            obj: MemoryBoundObject,
         ) {
-            let result = flags.validate(target, operation);
-            let num_target_fags = (flags & (MemoryBindingFlags::PROCESS | MemoryBindingFlags::THREAD | MemoryBindingFlags::ASSUME_SINGLE_THREAD)).iter().count();
-            match target {
-                MemoryBoundObject::ThisProgram => prop_assert_eq!(result, None),
+            let display = obj.to_string();
+            match obj {
+                MemoryBoundObject::Process(pid) => {
+                    let expected_pid = format!("PID {pid}");
+                    prop_assert!(display.contains("process"));
+                    prop_assert!(display.contains(&expected_pid));
+                }
+                MemoryBoundObject::ThisProgram => {
+                    prop_assert!(display.contains("current process/thread"));
+                }
+                MemoryBoundObject::Area => {}
             }
+        }
+
+        #[test]
+        fn pid_to_membound(pid: ProcessId) {
+            let obj = MemoryBoundObject::from(pid);
+            prop_assert_eq!(obj, MemoryBoundObject::Process(pid));
         }
     }
 }
