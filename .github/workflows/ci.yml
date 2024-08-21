@@ -184,6 +184,13 @@ jobs:
         with:
           components: rustfmt,clippy
 
+      - name: Set up hwloc
+        uses: ./.github/actions/setup-hwloc-dependencies
+        with:
+          hwloc-version: ${{ env.HWLOC_VERSION }}
+          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+        if: contains(matrix.features, 'vendored') == false
+
       - name: Check semver compliance (scheduled version)
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
