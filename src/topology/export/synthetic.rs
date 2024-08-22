@@ -52,7 +52,7 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_topology_export_synthetic")]
     pub fn export_synthetic(&self, flags: SyntheticExportFlags) -> Result<String, RawHwlocError> {
-        let mut buf = vec![0u8; 1024];
+        let mut buf = vec![0u8; 1024]; // Size chosen per hwloc docs advice
         loop {
             let len =
                 // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
@@ -69,12 +69,13 @@ impl Topology {
                     )
                 })?;
             if int::expect_usize(len) == buf.len() - 1 {
-                // hwloc exactly filled the buffer, which suggests the
-                // output was truncated. Try a larget buffer.
+                // hwloc exactly filled the buffer, which suggests the output
+                // was truncated. Try a larger buffer.
                 buf.resize(2 * buf.len(), 0);
                 continue;
             } else {
                 // Buffer seems alright, return it
+                buf.truncate(len as usize + 1);
                 return Ok(CString::from_vec_with_nul(buf)
                     .expect("Missing NUL from hwloc")
                     .into_string()
@@ -132,3 +133,75 @@ crate::impl_arbitrary_for_bitflags!(
     SyntheticExportFlags,
     hwloc_topology_export_synthetic_flags_e
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        object::types::ObjectType,
+        topology::{builder::TypeFilter, TopologyObject},
+    };
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+
+    proptest! {
+        #[test]
+        fn export_synthetic(flags: SyntheticExportFlags) {
+            let topology = Topology::test_instance();
+            let result = topology.export_synthetic(flags);
+
+            // Per hwloc docs, exporting should always fail on asymmetric
+            // topologies, and may fail for unspecified other reasons.
+            if !topology.root_object().is_symmetric_subtree() {
+                prop_assert!(result.is_err());
+            }
+            let Ok(synthetic) = result else { return Ok(()); };
+
+            // Try to import back the topology
+            let imported = Topology::builder().from_synthetic(&synthetic);
+            if imported.is_err() {
+                // Hwloc may not manage to load topologies exported with some
+                // v1.x compatibility flags
+                prop_assert!(flags.contains(SyntheticExportFlags::NO_EXTENDED_TYPES));
+                return Ok(());
+            }
+            let imported = imported
+                    .expect("Synthetic strings from hwloc should be valid")
+                    .with_common_type_filter(TypeFilter::KeepAll)
+                    .unwrap()
+                    .build()
+                    .expect("Building a topology from an hwloc synthetic string should be valid");
+
+            // Check basic properties of the imported topology
+            prop_assert_eq!(imported.cpuset().weight(), topology.cpuset().weight());
+            //
+            if !flags.contains(SyntheticExportFlags::NO_EXTENDED_TYPES) {
+                let flags_affecting_memobjs = SyntheticExportFlags::IGNORE_MEMORY | SyntheticExportFlags::V1;
+                for ty in enum_iterator::all::<ObjectType>() {
+                    if ty.is_normal()
+                       || (ty.is_memory() && !flags.intersects(flags_affecting_memobjs))
+                    {
+                        prop_assert_eq!(
+                            imported.objects_with_type(ty).count(),
+                            topology.objects_with_type(ty).count(),
+                            "count of objects of type {} doesn't match", ty
+                        );
+                    }
+                    if ty.is_memory() && flags.contains(SyntheticExportFlags::IGNORE_MEMORY) {
+                        let expected_count = usize::from(ty == ObjectType::NUMANode);
+                        prop_assert_eq!(
+                            imported.objects_with_type(ty).count(),
+                            expected_count
+                        );
+                    }
+                }
+            }
+            //
+            let total_memory = |topology: &Topology| topology.objects().map(TopologyObject::total_memory).sum::<u64>();
+            if !flags.intersects(SyntheticExportFlags::NO_ATTRIBUTES | SyntheticExportFlags::IGNORE_MEMORY) {
+                prop_assert_eq!(total_memory(&imported), total_memory(topology));
+            };
+        }
+    }
+}
