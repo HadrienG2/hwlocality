@@ -657,18 +657,20 @@ mod tests {
 
     proptest! {
         #[test]
-        #[ignore = "Broken by https://github.com/open-mpi/hwloc/issues/683"]
+        #[ignore = "Waiting for hwloc release with patch for https://github.com/open-mpi/hwloc/issues/683"]
         fn register_cpu_kind(
             cpuset in topology_related_set(Topology::complete_cpuset),
             forced_efficiency in forced_efficiency(),
             infos in infos(),
         ) {
+            // Perform the change
             let mut topology = Topology::test_instance().clone();
             let initial_kinds = cpu_kinds();
             let result = topology.edit(|editor| {
                 editor.register_cpu_kind(&cpuset, forced_efficiency, infos.iter().map(|(name, value)| (name.as_str(), value.as_str())))
             });
 
+            // Predict and check error cases
             let excessive_efficiency = forced_efficiency.map_or(false, |eff| eff > c_int::MAX as usize);
             let info_contains_nul = infos.iter().any(|(name, value)| name.contains('\0') || value.contains('\0'));
             let no_cpus = cpuset.is_empty();
@@ -676,7 +678,6 @@ mod tests {
             let complete_cpuset = Topology::test_instance().complete_cpuset();
             let unknown_cpus = !complete_cpuset.includes(&cpuset);
             prop_assert_eq!(result.is_err(), excessive_efficiency || info_contains_nul || too_many_infos || unknown_cpus || no_cpus);
-
             if let Err(e) = result {
                 match e {
                     RegisterError::ExcessiveEfficiency(eff) => {
@@ -695,6 +696,7 @@ mod tests {
                 return Ok(());
             }
 
+            // Predict new CPU kinds
             let mut shrunk_kinds = Vec::new();
             let mut new_kinds = Vec::new();
             struct NewKind {
@@ -727,9 +729,9 @@ mod tests {
                 })
             }
 
+            // Check if actual CPU kinds match prediction
             let mut shrunk_kinds = shrunk_kinds.into_iter().peekable();
             let mut new_kinds = new_kinds.into_iter().fuse();
-
             for kind in topology.cpu_kinds().unwrap() {
                 if let Some(next_shrunk_kind) = shrunk_kinds.peek() {
                     if kind.cpuset == next_shrunk_kind.cpuset {
