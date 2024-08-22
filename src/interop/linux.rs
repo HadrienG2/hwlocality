@@ -105,7 +105,7 @@ impl Topology {
     /// [`THREAD`]: CpuBindingFlags::THREAD
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_linux_get_tid_last_cpu_location")]
-    pub fn tid_last_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
+    pub fn last_tid_cpu_location(&self, tid: pid_t) -> Result<CpuSet, RawHwlocError> {
         let mut set = CpuSet::new();
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - Bitmap is trusted to contain a valid ptr (type invariant)
@@ -157,7 +157,7 @@ impl Topology {
     ///     topology
     ///         .objects_with_type(ObjectType::Core)
     ///         .next()
-    ///         .ok_or_else(|| eyre!("Linux systesm should have CPU cores"))?
+    ///         .ok_or_else(|| eyre!("Linux system should have CPU cores"))?
     ///         .cpuset()
     ///         .ok_or_else(|| eyre!("CPU cores should have cpusets"))?
     /// );
@@ -194,7 +194,10 @@ impl Topology {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::types::ObjectType;
+    use crate::{
+        cpu::binding::CpuBindingFlags, object::types::ObjectType, strategies::topology_related_set,
+    };
+    use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
 
@@ -217,5 +220,50 @@ mod tests {
                 .cpuset()
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn initial_tid_cpubind() {
+        // SAFETY: Should always be safe to call
+        let my_tid = unsafe { libc::gettid() };
+        let topology = Topology::test_instance();
+
+        let my_cpu_binding = topology
+            .process_cpu_binding(my_tid.try_into().unwrap(), CpuBindingFlags::THREAD)
+            .unwrap();
+        assert_eq!(topology.tid_cpu_binding(my_tid).unwrap(), my_cpu_binding);
+
+        let last_cpu_location = topology.last_tid_cpu_location(my_tid).unwrap();
+        assert_eq!(last_cpu_location.weight(), Some(1));
+        assert!(my_cpu_binding.includes(&last_cpu_location));
+    }
+
+    proptest! {
+        #[test]
+        fn bind_tid_cpu(
+            set in topology_related_set(Topology::allowed_cpuset)
+        ) {
+            // SAFETY: Should always be safe to call
+            let my_tid = unsafe { libc::gettid() };
+            let topology = Topology::test_instance();
+            let initial = topology.tid_cpu_binding(my_tid).unwrap();
+
+            let result = topology.bind_tid_cpu(my_tid, &set);
+            if result.is_err() {
+                prop_assert!(!initial.includes(&set) || set.is_empty());
+                return Ok(());
+            }
+
+            // Linux can enforce a tighter binding than requested
+            let actual_binding = topology.tid_cpu_binding(my_tid).unwrap();
+            prop_assert!(
+                actual_binding == set
+                || set.includes(&actual_binding),
+                "actual binding {actual_binding} doesn't match request {set}"
+            );
+            prop_assert!(set.includes(&topology.last_tid_cpu_location(my_tid).unwrap()));
+
+            topology.bind_tid_cpu(my_tid, &initial).unwrap();
+        }
     }
 }
