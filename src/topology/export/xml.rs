@@ -348,10 +348,7 @@ mod tests {
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use static_assertions::assert_impl_all;
-    use std::{
-        hash::{BuildHasher, RandomState},
-        ops::Range,
-    };
+    use std::{collections::hash_map::RandomState, hash::BuildHasher, ops::Range};
 
     // XML export is mostly covered by builder tests that export XML and
     // re-import it, so all we need to do is test the XML wrapper type
