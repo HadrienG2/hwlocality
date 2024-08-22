@@ -165,7 +165,10 @@ pub(crate) fn set_with_reference<SetRef: SpecializedBitmapRef>(
 
     // Next we can pick a random set within the complement of the finite set by
     // picking a random set and subtracting the finite set from it
-    let outside_elems = any::<Bitmap>().prop_map(move |any_elems| any_elems - &finite_set);
+    let outside_elems = prop_oneof![
+        Just(Bitmap::new()),
+        any::<Bitmap>().prop_map(move |any_elems| any_elems - &finite_set),
+    ];
 
     // By combining these two sets which each have good coverage of all three
     // (nothing inside, some inside, everything inside) configurations of their

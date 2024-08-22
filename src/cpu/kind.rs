@@ -283,7 +283,8 @@ impl TopologyEditor<'_> {
     /// Mark the PUs listed in `cpuset` as being of the same kind with respect
     /// to the given attributes.
     ///
-    /// `cpuset` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`.
+    /// `cpuset` can be a `&'_ CpuSet` or a `BitmapRef<'_, CpuSet>`, but it must
+    /// not be empty, and should only contain CPUs from the topology cpuset.
     ///
     /// `forced_efficiency` should be `None` if unknown. Otherwise it is an
     /// abstracted efficiency value to enforce the ranking of all kinds if all
@@ -306,12 +307,17 @@ impl TopologyEditor<'_> {
     /// - [`ExcessiveEfficiency`] if `forced_efficiency` exceeds hwloc's
     ///   [`c_int::MAX`] limit.
     /// - [`InfoContainsNul`] if a provided info's key or value contains NUL chars
+    /// - [`NoCPUs`] if `cpuset` is empty.
     /// - [`TooManyInfos`] if the number of specified (key, value) info tuples
     ///   exceeds hwloc's [`c_uint::MAX`] limit.
+    /// - [`UnknownCPUs`] if some CPUs from `cpuset` do not belong to this
+    ///   topology.
     ///
     /// [`ExcessiveEfficiency`]: RegisterError::ExcessiveEfficiency
     /// [`InfoContainsNul`]: RegisterError::InfoContainsNul
+    /// [`NoCPUs`]: RegisterError::NoCPUs
     /// [`TooManyInfos`]: RegisterError::TooManyInfos
+    /// [`UnknownCPUs`]: RegisterError::UnknownCPUs
     #[allow(clippy::collection_is_never_read)]
     #[doc(alias = "hwloc_cpukinds_register")]
     pub fn register_cpu_kind<'infos>(
@@ -332,6 +338,17 @@ impl TopologyEditor<'_> {
             forced_efficiency: Option<CpuEfficiency>,
             raw_infos: Vec<hwloc_info_s>,
         ) -> Result<(), RegisterError> {
+            // Check if the requested cpuset is empty
+            if cpuset.is_empty() {
+                return Err(RegisterError::NoCPUs);
+            }
+
+            // Check if the requested cpuset is part of the topology
+            let complete_cpuset = self_.topology().complete_cpuset();
+            if !complete_cpuset.includes(cpuset) {
+                return Err(RegisterError::UnknownCPUs(cpuset - complete_cpuset));
+            }
+
             // Translate forced_efficiency into hwloc's preferred format
             let forced_efficiency = if let Some(eff) = forced_efficiency {
                 c_int::try_from(eff).map_err(|_| RegisterError::ExcessiveEfficiency(eff))?
@@ -442,7 +459,7 @@ pub enum FromSetProblem {
 }
 
 /// Error while registering a new CPU kind
-#[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, Hash, PartialEq)]
 pub enum RegisterError {
     /// `forced_efficiency` value is above what hwloc can handle on this platform
     #[error("CPU kind forced_efficiency value {0} is too high for hwloc")]
@@ -455,10 +472,289 @@ pub enum RegisterError {
     /// There are too many CPU kind textual info (key, value) pairs for hwloc
     #[error("hwloc can't handle that much CPU kind textual info")]
     TooManyInfos,
+
+    /// A CPU kind cannot contain no CPU
+    #[error("cannot register a CPU kind with an empty cpuset")]
+    NoCPUs,
+
+    /// Some specified CPUs are not part of the topology
+    #[error("CPUs {0} are not part of the topology")]
+    UnknownCPUs(CpuSet),
 }
 //
 impl From<CpuEfficiency> for RegisterError {
     fn from(value: CpuEfficiency) -> Self {
         Self::ExcessiveEfficiency(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        cpu::cpuset::CpuSet,
+        strategies::{any_string, topology_related_set},
+    };
+    use proptest::{collection::SizeRange, prelude::*};
+    #[allow(unused)]
+    #[cfg(test)]
+    use similar_asserts::assert_eq;
+    use std::{collections::HashSet, sync::OnceLock};
+
+    fn cpu_kinds() -> Result<&'static [CpuKind<'static>], NoData> {
+        static CPU_KINDS: OnceLock<Result<Vec<CpuKind<'static>>, NoData>> = OnceLock::new();
+        match CPU_KINDS.get_or_init(|| Topology::test_instance().cpu_kinds().map(Vec::from_iter)) {
+            Ok(v) => Ok(v.as_slice()),
+            Err(NoData) => Err(NoData),
+        }
+    }
+
+    #[test]
+    fn check_cpu_kinds() {
+        let topology = Topology::test_instance();
+
+        if let Ok(kinds) = cpu_kinds() {
+            let expected_num_kinds = topology
+                .num_cpu_kinds()
+                .expect("If there are kinds, num_cpu_kinds should return Ok");
+
+            let mut seen_kinds = 0;
+            let mut seen_cpus = CpuSet::new();
+            // Last value of kind.efficiency if any, else None
+            let mut last_efficiency: Option<Option<CpuEfficiency>> = None;
+
+            for kind in kinds {
+                assert!(!kind.cpuset.is_empty());
+                assert!(!kind.cpuset.intersects(&seen_cpus));
+                seen_cpus |= &kind.cpuset;
+
+                if let Some(last_efficiency) = last_efficiency {
+                    assert_eq!(kind.efficiency.is_some(), last_efficiency.is_some());
+                }
+                if let Some(efficiency) = kind.efficiency {
+                    assert!(efficiency >= last_efficiency.map_or(0, Option::unwrap));
+                    assert!(efficiency < expected_num_kinds.get());
+                }
+                last_efficiency = Some(kind.efficiency);
+
+                // Info keys should be unique
+                let mut seen_info = HashSet::new();
+                for info in kind.infos {
+                    assert!(seen_info.insert(info.name()));
+                }
+
+                seen_kinds += 1;
+            }
+
+            assert_eq!(seen_kinds, expected_num_kinds.get());
+            assert!(seen_cpus.includes(topology.cpuset()));
+            assert!(topology.complete_cpuset().includes(&seen_cpus));
+        } else {
+            topology
+                .num_cpu_kinds()
+                .expect_err("If there are no kinds, num_cpu_kinds should return Err(NoData)");
+        }
+    }
+
+    /// Generate a cpuset and the expected output of
+    /// `Topology::cpu_kind_from_set()`
+    fn cpuset_and_kind() -> impl Strategy<Value = (CpuSet, Result<CpuKind<'static>, FromSetError>)>
+    {
+        // Query CPU kinds, if they are not known then any topology-related set
+        // should return a NotIncluded error no query.
+        let Ok(kinds) = cpu_kinds() else {
+            return topology_related_set(Topology::complete_cpuset)
+                .prop_map(|set| {
+                    (
+                        set.clone(),
+                        Err(FromSetError(set, FromSetProblem::NotIncluded)),
+                    )
+                })
+                .boxed();
+        };
+
+        // If we do have CPU kinds, then we must cover a number of scenarios:
+        //
+        // - Normal usage: CPU set is a subset of one of the kind cpusets
+        // - Invalid usage where multiple CPU kinds are covered
+        // - Invalid usage where some CPUs belong to a kind and others don't
+        // - Invalid usage where no CPU belongs to a kind
+        prop_oneof![
+            2 => {
+                prop::sample::select(kinds).prop_flat_map(|main_kind| {
+                    let main_cpus = main_kind.cpuset.iter_set().collect::<Vec<_>>();
+                    let num_main_cpus = main_cpus.len();
+                    prop::sample::subsequence(main_cpus, 1..=num_main_cpus).prop_map(move |cpus| {
+                        (cpus.into_iter().collect::<CpuSet>(), Ok(main_kind.clone()))
+                    })
+                })
+            },
+            3 => {
+                topology_related_set(Topology::complete_cpuset)
+                .prop_map(move |set| {
+                    enum MatchKind<'a> {
+                        None,
+                        Inclusion(&'a CpuKind<'static>),
+                        Intersection,
+                    }
+                    let mut match_kind = MatchKind::None;
+                    for kind in kinds {
+                        if kind.cpuset.includes(&set) {
+                            match_kind = MatchKind::Inclusion(kind);
+                            break;
+                        } else if kind.cpuset.intersects(&set) {
+                            match_kind = MatchKind::Intersection;
+                            break;
+                        }
+                    }
+                    match match_kind {
+                        MatchKind::None => (set.clone(), Err(FromSetError(set, FromSetProblem::NotIncluded))),
+                        MatchKind::Inclusion(kind) => (set, Ok(kind.clone())),
+                        MatchKind::Intersection => (set.clone(), Err(FromSetError(set, FromSetProblem::PartiallyIncluded))),
+                    }
+                })
+            }
+        ]
+        .boxed()
+    }
+
+    proptest! {
+        #[test]
+        fn cpu_kind_from_set((set, expected_result) in cpuset_and_kind()) {
+            prop_assert_eq!(Topology::test_instance().cpu_kind_from_set(&set), expected_result);
+        }
+    }
+
+    /// `forced_efficiency` generator for `register_cpu_kind` tests
+    fn forced_efficiency() -> impl Strategy<Value = Option<CpuEfficiency>> {
+        let max_valid = c_int::MAX as usize;
+        prop_oneof![
+            1 => Just(None),
+            3 => (0..=max_valid).prop_map(Some),
+            1 => ((max_valid+1)..usize::MAX).prop_map(Some)
+        ]
+    }
+
+    /// String generator for the `infos` param of `register_cpu_kind`
+    fn infos() -> impl Strategy<Value = Vec<(String, String)>> {
+        let keep_nul = prop_oneof![
+            4 => Just(false),
+            1 => Just(true)
+        ];
+        keep_nul.prop_flat_map(|keep_nul| {
+            let string = move || {
+                any_string().prop_map(move |s| {
+                    if keep_nul {
+                        s
+                    } else {
+                        s.chars().filter(|&c| c != '\0').collect()
+                    }
+                })
+            };
+            prop::collection::vec((string(), string()), SizeRange::default())
+        })
+    }
+
+    proptest! {
+        #[test]
+        #[ignore = "Waiting for hwloc release with patch for https://github.com/open-mpi/hwloc/issues/683"]
+        fn register_cpu_kind(
+            cpuset in topology_related_set(Topology::complete_cpuset),
+            forced_efficiency in forced_efficiency(),
+            infos in infos(),
+        ) {
+            // Perform the change
+            let mut topology = Topology::test_instance().clone();
+            let initial_kinds = cpu_kinds();
+            let result = topology.edit(|editor| {
+                editor.register_cpu_kind(&cpuset, forced_efficiency, infos.iter().map(|(name, value)| (name.as_str(), value.as_str())))
+            });
+
+            // Predict and check error cases
+            let excessive_efficiency = forced_efficiency.map_or(false, |eff| eff > c_int::MAX as usize);
+            let info_contains_nul = infos.iter().any(|(name, value)| name.contains('\0') || value.contains('\0'));
+            let no_cpus = cpuset.is_empty();
+            let too_many_infos = infos.len() > c_uint::MAX as usize;
+            let complete_cpuset = Topology::test_instance().complete_cpuset();
+            let unknown_cpus = !complete_cpuset.includes(&cpuset);
+            prop_assert_eq!(result.is_err(), excessive_efficiency || info_contains_nul || too_many_infos || unknown_cpus || no_cpus);
+            if let Err(e) = result {
+                match e {
+                    RegisterError::ExcessiveEfficiency(eff) => {
+                        prop_assert!(excessive_efficiency);
+                        prop_assert_eq!(forced_efficiency.unwrap(), eff);
+                        prop_assert_eq!(e, RegisterError::from(eff));
+                    }
+                    RegisterError::InfoContainsNul => prop_assert!(info_contains_nul),
+                    RegisterError::NoCPUs => prop_assert!(no_cpus),
+                    RegisterError::TooManyInfos => prop_assert!(too_many_infos),
+                    RegisterError::UnknownCPUs(unknown) => {
+                        prop_assert!(unknown_cpus);
+                        prop_assert_eq!(unknown, cpuset - complete_cpuset);
+                    }
+                }
+                return Ok(());
+            }
+
+            // Predict new CPU kinds
+            let mut shrunk_kinds = Vec::new();
+            let mut new_kinds = Vec::new();
+            struct NewKind {
+                cpuset: CpuSet,
+                old_infos: &'static [TextualInfo],
+            }
+            let mut new_cpuset = cpuset.clone();
+            if let Ok(initial_kinds) = initial_kinds {
+                for kind in initial_kinds {
+                    if kind.cpuset.intersects(&cpuset) {
+                        if kind.cpuset != cpuset {
+                            let mut shrunk_kind = kind.clone();
+                            shrunk_kind.cpuset = &kind.cpuset - &cpuset;
+                            shrunk_kinds.push(shrunk_kind);
+                        }
+                        new_kinds.push(NewKind {
+                            cpuset: (&kind.cpuset) & (&cpuset),
+                            old_infos: kind.infos,
+                        });
+                        new_cpuset -= &kind.cpuset;
+                    } else {
+                        shrunk_kinds.push(kind.clone());
+                    }
+                }
+            }
+            if !new_cpuset.is_empty() {
+                new_kinds.push(NewKind {
+                    cpuset: new_cpuset,
+                    old_infos: &[],
+                })
+            }
+
+            // Check if actual CPU kinds match prediction
+            let mut shrunk_kinds = shrunk_kinds.into_iter().peekable();
+            let mut new_kinds = new_kinds.into_iter().fuse();
+            for kind in topology.cpu_kinds().unwrap() {
+                if let Some(next_shrunk_kind) = shrunk_kinds.peek() {
+                    if kind.cpuset == next_shrunk_kind.cpuset {
+                        prop_assert_eq!(kind.infos, next_shrunk_kind.infos);
+                        shrunk_kinds.next();
+                        continue;
+                    }
+                }
+                let expected_kind = new_kinds.next().unwrap();
+                prop_assert_eq!(kind.cpuset, expected_kind.cpuset);
+                for info in kind.infos {
+                    if !expected_kind.old_infos.iter().any(|old| old.name() == info.name()) {
+                        let info_name = info.name().to_str().unwrap();
+                        let info_value = info.value().to_str().unwrap();
+                        prop_assert_eq!(
+                            &infos.iter().find(|(name, _value)| name == info_name).unwrap().1,
+                            info_value
+                        );
+                    }
+                }
+            }
+            prop_assert!(shrunk_kinds.next().is_none());
+            prop_assert!(new_kinds.next().is_none());
+        }
     }
 }
