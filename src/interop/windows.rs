@@ -113,8 +113,8 @@ mod tests {
             cpuset_union |= group_cpuset.unwrap();
             actual_num_groups += 1;
         }
+        assert_eq!(expected_num_groups.get(), actual_num_groups);
         assert!(cpuset_union.includes(topology.cpuset()));
         assert!(topology.complete_cpuset().includes(&cpuset_union));
-        assert_eq!(expected_num_groups, actual_num_groups);
     }
 }
