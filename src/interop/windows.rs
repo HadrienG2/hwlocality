@@ -96,3 +96,24 @@ impl Topology {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+
+    #[test]
+    fn processor_groups() {
+        let topology = Topology::test_instance();
+        let expected_num_groups = topology.num_processor_groups().unwrap();
+        let mut actual_num_groups = 0;
+        let mut cpuset_union = CpuSet::new();
+        for group_cpuset in topology.processor_groups().unwrap() {
+            cpuset_union |= group_cpuset.unwrap();
+            actual_num_groups += 1;
+        }
+        assert!(cpuset_union.includes(topology.cpuset()));
+        assert!(topology.complete_cpuset().includes(&cpuset_union));
+    }
+}
