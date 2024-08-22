@@ -18,6 +18,7 @@ use hwlocality_sys::{hwloc_topology_export_xml_flags_e, HWLOC_TOPOLOGY_EXPORT_XM
 use similar_asserts::assert_eq;
 use std::{
     borrow::Borrow,
+    cmp::Ordering,
     ffi::{c_char, c_uint, CStr, OsStr},
     fmt::{self, Debug, Display},
     hash::Hash,
@@ -320,8 +321,17 @@ where
 }
 
 impl PartialOrd for XML<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl<T> PartialOrd<T> for XML<'_>
+where
+    for<'a> &'a str: PartialOrd<T>,
+{
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+        PartialOrd::partial_cmp(&self.as_str(), other)
     }
 }
 
@@ -330,3 +340,83 @@ unsafe impl Send for XML<'_> {}
 
 // SAFETY: No internal mutability
 unsafe impl Sync for XML<'_> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+    use static_assertions::assert_impl_all;
+    use std::{
+        hash::{BuildHasher, RandomState},
+        ops::Range,
+    };
+
+    // XML export is mostly covered by builder tests that export XML and
+    // re-import it, so all we need to do is test the XML wrapper type
+
+    assert_impl_all!(XML<'static>: Eq, Send, Sync);
+
+    proptest! {
+        #[test]
+        fn xml_wrapper(flags: XMLExportFlags) {
+            let topology = Topology::test_instance();
+            let xml = topology.export_xml(flags).unwrap();
+
+            let cstr = xml.as_raw();
+            let rustr = xml.as_str();
+            prop_assert_eq!(cstr.to_str().unwrap(), rustr);
+
+            let as_bytes: &[u8] = xml.as_ref();
+            prop_assert_eq!(as_bytes, cstr.to_bytes());
+
+            let as_cstr: &CStr = xml.as_ref();
+            prop_assert_eq!(as_cstr, cstr);
+
+            let as_os_str: &OsStr = xml.as_ref();
+            prop_assert_eq!(as_os_str, <str as AsRef<OsStr>>::as_ref(rustr));
+
+            let as_str: &str = xml.as_ref();
+            prop_assert_eq!(as_str, rustr);
+
+            let borrow = <XML<'_> as Borrow<str>>::borrow(&xml);
+            prop_assert_eq!(borrow, rustr);
+
+            let deref: &str = <XML<'_> as Deref>::deref(&xml);
+            prop_assert_eq!(deref, rustr);
+
+            prop_assert_eq!(format!("{xml}"), format!("{rustr}"));
+            prop_assert_eq!(format!("{xml:?}"), format!("{rustr:?}"));
+
+            prop_assert_eq!(&xml, &xml);
+            prop_assert_eq!(&xml, &rustr);
+            prop_assert_eq!(xml.cmp(&xml), Ordering::Equal);
+            prop_assert_eq!(xml.partial_cmp(&xml), Some(Ordering::Equal));
+            prop_assert_eq!(xml.partial_cmp(&rustr), Some(Ordering::Equal));
+            let bh = RandomState::new();
+            prop_assert_eq!(bh.hash_one(&xml), bh.hash_one(rustr));
+        }
+    }
+
+    /// Generate an XML string and a valid indexing range within it
+    fn valid_indices_for_default_xml() -> impl Strategy<Value = Range<usize>> {
+        let topology = Topology::test_instance();
+        let default_xml = topology.export_xml(XMLExportFlags::default()).unwrap();
+        let char_boundaries = default_xml
+            .char_indices()
+            .map(|(idx, _c)| idx)
+            .chain(std::iter::once(default_xml.len()))
+            .collect::<Vec<_>>();
+        prop::sample::subsequence(char_boundaries, 2).prop_map(|bounds| bounds[0]..bounds[1])
+    }
+
+    proptest! {
+        #[test]
+        fn xml_indexing(range in valid_indices_for_default_xml()) {
+            let topology = Topology::test_instance();
+            let default_xml = topology.export_xml(XMLExportFlags::default()).unwrap();
+            prop_assert_eq!(&default_xml[range.clone()], &default_xml.as_str()[range]);
+        }
+    }
+}
