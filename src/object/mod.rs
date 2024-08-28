@@ -1375,7 +1375,7 @@ pub(crate) mod tests {
 
         // Non-alternate displays should fit in a single line
         for non_alternate in [&display, &debug] {
-            prop_assert!(!non_alternate.chars().any(|c| c == '\n'));
+            prop_assert!(!non_alternate.contains('\n'));
         }
 
         // Debug output should be longer than or identical to Display output
@@ -1764,7 +1764,7 @@ pub(crate) mod tests {
                     let res = obj.set_subtype(&subtype);
 
                     // Handle inner NULs
-                    if subtype.chars().any(|c| c == '\0') {
+                    if subtype.contains('\0') {
                         prop_assert_eq!(res, Err(NulError));
                         return Ok(());
                     }
@@ -1784,7 +1784,7 @@ pub(crate) mod tests {
                     let res = obj.add_info(&name, &value);
 
                     // Handle inner NULs
-                    if name.chars().chain(value.chars()).any(|c| c == '\0') {
+                    if name.contains('\0') || value.contains('\0') {
                         prop_assert_eq!(res, Err(NulError.into()));
                         return Ok(());
                     }
