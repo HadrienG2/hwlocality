@@ -19,6 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CARGO_INCREMENTAL: 0
   RUSTFLAGS: '-D warnings'
   RUSTDOCFLAGS: '-D warnings'
   RUST_LOG: 'info'
@@ -44,12 +45,12 @@ jobs:
         run: echo "MINIMAL_RUST=${{ env.MINIMAL_RUST }}" >> $GITHUB_OUTPUT
 
 
-  # Formatter output doesn't depend on cargo features, and only needs to be
-  # tested on the latest supported release of each CI run.
+  # Formatter output and dependency checking don't depend on cargo features, and
+  # only need to be tested on the latest supported release of each CI run.
   #
   # We don't care about warnings on the minimum supported Rust version, only
   # about building and running correctly.
-  format:
+  format-machete:
     # Don't run CI twice when a PR is created from a branch internal to the repo
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
 
@@ -74,6 +75,14 @@ jobs:
 
       - name: Check format
         run: cargo fmt --all --check
+
+      - name: Set up cargo-binstall
+        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+      - name: Look for unused dependencies with cargo-machete
+        run: |
+          cargo binstall -y cargo-machete
+          cargo machete
 
 
   # Clippy and rustc lints depend on cfg(), of which we currently use "feature"
