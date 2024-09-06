@@ -471,8 +471,8 @@ impl Topology {
         }
 
         /// Inner recursive distribution algorithm
-        fn recurse<'a>(
-            roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'a>> + Clone,
+        fn recurse<'self_>(
+            roots_and_cpusets: impl DoubleEndedIterator<Item = ObjSetWeightDepth<'self_>> + Clone,
             num_items: usize,
             max_depth: NormalDepth,
             flags: DistributeFlags,
@@ -669,9 +669,9 @@ fn decode_normal_obj(obj: &TopologyObject) -> Option<ObjSetWeightDepth<'_>> {
 }
 
 /// Information that is extracted by [`decode_normal_obj()`]
-type ObjSetWeightDepth<'a> = (
-    &'a TopologyObject,
-    BitmapRef<'a, CpuSet>,
+type ObjSetWeightDepth<'object> = (
+    &'object TopologyObject,
+    BitmapRef<'object, CpuSet>,
     usize,
     NormalDepth,
 );

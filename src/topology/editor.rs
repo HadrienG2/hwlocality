@@ -2070,8 +2070,8 @@ mod tests {
     ) -> impl Strategy<Value = GroupChildFilter<DynChildFilter, DynChildFilter>> {
         // Turn normal and memory child list of parent into 'static objects
         // using their global persistent ID
-        fn children_ids<'a>(
-            children: impl Iterator<Item = &'a TopologyObject>,
+        fn children_ids<'topology>(
+            children: impl Iterator<Item = &'topology TopologyObject>,
         ) -> Vec<TopologyObjectID> {
             children
                 .map(TopologyObject::global_persistent_index)

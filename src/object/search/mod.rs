@@ -50,10 +50,11 @@ impl Topology {
     /// Requires [`DiscoverySupport::pu_count()`].
     ///
     /// This functionality is specific to the Rust bindings.
-    pub fn pus_from_cpuset<'result>(
-        &'result self,
-        cpuset: impl Deref<Target = CpuSet> + Clone + 'result,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
+    pub fn pus_from_cpuset<'iterator, 'self_: 'iterator>(
+        &'self_ self,
+        cpuset: impl Deref<Target = CpuSet> + Clone + 'iterator,
+    ) -> impl DoubleEndedIterator<Item = &'self_ TopologyObject> + Clone + FusedIterator + 'iterator
+    {
         self.objs_and_os_indices(ObjectType::PU)
             .filter_map(move |(pu, os_index)| cpuset.is_set(os_index).then_some(pu))
     }
@@ -83,10 +84,11 @@ impl Topology {
     /// Requires [`DiscoverySupport::numa_count()`].
     ///
     /// This functionality is specific to the Rust bindings.
-    pub fn nodes_from_nodeset<'result>(
-        &'result self,
-        nodeset: impl Deref<Target = NodeSet> + Clone + 'result,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + FusedIterator + 'result {
+    pub fn nodes_from_nodeset<'iterator, 'self_: 'iterator>(
+        &'self_ self,
+        nodeset: impl Deref<Target = NodeSet> + Clone + 'iterator,
+    ) -> impl DoubleEndedIterator<Item = &'self_ TopologyObject> + Clone + FusedIterator + 'iterator
+    {
         self.objs_and_os_indices(ObjectType::NUMANode)
             .filter_map(move |(node, os_index)| nodeset.is_set(os_index).then_some(node))
     }
@@ -135,10 +137,11 @@ impl Topology {
     /// [`ForeignObject`]: ClosestObjectsError::ForeignObject
     /// [`MissingCpuSet`]: ClosestObjectsError::MissingCpuSet
     #[doc(alias = "hwloc_get_closest_objs")]
-    pub fn objects_closest_to<'result>(
-        &'result self,
-        obj: &'result TopologyObject,
-    ) -> Result<impl Iterator<Item = &TopologyObject> + Clone + 'result, ClosestObjectsError> {
+    pub fn objects_closest_to<'self_>(
+        &'self_ self,
+        obj: &'self_ TopologyObject,
+    ) -> Result<impl Iterator<Item = &'self_ TopologyObject> + Clone + 'self_, ClosestObjectsError>
+    {
         // Validate input object
         if !self.contains(obj) {
             return Err(ClosestObjectsError::ForeignObject(obj.into()));
