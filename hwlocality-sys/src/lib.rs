@@ -2162,10 +2162,11 @@ pub type hwloc_distances_add_flag_e = c_ulong;
 #[cfg(feature = "hwloc-2_5_0")]
 pub const HWLOC_DISTANCES_ADD_FLAG_GROUP: hwloc_distances_add_flag_e = 1 << 0;
 
-/// If grouping, consider the distance values as inaccurate and relax
-/// the comparisons during the grouping algorithms. The actual accuracy
-/// may be modified through the `HWLOC_GROUPING_ACCURACY` environment
-/// variable (see
+/// Treat distances as inaccurate for grouping purposes
+///
+/// If grouping, consider the distance values as inaccurate and relax the
+/// comparisons during the grouping algorithms. The actual accuracy may be
+/// modified through the `HWLOC_GROUPING_ACCURACY` environment variable (see
 /// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
 #[cfg(feature = "hwloc-2_5_0")]
 pub const HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE: hwloc_distances_add_flag_e = 1 << 1;

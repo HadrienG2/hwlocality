@@ -97,10 +97,10 @@ impl Topology {
             }
 
             /// Recursive implementation of the partitioning algorithm
-            fn process_object<'a>(
-                parent: &'a TopologyObject,
+            fn process_object<'self_>(
+                parent: &'self_ TopologyObject,
                 set: &CpuSet,
-                result: &mut Vec<&'a TopologyObject>,
+                result: &mut Vec<&'self_ TopologyObject>,
                 cpusets: &mut Vec<CpuSet>,
             ) {
                 // If the current object matches the target cpuset, we're done
@@ -153,11 +153,11 @@ impl Topology {
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_depth")]
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_depth")]
-    pub fn objects_inside_cpuset_at_depth<'result, DepthLike>(
-        &'result self,
-        set: impl Deref<Target = CpuSet> + 'result,
+    pub fn objects_inside_cpuset_at_depth<'iterator, 'self_: 'iterator, DepthLike>(
+        &'self_ self,
+        set: impl Deref<Target = CpuSet> + 'iterator,
         depth: DepthLike,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
+    ) -> impl DoubleEndedIterator<Item = &'self_ TopologyObject> + FusedIterator + 'iterator
     where
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
@@ -190,10 +190,10 @@ impl Topology {
     /// This method will also return `None` if called with an `obj` that does
     /// not belong to this [`Topology`].
     #[doc(alias = "hwloc_get_obj_index_inside_cpuset")]
-    pub fn object_index_inside_cpuset<'result>(
-        &'result self,
-        set: impl Deref<Target = CpuSet> + 'result,
-        obj: &TopologyObject,
+    pub fn object_index_inside_cpuset<'self_>(
+        &'self_ self,
+        set: impl Deref<Target = CpuSet>,
+        obj: &'self_ TopologyObject,
     ) -> Option<usize> {
         // obj may not belong to this topology, but the current implementation
         // is fine with that and will just return None.
@@ -211,11 +211,11 @@ impl Topology {
     #[doc(alias = "hwloc_get_obj_inside_cpuset_by_type")]
     #[doc(alias = "hwloc_get_next_obj_inside_cpuset_by_type")]
     #[doc(alias = "hwloc_get_nbobjs_inside_cpuset_by_type")]
-    pub fn objects_inside_cpuset_with_type<'result>(
-        &'result self,
-        set: impl Deref<Target = CpuSet> + 'result,
+    pub fn objects_inside_cpuset_with_type<'iterator, 'self_: 'iterator>(
+        &'self_ self,
+        set: impl Deref<Target = CpuSet> + 'iterator,
         object_type: ObjectType,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
+    ) -> impl DoubleEndedIterator<Item = &'self_ TopologyObject> + FusedIterator + 'iterator {
         self.objects_with_type(object_type).filter(move |object| {
             let set: &CpuSet = &set;
             object.is_inside_cpuset(set)
@@ -401,11 +401,11 @@ impl Topology {
     /// of all objects would be returned). An empty iterator will always be
     /// returned for I/O or Misc depths as those objects have no cpusets.
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_depth")]
-    pub fn objects_covering_cpuset_at_depth<'result, DepthLike>(
-        &'result self,
-        set: impl Deref<Target = CpuSet> + 'result,
+    pub fn objects_covering_cpuset_at_depth<'iterator, 'self_: 'iterator, DepthLike>(
+        &'self_ self,
+        set: impl Deref<Target = CpuSet> + 'iterator,
         depth: DepthLike,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result
+    ) -> impl DoubleEndedIterator<Item = &'self_ TopologyObject> + FusedIterator + 'iterator
     where
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
@@ -429,11 +429,11 @@ impl Topology {
     /// of all objects would be returned). An empty iterator will always be
     /// returned for I/O or Misc depths as those objects have no cpusets.
     #[doc(alias = "hwloc_get_next_obj_covering_cpuset_by_type")]
-    pub fn objects_covering_cpuset_with_type<'result>(
-        &'result self,
-        set: impl Deref<Target = CpuSet> + 'result,
+    pub fn objects_covering_cpuset_with_type<'iterator, 'self_: 'iterator>(
+        &'self_ self,
+        set: impl Deref<Target = CpuSet> + 'iterator,
         object_type: ObjectType,
-    ) -> impl DoubleEndedIterator<Item = &TopologyObject> + FusedIterator + 'result {
+    ) -> impl DoubleEndedIterator<Item = &'self_ TopologyObject> + FusedIterator + 'iterator {
         self.objects_with_type(object_type).filter(move |object| {
             let set: &CpuSet = &set;
             object.covers_cpuset(set)

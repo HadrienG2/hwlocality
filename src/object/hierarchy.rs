@@ -627,8 +627,8 @@ impl Topology {
                 obj.map(TopologyObject::global_persistent_index)
             }
             /// Translate children into their global persistent indices
-            fn children<'a>(
-                iter: impl Iterator<Item = &'a TopologyObject>,
+            fn children<'self_>(
+                iter: impl Iterator<Item = &'self_ TopologyObject>,
             ) -> Vec<TopologyObjectID> {
                 iter.map(TopologyObject::global_persistent_index).collect()
             }
@@ -994,8 +994,8 @@ pub(crate) mod tests {
 
             // Does the custom iterator logic work as expected ?
             let mut iter = topology.objects_with_type(ty);
-            fn check_size_hint<'a>(
-                iter: &(impl DoubleEndedIterator<Item = &'a TopologyObject> + ExactSizeIterator),
+            fn check_size_hint<'topology>(
+                iter: &(impl DoubleEndedIterator<Item = &'topology TopologyObject> + ExactSizeIterator),
             ) {
                 assert_eq!(iter.size_hint(), (iter.len(), Some(iter.len())));
             }
