@@ -601,11 +601,7 @@ fn post_bind_checks<Set: SpecializedBitmap, Res: Debug>(
     set: &Set,
     policy: MemoryBindingPolicy,
     flags: MemoryBindingFlags,
-    try_get_final_binding: impl FnOnce(
-        &Res,
-    ) -> Option<
-        Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>>,
-    >,
+    try_get_final_binding: impl FnOnce(&Res) -> FinalBinding<Set>,
 ) -> Result<Option<Res>, TestCaseError> {
     // Handle some Windows edge cases
     handle_windows_edge_cases!(&result, target, Ok(None));
@@ -705,6 +701,10 @@ fn post_bind_checks<Set: SpecializedBitmap, Res: Debug>(
     Ok(Some(result))
 }
 
+/// Output of try_get_final_binding callbacks
+type FinalBinding<Set> =
+    Option<Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>>>;
+
 /// Test that hwloc's current process un-binding works
 #[tracing::instrument(skip(topology))]
 fn test_unbind_memory(topology: &Topology, flags: MemoryBindingFlags) -> Result<(), TestCaseError> {
@@ -766,11 +766,7 @@ fn post_unbind_checks(
     target: MemoryBoundObject,
     topology: &Topology,
     flags: MemoryBindingFlags,
-    try_get_final_binding: impl FnOnce(
-        &(),
-    ) -> Option<
-        Result<(NodeSet, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<NodeSet>>>,
-    >,
+    try_get_final_binding: impl FnOnce(&()) -> FinalBinding<NodeSet>,
 ) -> Result<(), TestCaseError> {
     // Handle some Windows edge cases
     handle_windows_edge_cases!(&result, target, Ok(()));
@@ -813,11 +809,7 @@ fn post_unbind_checks(
 fn self_memory_binding_getter<Set: SpecializedBitmap>(
     topology: &Topology,
     flags: MemoryBindingFlags,
-) -> impl FnOnce(
-    &(),
-) -> Option<
-    Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>>,
-> + '_ {
+) -> impl FnOnce(&()) -> FinalBinding<Set> + '_ {
     move |()| {
         let membind_support = topology.feature_support().memory_binding()?;
         let can_query_thisproc = membind_support.get_current_process();
@@ -839,11 +831,7 @@ fn self_memory_binding_getter<Set: SpecializedBitmap>(
 fn process_memory_binding_getter<Set: SpecializedBitmap>(
     topology: &Topology,
     pid: ProcessId,
-) -> impl FnOnce(
-    &(),
-) -> Option<
-    Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>>,
-> + '_ {
+) -> impl FnOnce(&()) -> FinalBinding<Set> + '_ {
     move |()| {
         (topology.supports(
             FeatureSupport::memory_binding,
@@ -858,11 +846,7 @@ fn process_memory_binding_getter<Set: SpecializedBitmap>(
 fn area_memory_binding_getter<'out, Set: SpecializedBitmap, Res>(
     topology: &'out Topology,
     bytes: &'out [u8],
-) -> impl FnOnce(
-    &Res,
-) -> Option<
-    Result<(Set, Option<MemoryBindingPolicy>), HybridError<MemoryBindingError<Set>>>,
-> + 'out {
+) -> impl FnOnce(&Res) -> FinalBinding<Set> + 'out {
     move |_| {
         (topology.supports(
             FeatureSupport::memory_binding,

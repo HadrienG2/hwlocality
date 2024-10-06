@@ -83,7 +83,7 @@ impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
     }
 }
 
-impl<'target, Target: OwnedBitmap> AsRef<Target> for BitmapRef<'target, Target> {
+impl<Target: OwnedBitmap> AsRef<Target> for BitmapRef<'_, Target> {
     fn as_ref(&self) -> &Target {
         // SAFETY: - Both Target and BitmapRef are effectively repr(transparent)
         //           newtypes of NonNull<hwloc_bitmap_s>, so &Target and &BitmapRef are
@@ -230,7 +230,7 @@ impl<'target, Target: OwnedBitmap> From<&'target Target> for BitmapRef<'target, 
     }
 }
 
-impl<'target, Target: OwnedBitmap + Hash> Hash for BitmapRef<'target, Target> {
+impl<Target: OwnedBitmap + Hash> Hash for BitmapRef<'_, Target> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_ref().hash(state)
     }

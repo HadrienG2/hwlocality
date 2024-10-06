@@ -1492,7 +1492,7 @@ impl<B: Borrow<Bitmap>> Iterator for Iter<B> {
 //
 impl<B: Borrow<Bitmap>> FusedIterator for Iter<B> {}
 //
-impl<'bitmap> IntoIterator for &'bitmap Bitmap {
+impl IntoIterator for &Bitmap {
     type Item = BitmapIndex;
     type IntoIter = Iter<Self>;
 
