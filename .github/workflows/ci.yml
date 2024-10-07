@@ -39,7 +39,7 @@ jobs:
 
     outputs:
       MINIMAL_RUST: ${{ env.MINIMAL_RUST }}
-      
+
     steps:
       - name: Forward env var to output
         run: echo "MINIMAL_RUST=${{ env.MINIMAL_RUST }}" >> $GITHUB_OUTPUT
@@ -81,7 +81,8 @@ jobs:
 
       - name: Look for unused dependencies with cargo-machete
         run: |
-          cargo binstall -y cargo-machete
+          # FIXME: --force used as a workaround for https://github.com/Swatinem/rust-cache/issues/204
+          cargo binstall -y --force cargo-machete
           cargo machete
 
 
