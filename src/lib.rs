@@ -410,10 +410,11 @@ pub(crate) mod tests {
         };
 
         // Make sure that the function did indeed panic
-        Ok(prop_assert!(
+        prop_assert!(
             unwind_res.is_err(),
             "Operation should have panicked, but didn't"
-        ))
+        );
+        Ok(())
     }
 
     #[test]

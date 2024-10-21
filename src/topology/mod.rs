@@ -1473,7 +1473,8 @@ mod tests {
                 // enumerated in reverse order
                 let (first_set, items_per_leaf) = items_per_set.first().unwrap();
                 let first_set_intersects = |root: Option<&TopologyObject>| {
-                    Ok(prop_assert!(first_set.intersects(root.unwrap().cpuset().unwrap())))
+                    prop_assert!(first_set.intersects(root.unwrap().cpuset().unwrap()));
+                    Ok(())
                 };
                 if flags.contains(DistributeFlags::REVERSE) {
                     first_set_intersects(disjoint_roots.last().copied())?;

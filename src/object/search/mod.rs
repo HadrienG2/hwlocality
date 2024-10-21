@@ -457,20 +457,22 @@ mod tests {
 
             // Calling it on a foreign object is an error
             if !topology.contains(obj) {
-                return Ok(prop_assert!(matches!(
+                prop_assert!(matches!(
                     result,
                     Err(ClosestObjectsError::ForeignObject(e))
                         if e == ForeignObjectError::from(obj)
-                )));
+                ));
+                return Ok(());
             }
 
             // Calling it on an object without a cpuset is also an error
             if obj.cpuset().is_none() {
-                return Ok(prop_assert!(matches!(
+                prop_assert!(matches!(
                     result,
                     Err(ClosestObjectsError::MissingCpuSet(e))
                         if e == MissingObjCpuSetError::from(obj)
-                )));
+                ));
+                return Ok(());
             }
 
             // Build a full list of this object's cousins, sorted by common
