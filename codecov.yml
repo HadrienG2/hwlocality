@@ -1,0 +1,2 @@
+ignore:
+    - "hwlocality-sys/build.rs"
