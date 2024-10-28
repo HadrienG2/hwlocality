@@ -204,6 +204,9 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
     config.define("HWLOC_SKIP_LSTOPO", "1");
     config.define("HWLOC_SKIP_TOOLS", "1");
 
+    // Set the mode to Release
+    config.profile("Release");
+
     // Build hwloc
     let install_path = config.always_configure(false).build();
 
