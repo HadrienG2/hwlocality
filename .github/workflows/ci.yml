@@ -465,9 +465,6 @@ jobs:
 
       - name: Measure code coverage
         run: cargo tarpaulin --verbose --timeout 120 --out xml
-        env:
-          # FIXME: Workaround for https://github.com/xd009642/tarpaulin/issues/1499
-          RUSTFLAGS: -C strip=none
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v4

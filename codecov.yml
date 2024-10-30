@@ -1,2 +1,12 @@
 ignore:
     - "hwlocality-sys/build.rs"
+
+codecov:
+  notify:
+    after_n_builds: 2
+
+coverage:
+  status:
+    project:
+      default:
+        threshold: 0.2
