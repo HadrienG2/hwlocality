@@ -1,2 +1,6 @@
 ignore:
     - "hwlocality-sys/build.rs"
+
+codecov:
+  notify:
+    after_n_builds: 2
