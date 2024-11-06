@@ -206,7 +206,7 @@ libc.workspace = true
 num_enum = { version = "0.7", default-features = false }
 
 # Used to simplify error reporting
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Used for optional proptest feature
 proptest = { workspace = true, optional = true }
