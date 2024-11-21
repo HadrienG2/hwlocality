@@ -440,11 +440,7 @@ impl TopologyObject {
     pub fn first_shared_cache(&self) -> Option<&Self> {
         let cpuset = self.cpuset()?;
         self.ancestors()
-            .skip_while(|ancestor| {
-                ancestor
-                    .cpuset()
-                    .map_or(false, |ancestor_set| ancestor_set == cpuset)
-            })
+            .skip_while(|ancestor| ancestor.cpuset() == Some(cpuset))
             .find(|ancestor| ancestor.object_type().is_cpu_data_cache())
     }
 

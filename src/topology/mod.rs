@@ -343,7 +343,7 @@ impl Topology {
         get_group: fn(&FeatureSupport) -> Option<&Group>,
         check_feature: fn(&Group) -> bool,
     ) -> bool {
-        get_group(self.feature_support()).map_or(false, check_feature)
+        get_group(self.feature_support()).is_some_and(check_feature)
     }
 
     /// Filtering that was applied for the given object type

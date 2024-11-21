@@ -203,7 +203,7 @@ impl PartialEq<Depth> for NormalDepth {
 //
 impl PartialEq<usize> for Depth {
     fn eq(&self, other: &usize) -> bool {
-        Self::try_from(*other).map_or(false, |other| *self == other)
+        Self::try_from(*other) == Ok(*self)
     }
 }
 //
@@ -411,7 +411,7 @@ mod tests {
         fn eq_usize(depth: Depth, value: usize) {
             prop_assert_eq!(
                 depth == value,
-                PositiveInt::try_from(value).map_or(false, |value| depth == value)
+                PositiveInt::try_from(value).is_ok_and(|value| depth == value)
             );
         }
     }

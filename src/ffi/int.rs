@@ -64,7 +64,7 @@ pub(crate) fn expect_usize(x: c_uint) -> usize {
 pub(crate) fn assert_slice_len<T>(len: usize) {
     assert!(
         len.checked_mul(std::mem::size_of::<T>())
-            .map_or(false, |prod| isize::try_from(prod).is_ok()),
+            .is_some_and(|prod| isize::try_from(prod).is_ok()),
         "got an unsupported slice length from hwloc"
     )
 }
