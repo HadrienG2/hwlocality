@@ -2689,8 +2689,7 @@ pub(crate) mod tests {
 
             fn infinite_intersects_finite(infinite: &RangeFrom<BitmapIndex>, finite: &Bitmap) -> bool {
                 finite
-                    .last_set()
-                    .map_or(false, |last_set| infinite.start <= last_set)
+                    .last_set().is_some_and(|last_set| infinite.start <= last_set)
             }
             prop_assert_eq!(
                 bitmap.intersects(&other),
