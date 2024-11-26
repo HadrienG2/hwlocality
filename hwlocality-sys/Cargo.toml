@@ -51,7 +51,7 @@ tar = { version = "0.4", optional = true }
 autotools = { version = "0.2", optional = true }
 
 # Used for vendored builds targeting Windows
-cmake = { version = "0.1.50", optional = true }
+cmake = { version = "0.1.52", optional = true }
 
 [dev-dependencies]
 # Used to check trait implementations
