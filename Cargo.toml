@@ -236,7 +236,7 @@ tempfile = "3.14"
 
 # Used to trace control flow in some tests to make failure investigation easier
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.18", default-features = false, features = ["std", "fmt"] }
+tracing-subscriber = { version = "0.3.19", default-features = false, features = ["std", "fmt"] }
 tracing-error = { version = "0.2.1", default-features = false }
 
 [package.metadata.docs.rs]
