@@ -39,8 +39,9 @@ fn main() -> eyre::Result<()> {
     // Use the empty CpuSet as an error sentinel, which is okay since a
     // process cannot be bound to no CPU (otherwise it couldn't make progress)
     let mut binding_to_pids = BTreeMap::<CpuSet, BTreeSet<ProcessId>>::new();
-    let sys =
-        System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()));
+    let sys = System::new_with_specifics(
+        RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
+    );
     for pid in sys.processes().keys().copied() {
         let pid = usize::from(pid) as ProcessId;
         let binding = topology
