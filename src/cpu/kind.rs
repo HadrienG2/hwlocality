@@ -671,7 +671,7 @@ mod tests {
             });
 
             // Predict and check error cases
-            let excessive_efficiency = forced_efficiency.map_or(false, |eff| eff > c_int::MAX as usize);
+            let excessive_efficiency = forced_efficiency.is_some_and(|eff| eff > c_int::MAX as usize);
             let info_contains_nul = infos.iter().any(|(name, value)| name.contains('\0') || value.contains('\0'));
             let no_cpus = cpuset.is_empty();
             let too_many_infos = infos.len() > c_uint::MAX as usize;
