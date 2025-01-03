@@ -232,7 +232,7 @@ static_assertions.workspace = true
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 
 # Used to test file I/O
-tempfile = "3.14"
+tempfile = "3.15"
 
 # Used to trace control flow in some tests to make failure investigation easier
 tracing = "0.1.41"
