@@ -335,8 +335,6 @@ impl Topology {
                         // If both cache type + level are specified, then
                         // multiple matches cannot occur: stop here.
                         return Ok(depth.into());
-                    } else {
-                        continue;
                     }
                 } else {
                     // Without a cache type check, multiple matches may
