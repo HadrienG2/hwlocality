@@ -2730,7 +2730,7 @@ pub(crate) mod tests {
                     match (bitmap.is_set(idx), reference.is_set(idx)) {
                         (true, false) => return Ordering::Greater,
                         (false, true) => return Ordering::Less,
-                        _ => continue,
+                        _ => {},
                     }
                 }
                 Ordering::Equal

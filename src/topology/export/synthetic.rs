@@ -49,7 +49,7 @@ impl Topology {
     /// topologies supported by hwloc, for example they don't support asymmetric
     /// topologies. An error will be returned if the current topology cannot be
     /// expressed as a synthetic topology.
-    #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_errors_doc, clippy::needless_continue)]
     #[doc(alias = "hwloc_topology_export_synthetic")]
     pub fn export_synthetic(&self, flags: SyntheticExportFlags) -> Result<String, RawHwlocError> {
         let mut buf = vec![0u8; 1024]; // Size chosen per hwloc docs advice
