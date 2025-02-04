@@ -146,7 +146,7 @@ macro_rules! impl_bitmap_newtype {
                 hash::{Hash, Hasher},
                 ops::{
                     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Deref,
-                    BitXorAssign, RangeBounds, Sub, SubAssign
+                    BitXorAssign, Not, RangeBounds, Sub, SubAssign
                 },
                 ptr::NonNull
             };
