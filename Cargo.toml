@@ -188,7 +188,7 @@ arrayvec = "0.7"
 bitflags = "2.8"
 
 # Used to simplify the implementation of newtypes
-derive_more = { version = "1.0", default-features = false, features = ["as_ref", "display", "from", "into", "into_iterator", "not"] }
+derive_more = { version = "2.0", default-features = false, features = ["as_ref", "display", "from", "into", "into_iterator", "not"] }
 
 # Used for optional proptest feature and in topology debug output
 enum-iterator = "2.0"
