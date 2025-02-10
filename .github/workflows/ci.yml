@@ -151,14 +151,14 @@ jobs:
       - name: Build docs
         run: cargo doc ${{ env.JOB_FLAGS }}
 
-#      - name: Check semver compliance (push/PR version)
-#        # Not guaranteed to run on nightly, so we use the separate job below
-#        if: github.event_name != 'schedule'
-#        uses: obi1kenobi/cargo-semver-checks-action@v2
-#        with:
-#          feature-group: default-features
-#          features: ${{ matrix.features }}
-#          rust-toolchain: manual
+      - name: Check semver compliance (push/PR version)
+        # Not guaranteed to run on nightly, so we use the separate job below
+        if: github.event_name != 'schedule'
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          feature-group: default-features
+          features: ${{ matrix.features }}
+          rust-toolchain: manual
 
   # Workaround for cargo-semver-checks not guaranteeing nightly support
   scheduled-semver-checks:
