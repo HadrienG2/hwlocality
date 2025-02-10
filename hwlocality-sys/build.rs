@@ -146,10 +146,11 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 3
 
     // Download hwloc tarball
     eprintln!("Downloading hwloc v{version} from URL {url}...");
-    let tar_gz = attohttpc::get(url)
-        .send()
+    let tar_gz = ureq::get(url)
+        .call()
         .expect("failed to GET hwloc source")
-        .bytes()
+        .into_body()
+        .read_to_vec()
         .expect("failed to parse hwloc source HTTP body");
 
     // Verify tarball integrity
