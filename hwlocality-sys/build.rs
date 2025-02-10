@@ -144,17 +144,13 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 3
         "https://download.open-mpi.org/release/hwloc/v{major}.{minor}/hwloc-{version}.tar.gz"
     );
 
-    // Set up rustls crypto implementation
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("Failed to set up TLS");
-
     // Download hwloc tarball
     eprintln!("Downloading hwloc v{version} from URL {url}...");
-    let tar_gz = attohttpc::get(url)
-        .send()
+    let tar_gz = ureq::get(url)
+        .call()
         .expect("failed to GET hwloc source")
-        .bytes()
+        .into_body()
+        .read_to_vec()
         .expect("failed to parse hwloc source HTTP body");
 
     // Verify tarball integrity
