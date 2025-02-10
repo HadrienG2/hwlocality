@@ -23,7 +23,7 @@ hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
 hwloc-2_10_0 = ["hwloc-2_8_0"]
 hwloc-3_0_0 = ["hwloc-2_10_0"]
-vendored = ["dep:attohttpc", "dep:autotools", "dep:cmake", "dep:flate2", "dep:hex-literal", "dep:sha3", "dep:tar"]
+vendored = ["dep:attohttpc", "dep:autotools", "dep:cmake", "dep:flate2", "dep:hex-literal", "dep:rustls", "dep:sha3", "dep:tar"]
 vendored-extra = ["vendored"]
 # This feature does nothing in -sys and is only here for CI convenience
 proptest = []
@@ -44,6 +44,7 @@ pkg-config = "0.3.8"
 attohttpc = { version = "0.28", default-features = false, features = ["compress", "tls-rustls-webpki-roots"], optional = true }
 flate2 = { version = "1.0", optional = true }
 hex-literal = { version = "0.4", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["std", "aws_lc_rs"], optional = true }
 sha3 = { version = "0.10.8", optional = true }
 tar = { version = "0.4", optional = true }
 
