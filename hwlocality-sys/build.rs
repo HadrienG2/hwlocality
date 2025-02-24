@@ -145,7 +145,11 @@ fn hex(hex: &'static str) -> Box<[u8]> {
 
 /// Fetch, check and extract an official hwloc tarball, return extracted path
 #[cfg(feature = "vendored")]
-fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: Box<[u8]>) -> PathBuf {
+fn fetch_hwloc(
+    parent_path: impl AsRef<Path>,
+    version: &str,
+    sha3_digest: impl AsRef<[u8]>,
+) -> PathBuf {
     // Predict location where tarball would be extracted
     let parent_path = parent_path.as_ref();
     let extracted_path = parent_path.join(format!("hwloc-{version}"));
@@ -179,7 +183,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: Box<[u
     hasher.update(&tar_gz[..]);
     assert_eq!(
         &hasher.finalize()[..],
-        &sha3_digest[..],
+        sha3_digest.as_ref(),
         "downloaded hwloc source failed integrity check"
     );
 
