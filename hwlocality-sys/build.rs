@@ -2,7 +2,6 @@ use std::sync::OnceLock;
 #[cfg(feature = "vendored")]
 mod vendored_deps {
     pub use flate2::read::GzDecoder;
-    pub use hex_literal::hex;
     pub use sha3::{Digest, Sha3_256};
     pub use std::{
         env,
@@ -104,7 +103,7 @@ fn setup_vendored_hwloc(required_version: &str) {
     {
         "2" => (
             "2.10.0",
-            hex!("b3e5e208587cd366fc2975f21102c20f3b1094d3cae69f464cb1bd8b09f302aa"),
+            hex("b3e5e208587cd366fc2975f21102c20f3b1094d3cae69f464cb1bd8b09f302aa"),
         ),
         other => panic!("Please add support for bundling hwloc v{other}.x"),
     };
@@ -123,9 +122,34 @@ fn setup_vendored_hwloc(required_version: &str) {
     }
 }
 
+/// Decode a hexadecimal digest into a stream of bytes
+#[cfg(feature = "vendored")]
+fn hex(hex: &'static str) -> Box<[u8]> {
+    assert_eq!(hex.len() % 2, 0, "Digest string {hex:?} should contain full bytes, i.e. pairs of hex digits, but it contains an odd number of bytes");
+    hex.as_bytes()
+        .chunks_exact(2)
+        .map(|hexdigit_pair| {
+            hexdigit_pair.iter().copied().fold(0, |acc, mut hexdigit| {
+                hexdigit = match hexdigit.to_ascii_lowercase() {
+                    b'0'..=b'9' => hexdigit - b'0',
+                    b'a'..=b'f' => hexdigit - b'a' + 10,
+                    _ => {
+                        panic!("Encountered byte that is not a hexadecimal digit in digest string {hex:?}")
+                    }
+                };
+                acc * 16 + hexdigit
+            })
+        })
+        .collect()
+}
+
 /// Fetch, check and extract an official hwloc tarball, return extracted path
 #[cfg(feature = "vendored")]
-fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 32]) -> PathBuf {
+fn fetch_hwloc(
+    parent_path: impl AsRef<Path>,
+    version: &str,
+    sha3_digest: impl AsRef<[u8]>,
+) -> PathBuf {
     // Predict location where tarball would be extracted
     let parent_path = parent_path.as_ref();
     let extracted_path = parent_path.join(format!("hwloc-{version}"));
@@ -159,7 +183,7 @@ fn fetch_hwloc(parent_path: impl AsRef<Path>, version: &str, sha3_digest: [u8; 3
     hasher.update(&tar_gz[..]);
     assert_eq!(
         &hasher.finalize()[..],
-        sha3_digest,
+        sha3_digest.as_ref(),
         "downloaded hwloc source failed integrity check"
     );
 

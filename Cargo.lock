@@ -288,12 +288,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hex-literal"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
-
-[[package]]
 name = "http"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -342,7 +336,6 @@ dependencies = [
  "autotools",
  "cmake",
  "flate2",
- "hex-literal",
  "libc",
  "pkg-config",
  "sha3",
