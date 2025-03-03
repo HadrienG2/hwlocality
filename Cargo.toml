@@ -185,7 +185,7 @@ proptest = ["dep:proptest"]
 arrayvec = "0.7"
 
 # Used to interface hwloc's C flags
-bitflags = "2.8"
+bitflags = "2.9"
 
 # Used to simplify the implementation of newtypes
 derive_more = { version = "2.0", default-features = false, features = ["as_ref", "display", "from", "into", "into_iterator", "not"] }
