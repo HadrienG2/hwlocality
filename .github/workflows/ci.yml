@@ -287,9 +287,12 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-examples
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
       - name: Run all examples
-        run: cargo examples ${{ env.FEATURES_FLAG }}
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples ${{ env.FEATURES_FLAG }} --manifest-path="$(pwd)/Cargo.toml"
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
 
   # Run the tests and examples on all supported OSes and Rust versions,
@@ -349,9 +352,12 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-examples
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
       - name: Run all examples
-        run: cargo examples --features=hwloc-latest -- --release
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples --features=hwloc-latest --manifest-path="$(pwd)/Cargo.toml" -- --release
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
 
   # Run the tests with extra stdlib checks and the ASAN sanitizer
@@ -546,15 +552,20 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-examples
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
       - name: Run basic tests (debug build)
         run: cargo test --workspace ${{ env.FEATURES_FLAG }}
 
       - name: Run all examples (debug build)
-        run: cargo examples ${{ env.FEATURES_FLAG }}
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples ${{ env.FEATURES_FLAG }} --manifest-path="$(pwd)/Cargo.toml"
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
       - name: Run all examples (release build)
-        run: cargo examples ${{ env.FEATURES_FLAG }} -- --release
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples ${{ env.FEATURES_FLAG }} --manifest-path="$(pwd)/Cargo.toml" -- --release
+        if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
       - name: Run basic tests (release build)
         run: cargo test --workspace --release ${{ env.FEATURES_FLAG }}
