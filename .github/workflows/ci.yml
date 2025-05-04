@@ -289,7 +289,8 @@ jobs:
           crate: cargo-examples
 
       - name: Run all examples
-        run: cargo examples ${{ env.FEATURES_FLAG }}
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples ${{ env.FEATURES_FLAG }} --manifest-path="$(pwd)/Cargo.toml"
 
 
   # Run the tests and examples on all supported OSes and Rust versions,
@@ -351,7 +352,8 @@ jobs:
           crate: cargo-examples
 
       - name: Run all examples
-        run: cargo examples --features=hwloc-latest -- --release
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples --features=hwloc-latest --manifest-path="$(pwd)/Cargo.toml" -- --release
 
 
   # Run the tests with extra stdlib checks and the ASAN sanitizer
@@ -551,10 +553,12 @@ jobs:
         run: cargo test --workspace ${{ env.FEATURES_FLAG }}
 
       - name: Run all examples (debug build)
-        run: cargo examples ${{ env.FEATURES_FLAG }}
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples ${{ env.FEATURES_FLAG }} --manifest-path="$(pwd)/Cargo.toml"
 
       - name: Run all examples (release build)
-        run: cargo examples ${{ env.FEATURES_FLAG }} -- --release
+        # FIXME: --manifest-path works around a cargo examples v0.6 bug
+        run: cargo examples ${{ env.FEATURES_FLAG }} --manifest-path="$(pwd)/Cargo.toml" -- --release
 
       - name: Run basic tests (release build)
         run: cargo test --workspace --release ${{ env.FEATURES_FLAG }}
