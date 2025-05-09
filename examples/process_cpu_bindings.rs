@@ -92,10 +92,7 @@ fn main() -> eyre::Result<()> {
         pids_width = widest_pid_list.min(80 - widest_binding_name - 3)
     );
     for (binding_name, pid_list) in displays {
-        println!(
-            "{binding_name:binding_width$} │ {pid_list}",
-            binding_width = widest_binding_name,
-        );
+        println!("{binding_name:widest_binding_name$} │ {pid_list}");
     }
 
     Ok(())
