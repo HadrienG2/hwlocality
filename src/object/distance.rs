@@ -1382,7 +1382,7 @@ impl Debug for Distances<'_> {
                 distances_display.push_str("\n\t");
                 last_row = row;
             }
-            write!(distances_display, "{distance}").unwrap();
+            write!(distances_display, "{distance}").expect("Writes to a String shouldn't fail");
         }
         debug.field("distances", &distances_display).finish()
     }
