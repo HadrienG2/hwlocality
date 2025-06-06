@@ -127,7 +127,7 @@ impl Topology {
     /// Convert a linux kernel cpumask file path into a hwloc bitmap set.
     ///
     /// Might be used when reading CPU sets from sysfs attributes such as
-    /// topology and caches for processors, or local_cpus for devices.
+    /// `topology` and `caches` for processors, or `local_cpus` for devices.
     ///
     /// Note that this function ignores the [HWLOC_FSROOT environment
     /// variable](https://hwloc.readthedocs.io/en/v2.9/envvar.html).
