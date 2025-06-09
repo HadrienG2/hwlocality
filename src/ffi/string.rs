@@ -138,7 +138,7 @@ impl Arbitrary for LibcString {
                 .chars()
                 .map(|c| {
                     if c == '\0' {
-                        char::from(rng.gen_range(1..=127))
+                        char::from(rng.random_range(1..=127))
                     } else {
                         c
                     }
