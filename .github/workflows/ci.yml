@@ -360,71 +360,74 @@ jobs:
         if: contains(matrix.rust, needs.matrix_vars.outputs.MINIMAL_RUST) == false
 
 
-  # Run the tests with extra stdlib checks and the ASAN sanitizer
-  #
-  # Here, our goal is only code coverage. We noticeably don't need...
-  #
-  # - Full version coverage (there's test-contrib-debug for that)
-  # - Release build coverage (it shouldn't change stdlib usage or turn code with
-  #   valid memory accesses into code with invalid ones)
-  # - Full OS coverage (we don't test what happens inside of hwloc, so as with
-  #   lints, only testing OSes that have specific Rust code associated with them
-  #   in the bindings is fine)
-  #
-  # Also, as a cargo-careful constraint we can only test nightly.
-  test-careful:
-    # Don't run CI twice when a PR is created from a branch internal to the repo
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
-
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-
-    env:
-      JOB_FLAGS: '--workspace --features=hwloc-latest'
-      # cargo-careful uses the nightly compiler, but runs in the stable CI, so
-      # we must disable warnings-as-error to avoid breaking submitted PRs when
-      # a new lint gets added to nightly rustc
-      RUSTFLAGS: ''
-
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Set up toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: nightly
-          components: rust-src
-
-      - name: Set up hwloc
-        uses: ./.github/actions/setup-hwloc-dependencies
-        with:
-          hwloc-version: ${{ env.HWLOC_VERSION }}
-          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
-
-      - name: Collect system information
-        uses: ./.github/actions/system-information
-
-      - name: Install cargo-careful
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-careful
-
-      - name: Run unit and doc tests under cargo careful, with ASAN (Unices)
-        run: |
-          # By default, cargo-careful disables LeakChecker, but I actually like it
-          export ASAN_OPTIONS=''
-          cargo careful test -Zcareful-sanitizer=address ${{ env.JOB_FLAGS }}
-        if: runner.os != 'Windows'
-
-      - name: Run unit and doc tests under cargo careful, w/o ASAN (Windows)
-        run: cargo careful test ${{ env.JOB_FLAGS }}
-        if: runner.os == 'Windows'
+# FIXME: Disabling cargo careful tests while waiting for
+#        https://github.com/RalfJung/cargo-careful/issues/45 to be resolved.
+#
+#  # Run the tests with extra stdlib checks and the ASAN sanitizer
+#  #
+#  # Here, our goal is only code coverage. We noticeably don't need...
+#  #
+#  # - Full version coverage (there's test-contrib-debug for that)
+#  # - Release build coverage (it shouldn't change stdlib usage or turn code with
+#  #   valid memory accesses into code with invalid ones)
+#  # - Full OS coverage (we don't test what happens inside of hwloc, so as with
+#  #   lints, only testing OSes that have specific Rust code associated with them
+#  #   in the bindings is fine)
+#  #
+#  # Also, as a cargo-careful constraint we can only test nightly.
+#  test-careful:
+#    # Don't run CI twice when a PR is created from a branch internal to the repo
+#    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name != github.repository
+#
+#    runs-on: ${{ matrix.os }}
+#
+#    strategy:
+#      matrix:
+#        os:
+#          - ubuntu-latest
+#          - windows-latest
+#
+#    env:
+#      JOB_FLAGS: '--workspace --features=hwloc-latest'
+#      # cargo-careful uses the nightly compiler, but runs in the stable CI, so
+#      # we must disable warnings-as-error to avoid breaking submitted PRs when
+#      # a new lint gets added to nightly rustc
+#      RUSTFLAGS: ''
+#
+#    steps:
+#      - name: Checkout sources
+#        uses: actions/checkout@v4
+#
+#      - name: Set up toolchain
+#        uses: actions-rust-lang/setup-rust-toolchain@v1
+#        with:
+#          toolchain: nightly
+#          components: rust-src
+#
+#      - name: Set up hwloc
+#        uses: ./.github/actions/setup-hwloc-dependencies
+#        with:
+#          hwloc-version: ${{ env.HWLOC_VERSION }}
+#          hwloc-version-short: ${{ env.HWLOC_VERSION_SHORT }}
+#
+#      - name: Collect system information
+#        uses: ./.github/actions/system-information
+#
+#      - name: Install cargo-careful
+#        uses: baptiste0928/cargo-install@v3
+#        with:
+#          crate: cargo-careful
+#
+#      - name: Run unit and doc tests under cargo careful, with ASAN (Unices)
+#        run: |
+#          # By default, cargo-careful disables LeakChecker, but I actually like it
+#          export ASAN_OPTIONS=''
+#          cargo careful test -Zcareful-sanitizer=address ${{ env.JOB_FLAGS }}
+#        if: runner.os != 'Windows'
+#
+#      - name: Run unit and doc tests under cargo careful, w/o ASAN (Windows)
+#        run: cargo careful test ${{ env.JOB_FLAGS }}
+#        if: runner.os == 'Windows'
 
 
   # Test current code coverage
