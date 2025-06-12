@@ -294,7 +294,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hwlocality"
-version = "1.0.0-alpha.7"
+version = "1.0.0-alpha.8"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -319,7 +319,9 @@ dependencies = [
 
 [[package]]
 name = "hwlocality-sys"
-version = "0.5.2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c52e423841ea4e8343f37207701a48dbd4247dee600f85d739fb63373913133"
 dependencies = [
  "autotools",
  "cmake",
@@ -327,7 +329,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "sha3",
- "static_assertions",
  "tar",
  "ureq",
  "windows-sys 0.60.2",

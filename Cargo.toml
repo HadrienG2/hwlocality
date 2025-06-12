@@ -1,5 +1,5 @@
 [workspace]
-members = ["hwlocality-sys"]
+# members = ["hwlocality-sys"]
 
 [workspace.package]
 authors = ["Hadrien G. <knights_of_ni@gmx.com>", "Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
@@ -197,7 +197,7 @@ enum-iterator = "2.0"
 errno = "0.3"
 
 # Part of this project (raw FFI binding)
-hwlocality-sys = { path = "./hwlocality-sys" }
+hwlocality-sys = "0.5.3"
 
 # Used for malloc, free, OS typedefs, and example thread queries
 libc.workspace = true
