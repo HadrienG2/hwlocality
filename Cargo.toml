@@ -167,6 +167,9 @@ hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_10_0"]
 # by default, using the "vendored-extra" cargo feature.
 vendored = ["hwlocality-sys/vendored"]
 
+# Download the hwloc source via Git.
+vendored-download-git = ["hwlocality-sys/vendored-download-git"]
+
 # Let the hwloc vendored build auto-enable optional features (libxml2, I/O
 # device discovery...) as the build system deems appropriate for the host.
 #

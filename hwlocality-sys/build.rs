@@ -1,15 +1,19 @@
+use std::process::Command;
 use std::sync::OnceLock;
-#[cfg(feature = "vendored")]
+#[cfg(feature = "vendored-core")]
 mod vendored_deps {
+    #[cfg(feature = "vendored-download-http")]
     pub use flate2::read::GzDecoder;
+    #[cfg(feature = "vendored-download-http")]
     pub use sha3::{Digest, Sha3_256};
     pub use std::{
         env,
         path::{Path, PathBuf},
     };
+    #[cfg(feature = "vendored-download-http")]
     pub use tar::Archive;
 }
-#[cfg(feature = "vendored")]
+#[cfg(feature = "vendored-core")]
 use vendored_deps::*;
 
 fn main() {
@@ -22,7 +26,9 @@ fn main() {
 /// Configure the hwloc dependency
 fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current features
-    let required_version = if cfg!(feature = "hwloc-2_10_0") {
+    let required_version = if cfg!(feature = "hwloc-2_12_0") {
+        "2.12.0"
+    } else if cfg!(feature = "hwloc-2_10_0") {
         "2.10.0"
     } else if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
@@ -43,11 +49,11 @@ fn setup_hwloc() {
     };
 
     // If asked to build hwloc ourselves, do so
-    #[cfg(feature = "vendored")]
+    #[cfg(feature = "vendored-core")]
     setup_vendored_hwloc(required_version);
 
     // If asked to use system hwloc, configure it using pkg-config
-    #[cfg(not(feature = "vendored"))]
+    #[cfg(not(feature = "vendored-core"))]
     find_hwloc(Some(required_version));
 }
 
@@ -93,7 +99,7 @@ fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
 }
 
 /// Install hwloc ourselves
-#[cfg(feature = "vendored")]
+#[cfg(feature = "vendored-core")]
 fn setup_vendored_hwloc(required_version: &str) {
     // Determine which version to fetch and where to fetch it
     let (source_version, sha3_digest) = match required_version
@@ -102,15 +108,29 @@ fn setup_vendored_hwloc(required_version: &str) {
         .expect("No major version in required_version")
     {
         "2" => (
-            "2.10.0",
-            hex("b3e5e208587cd366fc2975f21102c20f3b1094d3cae69f464cb1bd8b09f302aa"),
+            "2.12.1",
+            hex("ece646396730d57109298aac80dc226cd05c7d9e7f5b48976a43e9c365a73417"),
         ),
         other => panic!("Please add support for bundling hwloc v{other}.x"),
     };
     let out_path = env::var("OUT_DIR").expect("No output directory given");
 
-    // Fetch latest supported hwloc from git
-    let source_path = fetch_hwloc(out_path, source_version, sha3_digest);
+    // Fetch latest supported hwloc
+    let source_path = if cfg!(feature = "vendored-download-git") {
+        let _sha3_digest = sha3_digest;
+        fetch_hwloc_git(out_path, source_version)
+    } else if cfg!(feature = "vendored-download-http") {
+        #[cfg(feature = "vendored-download-http")]
+        {
+            fetch_hwloc_http(out_path, source_version, sha3_digest)
+        }
+        #[cfg(not(feature = "vendored-download-http"))]
+        {
+            unreachable!()
+        }
+    } else {
+        panic!("Enable at least one of 'vendored-download-http', 'vendored-download-git' to do a vendored build")
+    };
 
     // On Windows, we build using CMake because the autotools build
     // procedure does not work with MSVC, which is often needed on this OS
@@ -123,8 +143,8 @@ fn setup_vendored_hwloc(required_version: &str) {
 }
 
 /// Decode a hexadecimal digest into a stream of bytes
-#[cfg(feature = "vendored")]
-fn hex(hex: &'static str) -> Box<[u8]> {
+#[cfg(feature = "vendored-core")]
+fn hex(hex: &str) -> Box<[u8]> {
     assert_eq!(hex.len() % 2, 0, "Digest string {hex:?} should contain full bytes, i.e. pairs of hex digits, but it contains an odd number of bytes");
     hex.as_bytes()
         .chunks_exact(2)
@@ -144,11 +164,11 @@ fn hex(hex: &'static str) -> Box<[u8]> {
 }
 
 /// Fetch, check and extract an official hwloc tarball, return extracted path
-#[cfg(feature = "vendored")]
-fn fetch_hwloc(
+#[cfg(feature = "vendored-download-http")]
+fn fetch_hwloc_http(
     parent_path: impl AsRef<Path>,
     version: &str,
-    sha3_digest: impl AsRef<[u8]>,
+    sha3_digest: Box<[u8]>,
 ) -> PathBuf {
     // Predict location where tarball would be extracted
     let parent_path = parent_path.as_ref();
@@ -159,6 +179,13 @@ fn fetch_hwloc(
         eprintln!("Reusing previous hwloc v{version} download");
         return extracted_path;
     }
+
+    // Allow to override the version and hash
+    let version = std::env::var("HWLOCALITY_SYS_HWLOC_VERSION_OVERRIDE")
+        .unwrap_or_else(|_| version.to_string());
+    let sha3_digest = std::env::var("HWLOCALITY_SYS_HWLOC_SHA3_OVERRIDE")
+        .map(|hx| hex(&hx))
+        .unwrap_or_else(|_| sha3_digest);
 
     // Determine hwloc tarball URL
     let mut version_components = version.split('.');
@@ -199,8 +226,49 @@ fn fetch_hwloc(
     extracted_path
 }
 
+/// Clone the official hwloc repository, return extracted path
+fn fetch_hwloc_git(parent_path: impl AsRef<Path>, version: &str) -> PathBuf {
+    let parent_path = parent_path.as_ref();
+    let extracted_path = parent_path.join("hwloc-git");
+
+    // Only clone if the directory doesn't exist yet
+    if !extracted_path.exists() {
+        Command::new("git")
+            .arg("clone")
+            .arg("https://github.com/open-mpi/hwloc.git")
+            .arg(&extracted_path)
+            .output()
+            .expect("Failed to clone Git source");
+    } else {
+        // Update local checkout if possible
+        if let Err(err) = Command::new("git")
+            .arg("-C")
+            .arg(&extracted_path)
+            .arg("fetch")
+            .output()
+        {
+            eprintln!("Warning! Failed to fetch new commits: {err:?}");
+        }
+    }
+
+    // Allow to override the version (can also be a commit hash)
+    let version = std::env::var("HWLOCALITY_SYS_HWLOC_VERSION_OVERRIDE")
+        .unwrap_or_else(|_| format!("hwloc-{version}"));
+
+    // Checkout the correct tag
+    Command::new("git")
+        .arg("-C")
+        .arg(&extracted_path)
+        .arg("checkout")
+        .arg(version)
+        .output()
+        .expect("Couldn't checkout tag");
+
+    extracted_path
+}
+
 /// Compile hwloc using cmake, return local installation path
-#[cfg(feature = "vendored")]
+#[cfg(feature = "vendored-core")]
 fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
     // Locate CMake support files, make sure they are present
     // (should be the case on any hwloc release since 2.8)
@@ -244,7 +312,7 @@ fn install_hwloc_cmake(source_path: impl AsRef<Path>) {
 }
 
 /// Compile hwloc using autotools, return local installation path
-#[cfg(feature = "vendored")]
+#[cfg(feature = "vendored-core")]
 fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Configure for static linking
     let mut config = autotools::Config::new(source_path);
