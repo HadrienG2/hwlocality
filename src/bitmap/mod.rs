@@ -1458,7 +1458,7 @@ impl Hash for Bitmap {
 }
 
 /// Iterator over set or unset [`Bitmap`] indices
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash)]
 pub struct Iter<B> {
     /// Bitmap over which we're iterating
     bitmap: B,
