@@ -132,7 +132,8 @@ impl TopologyObject {
     /// Type of object
     #[doc(alias = "hwloc_obj::type")]
     pub fn object_type(&self) -> ObjectType {
-        self.0.ty.try_into().expect("Got unexpected object type")
+        // SAFETY: Object type does come from hwloc
+        unsafe { ObjectType::from_hwloc(self.0.ty) }
     }
 
     /// Subtype string to better describe the type field
@@ -263,7 +264,8 @@ impl TopologyObject {
     /// tree, this is a special value that is unique to their type.
     #[doc(alias = "hwloc_obj::depth")]
     pub fn depth(&self) -> Depth {
-        Depth::from_raw(self.0.depth).expect("Got unexpected depth value")
+        // SAFETY: Depth value does come from hwloc
+        unsafe { Depth::from_hwloc(self.0.depth) }.expect("Got unexpected depth value")
     }
 
     /// Parent object

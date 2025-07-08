@@ -235,9 +235,6 @@ pub mod topology;
 #[cfg(feature = "proptest")]
 pub use proptest;
 
-/// Re-export `enum_iterator` version we're built against
-pub use enum_iterator;
-
 use crate::ffi::int;
 use hwlocality_sys::hwloc_thread_t;
 #[allow(unused)]
@@ -342,7 +339,7 @@ mod sealed {
 pub(crate) use sealed::Sealed;
 
 /// Implement [`proptest::Arbitrary`] for a C-like enum that implements
-/// [`enum_iterator::Sequence`]
+/// [`strum::EnumCount`] and [`strum::EnumIter`].
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_arbitrary_for_sequence {
@@ -354,9 +351,10 @@ macro_rules! impl_arbitrary_for_sequence {
 
             fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
                 use proptest::prelude::*;
-                let cardinality = <Self as enum_iterator::Sequence>::CARDINALITY;
+                use strum::IntoEnumIterator;
+                let cardinality = <Self as strum::EnumCount>::COUNT;
                 (0..cardinality).prop_map(|idx| {
-                    enum_iterator::all::<Self>()
+                    Self::iter()
                         .nth(idx)
                         .expect("idx is in range by definition")
                 })

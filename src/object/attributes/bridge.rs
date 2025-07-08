@@ -12,9 +12,10 @@ use crate::{
     },
     object::types::BridgeType,
 };
+#[cfg(any(test, feature = "proptest"))]
+use hwlocality_sys::hwloc_obj_bridge_type_t;
 use hwlocality_sys::{
-    hwloc_bridge_attr_s, hwloc_obj_bridge_type_t, RawDownstreamAttributes,
-    RawDownstreamPCIAttributes, RawUpstreamAttributes,
+    hwloc_bridge_attr_s, RawDownstreamAttributes, RawDownstreamPCIAttributes, RawUpstreamAttributes,
 };
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
@@ -24,7 +25,7 @@ use similar_asserts::assert_eq;
 #[cfg(any(test, feature = "proptest"))]
 use std::ffi::c_uint;
 use std::{
-    fmt::{self, Debug, DebugStruct},
+    fmt::{self, Debug},
     hash::Hash,
 };
 
@@ -49,10 +50,8 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::upstream_type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::upstream_type")]
     pub fn upstream_type(&self) -> BridgeType {
-        self.0
-            .upstream_type
-            .try_into()
-            .expect("got unexpected upstream type")
+        // SAFETY: Bridge type comes from hwloc
+        unsafe { BridgeType::from_hwloc(self.0.upstream_type) }
     }
 
     /// Upstream attributes
@@ -67,10 +66,8 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::downstream_type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::downstream_type")]
     pub fn downstream_type(&self) -> BridgeType {
-        self.0
-            .downstream_type
-            .try_into()
-            .expect("got unexpected downstream type")
+        // SAFETY: Bridge type comes from hwloc
+        unsafe { BridgeType::from_hwloc(self.0.downstream_type) }
     }
 
     /// Downstream attributes
@@ -108,10 +105,7 @@ impl Arbitrary for BridgeAttributes {
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let bridge_type = crate::strategies::enum_repr::<BridgeType, hwloc_obj_bridge_type_t>(
-            hwloc_obj_bridge_type_t::MIN,
-            hwloc_obj_bridge_type_t::MAX,
-        );
+        let bridge_type = crate::strategies::enum_repr::<BridgeType, hwloc_obj_bridge_type_t>();
         (
             [bridge_type.clone(), bridge_type],
             <(PCIDeviceAttributes, DownstreamPCIAttributes, c_uint)>::arbitrary_with(args),
@@ -138,28 +132,13 @@ impl Debug for BridgeAttributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("BridgeAttributes");
 
-        let show_type =
-            |debug: &mut DebugStruct<'_, '_>, name: &str, ty: hwloc_obj_bridge_type_t| {
-                if let Ok(ty) = BridgeType::try_from(ty) {
-                    debug.field(name, &ty);
-                } else {
-                    debug.field(name, &format!("{ty:?}"));
-                }
-            };
+        debug.field("upstream_type", &self.upstream_type());
+        debug.field("upstream_attributes", &self.upstream_attributes());
 
-        show_type(&mut debug, "upstream_type", self.0.upstream_type);
-        if BridgeType::try_from(self.0.upstream_type).is_ok() {
-            debug.field("upstream_attributes", &self.upstream_attributes());
-        } else {
-            debug.field("upstream_attributes", &format!("{:?}", self.0.upstream));
-        }
-
-        show_type(&mut debug, "downstream_type", self.0.downstream_type);
-        match BridgeType::try_from(self.0.downstream_type) {
-            Ok(BridgeType::PCI) => {
-                debug.field("downstream_attributes", &self.downstream_attributes())
-            }
-            Ok(BridgeType::Host) | Err(_) => {
+        debug.field("downstream_type", &self.downstream_type());
+        match self.downstream_type() {
+            BridgeType::PCI => debug.field("downstream_attributes", &self.downstream_attributes()),
+            BridgeType::Host | BridgeType::Unknown(_) => {
                 debug.field("downstream_attributes", &format!("{:?}", self.0.downstream))
             }
         };
@@ -201,7 +180,7 @@ impl<'object> UpstreamAttributes<'object> {
         unsafe {
             match ty {
                 BridgeType::PCI => Some(Self::PCI((&attr.pci).as_newtype())),
-                BridgeType::Host => None,
+                BridgeType::Host | BridgeType::Unknown(_) => None,
             }
         }
     }
@@ -279,6 +258,7 @@ impl<'object> DownstreamAttributes<'object> {
             match ty {
                 BridgeType::PCI => Some(Self::PCI((&attr.pci).as_newtype())),
                 BridgeType::Host => unreachable!("Host bridge type should not appear downstream"),
+                BridgeType::Unknown(_) => None,
             }
         }
     }
@@ -414,83 +394,66 @@ pub(super) mod tests {
     fn check_any_bridge(attr: &BridgeAttributes) -> Result<(), TestCaseError> {
         let hwloc_bridge_attr_s {
             upstream_type,
-            upstream,
             downstream_type,
             downstream,
             depth,
+            ..
         } = attr.0;
 
-        #[allow(clippy::option_if_let_else)]
-        let upstream_dbg = if let Ok(upstream_type) = BridgeType::try_from(upstream_type) {
-            prop_assert_eq!(attr.upstream_type(), upstream_type);
-            #[allow(clippy::single_match_else)]
-            match attr.upstream_attributes() {
-                Some(UpstreamAttributes::PCI(pci)) => {
-                    prop_assert_eq!(upstream_type, BridgeType::PCI);
-                    let actual_ptr: *const hwloc_pcidev_attr_s = pci.as_inner();
-                    // SAFETY: We must assume correct union tagging here
-                    let expected_ptr: *const hwloc_pcidev_attr_s = unsafe { &attr.0.upstream.pci };
-                    prop_assert_eq!(actual_ptr, expected_ptr);
-                    check_any_pci(pci)?;
-                }
-                None => prop_assert_ne!(upstream_type, BridgeType::PCI),
+        // SAFETY: Value is from hwloc
+        let upstream_type = unsafe { BridgeType::from_hwloc(upstream_type) };
+        prop_assert_eq!(attr.upstream_type(), upstream_type);
+        #[allow(clippy::single_match_else)]
+        match attr.upstream_attributes() {
+            Some(UpstreamAttributes::PCI(pci)) => {
+                prop_assert_eq!(upstream_type, BridgeType::PCI);
+                let actual_ptr: *const hwloc_pcidev_attr_s = pci.as_inner();
+                // SAFETY: We must assume correct union tagging here
+                let expected_ptr: *const hwloc_pcidev_attr_s = unsafe { &attr.0.upstream.pci };
+                prop_assert_eq!(actual_ptr, expected_ptr);
+                check_any_pci(pci)?;
             }
-            format!(
-                "upstream_type: {:?}, upstream_attributes: {:?}",
-                attr.upstream_type(),
-                attr.upstream_attributes()
-            )
-        } else {
-            assert_panics(|| attr.upstream_type())?;
-            assert_panics(|| attr.upstream_attributes())?;
-            format!(
-                "upstream_type: \"{upstream_type:?}\", \
-                upstream_attributes: \"{upstream:?}\""
-            )
-        };
+            None => prop_assert_ne!(upstream_type, BridgeType::PCI),
+        }
+        let upstream_dbg = format!(
+            "upstream_type: {:?}, upstream_attributes: {:?}",
+            attr.upstream_type(),
+            attr.upstream_attributes()
+        );
 
-        #[allow(clippy::option_if_let_else)]
-        let downstream_dbg = if let Ok(downstream_type) = BridgeType::try_from(downstream_type) {
-            prop_assert_eq!(attr.downstream_type(), downstream_type);
-            let downstream_type_dbg = format!("downstream_type: {downstream_type:?}");
-            match downstream_type {
-                BridgeType::PCI => {
-                    #[allow(clippy::single_match_else)]
-                    match attr.downstream_attributes() {
-                        Some(DownstreamAttributes::PCI(downstream)) => {
-                            let actual_ptr: *const RawDownstreamPCIAttributes =
-                                downstream.as_inner();
-                            let expected_ptr: *const RawDownstreamPCIAttributes =
+        // SAFETY: Value is from hwloc
+        let downstream_type = unsafe { BridgeType::from_hwloc(downstream_type) };
+        prop_assert_eq!(attr.downstream_type(), downstream_type);
+        let downstream_type_dbg = format!("downstream_type: {downstream_type:?}");
+        let downstream_dbg = match downstream_type {
+            BridgeType::PCI => {
+                #[allow(clippy::single_match_else)]
+                match attr.downstream_attributes() {
+                    Some(DownstreamAttributes::PCI(downstream)) => {
+                        let actual_ptr: *const RawDownstreamPCIAttributes = downstream.as_inner();
+                        let expected_ptr: *const RawDownstreamPCIAttributes =
                             // SAFETY: We must assume correct union tagging here
                             unsafe { &attr.0.downstream.pci };
-                            prop_assert_eq!(actual_ptr, expected_ptr);
-                            check_any_downstream_pci(downstream)?;
-                            format!(
-                                "{downstream_type_dbg}, downstream_attributes: {:?}",
-                                attr.downstream_attributes()
-                            )
-                        }
-                        None => {
-                            prop_assert!(false, "should have returned PCI attributes");
-                            unreachable!()
-                        }
+                        prop_assert_eq!(actual_ptr, expected_ptr);
+                        check_any_downstream_pci(downstream)?;
+                        format!(
+                            "{downstream_type_dbg}, downstream_attributes: {:?}",
+                            attr.downstream_attributes()
+                        )
+                    }
+                    None => {
+                        prop_assert!(false, "should have returned PCI attributes");
+                        unreachable!()
                     }
                 }
-                BridgeType::Host => {
-                    assert_panics(|| attr.downstream_attributes())?;
-                    format!(
-                        "{downstream_type_dbg}, \
-                        downstream_attributes: \"{downstream:?}\""
-                    )
-                }
             }
-        } else {
-            assert_panics(|| attr.downstream_type())?;
-            assert_panics(|| attr.downstream_attributes())?;
-            format!(
-                "downstream_type: \"{downstream_type:?}\", \
-                downstream_attributes: \"{downstream:?}\""
-            )
+            BridgeType::Host | BridgeType::Unknown(_) => {
+                assert_panics(|| attr.downstream_attributes())?;
+                format!(
+                    "{downstream_type_dbg}, \
+                        downstream_attributes: \"{downstream:?}\""
+                )
+            }
         };
 
         prop_assert_eq!(attr.depth(), usize::try_from(depth).unwrap());

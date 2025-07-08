@@ -10,7 +10,6 @@ use crate::{
     object::TopologyObject,
     topology::Topology,
 };
-use enum_iterator::Sequence;
 use proptest::{
     collection::SizeRange,
     prelude::*,
@@ -23,6 +22,7 @@ use std::{
     fmt::Debug,
     ops::{Range, RangeInclusive},
 };
+use strum::IntoEnumIterator;
 
 /// String generator that's actually exhaustive, unlike proptest's default
 pub(crate) fn any_string() -> AnyString {
@@ -70,22 +70,17 @@ pub(crate) fn uint_special0() -> IntSpecial0<c_uint> {
     int_special0(0, 1, c_uint::MAX)
 }
 
-/// Generate an hwloc enum repr with some reasonable odds of invalid value
-pub(crate) fn enum_repr<Enum: Sequence, Repr: Copy + Debug + From<Enum> + TryInto<Enum>>(
-    min_repr: Repr,
-    max_repr: Repr,
-) -> EnumRepr<Repr> {
-    let valid_reprs = enum_iterator::all::<Enum>()
+/// Generate an hwloc enum repr
+pub(crate) fn enum_repr<Enum: IntoEnumIterator, Repr: Copy + Debug + From<Enum>>() -> EnumRepr<Repr>
+{
+    let valid_reprs = <Enum as IntoEnumIterator>::iter()
         .map(Repr::from)
         .collect::<Vec<_>>();
-    prop_oneof![
-        4 => prop::sample::select(valid_reprs),  // Valid enum repr
-        1 => min_repr..=max_repr,
-    ]
+    prop::sample::select(valid_reprs)
 }
 
 /// Strategy emitted by [`enum_repr()`]
-pub(crate) type EnumRepr<Repr> = TupleUnion<(WA<Select<Repr>>, WA<RangeInclusive<Repr>>)>;
+pub(crate) type EnumRepr<Repr> = Select<Repr>;
 
 /// [`BitmapIndex`] that's generated like a container size
 ///

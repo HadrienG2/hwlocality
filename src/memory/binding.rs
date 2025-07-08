@@ -10,6 +10,7 @@
 use crate::{
     bitmap::{Bitmap, BitmapKind, SpecializedBitmap, SpecializedBitmapRef},
     errors::{self, FlagsError, HybridError, RawHwlocError},
+    ffi::unknown::UnknownVariant,
     memory::nodeset::NodeSet,
     topology::Topology,
     ProcessId,
@@ -18,7 +19,6 @@ use crate::{
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
-use enum_iterator::Sequence;
 use errno::Errno;
 use hwlocality_sys::{
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
@@ -28,7 +28,6 @@ use hwlocality_sys::{
     HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT, HWLOC_MEMBIND_THREAD,
 };
 use libc::{ENOMEM, ENOSYS, EXDEV};
-use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -40,6 +39,7 @@ use std::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
+use strum::{EnumCount, EnumIter, FromRepr};
 use thiserror::Error;
 
 /// # Memory binding
@@ -287,8 +287,10 @@ impl Topology {
             MemoryBindingPolicy::FirstTouch | MemoryBindingPolicy::NextTouch => {}
 
             // All other cases expect eager binding, which may require touching
-            // to enforce
-            MemoryBindingPolicy::Bind | MemoryBindingPolicy::Interleave => {
+            // to enforce. That's also what we do when we don't know.
+            MemoryBindingPolicy::Bind
+            | MemoryBindingPolicy::Interleave
+            | MemoryBindingPolicy::Unknown(_) => {
                 bytes.fill(MaybeUninit::new(0));
             }
         }
@@ -1137,18 +1139,27 @@ impl Topology {
         })
         .map(|()| {
             /// Polymorphized version of policy check (avoids generics bloat)
-            fn check_policy(raw_policy: hwloc_membind_policy_t) -> Option<MemoryBindingPolicy> {
-                match MemoryBindingPolicy::try_from(raw_policy) {
-                    Ok(policy) => Some(policy),
-                    Err(TryFromPrimitiveError {
-                        number: HWLOC_MEMBIND_MIXED,
-                    }) => None,
-                    Err(TryFromPrimitiveError { number }) => {
-                        panic!("Got unexpected memory policy #{number}")
+            ///
+            /// # Safety
+            ///
+            /// `raw_policy` must come from `hwloc`
+            unsafe fn check_policy(
+                raw_policy: hwloc_membind_policy_t,
+            ) -> Option<MemoryBindingPolicy> {
+                #[allow(clippy::wildcard_enum_match_arm)]
+                // SAFETY: Per function precondition
+                match unsafe { MemoryBindingPolicy::from_hwloc(raw_policy) } {
+                    MemoryBindingPolicy::Unknown(UnknownVariant(HWLOC_MEMBIND_MIXED)) => None,
+                    MemoryBindingPolicy::Unknown(UnknownVariant(err)) if err < 0 => {
+                        panic!("Got unexpected negative memory policy #{err}")
                     }
+                    policy => Some(policy),
                 }
             }
-            (set.into(), check_policy(raw_policy))
+            // SAFETY: If control reaches this point, the hwloc function
+            //         returned with a success status, which means it should
+            //         have set `raw_policy` to a sensible value.
+            (set.into(), unsafe { check_policy(raw_policy) })
         })
     }
 }
@@ -1387,7 +1398,7 @@ impl From<ProcessId> for MemoryBoundObject {
 }
 
 /// Binding operation
-#[derive(Copy, Clone, Debug, Display, Eq, Hash, PartialEq, Sequence)]
+#[derive(Copy, Clone, Debug, Display, EnumCount, EnumIter, Eq, Hash, PartialEq)]
 pub(crate) enum MemoryBindingOperation {
     /// Allocate memory
     Allocate,
@@ -1413,17 +1424,7 @@ crate::impl_arbitrary_for_sequence!(MemoryBindingOperation);
 /// [`Topology::feature_support()`] may be used to query the actual memory
 /// binding support in the currently used operating system.
 #[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Display,
-    Eq,
-    Hash,
-    IntoPrimitive,
-    PartialEq,
-    TryFromPrimitive,
-    Sequence,
+    Copy, Clone, Debug, Default, Display, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq,
 )]
 #[doc(alias = "hwloc_membind_policy_t")]
 #[repr(i32)]
@@ -1480,9 +1481,36 @@ pub enum MemoryBindingPolicy {
     /// Requires [`MemoryBindingSupport::next_touch_policy()`].
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
+
+    /// Unknown [`hwloc_membind_policy_t`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_membind_policy_t>),
+}
+//
+impl MemoryBindingPolicy {
+    /// Build a `MemoryBindingPolicy` from an hwloc-originated [`hwloc_membind_policy_t`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    pub(crate) unsafe fn from_hwloc(value: hwloc_membind_policy_t) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
 }
 //
 crate::impl_arbitrary_for_sequence!(MemoryBindingPolicy);
+//
+impl From<MemoryBindingPolicy> for hwloc_membind_policy_t {
+    fn from(value: MemoryBindingPolicy) -> Self {
+        match value {
+            MemoryBindingPolicy::FirstTouch => HWLOC_MEMBIND_FIRSTTOUCH,
+            MemoryBindingPolicy::Bind => HWLOC_MEMBIND_BIND,
+            MemoryBindingPolicy::Interleave => HWLOC_MEMBIND_INTERLEAVE,
+            MemoryBindingPolicy::NextTouch => HWLOC_MEMBIND_NEXTTOUCH,
+            MemoryBindingPolicy::Unknown(unknown) => unknown.0,
+        }
+    }
+}
 
 /// Errors that can occur when binding memory to NUMA nodes, querying bindings,
 /// or allocating (possibly bound) memory

@@ -176,6 +176,7 @@ mod tests {
                 | ObjectType::Misc => check_nonexistent()?,
                 #[cfg(feature = "hwloc-2_1_0")]
                 ObjectType::MemCache | ObjectType::Die => check_nonexistent()?,
+                ObjectType::Unknown(_) => {}
             }
         }
     }
@@ -199,6 +200,7 @@ mod tests {
                     CacheType::Instruction => {
                         prop_assert!(obj.object_type().is_cpu_instruction_cache());
                     }
+                    CacheType::Unknown(_) => {}
                 },
                 #[allow(unused)]
                 Some(ObjectAttributes::Group(attr)) => {
@@ -225,6 +227,7 @@ mod tests {
                     match attr.upstream_type() {
                         BridgeType::PCI => prop_assert!(has_pci_parent),
                         BridgeType::Host => prop_assert!(!has_pci_parent),
+                        BridgeType::Unknown(_) => {}
                     }
                 }
                 Some(ObjectAttributes::OSDevice(_attr)) => {

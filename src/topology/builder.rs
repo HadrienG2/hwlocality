@@ -21,14 +21,13 @@ use crate::topology::support::DiscoverySupport;
 use crate::topology::support::MiscSupport;
 use crate::{
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError},
-    ffi::string::LibcString,
+    ffi::{string::LibcString, unknown::UnknownVariant},
     object::types::ObjectType,
     path::{self, PathError},
     ProcessId,
 };
 use bitflags::bitflags;
 use derive_more::From;
-use enum_iterator::Sequence;
 use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
@@ -52,7 +51,6 @@ use hwlocality_sys::{
     HWLOC_TOPOLOGY_FLAG_NO_MEMATTRS,
 };
 use libc::{EINVAL, ENOSYS};
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -61,6 +59,7 @@ use std::{
     path::{Path, PathBuf},
     ptr::NonNull,
 };
+use strum::{EnumCount, EnumIter, FromRepr};
 use thiserror::Error;
 
 /// Mechanism to build a [`Topology`] with custom configuration
@@ -698,7 +697,10 @@ impl TopologyBuilder {
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
-        Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
+        // SAFETY: filter comes from hwloc_get_type_filter, which didn't fail,
+        //         so it should be a type filter value that hwloc accepts to
+        //         receive as input.
+        Ok(unsafe { TypeFilter::from_hwloc(filter) })
     }
 }
 
@@ -917,7 +919,7 @@ crate::impl_arbitrary_for_bitflags!(BuildFlags, hwloc_topology_flags_e);
 ///
 /// Note that group objects are also ignored individually (without the entire
 /// level) when they do not bring structure.
-#[derive(Copy, Clone, Debug, Eq, Hash, IntoPrimitive, PartialEq, Sequence, TryFromPrimitive)]
+#[derive(Clone, Copy, Debug, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq)]
 #[doc(alias = "hwloc_type_filter_e")]
 #[repr(i32)]
 pub enum TypeFilter {
@@ -965,9 +967,36 @@ pub enum TypeFilter {
     /// since they are likely important.
     #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_IMPORTANT")]
     KeepImportant = HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
+
+    /// Unknown [`hwloc_type_filter_e`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_type_filter_e>),
+}
+//
+impl TypeFilter {
+    /// Build a `TypeFilter` from an hwloc-originated [`hwloc_type_filter_e`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    pub(crate) unsafe fn from_hwloc(value: hwloc_type_filter_e) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
 }
 //
 crate::impl_arbitrary_for_sequence!(TypeFilter);
+//
+impl From<TypeFilter> for hwloc_type_filter_e {
+    fn from(value: TypeFilter) -> Self {
+        match value {
+            TypeFilter::KeepAll => HWLOC_TYPE_FILTER_KEEP_ALL,
+            TypeFilter::KeepNone => HWLOC_TYPE_FILTER_KEEP_NONE,
+            TypeFilter::KeepStructure => HWLOC_TYPE_FILTER_KEEP_STRUCTURE,
+            TypeFilter::KeepImportant => HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
+            TypeFilter::Unknown(unknown) => unknown.0,
+        }
+    }
+}
 
 /// Errors that can occur when filtering types
 #[derive(Copy, Clone, Debug, Error, Eq, Hash, PartialEq)]
@@ -1060,6 +1089,7 @@ pub(crate) mod tests {
         },
         panic::UnwindSafe,
     };
+    use strum::IntoEnumIterator;
     use tempfile::NamedTempFile;
 
     // Check that public types in this module keep implementing all expected
@@ -1109,7 +1139,7 @@ pub(crate) mod tests {
     );
     assert_impl_all!(TypeFilter:
         Copy, Debug, Hash, Into<hwloc_type_filter_e>, Sized, Sync,
-        TryFrom<hwloc_type_filter_e>, Unpin, UnwindSafe
+        Unpin, UnwindSafe
     );
     assert_not_impl_any!(TypeFilter:
         Binary, Default, Deref, Display, Drop, IntoIterator, LowerExp, LowerHex,
@@ -1165,7 +1195,7 @@ pub(crate) mod tests {
                 || build_flags.contains(BuildFlags::ASSUME_THIS_SYSTEM)
         );
 
-        for object_type in enum_iterator::all::<ObjectType>() {
+        for object_type in ObjectType::iter() {
             prop_assert_eq!(
                 topology.type_filter(object_type),
                 Ok(type_filter(object_type)?),
@@ -1218,7 +1248,7 @@ pub(crate) mod tests {
     fn check_default_builder(builder: &TopologyBuilder) -> Result<(), TestCaseError> {
         assert_eq!(format!("{:p}", *builder), format!("{:p}", builder.0));
         assert_eq!(builder.flags(), BuildFlags::default());
-        for object_type in enum_iterator::all::<ObjectType>() {
+        for object_type in ObjectType::iter() {
             assert_eq!(
                 builder.type_filter(object_type),
                 Ok(default_type_filter(object_type)?),
@@ -1422,7 +1452,7 @@ pub(crate) mod tests {
                     | BuildFlags::RESTRICT_MEMORY_TO_THIS_PROCESS;
             }
             if !build_flags.intersects(object_removal_flags) {
-                for object_type in enum_iterator::all::<ObjectType>() {
+                for object_type in ObjectType::iter() {
                     prop_assert_eq!(
                         topology.objects_with_type(object_type).count(),
                         expected_object_count(object_type),
@@ -1468,7 +1498,7 @@ pub(crate) mod tests {
                     );
                 }
 
-                for object_type in enum_iterator::all::<ObjectType>() {
+                for object_type in ObjectType::iter() {
                     let objects_gpids = |topology: &Topology| {
                         topology
                             .objects_with_type(object_type)

@@ -71,7 +71,8 @@ impl CacheAttributes {
     #[doc(alias = "hwloc_cache_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::type")]
     pub fn cache_type(&self) -> CacheType {
-        self.0.ty.try_into().expect("got unexpected cache type")
+        // SAFETY: Cache type comes from hwloc
+        unsafe { CacheType::from_hwloc(self.0.ty) }
     }
 }
 //
@@ -121,10 +122,7 @@ impl Arbitrary for CacheAttributes {
         ];
 
         // Biased RNG ensuring reasonable valid/invalid cache type coverage
-        let cache_type = strategies::enum_repr::<CacheType, hwloc_obj_cache_type_t>(
-            hwloc_obj_cache_type_t::MIN,
-            hwloc_obj_cache_type_t::MAX,
-        );
+        let cache_type = strategies::enum_repr::<CacheType, hwloc_obj_cache_type_t>();
 
         // Put it all together
         (size, depth, linesize, associativity, cache_type).prop_map(
@@ -156,11 +154,7 @@ impl Debug for CacheAttributes {
             debug.field("associativity", &format!("{:?}", self.0.associativity));
         }
 
-        if CacheType::try_from(self.0.ty).is_ok() {
-            debug.field("cache_type", &self.cache_type());
-        } else {
-            debug.field("cache_type", &format!("{:?}", self.0.ty));
-        }
+        debug.field("cache_type", &self.cache_type());
 
         debug.finish()
     }
@@ -243,6 +237,7 @@ pub(super) mod tests {
         ops::Deref,
         panic::UnwindSafe,
     };
+    use strum::IntoEnumIterator;
 
     // Check that public types in this module keep implementing all expected
     // traits, in the interest of detecting future semver-breaking changes
@@ -264,7 +259,7 @@ pub(super) mod tests {
 
     /// Pick a random CPU cache type
     fn cpu_cache_type() -> impl Strategy<Value = ObjectType> {
-        let cache_types = enum_iterator::all::<ObjectType>()
+        let cache_types = ObjectType::iter()
             .filter(|ty| ty.is_cpu_cache())
             .collect::<Vec<_>>();
         prop::sample::select(cache_types)
@@ -339,7 +334,7 @@ pub(super) mod tests {
             depth,
             linesize,
             associativity,
-            ty,
+            ..
         } = attr.0;
 
         prop_assert_eq!(attr.size(), NonZeroU64::new(size));
@@ -369,14 +364,7 @@ pub(super) mod tests {
             format!("{:?}", attr.associativity())
         };
 
-        #[allow(clippy::option_if_let_else)]
-        let ty_dbg = if let Ok(cache_type) = CacheType::try_from(ty) {
-            prop_assert_eq!(attr.cache_type(), cache_type);
-            format!("{:?}", attr.cache_type())
-        } else {
-            assert_panics(|| attr.cache_type())?;
-            format!("\"{ty:?}\"")
-        };
+        let ty_dbg = format!("{:?}", attr.cache_type());
 
         prop_assert_eq!(
             format!("{attr:?}"),

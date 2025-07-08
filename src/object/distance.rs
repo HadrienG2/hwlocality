@@ -14,12 +14,12 @@
 //! The module itself only hosts type definitions that are related to this
 //! functionality.
 
-#[cfg(feature = "hwloc-2_5_0")]
-use crate::errors::FlagsError;
 #[cfg(any(doc, feature = "hwloc-2_3_0"))]
 use crate::object::depth::NormalDepth;
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
+#[cfg(feature = "hwloc-2_5_0")]
+use crate::{errors::FlagsError, ffi::unknown::UnknownVariant};
 use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
@@ -32,8 +32,6 @@ use crate::{
     ffi::string::LibcString,
 };
 use bitflags::bitflags;
-#[cfg(feature = "hwloc-2_5_0")]
-use enum_iterator::Sequence;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
 use hwlocality_sys::{
@@ -43,7 +41,7 @@ use hwlocality_sys::{
 };
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
-    hwloc_distances_add_flag_e, HWLOC_DISTANCES_ADD_FLAG_GROUP,
+    hwloc_distances_add_flag_e, hwloc_distances_transform_e, HWLOC_DISTANCES_ADD_FLAG_GROUP,
     HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE, HWLOC_DISTANCES_TRANSFORM_LINKS,
     HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
     HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
@@ -58,6 +56,8 @@ use std::{
     ops::{Index, IndexMut},
     ptr::{self, NonNull},
 };
+#[cfg(feature = "hwloc-2_5_0")]
+use strum::{EnumCount, EnumIter, FromRepr};
 #[cfg(feature = "hwloc-2_5_0")]
 use thiserror::Error;
 
@@ -130,7 +130,7 @@ impl Topology {
                     |topology, nr, distances, kind, flags| {
                         hwlocality_sys::hwloc_distances_get_by_depth(
                             topology,
-                            depth.to_raw(),
+                            depth.to_hwloc(),
                             nr,
                             distances,
                             kind,
@@ -702,7 +702,7 @@ impl TopologyEditor<'_> {
             errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
                     self_.topology_mut_ptr(),
-                    depth.to_raw(),
+                    depth.to_hwloc(),
                 )
             })
             .map(std::mem::drop)
@@ -1496,16 +1496,7 @@ crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
 /// Transformations of distances structures
 #[cfg(feature = "hwloc-2_5_0")]
 #[derive(
-    Copy,
-    Clone,
-    Debug,
-    derive_more::Display,
-    Eq,
-    Hash,
-    num_enum::IntoPrimitive,
-    num_enum::TryFromPrimitive,
-    PartialEq,
-    Sequence,
+    Copy, Clone, Debug, derive_more::Display, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq,
 )]
 #[doc(alias = "hwloc_distances_transform_e")]
 #[repr(u32)]
@@ -1559,10 +1550,42 @@ pub enum DistancesTransform {
     /// All pairs of GPUs will be reported as directly connected.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
+
+    /// Unknown [`hwloc_distances_transform_e`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_distances_transform_e>),
+}
+//
+#[cfg(feature = "hwloc-2_5_0")]
+impl DistancesTransform {
+    /// Build a `DistancesTransform` from an hwloc-originated [`hwloc_distances_transform_e`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    #[allow(unused)]
+    pub(crate) unsafe fn from_hwloc(value: hwloc_distances_transform_e) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
 crate::impl_arbitrary_for_sequence!(DistancesTransform);
+//
+#[cfg(feature = "hwloc-2_5_0")]
+impl From<DistancesTransform> for hwloc_distances_transform_e {
+    fn from(value: DistancesTransform) -> Self {
+        match value {
+            DistancesTransform::RemoveNone => HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
+            DistancesTransform::BandwidthToLinkCount => HWLOC_DISTANCES_TRANSFORM_LINKS,
+            DistancesTransform::MergeSwitchPorts => HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
+            DistancesTransform::TransitiveSwitchClosure => {
+                HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE
+            }
+            DistancesTransform::Unknown(unknown) => unknown.0,
+        }
+    }
+}
 
 /// Error returned when attempting to remove all distances using
 /// [`DistancesTransform::RemoveNone`].

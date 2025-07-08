@@ -30,7 +30,8 @@ impl OSDeviceAttributes {
     #[doc(alias = "hwloc_osdev_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s::type")]
     pub fn device_type(&self) -> OSDeviceType {
-        self.0.ty.try_into().expect("got unexpected OS device type")
+        // SAFETY: Comes from hwloc
+        unsafe { OSDeviceType::from_hwloc(self.0.ty) }
     }
 }
 //
@@ -44,23 +45,16 @@ impl Arbitrary for OSDeviceAttributes {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         use hwlocality_sys::hwloc_obj_osdev_type_t;
-        crate::strategies::enum_repr::<OSDeviceType, hwloc_obj_osdev_type_t>(
-            hwloc_obj_osdev_type_t::MIN,
-            hwloc_obj_osdev_type_t::MAX,
-        )
-        .prop_map(|ty| Self(hwloc_osdev_attr_s { ty }))
+        crate::strategies::enum_repr::<OSDeviceType, hwloc_obj_osdev_type_t>()
+            .prop_map(|ty| Self(hwloc_osdev_attr_s { ty }))
     }
 }
 //
 impl Debug for OSDeviceAttributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut debug = f.debug_struct("OSDeviceAttributes");
-        if OSDeviceType::try_from(self.0.ty).is_ok() {
-            debug.field("device_type", &self.device_type());
-        } else {
-            debug.field("device_type", &format!("{:?}", self.0.ty));
-        }
-        debug.finish()
+        f.debug_struct("OSDeviceAttributes")
+            .field("device_type", &self.device_type())
+            .finish()
     }
 }
 //
@@ -75,7 +69,6 @@ pub(super) mod tests {
     use crate::{
         ffi::transparent::AsInner,
         object::{attributes::ObjectAttributes, types::ObjectType},
-        tests::assert_panics,
     };
     use hwlocality_sys::hwloc_obj_attr_u;
     #[allow(unused)]
@@ -127,14 +120,7 @@ pub(super) mod tests {
     /// Check [`OSDeviceAttributes`] properties that should always be true
     #[allow(clippy::option_if_let_else, clippy::trivially_copy_pass_by_ref)]
     fn check_any_osdev(attr: &OSDeviceAttributes) -> Result<(), TestCaseError> {
-        let hwloc_osdev_attr_s { ty } = attr.0;
-        let device_type_dbg = if let Ok(device_type) = OSDeviceType::try_from(ty) {
-            prop_assert_eq!(attr.device_type(), device_type);
-            format!("{device_type:?}")
-        } else {
-            assert_panics(|| attr.device_type())?;
-            format!("\"{ty:?}\"")
-        };
+        let device_type_dbg = format!("{:?}", attr.device_type());
         prop_assert_eq!(
             format!("{attr:?}"),
             format!("OSDeviceAttributes {{ device_type: {device_type_dbg} }}")
