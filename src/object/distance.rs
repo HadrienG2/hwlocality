@@ -921,7 +921,7 @@ impl<'topology> Distances<'topology> {
     #[doc(alias = "hwloc_distances_s::kind")]
     pub fn kind(&self) -> DistancesKind {
         // SAFETY: No invalid mutation of inner state occurs
-        let result = DistancesKind::from_bits_truncate(unsafe { self.inner().kind });
+        let result = DistancesKind::from_bits_retain(unsafe { self.inner().kind });
         assert!(
             result.is_valid(false),
             "hwloc should not emit invalid kinds"

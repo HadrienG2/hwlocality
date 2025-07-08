@@ -251,7 +251,7 @@ impl Topology {
     pub fn build_flags(&self) -> BuildFlags {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        let result = BuildFlags::from_bits_truncate(unsafe {
+        let result = BuildFlags::from_bits_retain(unsafe {
             hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
         });
         assert!(result.is_valid(), "hwloc returned invalid flags");
