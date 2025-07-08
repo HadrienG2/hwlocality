@@ -36,6 +36,7 @@ use std::{
     ops::{Deref, DerefMut},
     ptr,
 };
+use strum::IntoEnumIterator;
 use tracing_error::{ErrorLayer, SpanTrace, SpanTraceStatus};
 use tracing_subscriber::prelude::*;
 
@@ -660,6 +661,7 @@ fn post_bind_checks<Set: SpecializedBitmap, Res: Debug>(
             MemoryBindingPolicy::FirstTouch => membind_support.first_touch_policy(),
             MemoryBindingPolicy::Interleave => membind_support.interleave_policy(),
             MemoryBindingPolicy::NextTouch => membind_support.next_touch_policy(),
+            MemoryBindingPolicy::Unknown(_) => false,
         };
         if !policy_supported {
             return Ok(None);
@@ -1432,7 +1434,7 @@ fn any_cpubind_flags() -> impl Strategy<Value = CpuBindingFlags> {
 
 /// Generate an arbitrary memory binding policy
 fn any_membind_policy() -> impl Strategy<Value = MemoryBindingPolicy> {
-    let policies = enum_iterator::all::<MemoryBindingPolicy>().collect::<Vec<_>>();
+    let policies = MemoryBindingPolicy::iter().collect::<Vec<_>>();
     prop::sample::select(policies)
 }
 

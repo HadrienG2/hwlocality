@@ -7,6 +7,7 @@
 pub(crate) mod int;
 pub(crate) mod string;
 pub(crate) mod transparent;
+pub(crate) mod unknown;
 
 #[allow(unused)]
 #[cfg(test)]

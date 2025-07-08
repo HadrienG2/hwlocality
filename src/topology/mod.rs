@@ -47,6 +47,7 @@ use std::{
     ptr::{self, NonNull},
     sync::OnceLock,
 };
+use strum::IntoEnumIterator;
 use thiserror::Error;
 
 /// Main entry point to the hwloc API
@@ -250,7 +251,7 @@ impl Topology {
     pub fn build_flags(&self) -> BuildFlags {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        let result = BuildFlags::from_bits_truncate(unsafe {
+        let result = BuildFlags::from_bits_retain(unsafe {
             hwlocality_sys::hwloc_topology_get_flags(self.as_ptr())
         });
         assert!(result.is_valid(), "hwloc returned invalid flags");
@@ -387,7 +388,8 @@ impl Topology {
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
-        Ok(TypeFilter::try_from(filter).expect("Unexpected type filter from hwloc"))
+        // SAFETY: Filter is from a successful hwloc API call
+        Ok(unsafe { TypeFilter::from_hwloc(filter) })
     }
 }
 
@@ -958,7 +960,7 @@ impl Debug for Topology {
             .field("build_flags", &self.build_flags())
             .field("is_this_system", &self.is_this_system())
             .field("feature_support", self.feature_support());
-        let type_filters = enum_iterator::all::<ObjectType>()
+        let type_filters = ObjectType::iter()
             .map(|ty| {
                 (
                     format!("{ty}"),
@@ -1052,7 +1054,7 @@ impl PartialEq for Topology {
         fn type_filters(
             topology: &Topology,
         ) -> impl Iterator<Item = Result<TypeFilter, RawHwlocError>> + '_ {
-            enum_iterator::all::<ObjectType>().map(|ty| topology.type_filter(ty))
+            ObjectType::iter().map(|ty| topology.type_filter(ty))
         }
         if !type_filters(self).eq(type_filters(other)) {
             return false;

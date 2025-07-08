@@ -1009,7 +1009,7 @@ impl<'topology> MemoryAttribute<'topology> {
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
-            Ok(_positive) => MemoryAttributeFlags::from_bits_truncate(flags),
+            Ok(_positive) => MemoryAttributeFlags::from_bits_retain(flags),
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..

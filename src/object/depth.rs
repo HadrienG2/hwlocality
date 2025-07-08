@@ -24,7 +24,7 @@
 
 // Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
 
-use crate::ffi::int::PositiveInt;
+use crate::ffi::{int::PositiveInt, unknown::UnknownVariant};
 #[cfg(doc)]
 use crate::object::{types::ObjectType, TopologyObject};
 #[cfg(feature = "hwloc-2_1_0")]
@@ -80,6 +80,9 @@ pub enum Depth {
     MemCache,
     // NOTE: Also add new virtual depths to the VIRTUAL_DEPTHS array and its
     //       type-specific declination below
+    //
+    /// Unknown [`hwloc_get_type_depth_e`] from `hwloc`
+    Unknown(UnknownVariant<hwloc_get_type_depth_e>),
 }
 //
 impl Depth {
@@ -111,7 +114,14 @@ impl Depth {
     pub const IO_DEPTHS: &'static [Self] = &[Self::Bridge, Self::PCIDevice, Self::OSDevice];
 
     /// Decode depth results from hwloc
-    pub(crate) fn from_raw(value: hwloc_get_type_depth_e) -> Result<Self, TypeToDepthError> {
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from `hwloc`, or else arbitrary mayhem may ensue when
+    /// the resulting value eventually gets sent to` hwloc`.
+    pub(crate) unsafe fn from_hwloc(
+        value: hwloc_get_type_depth_e,
+    ) -> Result<Self, TypeToDepthError> {
         match value {
             normal if normal >= 0 => {
                 let normal = NormalDepth::try_from_c_int(normal)
@@ -127,12 +137,12 @@ impl Depth {
             HWLOC_TYPE_DEPTH_MISC => Ok(Self::Misc),
             #[cfg(feature = "hwloc-2_1_0")]
             HWLOC_TYPE_DEPTH_MEMCACHE => Ok(Self::MemCache),
-            other => Err(TypeToDepthError::Unexpected(other)),
+            other => Ok(Self::Unknown(UnknownVariant(other))),
         }
     }
 
     /// Convert back to the hwloc depth format
-    pub(crate) fn to_raw(self) -> hwloc_get_type_depth_e {
+    pub(crate) fn to_hwloc(self) -> hwloc_get_type_depth_e {
         match self {
             Self::Normal(value) => value.to_c_int(),
             Self::NUMANode => HWLOC_TYPE_DEPTH_NUMANODE,
@@ -142,6 +152,7 @@ impl Depth {
             Self::Misc => HWLOC_TYPE_DEPTH_MISC,
             #[cfg(feature = "hwloc-2_1_0")]
             Self::MemCache => HWLOC_TYPE_DEPTH_MEMCACHE,
+            Self::Unknown(unknown) => unknown.0,
         }
     }
 }
@@ -312,11 +323,13 @@ mod tests {
     fn special_values() {
         assert_eq!(Depth::default(), Depth::from(NormalDepth::default()));
         assert_eq!(
-            Depth::from_raw(HWLOC_TYPE_DEPTH_UNKNOWN),
+            // SAFETY: Expected output from hwloc
+            unsafe { Depth::from_hwloc(HWLOC_TYPE_DEPTH_UNKNOWN) },
             Err(TypeToDepthError::Nonexistent)
         );
         assert_eq!(
-            Depth::from_raw(HWLOC_TYPE_DEPTH_MULTIPLE),
+            // SAFETY: Expected output from hwloc
+            unsafe { Depth::from_hwloc(HWLOC_TYPE_DEPTH_MULTIPLE) },
             Err(TypeToDepthError::Multiple)
         );
         const RAW_DEPTHS: &[hwloc_get_type_depth_e] = &[
@@ -332,7 +345,8 @@ mod tests {
         ];
         assert_eq!(RAW_DEPTHS.len(), Depth::VIRTUAL_DEPTHS.len());
         for (&raw, &depth) in RAW_DEPTHS.iter().zip(Depth::VIRTUAL_DEPTHS) {
-            assert_eq!(Depth::from_raw(raw), Ok(depth))
+            // SAFETY: Expected output from hwloc
+            assert_eq!(unsafe { Depth::from_hwloc(raw) }, Ok(depth))
         }
     }
 
@@ -346,13 +360,13 @@ mod tests {
                 prop_assert_eq!(NormalDepth::try_from(depth), Ok(normal));
                 prop_assert_eq!(usize::try_from(depth).unwrap(), normal);
                 prop_assert_eq!(depth.expect_normal(), normal);
-                prop_assert!(depth.to_raw() >= 0);
+                prop_assert!(depth.to_hwloc() >= 0);
             } else {
                 prop_assert_eq!(depth.to_string(), format!("<{depth:?}>"));
                 prop_assert!(NormalDepth::try_from(depth).is_err());
                 prop_assert!(usize::try_from(depth).is_err());
                 assert_panics(|| depth.expect_normal())?;
-                prop_assert!(depth.to_raw() <= HWLOC_TYPE_DEPTH_NUMANODE);
+                prop_assert!(depth.to_hwloc() <= HWLOC_TYPE_DEPTH_NUMANODE);
             }
         }
 
@@ -385,7 +399,10 @@ mod tests {
 
         #[test]
         fn from_raw(value: hwloc_get_type_depth_e) {
-            let depth_res = Depth::from_raw(value);
+            // SAFETY: value is not necessarily a valid output from hwloc here,
+            //         but we will not send the resulting invalid depth to any
+            //         hwloc function so we can get away with it.
+            let depth_res = unsafe { Depth::from_hwloc(value) };
             if value >= 0 {
                 prop_assert!(depth_res.is_ok());
                 prop_assert_eq!(depth_res.unwrap(), usize::try_from(value).unwrap());
@@ -398,7 +415,7 @@ mod tests {
             {
                 prop_assert!(depth_res.is_ok());
             } else {
-                prop_assert_eq!(depth_res, Err(TypeToDepthError::Unexpected(value)));
+                prop_assert_eq!(depth_res, Ok(Depth::Unknown(UnknownVariant(value))));
             }
         }
 

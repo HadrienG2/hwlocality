@@ -7,12 +7,11 @@ use super::{
     TopologyObject,
 };
 use crate::{
-    ffi::{int, transparent::AsNewtype},
+    ffi::{int, transparent::AsNewtype, unknown::UnknownVariant},
     object::TopologyObjectID,
     topology::Topology,
 };
 use hwlocality_sys::hwloc_obj_type_t;
-use num_enum::TryFromPrimitiveError;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -89,8 +88,12 @@ impl Topology {
     pub fn memory_parents_depth(&self) -> Result<NormalDepth, TypeToDepthError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        Depth::from_raw(unsafe { hwlocality_sys::hwloc_get_memory_parents_depth(self.as_ptr()) })
-            .map(Depth::expect_normal)
+        unsafe {
+            Depth::from_hwloc(hwlocality_sys::hwloc_get_memory_parents_depth(
+                self.as_ptr(),
+            ))
+        }
+        .map(Depth::expect_normal)
     }
 
     /// Depth for the given [`ObjectType`]
@@ -132,9 +135,12 @@ impl Topology {
         //           of hwloc, and build.rs checks that the active version of
         //           hwloc is not older than that, so into() may only generate
         //           valid hwloc_obj_type_t values for current hwloc
-        Depth::from_raw(unsafe {
-            hwlocality_sys::hwloc_get_type_depth(self.as_ptr(), object_type.into())
-        })
+        unsafe {
+            Depth::from_hwloc(hwlocality_sys::hwloc_get_type_depth(
+                self.as_ptr(),
+                object_type.into(),
+            ))
+        }
     }
 
     /// Depth for the given [`ObjectType`] or below
@@ -378,6 +384,7 @@ impl Topology {
     {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(self_: &Topology, depth: Depth) -> Option<ObjectType> {
+            #[allow(clippy::wildcard_enum_match_arm)]
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - By construction, Depth only exposes values that map into
@@ -385,16 +392,14 @@ impl Topology {
             //           version of hwloc, and build.rs checks that the active
             //           version of hwloc is not older than that, so into() may only
             //           generate valid hwloc_get_depth_type_e values for current hwloc
-            match unsafe { hwlocality_sys::hwloc_get_depth_type(self_.as_ptr(), depth.to_raw()) }
-                .try_into()
-            {
-                Ok(depth) => Some(depth),
-                Err(TryFromPrimitiveError {
-                    number: hwloc_obj_type_t::MAX,
-                }) => None,
-                Err(unknown) => {
-                    unreachable!("Got unknown object type from hwloc_get_depth_type: {unknown}")
-                }
+            match unsafe {
+                ObjectType::from_hwloc(hwlocality_sys::hwloc_get_depth_type(
+                    self_.as_ptr(),
+                    depth.to_hwloc(),
+                ))
+            } {
+                ObjectType::Unknown(UnknownVariant(hwloc_obj_type_t::MAX)) => None,
+                other_type => Some(other_type),
             }
         }
 
@@ -438,7 +443,7 @@ impl Topology {
         //           version of hwloc is not older than that, so into() may only
         //           generate valid hwloc_get_depth_type_e values for current hwloc
         int::expect_usize(unsafe {
-            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.to_raw())
+            hwlocality_sys::hwloc_get_nbobjs_by_depth(self.as_ptr(), depth.to_hwloc())
         })
     }
 
@@ -490,7 +495,7 @@ impl Topology {
         ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
         {
             let size = self_.num_objects_at_depth(depth);
-            let depth = depth.to_raw();
+            let depth = depth.to_hwloc();
             (0..size).map(move |idx| {
                 let idx = c_uint::try_from(idx).expect("Can't happen, size comes from hwloc");
                 let ptr =
@@ -741,6 +746,7 @@ pub(crate) mod tests {
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
     use std::{collections::HashSet, ptr, sync::OnceLock};
+    use strum::IntoEnumIterator;
 
     /// Check that reported topology depth matches hwloc rule that PUs are the
     /// deepest kind of normal object
@@ -811,7 +817,7 @@ pub(crate) mod tests {
         // all types + also check depth_or_(above|below) for present types
         let mut absent_normal_types = Vec::new();
         #[allow(clippy::option_if_let_else)]
-        for ty in enum_iterator::all::<ObjectType>() {
+        for ty in ObjectType::iter() {
             if let Some(depths) = type_to_depths.get(&ty) {
                 let expected = if depths.len() == 1 {
                     Ok(depths[0])
@@ -975,7 +981,7 @@ pub(crate) mod tests {
 
         let type_to_depths = type_to_depths();
 
-        for ty in enum_iterator::all::<ObjectType>() {
+        for ty in ObjectType::iter() {
             // Does it only expose objects of the right type?
             for obj in topology.objects_with_type(ty) {
                 assert_eq!(obj.object_type(), ty);
@@ -1067,7 +1073,7 @@ pub(crate) mod tests {
             .map(|kind| Some(kind.ty))
             .chain(std::iter::once(None))
             .collect::<HashSet<_>>();
-        let invalid_cache_types = enum_iterator::all::<CacheType>()
+        let invalid_cache_types = CacheType::iter()
             .map(Some)
             .filter(|ty| !valid_cache_types.contains(ty))
             .collect::<Vec<_>>();
@@ -1183,6 +1189,7 @@ pub(crate) mod tests {
             Ok(Depth::Misc) => prop_assert_eq!(result, Some(ObjectType::Misc)),
             #[cfg(feature = "hwloc-2_1_0")]
             Ok(Depth::MemCache) => prop_assert_eq!(result, Some(ObjectType::MemCache)),
+            Ok(Depth::Unknown(_)) => {}
             Err(_) => prop_assert_eq!(result, None),
         }
         Ok(())

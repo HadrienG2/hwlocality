@@ -8,7 +8,6 @@
 // - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
 // - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
 
-use crate::errors;
 #[cfg(doc)]
 use crate::{
     cpu::cpuset::CpuSet,
@@ -19,14 +18,15 @@ use crate::{
         support::DiscoverySupport,
     },
 };
+use crate::{errors, ffi::unknown::UnknownVariant};
 use derive_more::Display;
-use enum_iterator::Sequence;
 #[cfg(feature = "hwloc-3_0_0")]
 use hwlocality_sys::HWLOC_OBJ_OSDEV_MEMORY;
 use hwlocality_sys::{
-    hwloc_obj_type_t, HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI,
-    HWLOC_OBJ_CACHE_DATA, HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE,
-    HWLOC_OBJ_GROUP, HWLOC_OBJ_L1CACHE, HWLOC_OBJ_L1ICACHE, HWLOC_OBJ_L2CACHE, HWLOC_OBJ_L2ICACHE,
+    hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
+    HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI, HWLOC_OBJ_CACHE_DATA,
+    HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE, HWLOC_OBJ_GROUP,
+    HWLOC_OBJ_L1CACHE, HWLOC_OBJ_L1ICACHE, HWLOC_OBJ_L2CACHE, HWLOC_OBJ_L2ICACHE,
     HWLOC_OBJ_L3CACHE, HWLOC_OBJ_L3ICACHE, HWLOC_OBJ_L4CACHE, HWLOC_OBJ_L5CACHE, HWLOC_OBJ_MACHINE,
     HWLOC_OBJ_MISC, HWLOC_OBJ_NUMANODE, HWLOC_OBJ_OSDEV_COPROC, HWLOC_OBJ_OSDEV_DMA,
     HWLOC_OBJ_OSDEV_GPU, HWLOC_OBJ_OSDEV_NETWORK, HWLOC_OBJ_OSDEV_OPENFABRICS,
@@ -35,16 +35,14 @@ use hwlocality_sys::{
 };
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::{HWLOC_OBJ_DIE, HWLOC_OBJ_MEMCACHE};
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{cmp::Ordering, ffi::c_int};
+use strum::{EnumCount, EnumIter, FromRepr};
 
 /// Type of one side (upstream or downstream) of an I/O bridge
-#[derive(
-    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
-)]
+#[derive(Copy, Clone, Debug, Display, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq)]
 #[doc(alias = "hwloc_obj_bridge_type_e")]
 #[doc(alias = "hwloc_obj_bridge_type_t")]
 #[repr(u32)]
@@ -56,14 +54,37 @@ pub enum BridgeType {
     /// PCI-side of a bridge
     #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
     PCI = HWLOC_OBJ_BRIDGE_PCI,
+
+    /// Unknown [`hwloc_obj_bridge_type_t`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_obj_bridge_type_t>),
+}
+//
+impl BridgeType {
+    /// Build a `BridgeType` from an hwloc-originated [`hwloc_obj_bridge_type_t`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    pub(crate) unsafe fn from_hwloc(value: hwloc_obj_bridge_type_t) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
 }
 //
 crate::impl_arbitrary_for_sequence!(BridgeType);
+//
+impl From<BridgeType> for hwloc_obj_bridge_type_t {
+    fn from(value: BridgeType) -> Self {
+        match value {
+            BridgeType::Host => HWLOC_OBJ_BRIDGE_HOST,
+            BridgeType::PCI => HWLOC_OBJ_BRIDGE_PCI,
+            BridgeType::Unknown(unknown) => unknown.0,
+        }
+    }
+}
 
 /// Cache type
-#[derive(
-    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
-)]
+#[derive(Copy, Clone, Debug, Display, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq)]
 #[doc(alias = "hwloc_obj_cache_type_e")]
 #[doc(alias = "hwloc_obj_cache_type_t")]
 #[repr(u32)]
@@ -79,14 +100,38 @@ pub enum CacheType {
     /// Instruction cache (filtered out by default)
     #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
+
+    /// Unknown [`hwloc_obj_cache_type_t`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_obj_cache_type_t>),
+}
+//
+impl CacheType {
+    /// Build a `CacheType` from an hwloc-originated [`hwloc_obj_cache_type_t`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    pub(crate) unsafe fn from_hwloc(value: hwloc_obj_cache_type_t) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
 }
 //
 crate::impl_arbitrary_for_sequence!(CacheType);
+//
+impl From<CacheType> for hwloc_obj_cache_type_t {
+    fn from(value: CacheType) -> Self {
+        match value {
+            CacheType::Unified => HWLOC_OBJ_CACHE_UNIFIED,
+            CacheType::Data => HWLOC_OBJ_CACHE_DATA,
+            CacheType::Instruction => HWLOC_OBJ_CACHE_INSTRUCTION,
+            CacheType::Unknown(unknown) => unknown.0,
+        }
+    }
+}
 
 /// Type of a OS device
-#[derive(
-    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
-)]
+#[derive(Clone, Copy, Debug, Display, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq)]
 #[doc(alias = "hwloc_obj_osdev_type_e")]
 #[doc(alias = "hwloc_obj_osdev_type_t")]
 #[repr(u32)]
@@ -136,9 +181,40 @@ pub enum OSDeviceType {
     #[cfg(feature = "hwloc-3_0_0")]
     #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
+
+    /// Unknown [`hwloc_obj_osdev_type_t`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_obj_osdev_type_t>),
+}
+//
+impl OSDeviceType {
+    /// Build a `OSDeviceType` from an hwloc-originated [`hwloc_obj_osdev_type_t`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    pub(crate) unsafe fn from_hwloc(value: hwloc_obj_osdev_type_t) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
 }
 //
 crate::impl_arbitrary_for_sequence!(OSDeviceType);
+//
+impl From<OSDeviceType> for hwloc_obj_osdev_type_t {
+    fn from(value: OSDeviceType) -> Self {
+        match value {
+            OSDeviceType::Storage => HWLOC_OBJ_OSDEV_STORAGE,
+            OSDeviceType::GPU => HWLOC_OBJ_OSDEV_GPU,
+            OSDeviceType::Network => HWLOC_OBJ_OSDEV_NETWORK,
+            OSDeviceType::OpenFabrics => HWLOC_OBJ_OSDEV_OPENFABRICS,
+            OSDeviceType::DMA => HWLOC_OBJ_OSDEV_DMA,
+            OSDeviceType::CoProcessor => HWLOC_OBJ_OSDEV_COPROC,
+            #[cfg(feature = "hwloc-3_0_0")]
+            OSDeviceType::Memory => HWLOC_OBJ_OSDEV_MEMORY,
+            OSDeviceType::Unknown(unknown) => unknown.0,
+        }
+    }
+}
 
 /// Represents the type of a [`TopologyObject`].
 ///
@@ -154,9 +230,7 @@ crate::impl_arbitrary_for_sequence!(OSDeviceType);
 /// It can also help to think of it as comparing the relative depths of each type, so
 /// a `ObjectType::Machine` will be smaller than a `ObjectType::PU` since the machine
 /// contains processing units.
-#[derive(
-    Copy, Clone, Debug, Display, Eq, Hash, IntoPrimitive, TryFromPrimitive, PartialEq, Sequence,
-)]
+#[derive(Copy, Clone, Debug, Display, EnumCount, EnumIter, Eq, FromRepr, Hash, PartialEq)]
 #[doc(alias = "hwloc_obj_type_e")]
 #[doc(alias = "hwloc_obj_type_t")]
 #[non_exhaustive]
@@ -339,9 +413,22 @@ pub enum ObjectType {
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die = HWLOC_OBJ_DIE,
+
+    /// Unknown [`hwloc_obj_type_t`] from `hwloc`
+    #[strum(disabled)]
+    Unknown(UnknownVariant<hwloc_obj_type_t>),
 }
 //
 impl ObjectType {
+    /// Build an `ObjectType` from an hwloc-originated [`hwloc_obj_type_t`]
+    ///
+    /// # Safety
+    ///
+    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    pub(crate) unsafe fn from_hwloc(value: hwloc_obj_type_t) -> Self {
+        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
+    }
+
     /// Truth that this type is part of the normal hierarchy (not Memory, I/O or Misc)
     #[doc(alias = "hwloc_obj_type_is_normal")]
     pub fn is_normal(self) -> bool {
@@ -469,6 +556,36 @@ impl ObjectType {
 //
 crate::impl_arbitrary_for_sequence!(ObjectType);
 //
+impl From<ObjectType> for hwloc_obj_type_t {
+    fn from(value: ObjectType) -> Self {
+        match value {
+            ObjectType::Machine => HWLOC_OBJ_MACHINE,
+            ObjectType::Package => HWLOC_OBJ_PACKAGE,
+            ObjectType::Core => HWLOC_OBJ_CORE,
+            ObjectType::PU => HWLOC_OBJ_PU,
+            ObjectType::L1Cache => HWLOC_OBJ_L1CACHE,
+            ObjectType::L2Cache => HWLOC_OBJ_L2CACHE,
+            ObjectType::L3Cache => HWLOC_OBJ_L3CACHE,
+            ObjectType::L4Cache => HWLOC_OBJ_L4CACHE,
+            ObjectType::L5Cache => HWLOC_OBJ_L5CACHE,
+            ObjectType::L1ICache => HWLOC_OBJ_L1ICACHE,
+            ObjectType::L2ICache => HWLOC_OBJ_L2ICACHE,
+            ObjectType::L3ICache => HWLOC_OBJ_L3ICACHE,
+            ObjectType::Group => HWLOC_OBJ_GROUP,
+            ObjectType::NUMANode => HWLOC_OBJ_NUMANODE,
+            ObjectType::Bridge => HWLOC_OBJ_BRIDGE,
+            ObjectType::PCIDevice => HWLOC_OBJ_PCI_DEVICE,
+            ObjectType::OSDevice => HWLOC_OBJ_OS_DEVICE,
+            ObjectType::Misc => HWLOC_OBJ_MISC,
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::MemCache => HWLOC_OBJ_MEMCACHE,
+            #[cfg(feature = "hwloc-2_1_0")]
+            ObjectType::Die => HWLOC_OBJ_DIE,
+            ObjectType::Unknown(unknown) => unknown.0,
+        }
+    }
+}
+//
 impl PartialOrd for ObjectType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let result =
@@ -512,7 +629,7 @@ mod tests {
     // traits, in the interest of detecting future semver-breaking changes
     assert_impl_all!(BridgeType:
         Copy, Debug, Display, Hash, Into<hwloc_obj_bridge_type_t>, Sized, Sync,
-        TryFrom<hwloc_obj_bridge_type_t>, Unpin, UnwindSafe
+        Unpin, UnwindSafe
     );
     assert_not_impl_any!(BridgeType:
         Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
@@ -521,7 +638,7 @@ mod tests {
     );
     assert_impl_all!(CacheType:
         Copy, Debug, Display, Hash, Into<hwloc_obj_cache_type_t>, Sized, Sync,
-        TryFrom<hwloc_obj_cache_type_t>, Unpin, UnwindSafe
+        Unpin, UnwindSafe
     );
     assert_not_impl_any!(CacheType:
         Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
@@ -530,7 +647,7 @@ mod tests {
     );
     assert_impl_all!(ObjectType:
         Copy, Debug, Display, Hash, Into<hwloc_obj_type_t>, PartialOrd, Sized,
-        Sync, TryFrom<hwloc_obj_type_t>, Unpin, UnwindSafe
+        Sync, Unpin, UnwindSafe
     );
     assert_not_impl_any!(ObjectType:
         Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
@@ -539,7 +656,7 @@ mod tests {
     );
     assert_impl_all!(OSDeviceType:
         Copy, Debug, Display, Hash, Into<hwloc_obj_osdev_type_t>, Sized, Sync,
-        TryFrom<hwloc_obj_osdev_type_t>, Unpin, UnwindSafe
+        Unpin, UnwindSafe
     );
     assert_not_impl_any!(OSDeviceType:
         Binary, Default, Deref, Drop, Error, IntoIterator, LowerExp, LowerHex,
@@ -638,6 +755,7 @@ mod tests {
                     check_normal(ty)?;
                     prop_assert!(!ty.is_cpu_cache());
                 }
+                ObjectType::Unknown(_) => {}
             }
         }
 

@@ -144,6 +144,7 @@ mod tests {
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
+    use strum::IntoEnumIterator;
 
     proptest! {
         #[test]
@@ -178,7 +179,7 @@ mod tests {
             //
             if !flags.contains(SyntheticExportFlags::NO_EXTENDED_TYPES) {
                 let flags_affecting_memobjs = SyntheticExportFlags::IGNORE_MEMORY | SyntheticExportFlags::V1;
-                for ty in enum_iterator::all::<ObjectType>() {
+                for ty in ObjectType::iter() {
                     if ty.is_normal()
                        || (ty.is_memory() && !flags.intersects(flags_affecting_memobjs))
                     {

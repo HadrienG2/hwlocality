@@ -36,7 +36,7 @@ overflow-checks = false
 
 [package]
 name = "hwlocality"
-version = "1.0.0-alpha.8"
+version = "1.0.0-alpha.9"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -188,10 +188,7 @@ arrayvec = "0.7"
 bitflags = "2.9"
 
 # Used to simplify the implementation of newtypes
-derive_more = { version = "2.0", default-features = false, features = ["as_ref", "display", "from", "into", "into_iterator", "not"] }
-
-# Used for optional proptest feature and in topology debug output
-enum-iterator = "2.0"
+derive_more = { version = "2.0", default-features = false, features = ["as_ref", "deref", "display", "from", "into", "into_iterator", "not"] }
 
 # Used to interpret and report hwloc error codes
 errno = "0.3"
@@ -202,8 +199,8 @@ hwlocality-sys = { path = "./hwlocality-sys" }
 # Used for malloc, free, OS typedefs, and example thread queries
 libc.workspace = true
 
-# Used to interface hwloc enums
-num_enum = { version = "0.7", default-features = false }
+# Used to interface hwloc enums + for proptests and topology debug output
+strum = { version = "0.27.1", features = ["derive"] }
 
 # Used to simplify error reporting
 thiserror = "2.0"
