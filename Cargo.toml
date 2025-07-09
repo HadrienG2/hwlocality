@@ -140,7 +140,7 @@ hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
 # - MemoryBindingPolicy::WeightedInterleave is now available on Linux 6.9+, with
 #   a matching MemoryBindingSupport::weighted_interleave_policy() query.
 # - TopologyEditor::insert_group_object() can finally expose a safe way to set
-#   a group object's on Windows, thanks to official support from hwloc.
+#   a group object's subtype on Windows, thanks to official support from hwloc.
 #
 # ...in addition to all features listed above
 hwloc-2_11_0 = ["hwlocality-sys/hwloc-2_11_0", "hwloc-2_10_0"]
