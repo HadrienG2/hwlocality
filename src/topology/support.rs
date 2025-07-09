@@ -851,6 +851,8 @@ mod tests {
                 nexttouch_membind: 0,
                 migrate_membind: 0,
                 get_area_memlocation: 0,
+                #[cfg(feature = "hwloc-2_11_0")]
+                weighted_interleave_membind: 0,
             },
         )
     }
@@ -899,6 +901,8 @@ mod tests {
                 nexttouch_membind: 0,
                 migrate_membind: 0,
                 get_area_memlocation: 1,
+                #[cfg(feature = "hwloc-2_11_0")]
+                weighted_interleave_membind: 0,
             },
         )
     }
