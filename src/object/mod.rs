@@ -161,10 +161,9 @@ impl TopologyObject {
     /// This exposes [`TopologyObject::set_subtype_unchecked()`] as a safe
     /// method on operating systems which aren't known to facilitate mixing and
     /// matching libc versions between an application and its dependencies.
-    #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_errors_doc, deprecated)]
     #[cfg(all(feature = "hwloc-2_3_0", not(windows), not(tarpaulin_include)))]
     #[deprecated = "Use the subtype parameter to TopologyEditor::insert_group_object()"]
-    #[expect(deprecated)]
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
         // SAFETY: Underlying OS is assumed not to ergonomically encourage
         //         unsafe multi-libc linkage
