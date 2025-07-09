@@ -24,7 +24,7 @@ use crate::{
         string::LibcString,
         transparent::{AsInner, AsNewtype},
     },
-    object::{types::ObjectType, TopologyObject},
+    object::{types::ObjectType, TopologyObject, TopologyObjectID},
     topology::{editor::TopologyEditor, Topology},
 };
 use bitflags::bitflags;
@@ -1037,12 +1037,21 @@ impl<'topology> MemoryAttribute<'topology> {
     /// use it to provide custom information about host memory accesses
     /// performed by GPUs.
     ///
+    /// For certain attributes, `target_node` should satisfy extra propreties:
+    ///
+    /// - It must be a NUMA node when `self` is [`MemoryAttribute::capacity()`]
+    /// - It must have a CPU set when `self` is [`MemoryAttribute::locality()`]
+    ///
+    /// If this is not true, the [`InvalidTarget`] error will be returned.
+    ///
     /// # Errors
     ///
     /// - [`ForeignInitiator`] if the `initiator` parameter was set to a
     ///   [`TopologyObject`] that does not belong to this topology
     /// - [`ForeignTarget`] if the `target_node` object does not belong to this
     ///   topology
+    /// - [`InvalidTarget`] if `target_node` is not a valid target for this
+    ///   attribute.
     /// - [`NeedInitiator`] if no `initiator` was provided but this memory
     ///   attribute needs one
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
@@ -1050,6 +1059,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
     /// [`ForeignTarget`]: ValueQueryError::ForeignTarget
+    /// [`InvalidTarget`]: ValueQueryError::InvalidTarget
     /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
     /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_get_value")]
@@ -1068,6 +1078,14 @@ impl<'topology> MemoryAttribute<'topology> {
         // Check target argument
         if !self.topology.contains(target_node) {
             return Err(ValueQueryError::ForeignTarget(target_node.into()).into());
+        }
+        if (self.id == HWLOC_MEMATTR_ID_CAPACITY
+            && target_node.object_type() != ObjectType::NUMANode)
+            || (self.id == HWLOC_MEMATTR_ID_LOCALITY && target_node.cpuset().is_none())
+        {
+            return Err(
+                ValueQueryError::InvalidTarget(target_node.global_persistent_index()).into(),
+            );
         }
 
         // Run the query
@@ -1610,6 +1628,10 @@ pub enum ValueQueryError {
     /// Specified target object does not belong to this topology
     #[error("memory attribute target {0}")]
     ForeignTarget(ForeignObjectError),
+
+    /// Specified target object is not valid for this attribute
+    #[error("target object #{0} is not valid for this attribute")]
+    InvalidTarget(TopologyObjectID),
 }
 
 /// Where to measure attributes from
