@@ -1034,7 +1034,7 @@ where
     ///   consistent.
     ///
     /// [`Inconsistent`]: InsertGroupError::Inconsistent
-    pub(self) fn filter_children<'topology>(
+    fn filter_children<'topology>(
         &mut self,
         parent: &'topology TopologyObject,
         make_hwloc_input: bool,
@@ -1204,9 +1204,7 @@ struct AllocatedGroup<'editor, 'topology> {
 //
 impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     /// Allocate a new Group object
-    pub(self) fn new(
-        editor: &'editor mut TopologyEditor<'topology>,
-    ) -> Result<Self, RawHwlocError> {
+    fn new(editor: &'editor mut TopologyEditor<'topology>) -> Result<Self, RawHwlocError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
@@ -1243,7 +1241,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     /// [`Empty`]: InsertGroupError::Empty
     /// [`ForeignParent`]: InsertGroupError::ForeignParent
     /// [`Inconsistent`]: InsertGroupError::Inconsistent
-    pub(self) fn add_children<NormalFilter, MemoryFilter>(
+    fn add_children<NormalFilter, MemoryFilter>(
         &mut self,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
         mut child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
@@ -1327,7 +1325,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///
     /// By default, hwloc may or may not merge identical groups covering the
     /// same objects. You can encourage or inhibit this tendency with this method.
-    pub(self) fn configure_merging(&mut self, dont_merge: bool) {
+    fn configure_merging(&mut self, dont_merge: bool) {
         let group_attributes: &mut GroupAttributes =
             // SAFETY: - We know this is a group object as a type invariant, so
             //           accessing the group raw attribute is safe
@@ -1356,7 +1354,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
     ///   [`TypeFilter::KeepNone`]
     /// - The object was discarded because no set was initialized in the Group,
     ///   or they were all empty.
-    pub(self) fn insert(mut self) -> Result<InsertedGroup<'topology>, RawHwlocError> {
+    fn insert(mut self) -> Result<InsertedGroup<'topology>, RawHwlocError> {
         // SAFETY: self is forgotten after this, so no drop or reuse will occur
         let res = unsafe { self.insert_impl() };
         std::mem::forget(self);
