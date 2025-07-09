@@ -13,7 +13,7 @@ links = "hwloc"
 
 # See hwlocality's main Cargo.toml for detailed feature descriptions
 [features]
-hwloc-latest = ["hwloc-2_10_0"]
+hwloc-latest = ["hwloc-2_11_0"]
 hwloc-2_0_4 = []
 hwloc-2_1_0 = ["hwloc-2_0_4"]
 hwloc-2_2_0 = ["hwloc-2_1_0"]

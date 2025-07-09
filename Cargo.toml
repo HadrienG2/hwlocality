@@ -52,7 +52,7 @@ categories.workspace = true
 # It is not recommended to use this feature in production, since an update to
 # hwlocality can silently bump your hwloc build requirement. But this feature is
 # convenient for scenarios like CI where you want to test with all features on.
-hwloc-latest = ["hwloc-2_10_0"]
+hwloc-latest = ["hwloc-2_11_0"]
 
 # Require at least hwloc v2.0.4, which enables...
 #
