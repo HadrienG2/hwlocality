@@ -66,7 +66,10 @@ use thiserror::Error;
 /// - [CPU cache statistics](#cpu-cache-statistics) (specific to Rust bindings)
 /// - [CPU binding](#cpu-binding)
 /// - [Memory binding](#memory-binding)
-/// - [Modifying a loaded topology](#modifying-a-loaded-topology)
+#[cfg_attr(
+    feature = "hwloc-2_3_0",
+    doc = "- [Modifying a loaded topology](#modifying-a-loaded-topology) (hwloc 2.3+)"
+)]
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
 /// - [Finding other objects](#finding-other-objects)
