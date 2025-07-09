@@ -14,10 +14,9 @@ runs:
     #       This is surprising since hwloc itself doesn't need it.
     - name: Force-install liblzma-dev (Ubuntu)
       if: runner.os == 'Linux'
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: Eeems-Org/apt-cache-action@v1
       with:
         packages: liblzma-dev
-        version: 1.0
 
     - name: Cache hwloc install (Unices)
       if: runner.os != 'Windows'
