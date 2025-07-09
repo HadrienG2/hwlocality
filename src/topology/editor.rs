@@ -579,6 +579,7 @@ impl<'topology> TopologyEditor<'topology> {
     // Trait is not allowed yet.
     #[doc(alias = "hwloc_topology_alloc_group_object")]
     #[doc(alias = "hwloc_obj_add_other_obj_sets")]
+    #[doc(alias = "hwloc_obj_set_subtype")]
     #[doc(alias = "hwloc_topology_insert_group_object")]
     pub fn insert_group_object<NormalFilter, MemoryFilter>(
         &mut self,
