@@ -135,8 +135,18 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # ...in addition to all features listed above
 hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
 
+# Require at least hwloc v2.11.0
+#
+# - MemoryBindingPolicy::WeightedInterleave is now available on Linux 6.9+, with
+#   a matching MemoryBindingSupport::weighted_interleave_policy() query.
+# - TopologyEditor::insert_group_object() can finally expose a safe way to set
+#   a group object's on Windows, thanks to official support from hwloc.
+#
+# ...in addition to all features listed above
+hwloc-2_11_0 = ["hwlocality-sys/hwloc-2_11_0", "hwloc-2_10_0"]
+
 # WIP hwloc v3.0.0 support, do not use yet!
-hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_10_0"]
+hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_11_0"]
 
 # To support a new hwloc release that introduces API or ABI changes (see the
 # NEWS file in the hwloc source tree for release notes)...

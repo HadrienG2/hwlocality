@@ -150,11 +150,21 @@ impl TopologyObject {
 
     /// Set the subtype string
     ///
+    /// <div class="warning">
+    ///
+    /// To accomodate API changes in hwloc v2.11, this method had to be
+    /// deprecated and replaced with a new `subtype` optional parameter to the
+    /// `TopologyEditor::insert_group_object()` method.
+    ///
+    /// </div>
+    ///
     /// This exposes [`TopologyObject::set_subtype_unchecked()`] as a safe
     /// method on operating systems which aren't known to facilitate mixing and
     /// matching libc versions between an application and its dependencies.
     #[allow(clippy::missing_errors_doc)]
-    #[cfg(all(feature = "hwloc-2_3_0", not(windows)))]
+    #[cfg(all(feature = "hwloc-2_3_0", not(windows), not(tarpaulin_include)))]
+    #[deprecated = "Use the subtype parameter to TopologyEditor::insert_group_object()"]
+    #[expect(deprecated)]
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
         // SAFETY: Underlying OS is assumed not to ergonomically encourage
         //         unsafe multi-libc linkage
@@ -162,6 +172,14 @@ impl TopologyObject {
     }
 
     /// Set the subtype string
+    ///
+    /// <div class="warning">
+    ///
+    /// To accomodate API changes in hwloc v2.11, this method had to be
+    /// deprecated and replaced with a new `subtype` optional parameter to the
+    /// `TopologyEditor::insert_group_object()` method.
+    ///
+    /// </div>
     ///
     /// This is something you'll often want to do when creating Group or Misc
     /// objects in order to make them more descriptive.
@@ -185,7 +203,8 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
-    #[cfg(feature = "hwloc-2_3_0")]
+    #[cfg(all(feature = "hwloc-2_3_0", not(tarpaulin_include)))]
+    #[deprecated = "Use the subtype parameter to TopologyEditor::insert_group_object()"]
     pub unsafe fn set_subtype_unchecked(&mut self, subtype: &str) -> Result<(), NulError> {
         // SAFETY: Per input precondition
         self.0.subtype = unsafe { LibcString::new(subtype)?.into_raw() };
@@ -1757,27 +1776,6 @@ pub(crate) mod tests {
         }
 
         proptest! {
-            // Try to set an object's subtype
-            #[cfg(not(windows))]
-            #[test]
-            fn set_subtype(subtype in any_string()) {
-                test_object_editing(|obj| {
-                    // Try to set an object's subtype
-                    let res = obj.set_subtype(&subtype);
-
-                    // Handle inner NULs
-                    if subtype.chars().any(|c| c == '\0') {
-                        prop_assert_eq!(res, Err(NulError));
-                        return Ok(());
-                    }
-
-                    // Assume success otherwise
-                    res.unwrap();
-                    prop_assert_eq!(obj.subtype().unwrap().to_str().unwrap(), subtype);
-                    Ok(())
-                })?;
-            }
-
             // Try to add an info (key, value) pair to an object
             #[test]
             fn add_info(name in any_string(), value in any_string()) {

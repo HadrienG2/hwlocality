@@ -20,6 +20,8 @@ use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::Errno;
+#[cfg(feature = "hwloc-2_11_0")]
+use hwlocality_sys::HWLOC_MEMBIND_WEIGHTED_INTERLEAVE;
 use hwlocality_sys::{
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
     hwloc_membind_policy_t, hwloc_pid_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET,
@@ -291,6 +293,10 @@ impl Topology {
             MemoryBindingPolicy::Bind
             | MemoryBindingPolicy::Interleave
             | MemoryBindingPolicy::Unknown(_) => {
+                bytes.fill(MaybeUninit::new(0));
+            }
+            #[cfg(feature = "hwloc-2_11_0")]
+            MemoryBindingPolicy::WeightedInterleave => {
                 bytes.fill(MaybeUninit::new(0));
             }
         }
@@ -1471,6 +1477,21 @@ pub enum MemoryBindingPolicy {
     #[doc(alias = "HWLOC_MEMBIND_INTERLEAVE")]
     Interleave = HWLOC_MEMBIND_INTERLEAVE,
 
+    /// Allocate memory on the given nodes in an interleaved / weighted manner.
+    ///
+    /// The precise layout of the memory across multiple NUMA nodes is OS/system
+    /// specific.
+    ///
+    /// Weighted interleaving can be useful when threads distributed across the
+    /// specified NUMA nodes with different bandwidth capabilities will all be
+    /// accessing the whole memory range concurrently, since the interleave will
+    /// then balance the memory references.
+    ///
+    /// Requires [`MemoryBindingSupport::weighted_interleave_policy()`].
+    #[cfg(feature = "hwloc-2_11_0")]
+    #[doc(alias = "HWLOC_MEMBIND_WEIGHTED_INTERLEAVE")]
+    WeightedInterleave = HWLOC_MEMBIND_WEIGHTED_INTERLEAVE,
+
     /// Migrate pages on next touch
     ///
     /// For each page bound with this policy, by next time it is touched (and
@@ -1484,7 +1505,7 @@ pub enum MemoryBindingPolicy {
 
     /// Unknown [`hwloc_membind_policy_t`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_membind_policy_t>),
+    Unknown(UnknownVariant<hwloc_membind_policy_t>) = hwloc_membind_policy_t::MAX,
 }
 //
 impl MemoryBindingPolicy {
@@ -1506,6 +1527,8 @@ impl From<MemoryBindingPolicy> for hwloc_membind_policy_t {
             MemoryBindingPolicy::FirstTouch => HWLOC_MEMBIND_FIRSTTOUCH,
             MemoryBindingPolicy::Bind => HWLOC_MEMBIND_BIND,
             MemoryBindingPolicy::Interleave => HWLOC_MEMBIND_INTERLEAVE,
+            #[cfg(feature = "hwloc-2_11_0")]
+            MemoryBindingPolicy::WeightedInterleave => HWLOC_MEMBIND_WEIGHTED_INTERLEAVE,
             MemoryBindingPolicy::NextTouch => HWLOC_MEMBIND_NEXTTOUCH,
             MemoryBindingPolicy::Unknown(unknown) => unknown.0,
         }

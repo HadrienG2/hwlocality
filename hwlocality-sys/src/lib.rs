@@ -1375,6 +1375,21 @@ pub const HWLOC_MEMBIND_BIND: hwloc_membind_policy_t = 2;
 /// set.
 pub const HWLOC_MEMBIND_INTERLEAVE: hwloc_membind_policy_t = 3;
 
+/// Allocate memory on the given nodes in an interleaved / weighted manner.
+///
+/// The precise layout of the memory across multiple NUMA nodes is OS/system
+/// specific.
+///
+/// Weighted interleaving can be useful when threads distributed
+/// across the specified NUMA nodes with different bandwidth capabilities will
+/// all be accessing the whole memory range concurrently, since the interleave
+/// will then balance the memory references.
+///
+/// Only available if
+/// [`hwloc_topology_membind_support::weighted_interleave_membind`] is set.
+#[cfg(feature = "hwloc-2_11_0")]
+pub const HWLOC_MEMBIND_WEIGHTED_INTERLEAVE: hwloc_membind_policy_t = 5;
+
 /// Migrate pages on next touch
 ///
 /// For each page bound with this policy, by next time it is touched (and
@@ -1740,6 +1755,10 @@ pub struct hwloc_topology_membind_support {
 
     /// Getting the last NUMA nodes where a memory area was allocated is supported
     pub get_area_memlocation: c_uchar,
+
+    /// Weighted interleave policy is supported
+    #[cfg(feature = "hwloc-2_11_0")]
+    pub weighted_interleave_membind: c_uchar,
 }
 
 /// Miscellaneous support information
@@ -2561,6 +2580,31 @@ macro_rules! extern_c_block {
                 obj: hwloc_obj_t,
                 name: *const c_char,
                 value: *const c_char,
+            ) -> c_int;
+
+            /// Set (or replace) the subtype of an object.
+            ///
+            /// The given `subtype` is copied internally, the caller is
+            /// responsible for freeing the original `subtype` if needed.
+            ///
+            /// If another subtype already exists in `object`, it is replaced.
+            /// The given `subtype` may be `NULL` to remove the existing subtype.
+            ///
+            /// This function is mostly meant to initialize the subtype of
+            /// user-added objects such as groups with
+            /// `hwloc_topology_alloc_group_object()`.
+            ///
+            /// # Return values
+            ///
+            /// - `0` on success.
+            /// - `-1` with `errno` set to `ENOMEM` on failure to allocate
+            ///   memory.
+            #[cfg(feature = "hwloc-2_11_0")]
+            #[must_use]
+            pub fn hwloc_obj_set_subtype(
+                topology: hwloc_topology_t,
+                obj: hwloc_obj_t,
+                subtype: *const c_char,
             ) -> c_int;
 
             // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html

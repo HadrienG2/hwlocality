@@ -528,7 +528,8 @@ bitflags! {
     pub struct AddDistancesFlags: hwloc_distances_add_flag_e {
         /// Try to group objects based on the newly provided distance information
         ///
-        /// This is ignored for distances between objects of different types.
+        /// Grouping is only performed when the distances structure contains
+        /// latencies, and when all objects are of the same type.
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
         const GROUP = HWLOC_DISTANCES_ADD_FLAG_GROUP;
 
@@ -1434,7 +1435,7 @@ bitflags! {
     /// A kind with a name starting with "MEANS_" specifies whether values are
     /// latencies or bandwidths, if applicable.
     ///
-    /// Only one of the "FROM_" and "MEANS_" kinds should be present.
+    /// At most one of the "FROM_" and "MEANS_" kinds should be present.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
     pub struct DistancesKind: hwloc_distances_kind_e {

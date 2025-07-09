@@ -512,10 +512,11 @@ impl<'topology> TopologyEditor<'topology> {
     /// group represents in hardware, so you may want to add extra annotations
     /// describing what the group is about.
     ///
-    /// To this end, after a successful group object insertion, you may use
-    #[cfg_attr(windows, doc = "[`TopologyObject::set_subtype_unchecked()`]")]
-    #[cfg_attr(not(windows), doc = "[`TopologyObject::set_subtype()`]")]
-    /// to have `lstopo` display something other than "Group" as the type name.
+    /// This can be done by giving the object a subtype, which will be displayed
+    /// by `lstopo` instead of "Group". Alas hwloc API limitations made this
+    /// operation fraught with UB peril on Windows before version 2.11
+    /// introduced an UB-safe way to do it. Therefore **`subtype` must be `None`
+    /// on Windows unless the `hwloc-2_11_0` Cargo feature is enabled**.
     ///
     /// If needed, you can also complement this basic group type information
     /// with any number of extra name/value info pairs you need using
@@ -555,6 +556,11 @@ impl<'topology> TopologyEditor<'topology> {
     /// - [`Inconsistent`] if [`GroupChildFilter::Mixed`] was used in strict
     ///   mode, but the selected normal and memory object sets were not
     ///   consistent.
+    /// - [`SubtypeContainsNul`] if `subtype` contains the NUL char, which is
+    ///   not supported by hwloc.
+    /// - [`SubtypeUnsupported`] if a `subtype` was specified on Windows without
+    ///   also enabling the `hwloc-2_11_0` Cargo feature (an hwloc v2.11 feature
+    ///   is required to set subtypes in an UB-free manner on Windows).
     ///
     /// [`BadParentType`]: InsertGroupError::BadParentType
     /// [`Empty`]: InsertGroupError::Empty
@@ -563,6 +569,8 @@ impl<'topology> TopologyEditor<'topology> {
     /// [`Group`]: ObjectType::Group
     /// [`Inconsistent`]: InsertGroupError::Inconsistent
     /// [`Misc`]: ObjectType::Misc
+    /// [`SubtypeContainsNul`]: InsertGroupError::SubtypeContainsNul
+    /// [`SubtypeUnsupported`]: InsertGroupError::SubtypeUnsupported
     //
     // --- Implementation details ---
     //
@@ -577,6 +585,7 @@ impl<'topology> TopologyEditor<'topology> {
         dont_merge: bool,
         find_parent: impl FnOnce(&Topology) -> &TopologyObject,
         child_filter: GroupChildFilter<NormalFilter, MemoryFilter>,
+        subtype: Option<&str>,
     ) -> Result<InsertedGroup<'topology>, HybridError<InsertGroupError>>
     where
         NormalFilter: FnMut(&TopologyObject) -> bool,
@@ -595,6 +604,9 @@ impl<'topology> TopologyEditor<'topology> {
         let mut group = AllocatedGroup::new(self).map_err(HybridError::Hwloc)?;
         group.add_children(find_parent, child_filter)?;
         group.configure_merging(dont_merge);
+        if let Some(subtype) = subtype {
+            group.set_subtype(subtype)?;
+        }
         group.insert().map_err(HybridError::Hwloc)
     }
 
@@ -1182,6 +1194,30 @@ pub enum InsertGroupError {
     /// group creation model, without adding extra objects to the group.
     #[error("attempted to create an inconsistent group (see GroupChildFilter docs)")]
     Inconsistent,
+
+    /// Specified a `subtype` on Windows without enabling the `hwloc-2_11_0`
+    /// Cargo feature
+    ///
+    /// Before hwloc version 2.11 introduced `hwloc_obj_set_subtype()`, topology
+    /// object subtypes could only be set by allocating memory on the Rust side,
+    /// which would subsequently be liberated on the C side. This would result
+    /// in Undefined Behavior if hwlocality were linked against a different libc
+    /// than hwloc, a scenario which is exceptional on most operating systems
+    /// except for Windows where using pre-built libraries linked against a
+    /// different CRT version than your application is the norm.
+    ///
+    /// Because of this, unless hwlocality is configured to drop support for
+    /// hwloc <2.11 and use the new `hwloc_obj_set_subtype()` API with the Cargo
+    /// feature flag `hwloc-2_11_0`, giving a `Group` object a subtype is not
+    /// supported on Windows.
+    #[error("group subtypes are not supported in the current configuration")]
+    SubtypeUnsupported,
+
+    /// Specified a `subtype` that contains NUL chars
+    ///
+    /// Like all C APIs, hwloc does not support strings that have NULs in them.
+    #[error("group subtype contains the NUL char, which is not allowed")]
+    SubtypeContainsNul,
 }
 
 /// RAII guard for `Group` objects that have been allocated, but not inserted
@@ -1340,6 +1376,84 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             // Make sure the new group is deterministically always merged with
             // existing groups that have the same locality.
             group_attributes.favor_merging();
+        }
+    }
+
+    /// Give this Group object a subtype for easy identification
+    ///
+    /// Only UB-safe on Windows since hwloc v2.11, so usage on Windows requires
+    /// the `hwloc-2_11_0` Cargo feature.
+    ///
+    /// # Errors
+    ///
+    /// - [`SubtypeContainsNul`] if the specified subtype string contains an
+    ///   inner NUL, which is not supported by hwloc.
+    /// - [`SubtypeUnsupported`] if called on Windows and the `hwloc-2_11_0`
+    ///   Cargo feature is not enabled. An hwloc v2.11+ function must be used to
+    ///   perform this operation safely on Windows.
+    fn set_subtype(&mut self, subtype: &str) -> Result<(), InsertGroupError> {
+        // Convert the subtype to a C string
+        let subtype =
+            LibcString::new(subtype).map_err(|NulError| InsertGroupError::SubtypeContainsNul)?;
+
+        // Use the hwloc v2.11 API if available
+        #[cfg(feature = "hwloc-2_11_0")]
+        {
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Inner group pointer is assumed valid as a type invariant
+            //         - hwloc ops are trusted to keep *mut parameters in a
+            //           valid state unless stated otherwise
+            //         - subtype is guaranteed to be a valid C string per
+            //           LibcString type invariant.
+            //         - hwloc_obj_set_subtype is documented to only copy in the
+            //           subtype value, not retain a pointer around.
+            let result = errors::call_hwloc_int_normal("hwloc_obj_set_subtype", || unsafe {
+                hwlocality_sys::hwloc_obj_set_subtype(
+                    self.editor.topology_mut_ptr(),
+                    self.group.as_inner().as_ptr(),
+                    subtype.borrow(),
+                )
+            });
+            match result {
+                Ok(0) => Ok(()),
+                Ok(positive) => {
+                    panic!("Got unexpected positive result {positive} from hwloc_obj_set_subtype()")
+                }
+                Err(RawHwlocError {
+                    api: "hwloc_obj_set_subtype",
+                    errno: Some(Errno(ENOMEM)),
+                }) => panic!("Ran out of memory while calling hwloc_obj_set_subtype()"),
+                #[cfg(windows)]
+                Err(RawHwlocError {
+                    api: "hwloc_obj_set_subtype",
+                    errno: None,
+                }) => panic!("Ran out of memory while calling hwloc_obj_set_subtype()"),
+                Err(error) => panic!(
+                    "Encountered unexpected error {error} while calling hwloc_obj_set_subtype()"
+                ),
+            }
+        }
+        #[cfg(not(feature = "hwloc-2_11_0"))]
+        {
+            // The pre-2.11 hack is not safe on Windows because mixing and matching
+            // different CRT versions is common on this operating system.
+            if cfg!(windows) {
+                return Err(InsertGroupError::SubtypeUnsupported);
+            }
+
+            // On other OSes, take the (normally safe) gamble that hwloc links
+            // against the same libc as hwlocality, which means that we can have
+            // memory allocated by hwlocality be liberated by hwloc
+            //
+            // SAFETY: - Inner group pointer is assumed valid as a type invariant
+            //         - subtype is guaranteed to be a valid C string allocated via
+            //           libc::malloc() per LibcString type invariant.
+            //         - Assuming that hwlocality links against the same libc as
+            //           hwloc, which to the author's knowledge is normally true on
+            //           any operating system other than Windows, letting hwloc
+            //           later free() this string is safe.
+            unsafe { self.group.as_inner().as_mut().subtype = subtype.into_raw() };
+            Ok(())
         }
     }
 
@@ -2012,6 +2126,7 @@ mod tests {
             &'static TopologyObject,
             GroupChildFilter<DynChildFilter, DynChildFilter>,
             bool,
+            Option<String>,
         ),
     > {
         // Pick a parent for the group object
@@ -2020,11 +2135,15 @@ mod tests {
             2 => any_object(),
         ];
 
-        // Given a parent, pick a child set
-        any_parent.prop_flat_map(move |parent| {
+        // Pick a subtype for the group object
+        let subtype = prop::option::weighted(0.6, any_string());
+
+        // Given a parent, pick a child set and subtype
+        (any_parent, subtype).prop_flat_map(move |(parent, subtype)| {
             let child_filter = child_filter_from_parent(parent);
-            (child_filter, any::<bool>())
-                .prop_map(move |(child_filter, merge)| (parent, child_filter, merge))
+            (child_filter, any::<bool>(), Just(subtype)).prop_map(
+                move |(child_filter, merge, subtype)| (parent, child_filter, merge, subtype),
+            )
         })
     }
 
@@ -2171,7 +2290,7 @@ mod tests {
         /// test, but they are stressed by other tests below.
         #[test]
         fn insert_group_object(
-            (parent, mut child_filter, dont_merge) in group_building_blocks(),
+            (parent, mut child_filter, dont_merge, subtype) in group_building_blocks(),
         ) {
             let initial_topology = Topology::test_instance();
             assert_ne!(
@@ -2194,6 +2313,7 @@ mod tests {
                     dont_merge,
                     find_parent_like(initial_topology, parent),
                     child_filter,
+                    subtype.as_deref(),
                 );
 
                 // Parent must be a normal object
@@ -2231,6 +2351,23 @@ mod tests {
                     return Ok(());
                 };
                 let initial_children = initial_children.unwrap();
+
+                // If there is a subtype...
+                if let Some(subtype) = subtype {
+                    // ...it must not contain the NUL char...
+                    if subtype.chars().any(|c| c == '\0') {
+                        prop_assert_eq!(result.unwrap_err(), HybridError::Rust(InsertGroupError::SubtypeContainsNul));
+                        prop_assert_eq!(editor.topology(), initial_topology);
+                        return Ok(());
+                    }
+
+                    // ...and we must be in a build configuration that supports subtypes
+                    if cfg!(all(windows, not(feature = "hwloc-2_11_0"))) {
+                        prop_assert_eq!(result.unwrap_err(), HybridError::Rust(InsertGroupError::SubtypeUnsupported));
+                        prop_assert_eq!(editor.topology(), initial_topology);
+                        return Ok(());
+                    }
+                }
 
                 // All error paths have been considered, at this point we know
                 // that group creation should succeed
@@ -2345,7 +2482,7 @@ mod tests {
         /// Test that group insertion fails when group type filter is KeepNone
         #[test]
         fn ignored_group_insertion(
-            (parent, child_filter, dont_merge) in group_building_blocks(),
+            (parent, child_filter, dont_merge, subtype) in group_building_blocks(),
         ) {
             static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
             let initial_topology = INITIAL_TOPOLOGY.get_or_init(|| {
@@ -2373,6 +2510,7 @@ mod tests {
                         }
                     },
                     child_filter,
+                    subtype.as_deref(),
                 );
                 prop_assert_eq!(
                     result.unwrap_err(),

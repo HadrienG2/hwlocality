@@ -660,6 +660,8 @@ fn post_bind_checks<Set: SpecializedBitmap, Res: Debug>(
             MemoryBindingPolicy::Bind => membind_support.bind_policy(),
             MemoryBindingPolicy::FirstTouch => membind_support.first_touch_policy(),
             MemoryBindingPolicy::Interleave => membind_support.interleave_policy(),
+            #[cfg(feature = "hwloc-2_11_0")]
+            MemoryBindingPolicy::WeightedInterleave => membind_support.weighted_interleave_policy(),
             MemoryBindingPolicy::NextTouch => membind_support.next_touch_policy(),
             MemoryBindingPolicy::Unknown(_) => false,
         };
