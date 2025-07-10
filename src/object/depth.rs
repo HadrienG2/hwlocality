@@ -39,7 +39,7 @@ use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use std::{ffi::c_int, fmt, num::TryFromIntError};
+use std::{fmt, num::TryFromIntError};
 use thiserror::Error;
 
 /// Depth of a normal object (not Memory, I/O or Misc)
