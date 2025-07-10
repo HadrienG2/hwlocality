@@ -52,7 +52,7 @@ categories.workspace = true
 # It is not recommended to use this feature in production, since an update to
 # hwlocality can silently bump your hwloc build requirement. But this feature is
 # convenient for scenarios like CI where you want to test with all features on.
-hwloc-latest = ["hwloc-2_11_0"]
+hwloc-latest = ["hwloc-2_12_0"]
 
 # Require at least hwloc v2.0.4, which enables...
 #
@@ -145,8 +145,17 @@ hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
 # ...in addition to all features listed above
 hwloc-2_11_0 = ["hwlocality-sys/hwloc-2_11_0", "hwloc-2_10_0"]
 
+# Require at least hwloc v2.12.0
+#
+# - Topology::get_default_nodeset() is now available as a way to query the
+#   "default" NUMA nodes, which are the ones on which memory allocations should
+#   be made unless particular requirements dictate otherwise.
+#
+# ...in addition to all features listed above
+hwloc-2_12_0 = ["hwlocality-sys/hwloc-2_12_0", "hwloc-2_11_0"]
+
 # WIP hwloc v3.0.0 support, do not use yet!
-hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_11_0"]
+hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_12_0"]
 
 # To support a new hwloc release that introduces API or ABI changes (see the
 # NEWS file in the hwloc source tree for release notes)...

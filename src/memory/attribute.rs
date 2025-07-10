@@ -87,6 +87,15 @@ use thiserror::Error;
 /// for these nodes, if any, may then be obtained with
 /// [`MemoryAttribute::value()`] and manually compared with the desired criteria.
 ///
+/// Memory attributes are also used internally to build Memory Tiers which
+/// provide an easy way to distinguish NUMA nodes of different kinds.
+///
+/// Beside tiers, hwloc defines a set of "default" nodes where normal memory
+/// allocations should be made from (see
+/// [`get_default_nodeset()`](Topology::get_default_nodeset)). This is also
+/// useful for dividing the machine into a set of non-overlapping NUMA domains,
+/// for instance for binding tasks per domain.
+///
 /// The API also supports specific objects as initiator, but it is currently not
 /// used internally by hwloc. Users may for instance use it to provide custom
 /// performance values for host memory accesses performed by GPUs.
@@ -221,6 +230,67 @@ impl Topology {
                 .collect())
         }
         polymorphized(self, target.into())
+    }
+
+    /// Set of default NUMA nodes
+    ///
+    /// In machines with heterogeneous memory, some NUMA nodes are
+    /// considered the default ones, i.e. where basic allocations should be made
+    /// from. These are usually DRAM nodes.
+    ///
+    /// Other nodes may be reserved for specific use (I/O device memory, e.g.
+    /// GPU memory), small but high performance (HBM), large but slow memory
+    /// (NVM), etc. Buffers should usually not be allocated from there unless
+    /// explicitly required.
+    ///
+    /// This function returns the [`NodeSet`] of NUMA nodes considered default.
+    ///
+    /// It is guaranteed that these nodes have non-intersecting CPU sets, i.e.
+    /// cores may not have multiple local NUMA nodes anymore. Hence this may be
+    /// used to iterate over the platform divided into separate NUMA localities,
+    /// for instance for binding one task per NUMA domain.
+    ///
+    /// Any core that had some local NUMA node(s) in the initial topology should
+    /// still have one in the default nodeset. Corner cases where this would be
+    /// wrong consist in asymmetric platforms with missing DRAM nodes, or
+    /// topologies that were already restricted to less NUMA nodes.
+    ///
+    /// The returned nodeset may be passed to [`TopologyEditor::restrict()`] to
+    /// remove all non-default nodes from the topology. The resulting topology
+    /// will be easier to use when iterating over (now homogeneous) NUMA nodes.
+    ///
+    /// The heuristics for finding default nodes relies on memory tiers and
+    /// subtypes as well as the assumption that hardware vendors list default
+    /// nodes first in hardware tables.
+    ///
+    /// The returned nodeset usually contains all nodes from a single
+    /// memory tier, likely the DRAM one.
+    ///
+    /// The returned nodeset is included in the list of available nodes
+    /// returned by [`nodeset()`](Topology::nodeset). It is
+    /// strictly smaller if the machine has heterogeneous memory.
+    ///
+    /// The heuristics may return a suboptimal set of nodes if hwloc
+    /// could not guess memory types and/or if some default nodes were
+    /// removed earlier from the topology (e.g. with
+    /// [`TopologyEditor::restrict()`]).
+    #[cfg(feature = "hwloc-2_12_0")]
+    pub fn get_default_nodeset(&self) -> Result<NodeSet, RawHwlocError> {
+        let mut result = NodeSet::new();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Bitmaps are trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - flags are set to zero as directed
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_get_default_nodeset", || unsafe {
+            hwlocality_sys::hwloc_topology_get_default_nodeset(
+                self.as_ptr(),
+                result.as_mut_ptr(),
+                0,
+            )
+        })?;
+        result
     }
 
     /// Dump the values of all built-in memory attributes

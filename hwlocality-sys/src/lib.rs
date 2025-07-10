@@ -3231,7 +3231,65 @@ macro_rules! extern_c_block {
                 value: *mut u64,
             ) -> c_int;
 
-            // === Managing memory attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+            /// Return the set of default NUMA nodes
+            ///
+            /// In machines with heterogeneous memory, some NUMA nodes are
+            /// considered the default ones, i.e. where basic allocations should
+            /// be made from. These are usually DRAM nodes.
+            ///
+            /// Other nodes may be reserved for specific use (I/O device memory,
+            /// e.g. GPU memory), small but high performance (HBM), large but
+            /// slow memory (NVM), etc. Buffers should usually not be allocated
+            /// from there unless explicitly required.
+            ///
+            /// This function fills `nodeset` with the bits of NUMA nodes
+            /// considered default.
+            ///
+            /// It is guaranteed that these nodes have non-intersecting CPU
+            /// sets, i.e. cores may not have multiple local NUMA nodes anymore.
+            /// Hence this may be used to iterate over the platform divided into
+            /// separate NUMA localities, for instance for binding one task per
+            /// NUMA domain.
+            ///
+            /// Any core that had some local NUMA node(s) in the initial
+            /// topology should still have one in the default nodeset. Corner
+            /// cases where this would be wrong consist in asymmetric platforms
+            /// with missing DRAM nodes, or topologies that were already
+            /// restricted to less NUMA nodes.
+            ///
+            /// The returned nodeset may be passed to
+            /// [`hwloc_topology_restrict()`] with
+            /// [`HWLOC_RESTRICT_FLAG_BYNODESET`] to remove all non-default
+            /// nodes from the topology. The resulting topology will be easier
+            /// to use when iterating over (now homogeneous) NUMA nodes.
+            ///
+            /// The heuristics for finding default nodes relies on memory tiers
+            /// and subtypes as well as the assumption that hardware vendors
+            /// list default nodes first in hardware tables.
+            ///
+            /// `flags` must be 0 for now.
+            ///
+            /// Returns 0 on success, -1 on error.
+            ///
+            /// The returned nodeset usually contains all nodes from a single
+            /// memory tier, likely the DRAM one.
+            ///
+            /// The returned nodeset is included in the list of available nodes
+            /// returned by [`hwloc_topology_get_topology_nodeset()`]. It is
+            /// strictly smaller if the machine has heterogeneous memory.
+            ///
+            /// The heuristics may return a suboptimal set of nodes if hwloc
+            /// could not guess memory types and/or if some default nodes were
+            /// removed earlier from the topology (e.g. with
+            /// [`hwloc_topology_restrict()`]).
+            #[cfg(feature = "hwloc-2_12_0")]
+            pub fn hwloc_topology_get_default_nodeset(
+                topology: hwloc_topology_t,
+                nodeset: hwloc_nodeset_t,
+                flags: c_ulong,
+            ) -> c_int;
+
+            // === Managing memory attributes: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs__manage.html
 
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
