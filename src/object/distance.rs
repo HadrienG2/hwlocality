@@ -1531,24 +1531,24 @@ pub enum DistancesTransform {
 
     /// Merge switches with multiple ports into a single object
     ///
-    /// This currently only applies to NVSwitches where GPUs seem connected to
-    /// different separate switch ports in the NVLinkBandwidth matrix.
+    /// This currently only applies to NVSwitches where GPUs seem connected
+    /// to different switch ports. Switch ports must be objects with subtype
+    /// "NVSwitch" as in the NVLinkBandwidth matrix.
     ///
-    /// This transformation will replace all switch ports with the same port
-    /// connected to all GPUs.
-    ///
-    /// Other ports are removed by applying the `RemoveNone` transformation
-    /// internally.
+    /// This transformation will replace all ports with only the first one, now
+    /// connected to all GPUs. Other ports are removed by applying the
+    /// `RemoveNone` transformation internally.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS")]
     MergeSwitchPorts = HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
 
     /// Apply a transitive closure to the matrix to connect objects across
     /// switches.
     ///
-    /// This currently only applies to GPUs and NVSwitches in the
-    /// NVLinkBandwidth matrix.
+    /// All pairs of GPUs will be reported as directly connected instead GPUs
+    /// being only connected to switches.
     ///
-    /// All pairs of GPUs will be reported as directly connected.
+    /// Switch ports must be objects with subtype "NVSwitch" as in the
+    /// NVLinkBandwidth matrix.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 

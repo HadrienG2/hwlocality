@@ -355,6 +355,10 @@ pub enum ObjectType {
     /// have any child except Misc objects. However it may have Memory-side
     /// cache parents.
     ///
+    /// NUMA nodes may correspond to different kinds of memory (DRAM, HBM,
+    /// CXL-DRAM, etc.). When hwloc is able to guess that kind, it is specified
+    /// in the subtype field of the object.
+    ///
     /// There is always at least one such object in the topology even if the
     /// machine is not NUMA. However, an incorrect number of NUMA nodes may be
     /// reported in the absence of [`DiscoverySupport::numa_count()`].
@@ -368,7 +372,8 @@ pub enum ObjectType {
 
     /// Bridge (filtered out by default)
     ///
-    /// Any bridge that connects the host or an I/O bus, to another I/O bus.
+    /// Any bridge (or PCI switch) that connects the host or an I/O bus, to
+    /// another I/O bus.
     ///
     /// Bridges are not added to the topology unless their filtering is changed
     /// (see [`TopologyBuilder::with_type_filter()`] and
@@ -440,6 +445,12 @@ pub enum ObjectType {
     /// Die within a physical package
     ///
     /// A subpart of the physical package, that contains multiple cores.
+    ///
+    /// Some operating systems (e.g. Linux) may expose a single die per package
+    /// even if the hardware does not support dies at all. To avoid showing such
+    /// non-existing dies, hwloc will filter them out if all of them are
+    /// identical to packages. This is functionally equivalent to
+    /// [`TypeFilter::KeepStructure`] being enforced.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die = HWLOC_OBJ_DIE,
