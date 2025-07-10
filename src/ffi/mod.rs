@@ -17,8 +17,8 @@ use std::{
     fmt, ptr,
 };
 
-// Re-export the PositiveInt type
-pub use int::PositiveInt;
+// Re-export the PositiveInt and UnknownVariant types
+pub use self::{int::PositiveInt, unknown::UnknownVariant};
 
 /// Dereference a C pointer with correct lifetime (*const -> & version)
 ///
