@@ -1148,7 +1148,7 @@ impl Topology {
             ///
             /// # Safety
             ///
-            /// `raw_policy` must come from `hwloc`
+            /// `raw_policy` must come from hwloc
             unsafe fn check_policy(
                 raw_policy: hwloc_membind_policy_t,
             ) -> Option<MemoryBindingPolicy> {
@@ -1503,7 +1503,7 @@ pub enum MemoryBindingPolicy {
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
 
-    /// Unknown [`hwloc_membind_policy_t`] from `hwloc`
+    /// Unknown [`hwloc_membind_policy_t`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_membind_policy_t>) = hwloc_membind_policy_t::MAX,
 }

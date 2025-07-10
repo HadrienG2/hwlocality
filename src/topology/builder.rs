@@ -968,7 +968,7 @@ pub enum TypeFilter {
     #[doc(alias = "HWLOC_TYPE_FILTER_KEEP_IMPORTANT")]
     KeepImportant = HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
 
-    /// Unknown [`hwloc_type_filter_e`] from `hwloc`
+    /// Unknown [`hwloc_type_filter_e`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_type_filter_e>) = hwloc_type_filter_e::MAX,
 }

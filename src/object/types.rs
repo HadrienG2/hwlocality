@@ -55,7 +55,7 @@ pub enum BridgeType {
     #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 
-    /// Unknown [`hwloc_obj_bridge_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_bridge_type_t`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_obj_bridge_type_t>) = hwloc_obj_bridge_type_t::MAX,
 }
@@ -101,7 +101,7 @@ pub enum CacheType {
     #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
 
-    /// Unknown [`hwloc_obj_cache_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_cache_type_t`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_obj_cache_type_t>) = hwloc_obj_cache_type_t::MAX,
 }
@@ -182,7 +182,7 @@ pub enum OSDeviceType {
     #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
 
-    /// Unknown [`hwloc_obj_osdev_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_osdev_type_t`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_obj_osdev_type_t>) = hwloc_obj_osdev_type_t::MAX,
 }
@@ -219,7 +219,7 @@ impl From<OSDeviceType> for hwloc_obj_osdev_type_t {
 /// Represents the type of a [`TopologyObject`].
 ///
 /// Note that (partial) ordering for object types is implemented as a call
-/// into the `hwloc` library which defines ordering as follows:
+/// into the hwloc library which defines ordering as follows:
 ///
 /// - A == B if `ObjectType::A` and `ObjectType::B` are the same.
 /// - A < B if `ObjectType::A` includes objects of type `ObjectType::B`.
@@ -414,7 +414,7 @@ pub enum ObjectType {
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die = HWLOC_OBJ_DIE,
 
-    /// Unknown [`hwloc_obj_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_type_t`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_obj_type_t>) = hwloc_obj_type_t::MAX,
 }

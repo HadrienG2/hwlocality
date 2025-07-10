@@ -1552,7 +1552,7 @@ pub enum DistancesTransform {
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 
-    /// Unknown [`hwloc_distances_transform_e`] from `hwloc`
+    /// Unknown [`hwloc_distances_transform_e`] from hwloc
     #[strum(disabled)]
     Unknown(UnknownVariant<hwloc_distances_transform_e>) = hwloc_distances_transform_e::MAX,
 }

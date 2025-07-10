@@ -81,7 +81,7 @@ pub enum Depth {
     // NOTE: Also add new virtual depths to the VIRTUAL_DEPTHS array and its
     //       type-specific declination below
     //
-    /// Unknown [`hwloc_get_type_depth_e`] from `hwloc`
+    /// Unknown [`hwloc_get_type_depth_e`] from hwloc
     Unknown(UnknownVariant<hwloc_get_type_depth_e>),
 }
 //
@@ -117,8 +117,8 @@ impl Depth {
     ///
     /// # Safety
     ///
-    /// `value` must come from `hwloc`, or else arbitrary mayhem may ensue when
-    /// the resulting value eventually gets sent to` hwloc`.
+    /// `value` must come from hwloc, or else arbitrary mayhem may ensue when
+    /// the resulting value eventually gets sent to hwloc.
     pub(crate) unsafe fn from_hwloc(
         value: hwloc_get_type_depth_e,
     ) -> Result<Self, TypeToDepthError> {
