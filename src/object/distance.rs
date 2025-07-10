@@ -65,7 +65,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__get.html
 impl Topology {
     /// Retrieve distance matrices from the topology
     ///
@@ -189,7 +189,7 @@ impl Topology {
     /// Usually only one distances matrix may match a given name.
     ///
     /// Names of distances matrices currently created by hwloc may be found
-    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
     ///
     /// # Errors
     ///
@@ -298,7 +298,7 @@ impl Topology {
             // Prepare to call hwloc
             let mut nr = 0;
             let mut call_ffi = |nr_mut, distances_out| {
-                errors::call_hwloc_int_normal(getter_name, || {
+                errors::call_hwloc_zero_or_minus1(getter_name, || {
                     // SAFETY: - Topology is trusted to contain a valid ptr
                     //           (type invariant)
                     //         - hwloc ops are trusted not to modify *const
@@ -340,7 +340,7 @@ impl Topology {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__add.html
 #[cfg(feature = "hwloc-2_5_0")]
 impl TopologyEditor<'_> {
     /// Create a new object distances matrix
@@ -462,7 +462,7 @@ impl TopologyEditor<'_> {
             //           objects from the active topology
             //         - values comes from a distances that's still in scope and
             //           whose length has been checked
-            errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_add_values", || unsafe {
                 hwlocality_sys::hwloc_distances_add_values(
                     self_.topology_mut_ptr(),
                     handle.as_ptr(),
@@ -480,7 +480,7 @@ impl TopologyEditor<'_> {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             //         - commit_flags only allows values supported by hwloc
-            errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_add_commit", || unsafe {
                 hwlocality_sys::hwloc_distances_add_commit(
                     self_.topology_mut_ptr(),
                     handle.as_ptr(),
@@ -528,7 +528,8 @@ bitflags! {
     pub struct AddDistancesFlags: hwloc_distances_add_flag_e {
         /// Try to group objects based on the newly provided distance information
         ///
-        /// This is ignored for distances between objects of different types.
+        /// Grouping is only performed when the distances structure contains
+        /// latencies, and when all objects are of the same type.
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
         const GROUP = HWLOC_DISTANCES_ADD_FLAG_GROUP;
 
@@ -536,7 +537,7 @@ bitflags! {
         /// relax the comparisons during the grouping algorithms. The actual
         /// accuracy may be modified through the HWLOC_GROUPING_ACCURACY
         /// environment variable (see [Environment
-        /// Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+        /// Variables](https://hwloc.readthedocs.io/en/stable/envvar.html)).
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
         const GROUP_INACCURATE = HWLOC_DISTANCES_ADD_FLAG_GROUP | HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE;
     }
@@ -608,7 +609,7 @@ impl<'topology> From<&'topology TopologyObject> for AddDistancesError {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__remove.html
 #[cfg(feature = "hwloc-2_3_0")]
 impl TopologyEditor<'_> {
     /// Remove a single distances matrix from the topology
@@ -635,13 +636,12 @@ impl TopologyEditor<'_> {
             //         - hwloc ops are trusted to keep *mut parameters in a valid
             //           state unless stated otherwise
             //         - distances is trusted per function contract
-            errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_release_remove", || unsafe {
                 hwlocality_sys::hwloc_distances_release_remove(
                     self_.topology_mut_ptr(),
                     distances.as_ptr(),
                 )
             })
-            .map(std::mem::drop)
         }
 
         // Run user callback and call polymorphized subset with result
@@ -664,10 +664,9 @@ impl TopologyEditor<'_> {
         //         - Distances lifetime is bound by the host topology, so this
         //           will invalidate all Distances struct in existence and thus
         //           use-after-free cannot happen
-        errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_distances_remove", || unsafe {
             hwlocality_sys::hwloc_distances_remove(self.topology_mut_ptr())
         })
-        .map(std::mem::drop)
     }
 
     /// Remove distance matrices for objects at a specific depth in the topology
@@ -699,13 +698,12 @@ impl TopologyEditor<'_> {
             //           will invalidate all Distances struct in existence and thus
             //           use-after-free cannot happen
             //         - hwloc should be able to handle any valid depth value
-            errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
                     self_.topology_mut_ptr(),
                     depth.to_hwloc(),
                 )
             })
-            .map(std::mem::drop)
         }
 
         // There cannot be any object at a depth below the hwloc-supported max
@@ -756,7 +754,7 @@ impl TopologyEditor<'_> {
 ///
 /// The names and semantics of other distances matrices currently created by
 /// hwloc may be found [in the hwloc
-/// documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+/// documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
 ///
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the [`kind()`] attribute.
@@ -790,7 +788,7 @@ impl TopologyEditor<'_> {
 //
 // --- Implementation details
 //
-// Upstream inspiration: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
+// Upstream inspiration: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__consult.html
 //
 // # Safety
 //
@@ -1342,7 +1340,7 @@ impl<'topology> Distances<'topology> {
         //           valid state unless stated otherwise
         //         - Any supported transform value is accepted by hwloc
         //         - Per documentation, transform attr/flags must be NULL/0
-        errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_distances_transform", || unsafe {
             hwlocality_sys::hwloc_distances_transform(
                 self.topology.as_ptr(),
                 self.inner_mut(),
@@ -1351,7 +1349,6 @@ impl<'topology> Distances<'topology> {
                 0,
             )
         })
-        .map(std::mem::drop)
         .map_err(|e| match e {
             RawHwlocError {
                 errno: Some(Errno(EINVAL)),
@@ -1434,7 +1431,7 @@ bitflags! {
     /// A kind with a name starting with "MEANS_" specifies whether values are
     /// latencies or bandwidths, if applicable.
     ///
-    /// Only one of the "FROM_" and "MEANS_" kinds should be present.
+    /// At most one of the "FROM_" and "MEANS_" kinds should be present.
     #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
     pub struct DistancesKind: hwloc_distances_kind_e {
@@ -1530,30 +1527,30 @@ pub enum DistancesTransform {
 
     /// Merge switches with multiple ports into a single object
     ///
-    /// This currently only applies to NVSwitches where GPUs seem connected to
-    /// different separate switch ports in the NVLinkBandwidth matrix.
+    /// This currently only applies to NVSwitches where GPUs seem connected
+    /// to different switch ports. Switch ports must be objects with subtype
+    /// "NVSwitch" as in the NVLinkBandwidth matrix.
     ///
-    /// This transformation will replace all switch ports with the same port
-    /// connected to all GPUs.
-    ///
-    /// Other ports are removed by applying the `RemoveNone` transformation
-    /// internally.
+    /// This transformation will replace all ports with only the first one, now
+    /// connected to all GPUs. Other ports are removed by applying the
+    /// `RemoveNone` transformation internally.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS")]
     MergeSwitchPorts = HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
 
     /// Apply a transitive closure to the matrix to connect objects across
     /// switches.
     ///
-    /// This currently only applies to GPUs and NVSwitches in the
-    /// NVLinkBandwidth matrix.
+    /// All pairs of GPUs will be reported as directly connected instead GPUs
+    /// being only connected to switches.
     ///
-    /// All pairs of GPUs will be reported as directly connected.
+    /// Switch ports must be objects with subtype "NVSwitch" as in the
+    /// NVLinkBandwidth matrix.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 
-    /// Unknown [`hwloc_distances_transform_e`] from `hwloc`
+    /// Unknown [`hwloc_distances_transform_e`] from hwloc
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_distances_transform_e>),
+    Unknown(UnknownVariant<hwloc_distances_transform_e>) = hwloc_distances_transform_e::MAX,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1562,7 +1559,17 @@ impl DistancesTransform {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     #[allow(unused)]
     pub(crate) unsafe fn from_hwloc(value: hwloc_distances_transform_e) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))

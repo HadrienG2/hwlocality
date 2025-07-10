@@ -5,8 +5,8 @@
 //! which you can query using the [`Topology::feature_support()`] method and its
 //! [`Topology::supports()`] shortcut.
 
-// - API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
-// - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
+// - API: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
+// - Struct: https://hwloc.readthedocs.io/en/stable/structhwloc__topology__support.html
 
 #[cfg(doc)]
 use super::{builder::BuildFlags, Topology};
@@ -496,6 +496,13 @@ impl MemoryBindingSupport {
         support_flag(self.0.interleave_membind)
     }
 
+    /// Weighted interleave policy is supported
+    #[cfg(feature = "hwloc-2_11_0")]
+    #[doc(alias = "hwloc_topology_membind_support::weighted_interleave_membind")]
+    pub fn weighted_interleave_policy(&self) -> bool {
+        support_flag(self.0.weighted_interleave_membind)
+    }
+
     /// Next-touch migration policy is supported
     #[doc(alias = "hwloc_topology_membind_support::nexttouch_membind")]
     pub fn next_touch_policy(&self) -> bool {
@@ -513,16 +520,11 @@ impl MemoryBindingSupport {
 impl Arbitrary for MemoryBindingSupport {
     type Parameters = ();
     type Strategy =
-        prop::strategy::Map<[crate::strategies::HwlocBool; 15], fn([c_uchar; 15]) -> Self>;
+        prop::strategy::Map<[crate::strategies::HwlocBool; 16], fn([c_uchar; 16]) -> Self>;
 
     #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let b = crate::strategies::hwloc_bool();
-        [
-            b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
-            b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
-            b.clone(), b.clone(), b
-        ].prop_map(
+        std::array::from_fn(|_| crate::strategies::hwloc_bool()).prop_map(
             |([
                 set_thisproc_membind,
                 get_thisproc_membind,
@@ -539,6 +541,7 @@ impl Arbitrary for MemoryBindingSupport {
                 nexttouch_membind,
                 migrate_membind,
                 get_area_memlocation,
+                weighted_interleave_membind,
             ])| {
                 Self(hwloc_topology_membind_support {
                     set_thisproc_membind,
@@ -556,6 +559,8 @@ impl Arbitrary for MemoryBindingSupport {
                     nexttouch_membind,
                     migrate_membind,
                     get_area_memlocation,
+                    #[cfg(feature = "hwloc-2_11_0")]
+                    weighted_interleave_membind,
                 })
             },
         )
@@ -748,8 +753,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused)]
     #[cfg(target_os = "linux")]
     fn linux() -> Result<(), TestCaseError> {
+        let actual_support = Topology::test_instance().feature_support();
+        let actual_membind_support = actual_support.memory_binding().unwrap();
         expect_os_support(
             hwloc_topology_discovery_support {
                 pu: 1,
@@ -791,6 +799,10 @@ mod tests {
                 nexttouch_membind: 0,
                 migrate_membind: 1,
                 get_area_memlocation: 1,
+                #[cfg(feature = "hwloc-2_11_0")]
+                weighted_interleave_membind: actual_membind_support
+                    .weighted_interleave_policy()
+                    .into(),
             },
         )
     }
@@ -839,6 +851,8 @@ mod tests {
                 nexttouch_membind: 0,
                 migrate_membind: 0,
                 get_area_memlocation: 0,
+                #[cfg(feature = "hwloc-2_11_0")]
+                weighted_interleave_membind: 0,
             },
         )
     }
@@ -887,6 +901,8 @@ mod tests {
                 nexttouch_membind: 0,
                 migrate_membind: 0,
                 get_area_memlocation: 1,
+                #[cfg(feature = "hwloc-2_11_0")]
+                weighted_interleave_membind: 0,
             },
         )
     }

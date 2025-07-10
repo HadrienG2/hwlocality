@@ -50,7 +50,8 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::upstream_type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::upstream_type")]
     pub fn upstream_type(&self) -> BridgeType {
-        // SAFETY: Bridge type comes from hwloc
+        // SAFETY: Bridge attributes are not user-editable so we are sure this
+        //         value comes from hwloc
         unsafe { BridgeType::from_hwloc(self.0.upstream_type) }
     }
 
@@ -66,7 +67,8 @@ impl BridgeAttributes {
     #[doc(alias = "hwloc_bridge_attr_s::downstream_type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_bridge_attr_s::downstream_type")]
     pub fn downstream_type(&self) -> BridgeType {
-        // SAFETY: Bridge type comes from hwloc
+        // SAFETY: Bridge attributes are not user-editable so we are sure this
+        //         value comes from hwloc
         unsafe { BridgeType::from_hwloc(self.0.downstream_type) }
     }
 

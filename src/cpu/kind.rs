@@ -48,7 +48,7 @@ use thiserror::Error;
 ///
 /// Information about CPU kinds can also be enumerated using [`cpu_kinds()`].
 /// For each CPU kind, an abstracted efficiency value is provided, along with
-/// [info attributes](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_cpukinds)
+/// [info attributes](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_cpukinds)
 /// such as "CoreType" or "FrequencyMaxMHz".
 ///
 /// A higher efficiency value means greater intrinsic performance (and possibly
@@ -69,7 +69,7 @@ use thiserror::Error;
 /// (on ARM), or core types and frequencies (on other architectures). The
 /// environment variable `HWLOC_CPUKINDS_RANKING` may be used to change this
 /// heuristics, see [Environment
-/// Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html).
+/// Variables](https://hwloc.readthedocs.io/en/stable/envvar.html).
 ///
 /// If hwloc fails to rank any kind, for instance because the operating system
 /// does not expose efficiencies and core frequencies, all kinds will have an
@@ -84,7 +84,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpukinds.html
 impl Topology {
     /// Number of different kinds of CPU cores in the topology
     ///
@@ -96,7 +96,7 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, flags should be zero
-        let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
+        let count = errors::call_hwloc_positive_or_minus1("hwloc_cpukinds_get_nr", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
@@ -112,7 +112,7 @@ impl Topology {
     /// For each CPU kind, we provide the [`CpuSet`] of PUs belonging to that
     /// kind, how efficient this CPU kind is (if CPU kind efficiencies are
     /// known) and [other things we know about
-    /// it](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_cpukinds).
+    /// it](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_cpukinds).
     ///
     /// # Errors
     ///
@@ -152,7 +152,7 @@ impl Topology {
         //         - Per documentation, efficiency, nr_infos and infos are
         //           pure out parameters that hwloc does not read
         //         - Per documentation, flags should be zero
-        errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_cpukinds_get_info", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_info(
                 self.as_ptr(),
                 kind_index,
@@ -276,7 +276,7 @@ pub struct CpuKind<'topology> {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpukinds.html
 impl TopologyEditor<'_> {
     /// Register a kind of CPU in the topology.
     ///
@@ -373,7 +373,7 @@ impl TopologyEditor<'_> {
             //         - The source raw_infos struct has valid contents per
             //           function precondition
             //         - Per documentation, flags should be zero
-            errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_cpukinds_register", || unsafe {
                 hwlocality_sys::hwloc_cpukinds_register(
                     self_.topology_mut_ptr(),
                     cpuset.as_ptr(),
@@ -383,7 +383,6 @@ impl TopologyEditor<'_> {
                     0,
                 )
             })
-            .map(std::mem::drop)
             .expect("All known failure cases are prevented by API design");
             Ok(())
         }
@@ -657,7 +656,6 @@ mod tests {
 
     proptest! {
         #[test]
-        #[ignore = "Waiting for hwloc release with patch for https://github.com/open-mpi/hwloc/issues/683"]
         fn register_cpu_kind(
             cpuset in topology_related_set(Topology::complete_cpuset),
             forced_efficiency in forced_efficiency(),
@@ -746,9 +744,8 @@ mod tests {
                     if !expected_kind.old_infos.iter().any(|old| old.name() == info.name()) {
                         let info_name = info.name().to_str().unwrap();
                         let info_value = info.value().to_str().unwrap();
-                        prop_assert_eq!(
-                            &infos.iter().find(|(name, _value)| name == info_name).unwrap().1,
-                            info_value
+                        prop_assert!(
+                            infos.iter().any(|(name, value)| name == info_name && value == info_value)
                         );
                     }
                 }

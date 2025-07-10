@@ -30,7 +30,8 @@ impl OSDeviceAttributes {
     #[doc(alias = "hwloc_osdev_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_osdev_attr_s::type")]
     pub fn device_type(&self) -> OSDeviceType {
-        // SAFETY: Comes from hwloc
+        // SAFETY: OS device attributes are not user-editable so we are sure
+        //         this value comes from hwloc
         unsafe { OSDeviceType::from_hwloc(self.0.ty) }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "hwlocality-sys"
-version = "0.5.3"
+version = "0.6.0"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,7 @@ links = "hwloc"
 
 # See hwlocality's main Cargo.toml for detailed feature descriptions
 [features]
-hwloc-latest = ["hwloc-2_10_0"]
+hwloc-latest = ["hwloc-2_12_1"]
 hwloc-2_0_4 = []
 hwloc-2_1_0 = ["hwloc-2_0_4"]
 hwloc-2_2_0 = ["hwloc-2_1_0"]
@@ -22,7 +22,10 @@ hwloc-2_4_0 = ["hwloc-2_3_0"]
 hwloc-2_5_0 = ["hwloc-2_4_0"]
 hwloc-2_8_0 = ["hwloc-2_5_0"]
 hwloc-2_10_0 = ["hwloc-2_8_0"]
-hwloc-3_0_0 = ["hwloc-2_10_0"]
+hwloc-2_11_0 = ["hwloc-2_10_0"]
+hwloc-2_12_0 = ["hwloc-2_11_0"]
+hwloc-2_12_1 = ["hwloc-2_12_0"]
+hwloc-3_0_0 = ["hwloc-2_12_1"]
 vendored = ["dep:autotools", "dep:cmake", "dep:flate2", "dep:sha3", "dep:tar", "dep:ureq"]
 vendored-extra = ["vendored"]
 # This feature does nothing in -sys and is only here for CI convenience

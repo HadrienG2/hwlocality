@@ -126,36 +126,31 @@ pub(crate) fn call_hwloc_ptr<T>(
     call_hwloc_ptr_mut(api, || call().cast_mut())
 }
 
-/// Call an hwloc entry point that returns an `int` where -1 signals failure and
-/// other negative values are not expected
+/// Call an hwloc entry point that returns 0 on success and -1 on failure
 ///
-/// This behavior is followed by almost every hwloc API, though unfortunately
-/// there are a couple of exception.
+/// Other positive and negative values are not expected and will result into
+/// an application panic.
+///
+/// This behavior is followed by most hwloc APIs, but there are exceptions.
 ///
 /// # Errors
 ///
 /// See the documentation of `call` to know when the entry point can error out
-pub(crate) fn call_hwloc_int_normal(
+pub(crate) fn call_hwloc_zero_or_minus1(
     api: &'static str,
     call: impl FnOnce() -> c_int,
-) -> Result<c_uint, RawHwlocError> {
+) -> Result<(), RawHwlocError> {
     /// Outlined to reduce code bloat
-    fn check_raw_result(
-        raw_result: Result<c_int, RawNegIntError>,
-    ) -> Result<c_uint, RawHwlocError> {
+    fn check_raw_result(raw_result: Result<c_uint, RawHwlocError>) -> Result<(), RawHwlocError> {
         match raw_result {
-            Ok(positive) => {
-                Ok(c_uint::try_from(positive).expect("Cannot happen due to 0 threshold above"))
-            }
-            Err(RawNegIntError {
-                api,
-                result: -1,
-                errno,
-            }) => Err(RawHwlocError { api, errno }),
-            Err(other_err) => unreachable!("Unexpected hwloc output: {other_err}"),
+            Ok(0) => Ok(()),
+            Ok(positive) => unreachable!(
+                "Unexpected integer > 0 from hwloc function that should return 0 or -1: {positive}"
+            ),
+            Err(e) => Err(e),
         }
     }
-    check_raw_result(call_hwloc_int_raw(api, call, 0))
+    check_raw_result(call_hwloc_positive_or_minus1(api, call))
 }
 
 /// Call an hwloc entry point that returns an `int` with standard boolean values
@@ -176,7 +171,41 @@ pub(crate) fn call_hwloc_bool(
             Err(e) => Err(e),
         }
     }
-    check_raw_result(api, call_hwloc_int_normal(api, call))
+    check_raw_result(api, call_hwloc_positive_or_minus1(api, call))
+}
+
+/// Call an hwloc entry point that returns an `int` where -1 signals failure and
+/// other negative values are not expected
+///
+/// If you only expect 0 as a positive result, consider using
+/// [`call_hwloc_zero_or_minus1()`] instead.
+///
+/// # Errors
+///
+/// See the documentation of `call` to know when the entry point can error out
+pub(crate) fn call_hwloc_positive_or_minus1(
+    api: &'static str,
+    call: impl FnOnce() -> c_int,
+) -> Result<c_uint, RawHwlocError> {
+    /// Outlined to reduce code bloat
+    fn check_raw_result(
+        raw_result: Result<c_int, RawNegIntError>,
+    ) -> Result<c_uint, RawHwlocError> {
+        match raw_result {
+            Ok(positive) => {
+                Ok(c_uint::try_from(positive).expect("Cannot happen due to 0 threshold above"))
+            }
+            Err(RawNegIntError {
+                api,
+                result: -1,
+                errno,
+            }) => Err(RawHwlocError { api, errno }),
+            Err(other_err) => {
+                unreachable!("Unexpected negative integer != -1 from hwloc function: {other_err}")
+            }
+        }
+    }
+    check_raw_result(call_hwloc_int_raw(api, call, 0))
 }
 
 /// Raw error emitted by hwloc functions that returns a negative int on failure
@@ -503,7 +532,7 @@ mod tests {
 
             // Prepare to call the function
             let call = || {
-                let res = super::call_hwloc_int_normal(api, || {
+                let res = super::call_hwloc_positive_or_minus1(api, || {
                     errno::set_errno(new_errno);
                     output
                 });
@@ -535,7 +564,7 @@ mod tests {
 
             // Returning -1 means failure and will lead to an errno check
             prop_assert_eq!(
-                super::call_hwloc_int_normal(api, || {
+                super::call_hwloc_positive_or_minus1(api, || {
                     errno::set_errno(new_errno);
                     -1
                 }),
@@ -556,7 +585,7 @@ mod tests {
 
             // Not setting errno on failure is handled properly
             prop_assert_eq!(
-                super::call_hwloc_int_normal(api, || -1),
+                super::call_hwloc_positive_or_minus1(api, || -1),
                 Err(RawHwlocError { api, errno: None })
             );
             prop_assert_eq!(errno::errno(), start_errno);

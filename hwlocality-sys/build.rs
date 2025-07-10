@@ -22,7 +22,13 @@ fn main() {
 /// Configure the hwloc dependency
 fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current features
-    let required_version = if cfg!(feature = "hwloc-2_10_0") {
+    let required_version = if cfg!(feature = "hwloc-2_12_1") {
+        "2.12.1"
+    } else if cfg!(feature = "hwloc-2_12_0") {
+        "2.12.0"
+    } else if cfg!(feature = "hwloc-2_11_0") {
+        "2.11.0"
+    } else if cfg!(feature = "hwloc-2_10_0") {
         "2.10.0"
     } else if cfg!(feature = "hwloc-2_8_0") {
         "2.8.0"
@@ -102,8 +108,8 @@ fn setup_vendored_hwloc(required_version: &str) {
         .expect("No major version in required_version")
     {
         "2" => (
-            "2.10.0",
-            hex("b3e5e208587cd366fc2975f21102c20f3b1094d3cae69f464cb1bd8b09f302aa"),
+            "2.12.1",
+            hex("ece646396730d57109298aac80dc226cd05c7d9e7f5b48976a43e9c365a73417"),
         ),
         other => panic!("Please add support for bundling hwloc v{other}.x"),
     };

@@ -36,7 +36,7 @@ overflow-checks = false
 
 [package]
 name = "hwlocality"
-version = "1.0.0-alpha.9"
+version = "1.0.0-alpha.10"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -52,7 +52,7 @@ categories.workspace = true
 # It is not recommended to use this feature in production, since an update to
 # hwlocality can silently bump your hwloc build requirement. But this feature is
 # convenient for scenarios like CI where you want to test with all features on.
-hwloc-latest = ["hwloc-2_10_0"]
+hwloc-latest = ["hwloc-2_12_1"]
 
 # Require at least hwloc v2.0.4, which enables...
 #
@@ -135,8 +135,36 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # ...in addition to all features listed above
 hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
 
+# Require at least hwloc v2.11.0
+#
+# - MemoryBindingPolicy::WeightedInterleave is now available on Linux 6.9+, with
+#   a matching MemoryBindingSupport::weighted_interleave_policy() query.
+# - TopologyEditor::insert_group_object() can finally expose a safe way to set
+#   a group object's subtype on Windows, thanks to official support from hwloc.
+#
+# ...in addition to all features listed above
+hwloc-2_11_0 = ["hwlocality-sys/hwloc-2_11_0", "hwloc-2_10_0"]
+
+# Require at least hwloc v2.12.0
+#
+# - Topology::get_default_nodeset() is now available as a way to query the
+#   "default" NUMA nodes, which are the ones on which memory allocations should
+#   be made unless particular requirements dictate otherwise.
+#
+# ...in addition to all features listed above
+hwloc-2_12_0 = ["hwlocality-sys/hwloc-2_12_0", "hwloc-2_11_0"]
+
+# Require at least hwloc v2.12.1
+#
+# - LocalNUMANodeFlags::INTERSECT_LOCALITY is now available as a way to select
+#   NUMA nodes that intersect the target CPU set: they cover some of the target
+#   CPU cores, but not all of them, and they also cover additional CPU cores
+#
+# ...in addition to all features listed above
+hwloc-2_12_1 = ["hwlocality-sys/hwloc-2_12_1", "hwloc-2_12_0"]
+
 # WIP hwloc v3.0.0 support, do not use yet!
-hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_10_0"]
+hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_12_1"]
 
 # To support a new hwloc release that introduces API or ABI changes (see the
 # NEWS file in the hwloc source tree for release notes)...
@@ -151,11 +179,9 @@ hwloc-3_0_0 = ["hwlocality-sys/hwloc-3_0_0", "hwloc-2_10_0"]
 #     using `curl <tar.gz url> | sha3-256sum`), in `setup_vendored_hwloc()`
 #   * If this is a new major version, add support for it in `find_hwloc()`
 # - Make the binding honor the API/ABI changes with the right cfg()s.
-# - Bump the crate's minor release number unless previous version was unreleased.
-# - Add this feature to the CI's linter matrix and both test matrices.
-# - Once CI has run at least once, add new matrix entry to required checks.
+# - Add this feature to the all CI matrices.
 # - Bump the hwloc version that's installed by CI.
-# - Adjust readthedocs links to point to the new release's documentation.
+# - Once CI has run at least once, add new matrix entry to required checks.
 # - Tag new minor releases of hwlocality and hwlocality-sys
 
 # Automatically download and build a compatible hwloc version internally.

@@ -5,8 +5,8 @@
 //! probed via [`TopologyObject::attributes()`]. All the enumerated types
 //! associated with these categories are collected into this module.
 
-// - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
-// - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
+// - Enums: https://hwloc.readthedocs.io/en/stable/group__hwlocality__object__types.html
+// - Kinds: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__types.html
 
 #[cfg(doc)]
 use crate::{
@@ -55,9 +55,9 @@ pub enum BridgeType {
     #[doc(alias = "HWLOC_OBJ_BRIDGE_PCI")]
     PCI = HWLOC_OBJ_BRIDGE_PCI,
 
-    /// Unknown [`hwloc_obj_bridge_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_bridge_type_t`] from hwloc
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_bridge_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_bridge_type_t>) = hwloc_obj_bridge_type_t::MAX,
 }
 //
 impl BridgeType {
@@ -65,7 +65,17 @@ impl BridgeType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_bridge_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -101,9 +111,9 @@ pub enum CacheType {
     #[doc(alias = "HWLOC_OBJ_CACHE_INSTRUCTION")]
     Instruction = HWLOC_OBJ_CACHE_INSTRUCTION,
 
-    /// Unknown [`hwloc_obj_cache_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_cache_type_t`] from hwloc
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_cache_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_cache_type_t>) = hwloc_obj_cache_type_t::MAX,
 }
 //
 impl CacheType {
@@ -111,7 +121,17 @@ impl CacheType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_cache_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -182,9 +202,9 @@ pub enum OSDeviceType {
     #[doc(alias = "HWLOC_OBJ_OSDEV_MEMORY")]
     Memory = HWLOC_OBJ_OSDEV_MEMORY,
 
-    /// Unknown [`hwloc_obj_osdev_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_osdev_type_t`] from hwloc
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_osdev_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_osdev_type_t>) = hwloc_obj_osdev_type_t::MAX,
 }
 //
 impl OSDeviceType {
@@ -192,7 +212,17 @@ impl OSDeviceType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_osdev_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -219,7 +249,7 @@ impl From<OSDeviceType> for hwloc_obj_osdev_type_t {
 /// Represents the type of a [`TopologyObject`].
 ///
 /// Note that (partial) ordering for object types is implemented as a call
-/// into the `hwloc` library which defines ordering as follows:
+/// into the hwloc library which defines ordering as follows:
 ///
 /// - A == B if `ObjectType::A` and `ObjectType::B` are the same.
 /// - A < B if `ObjectType::A` includes objects of type `ObjectType::B`.
@@ -325,6 +355,10 @@ pub enum ObjectType {
     /// have any child except Misc objects. However it may have Memory-side
     /// cache parents.
     ///
+    /// NUMA nodes may correspond to different kinds of memory (DRAM, HBM,
+    /// CXL-DRAM, etc.). When hwloc is able to guess that kind, it is specified
+    /// in the subtype field of the object.
+    ///
     /// There is always at least one such object in the topology even if the
     /// machine is not NUMA. However, an incorrect number of NUMA nodes may be
     /// reported in the absence of [`DiscoverySupport::numa_count()`].
@@ -338,7 +372,8 @@ pub enum ObjectType {
 
     /// Bridge (filtered out by default)
     ///
-    /// Any bridge that connects the host or an I/O bus, to another I/O bus.
+    /// Any bridge (or PCI switch) that connects the host or an I/O bus, to
+    /// another I/O bus.
     ///
     /// Bridges are not added to the topology unless their filtering is changed
     /// (see [`TopologyBuilder::with_type_filter()`] and
@@ -410,13 +445,19 @@ pub enum ObjectType {
     /// Die within a physical package
     ///
     /// A subpart of the physical package, that contains multiple cores.
+    ///
+    /// Some operating systems (e.g. Linux) may expose a single die per package
+    /// even if the hardware does not support dies at all. To avoid showing such
+    /// non-existing dies, hwloc will filter them out if all of them are
+    /// identical to packages. This is functionally equivalent to
+    /// [`TypeFilter::KeepStructure`] being enforced.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "HWLOC_OBJ_DIE")]
     Die = HWLOC_OBJ_DIE,
 
-    /// Unknown [`hwloc_obj_type_t`] from `hwloc`
+    /// Unknown [`hwloc_obj_type_t`] from hwloc
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_type_t>) = hwloc_obj_type_t::MAX,
 }
 //
 impl ObjectType {
@@ -424,7 +465,17 @@ impl ObjectType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }

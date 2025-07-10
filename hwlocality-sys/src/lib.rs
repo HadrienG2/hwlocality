@@ -282,7 +282,7 @@ pub type hwloc_thread_t = c_ulong;
 #[cfg_attr(docsrs, doc(cfg(all())))]
 pub type hwloc_pid_t = libc::pid_t;
 
-// === Object Sets: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__sets.html
+// === Object Sets: https://hwloc.readthedocs.io/en/stable/group__hwlocality__object__sets.html
 
 /// A non-modifiable [`hwloc_cpuset_t`]
 pub type hwloc_const_cpuset_t = hwloc_const_bitmap_t;
@@ -305,10 +305,10 @@ pub type hwloc_cpuset_t = hwloc_bitmap_t;
 /// memory bank is considered as NUMA node `#0`.
 ///
 /// See also [Converting between CPU sets and node
-/// sets](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__nodeset__convert.html).
+/// sets](https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__nodeset__convert.html).
 pub type hwloc_nodeset_t = hwloc_bitmap_t;
 
-// === Object Types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
+// === Object Types: https://hwloc.readthedocs.io/en/stable/group__hwlocality__object__types.html
 
 /// Value returned by [`hwloc_compare_types()`] when types can not be compared
 pub const HWLOC_TYPE_UNORDERED: c_int = c_int::MAX;
@@ -458,7 +458,7 @@ pub const HWLOC_OBJ_L3ICACHE: hwloc_obj_type_t = 11;
 /// operating systems expose their arbitrary processors aggregation this
 /// way. And hwloc may insert such objects to group NUMA nodes according
 /// to their distances. See also [What are these Group objects in my
-/// topology?](https://hwloc.readthedocs.io/en/v2.9/faq.html#faq_groups).
+/// topology?](https://hwloc.readthedocs.io/en/stable/faq.html#faq_groups).
 ///
 /// These objects are ignored when they do not bring any structure (see
 /// [`HWLOC_TYPE_FILTER_KEEP_STRUCTURE`])
@@ -557,7 +557,7 @@ pub const HWLOC_OBJ_MEMCACHE: hwloc_obj_type_t = 18;
 #[cfg(feature = "hwloc-2_1_0")]
 pub const HWLOC_OBJ_DIE: hwloc_obj_type_t = 19;
 
-// === Object Structure and Attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__objects.html
+// === Object Structure and Attributes: https://hwloc.readthedocs.io/en/stable/group__hwlocality__objects.html
 
 /// Hardware topology object
 ///
@@ -572,7 +572,7 @@ pub struct hwloc_obj {
 
     /// Subtype string to better describe the type field
     ///
-    /// See <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal>
+    /// See <https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_normal>
     /// for a list of subtype strings that hwloc can emit.
     pub subtype: *mut c_char,
 
@@ -774,7 +774,7 @@ pub struct hwloc_obj {
     /// Complete list of (key, value) textual info pairs
     ///
     /// hwloc defines [a number of standard object info attribute names with
-    /// associated semantics](https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info).
+    /// associated semantics](https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_info).
     ///
     /// Beware that hwloc allows multiple informations with the same key to
     /// exist, although no sane programs should leverage this possibility.
@@ -1093,7 +1093,7 @@ pub struct hwloc_osdev_attr_s {
 /// Used in multiple places of the hwloc API for extensible metadata.
 ///
 /// See also [Consulting and Adding Info
-/// Attributes](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html).
+/// Attributes](https://hwloc.readthedocs.io/en/stable/group__hwlocality__info__attr.html).
 ///
 /// This type does not implement [`Default`] because hwloc all but guarantees
 /// that the inner pointers of this struct will not be null.
@@ -1107,7 +1107,7 @@ pub struct hwloc_info_s {
     pub value: *mut c_char,
 }
 
-// === Topology Creation and Destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
+// === Topology Creation and Destruction: https://hwloc.readthedocs.io/en/stable/group__hwlocality__creation.html
 
 /// Opaque topology struct
 ///
@@ -1143,7 +1143,7 @@ pub type hwloc_topology_t = *mut hwloc_topology;
 /// A non-modifiable [`hwloc_topology_t`]
 pub type hwloc_const_topology_t = *const hwloc_topology;
 
-// === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
+// === Object levels, depths and types: https://hwloc.readthedocs.io/en/stable/group__hwlocality__levels.html
 
 /// Depth of an object (or object type) in the topology
 ///
@@ -1176,7 +1176,7 @@ pub const HWLOC_TYPE_DEPTH_MISC: hwloc_get_type_depth_e = -7;
 #[cfg(feature = "hwloc-2_1_0")]
 pub const HWLOC_TYPE_DEPTH_MEMCACHE: hwloc_get_type_depth_e = -8;
 
-// === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+// === CPU binding: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
 
 /// Process/Thread binding flags
 ///
@@ -1249,7 +1249,7 @@ pub const HWLOC_CPUBIND_STRICT: hwloc_cpubind_flags_t = 1 << 2;
 /// binding.
 pub const HWLOC_CPUBIND_NOMEMBIND: hwloc_cpubind_flags_t = 1 << 3;
 
-// === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
+// === Memory binding: https://hwloc.readthedocs.io/en/stable/group__hwlocality__membinding.html
 
 /// Memory binding flags.
 ///
@@ -1375,6 +1375,21 @@ pub const HWLOC_MEMBIND_BIND: hwloc_membind_policy_t = 2;
 /// set.
 pub const HWLOC_MEMBIND_INTERLEAVE: hwloc_membind_policy_t = 3;
 
+/// Allocate memory on the given nodes in an interleaved / weighted manner.
+///
+/// The precise layout of the memory across multiple NUMA nodes is OS/system
+/// specific.
+///
+/// Weighted interleaving can be useful when threads distributed
+/// across the specified NUMA nodes with different bandwidth capabilities will
+/// all be accessing the whole memory range concurrently, since the interleave
+/// will then balance the memory references.
+///
+/// Only available if
+/// [`hwloc_topology_membind_support::weighted_interleave_membind`] is set.
+#[cfg(feature = "hwloc-2_11_0")]
+pub const HWLOC_MEMBIND_WEIGHTED_INTERLEAVE: hwloc_membind_policy_t = 5;
+
 /// Migrate pages on next touch
 ///
 /// For each page bound with this policy, by next time it is touched (and
@@ -1394,7 +1409,7 @@ pub const HWLOC_MEMBIND_NEXTTOUCH: hwloc_membind_policy_t = 4;
 /// loaded from XML without `HWLOC_THISSYSTEM=1`, etc.
 pub const HWLOC_MEMBIND_MIXED: hwloc_membind_policy_t = -1;
 
-// === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
+// === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/stable/group__hwlocality__setsource.html
 
 /// Flags to be passed to [`hwloc_topology_set_components()`]
 #[cfg(feature = "hwloc-2_1_0")]
@@ -1404,7 +1419,7 @@ pub type hwloc_topology_components_flag_e = c_ulong;
 #[cfg(feature = "hwloc-2_1_0")]
 pub const HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST: hwloc_topology_components_flag_e = 1 << 0;
 
-// === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+// === Topology detection configuration and query: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html
 
 /// Topology building configuration flags
 pub type hwloc_topology_flags_e = c_ulong;
@@ -1643,7 +1658,7 @@ pub struct hwloc_topology_discovery_support {
 
     /// Detecting the efficiency of CPU kinds is supported
     ///
-    /// See also [Kinds of CPU cores](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html).
+    /// See also [Kinds of CPU cores](https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpukinds.html).
     #[cfg(feature = "hwloc-2_4_0")]
     pub cpukind_efficiency: c_uchar,
 }
@@ -1740,6 +1755,10 @@ pub struct hwloc_topology_membind_support {
 
     /// Getting the last NUMA nodes where a memory area was allocated is supported
     pub get_area_memlocation: c_uchar,
+
+    /// Weighted interleave policy is supported
+    #[cfg(feature = "hwloc-2_11_0")]
+    pub weighted_interleave_membind: c_uchar,
 }
 
 /// Miscellaneous support information
@@ -1811,7 +1830,7 @@ pub const HWLOC_TYPE_FILTER_KEEP_STRUCTURE: hwloc_type_filter_e = 2;
 /// and Misc types since they are likely important.
 pub const HWLOC_TYPE_FILTER_KEEP_IMPORTANT: hwloc_type_filter_e = 3;
 
-// === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+// === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/stable/group__hwlocality__tinker.html
 
 /// Module existing solely to apply a common hwloc version gate
 #[allow(clippy::wildcard_imports)]
@@ -1877,7 +1896,7 @@ mod topology_editing {
 pub use topology_editing::*;
 
 // === Distributing items over a topology:
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html
+// https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__distribute.html
 
 /// Flags to be given to `hwloc_distrib()`
 ///
@@ -1888,7 +1907,7 @@ pub type hwloc_distrib_flags_e = c_ulong;
 /// Distrib in reverse order, starting from the last objects
 pub const HWLOC_DISTRIB_FLAG_REVERSE: hwloc_distrib_flags_e = 1 << 0;
 
-// === The bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
+// === The bitmap API: https://hwloc.readthedocs.io/en/stable/group__hwlocality__bitmap.html
 
 /// Opaque bitmap struct
 ///
@@ -1923,7 +1942,7 @@ pub type hwloc_bitmap_t = *mut hwloc_bitmap_s;
 /// A non-modifiable [`hwloc_bitmap_t`]
 pub type hwloc_const_bitmap_t = *const hwloc_bitmap_s;
 
-// === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+// === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/stable/group__hwlocality__xmlexport.html
 
 /// Flags to be given to [`hwloc_topology_export_xml()`]
 pub type hwloc_topology_export_xml_flags_e = c_ulong;
@@ -1933,7 +1952,7 @@ pub type hwloc_topology_export_xml_flags_e = c_ulong;
 /// The export may miss some details about the topology.
 pub const HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1: hwloc_topology_export_xml_flags_e = 1 << 0;
 
-// === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+// === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/stable/group__hwlocality__syntheticexport.html
 
 /// Flags to be given to [`hwloc_topology_export_synthetic()`]
 pub type hwloc_topology_export_synthetic_flags_e = c_ulong;
@@ -1971,7 +1990,7 @@ pub const HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_V1: hwloc_topology_export_synthet
 pub const HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_IGNORE_MEMORY:
     hwloc_topology_export_synthetic_flags_e = 1 << 3;
 
-// === Retrieve distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+// === Retrieve distances between objects: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__get.html
 
 /// Kinds of distance matrices
 ///
@@ -2085,7 +2104,7 @@ pub use distances_transform::*;
 ///
 /// The names and semantics of other distances matrices currently created by
 /// hwloc may be found
-/// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+/// [in the hwloc documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
 ///
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the `kind` attribute.
@@ -2146,7 +2165,7 @@ impl Default for hwloc_distances_s {
     }
 }
 
-// === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+// === Add distances between objects: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__add.html
 
 /// Handle to a new distances structure during its addition to the topology
 #[cfg(feature = "hwloc-2_5_0")]
@@ -2167,7 +2186,7 @@ pub const HWLOC_DISTANCES_ADD_FLAG_GROUP: hwloc_distances_add_flag_e = 1 << 0;
 /// If grouping, consider the distance values as inaccurate and relax the
 /// comparisons during the grouping algorithms. The actual accuracy may be
 /// modified through the `HWLOC_GROUPING_ACCURACY` environment variable (see
-/// [Environment Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+/// [Environment Variables](https://hwloc.readthedocs.io/en/stable/envvar.html)).
 #[cfg(feature = "hwloc-2_5_0")]
 pub const HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE: hwloc_distances_add_flag_e = 1 << 1;
 
@@ -2179,7 +2198,7 @@ pub const HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE: hwloc_distances_add_flag_e 
 mod memory_attributes {
     use super::*;
 
-    // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+    // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs.html
 
     /// Memory attribute identifier
     ///
@@ -2255,6 +2274,17 @@ mod memory_attributes {
     /// For instance, if a package (or its cpuset) is given in `initiator`,
     /// also select nodes that are attached to only a half of that package.
     pub const HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY: hwloc_local_numanode_flag_e = 1 << 1;
+
+    /// Select NUMA nodes whose locality intersects the given cpuset
+    ///
+    /// This includes larger and smaller localities as well as localities that
+    /// are partially included.
+    ///
+    /// For instance, if the locality is one core of both packages, a NUMA node
+    /// local to one package is neither larger nor smaller than this locality,
+    /// but it intersects it.
+    #[cfg(feature = "hwloc-2_12_1")]
+    pub const HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY: hwloc_local_numanode_flag_e = 1 << 3;
 
     /// Select all NUMA nodes in the topology
     ///
@@ -2348,7 +2378,7 @@ macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]
         extern "C" {
-            // === API versioning: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__api__version.html
+            // === API versioning: https://hwloc.readthedocs.io/en/stable/group__hwlocality__api__version.html
 
             /// Indicate at runtime which hwloc API version was used at build time
             ///
@@ -2357,7 +2387,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_get_api_version() -> c_uint;
 
-            // === Object types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
+            // === Object types: https://hwloc.readthedocs.io/en/stable/group__hwlocality__object__types.html
 
             /// Compare the depth of two object types.
             ///
@@ -2388,7 +2418,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_compare_types(type1: hwloc_obj_type_t, type2: hwloc_obj_type_t) -> c_int;
 
-            // === Topology creation and destruction: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
+            // === Topology creation and destruction: https://hwloc.readthedocs.io/en/stable/group__hwlocality__creation.html
 
             /// Allocate a topology context
             ///
@@ -2408,9 +2438,9 @@ macro_rules! extern_c_block {
             /// Build the actual topology once initialized with
             /// [`hwloc_topology_init()`] and tuned with[Topology Detection
             /// Configuration and
-            /// Query](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html)
+            /// Query](https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html)
             /// and [Changing the Source of Topology
-            /// Discovery](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html)
+            /// Discovery](https://hwloc.readthedocs.io/en/stable/group__hwlocality__setsource.html)
             /// routines. No other routine may be called earlier using this
             /// topology context.
             ///
@@ -2503,7 +2533,7 @@ macro_rules! extern_c_block {
             ///   [`hwloc_topology_load()`].
             pub fn hwloc_topology_check(topology: hwloc_const_topology_t);
 
-            // === Object levels, depths and types: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
+            // === Object levels, depths and types: https://hwloc.readthedocs.io/en/stable/group__hwlocality__levels.html
 
             #[must_use]
             pub fn hwloc_topology_get_depth(
@@ -2535,7 +2565,7 @@ macro_rules! extern_c_block {
                 idx: c_uint,
             ) -> hwloc_obj_t;
 
-            // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__strings.html
+            // === Converting between object types, attributes and strings: https://hwloc.readthedocs.io/en/stable/group__hwlocality__object__strings.html
 
             #[must_use]
             pub fn hwloc_obj_type_snprintf(
@@ -2554,7 +2584,7 @@ macro_rules! extern_c_block {
             ) -> c_int;
             // NOTE: Not exposing type printf/scanf for now
 
-            // === Consulting and adding Key-Value info attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__info__attr.html
+            // === Consulting and adding Key-Value info attributes: https://hwloc.readthedocs.io/en/stable/group__hwlocality__info__attr.html
 
             #[must_use]
             pub fn hwloc_obj_add_info(
@@ -2563,7 +2593,32 @@ macro_rules! extern_c_block {
                 value: *const c_char,
             ) -> c_int;
 
-            // === CPU binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+            /// Set (or replace) the subtype of an object.
+            ///
+            /// The given `subtype` is copied internally, the caller is
+            /// responsible for freeing the original `subtype` if needed.
+            ///
+            /// If another subtype already exists in `object`, it is replaced.
+            /// The given `subtype` may be `NULL` to remove the existing subtype.
+            ///
+            /// This function is mostly meant to initialize the subtype of
+            /// user-added objects such as groups with
+            /// `hwloc_topology_alloc_group_object()`.
+            ///
+            /// # Return values
+            ///
+            /// - `0` on success.
+            /// - `-1` with `errno` set to `ENOMEM` on failure to allocate
+            ///   memory.
+            #[cfg(feature = "hwloc-2_11_0")]
+            #[must_use]
+            pub fn hwloc_obj_set_subtype(
+                topology: hwloc_topology_t,
+                obj: hwloc_obj_t,
+                subtype: *const c_char,
+            ) -> c_int;
+
+            // === CPU binding: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
 
             #[must_use]
             pub fn hwloc_set_cpubind(
@@ -2619,7 +2674,7 @@ macro_rules! extern_c_block {
                 flags: hwloc_cpubind_flags_t,
             ) -> c_int;
 
-            // === Memory binding: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
+            // === Memory binding: https://hwloc.readthedocs.io/en/stable/group__hwlocality__membinding.html
 
             #[must_use]
             pub fn hwloc_set_membind(
@@ -2694,7 +2749,7 @@ macro_rules! extern_c_block {
                 len: usize,
             ) -> c_int;
 
-            // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
+            // === Changing the source of topology discovery: https://hwloc.readthedocs.io/en/stable/group__hwlocality__setsource.html
 
             #[must_use]
             pub fn hwloc_topology_set_pid(topology: hwloc_topology_t, pid: hwloc_pid_t) -> c_int;
@@ -2722,7 +2777,7 @@ macro_rules! extern_c_block {
                 name: *const c_char,
             ) -> c_int;
 
-            // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+            // === Topology detection configuration and query: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html
 
             #[must_use]
             pub fn hwloc_topology_set_flags(
@@ -2775,7 +2830,7 @@ macro_rules! extern_c_block {
             //       are hard to make work with copying, persistence and thread
             //       safety and are not so useful as to justify the effort.
 
-            // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+            // === Modifying a loaded Topology: https://hwloc.readthedocs.io/en/stable/group__hwlocality__tinker.html
 
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
@@ -2821,7 +2876,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_topology_refresh(topology: hwloc_topology_t) -> c_int;
 
-            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
+            // === Kinds of ObjectTypes: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__types.html
 
             #[must_use]
             pub fn hwloc_obj_type_is_normal(ty: hwloc_obj_type_t) -> c_int;
@@ -2836,7 +2891,7 @@ macro_rules! extern_c_block {
             #[must_use]
             pub fn hwloc_obj_type_is_icache(ty: hwloc_obj_type_t) -> c_int;
 
-            // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
+            // === Finding objects, miscellaneous helpers: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__misc.html
 
             #[cfg(feature = "hwloc-2_2_0")]
             #[must_use]
@@ -2856,7 +2911,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
             ) -> *const hwloc_obj;
 
-            // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
+            // === CPU and node sets of entire topologies: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__topology__sets.html
 
             #[must_use]
             pub fn hwloc_topology_get_complete_cpuset(
@@ -2883,7 +2938,7 @@ macro_rules! extern_c_block {
                 topology: hwloc_const_topology_t,
             ) -> hwloc_const_nodeset_t;
 
-            // === Bitmap API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
+            // === Bitmap API: https://hwloc.readthedocs.io/en/stable/group__hwlocality__bitmap.html
 
             #[must_use]
             pub fn hwloc_bitmap_alloc() -> hwloc_bitmap_t;
@@ -3006,7 +3061,7 @@ macro_rules! extern_c_block {
                 right: hwloc_const_bitmap_t,
             ) -> c_int;
 
-            // === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+            // === Exporting Topologies to XML: https://hwloc.readthedocs.io/en/stable/group__hwlocality__xmlexport.html
 
             #[must_use]
             pub fn hwloc_topology_export_xml(
@@ -3025,7 +3080,7 @@ macro_rules! extern_c_block {
             // NOTE: Not exposing userdata at the moment, so no need to bind
             //       associated API functions yet.
 
-            // === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+            // === Exporting Topologies to Synthetic: https://hwloc.readthedocs.io/en/stable/group__hwlocality__syntheticexport.html
 
             #[must_use]
             pub fn hwloc_topology_export_synthetic(
@@ -3035,7 +3090,7 @@ macro_rules! extern_c_block {
                 flags: hwloc_topology_export_synthetic_flags_e,
             ) -> c_int;
 
-            // === Retrieve distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+            // === Retrieve distances between objects: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__get.html
 
             #[must_use]
             pub fn hwloc_distances_get(
@@ -3092,7 +3147,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
             ) -> c_int;
 
-            // === Add distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+            // === Add distances between objects: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__add.html
 
             #[cfg(feature = "hwloc-2_5_0")]
             #[must_use]
@@ -3120,7 +3175,7 @@ macro_rules! extern_c_block {
                 flags: hwloc_distances_add_flag_e,
             ) -> c_int;
 
-            // === Remove distances between objects: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+            // === Remove distances between objects: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__remove.html
 
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
@@ -3138,7 +3193,7 @@ macro_rules! extern_c_block {
                 distances: *mut hwloc_distances_s,
             ) -> c_int;
 
-            // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+            // === Comparing memory node attributes for finding where to allocate on: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs.html
 
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
@@ -3187,7 +3242,69 @@ macro_rules! extern_c_block {
                 value: *mut u64,
             ) -> c_int;
 
-            // === Managing memory attributes: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+            /// Return the set of default NUMA nodes
+            ///
+            /// In machines with heterogeneous memory, some NUMA nodes are
+            /// considered the default ones, i.e. where basic allocations should
+            /// be made from. These are usually DRAM nodes.
+            ///
+            /// Other nodes may be reserved for specific use (I/O device memory,
+            /// e.g. GPU memory), small but high performance (HBM), large but
+            /// slow memory (NVM), etc. Buffers should usually not be allocated
+            /// from there unless explicitly required.
+            ///
+            /// This function fills `nodeset` with the bits of NUMA nodes
+            /// considered default.
+            ///
+            /// It is guaranteed that these nodes have non-intersecting CPU
+            /// sets, i.e. cores may not have multiple local NUMA nodes anymore.
+            /// Hence this may be used to iterate over the platform divided into
+            /// separate NUMA localities, for instance for binding one task per
+            /// NUMA domain.
+            ///
+            /// Any core that had some local NUMA node(s) in the initial
+            /// topology should still have one in the default nodeset. Corner
+            /// cases where this would be wrong consist in asymmetric platforms
+            /// with missing DRAM nodes, or topologies that were already
+            /// restricted to less NUMA nodes.
+            ///
+            /// The returned nodeset may be passed to
+            /// [`hwloc_topology_restrict()`] with
+            /// [`HWLOC_RESTRICT_FLAG_BYNODESET`] to remove all non-default
+            /// nodes from the topology. The resulting topology will be easier
+            /// to use when iterating over (now homogeneous) NUMA nodes.
+            ///
+            /// The heuristics for finding default nodes relies on memory tiers
+            /// and subtypes as well as the assumption that hardware vendors
+            /// list default nodes first in hardware tables.
+            ///
+            /// `flags` must be 0 for now.
+            ///
+            /// Returns 0 on success, -1 on error.
+            ///
+            /// The returned nodeset usually contains all nodes from a single
+            /// memory tier, likely the DRAM one.
+            ///
+            /// The returned nodeset is included in the list of available nodes
+            /// returned by [`hwloc_topology_get_topology_nodeset()`]. It is
+            /// strictly smaller if the machine has heterogeneous memory.
+            ///
+            /// The heuristics may return a suboptimal set of nodes if hwloc
+            /// could not guess memory types and/or if some default nodes were
+            /// removed earlier from the topology (e.g. with
+            /// [`hwloc_topology_restrict()`]).
+            #[cfg(feature = "hwloc-2_12_0")]
+            pub fn hwloc_topology_get_default_nodeset(
+                // FIXME: Defined as hwloc_topology_t in hwloc, but that's
+                //        hopefully an oversight as there is no reason for
+                //        this function to modify the topology. See
+                //        https://github.com/open-mpi/hwloc/issues/722 .
+                topology: hwloc_const_topology_t,
+                nodeset: hwloc_nodeset_t,
+                flags: c_ulong,
+            ) -> c_int;
+
+            // === Managing memory attributes: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs__manage.html
 
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
@@ -3244,7 +3361,7 @@ macro_rules! extern_c_block {
                 values: *mut u64,
             ) -> c_int;
 
-            // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+            // === Kinds of CPU cores: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpukinds.html
 
             #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
@@ -3279,7 +3396,7 @@ macro_rules! extern_c_block {
                 flags: c_ulong,
             ) -> c_int;
 
-            // === Linux-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
+            // === Linux-specific helpers: https://hwloc.readthedocs.io/en/stable/group__hwlocality__linux.html
 
             #[cfg(any(doc, target_os = "linux"))]
             #[must_use]
@@ -3311,7 +3428,7 @@ macro_rules! extern_c_block {
 
             // NOTE: libnuma interop is waiting for higher quality libnuma bindings
 
-            // === Windows-specific helpers: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
+            // === Windows-specific helpers: https://hwloc.readthedocs.io/en/stable/group__hwlocality__windows.html
 
             #[cfg(any(doc, all(feature = "hwloc-2_5_0", target_os = "windows")))]
             #[must_use]

@@ -28,7 +28,7 @@ use std::ffi::{c_char, CString};
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__syntheticexport.html
 impl Topology {
     /// Export the topology as a synthetic string
     ///
@@ -60,7 +60,7 @@ impl Topology {
                 //         - buffer and buflen are in sync (same vector)
                 //         - flags only allows values supported by the active
                 //           hwloc version
-                errors::call_hwloc_int_normal("hwloc_topology_export_synthetic", || unsafe {
+                errors::call_hwloc_positive_or_minus1("hwloc_topology_export_synthetic", || unsafe {
                     hwlocality_sys::hwloc_topology_export_synthetic(
                         self.as_ptr(),
                         buf.as_mut_ptr().cast::<c_char>(),

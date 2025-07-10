@@ -29,11 +29,7 @@ use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use std::{
-    ffi::{c_int, c_uint},
-    fmt::Display,
-    ops::Deref,
-};
+use std::{ffi::c_int, fmt::Display, ops::Deref};
 use thiserror::Error;
 
 /// # CPU binding
@@ -53,7 +49,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
 impl Topology {
     /// Binds the current process or thread on given CPUs
     ///
@@ -947,17 +943,17 @@ pub(crate) fn call_hwloc(
     fn translate_result(
         object: CpuBoundObject,
         cpuset: Option<&CpuSet>,
-        raw_result: Result<c_uint, RawHwlocError>,
+        raw_result: Result<(), RawHwlocError>,
     ) -> Result<(), HybridError<CpuBindingError>> {
         match raw_result {
-            Ok(_positive) => Ok(()),
+            Ok(()) => Ok(()),
             Err(
                 raw_err @ RawHwlocError {
                     errno: Some(errno), ..
                 },
             ) => match errno.0 {
                 // Using errno documentation from
-                // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+                // https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
                 EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
                     object,
@@ -971,7 +967,7 @@ pub(crate) fn call_hwloc(
             Err(raw_err) => Err(HybridError::Hwloc(raw_err)),
         }
     }
-    translate_result(object, cpuset, errors::call_hwloc_int_normal(api, ffi))
+    translate_result(object, cpuset, errors::call_hwloc_zero_or_minus1(api, ffi))
 }
 
 #[cfg(test)]

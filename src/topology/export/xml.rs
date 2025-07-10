@@ -31,7 +31,7 @@ use std::{
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__xmlexport.html
 impl Topology {
     /// Export the topology into an XML file at filesystem location `path`
     ///
@@ -72,7 +72,7 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - path has been checked to be fit for hwloc consumption
         //         - flags only allows values supported by the active hwloc version
-        errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_export_xml", || unsafe {
             hwlocality_sys::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
         })
         .map_err(HybridError::Hwloc)?;
@@ -108,7 +108,7 @@ impl Topology {
         //         - xmlbuffer and buflen are out parameters, their initial value
         //           should not be read by hwloc
         //         - flags only allows values supported by the active hwloc version
-        errors::call_hwloc_int_normal("hwloc_topology_export_xmlbuffer", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_export_xmlbuffer", || unsafe {
             hwlocality_sys::hwloc_topology_export_xmlbuffer(
                 self.as_ptr(),
                 &mut xmlbuffer,
@@ -173,7 +173,7 @@ impl<'topology> XML<'topology> {
     /// # Panics
     ///
     /// If the string is not valid UTF-8 (according to
-    /// <https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce>,
+    /// <https://hwloc.readthedocs.io/en/stable/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce>,
     /// hwloc should only generates ASCII at the time of writing)
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,

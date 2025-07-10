@@ -29,7 +29,7 @@ struct pid_t;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__linux.html
 impl Topology {
     /// Bind a thread `tid` on cpus given in `set`
     ///
@@ -57,10 +57,9 @@ impl Topology {
             //         - hwloc ops are trusted not to modify *const parameters
             //         - TID cannot be validated (think TOCTOU), but hwloc should be
             //           able to handle an invalid TID
-            errors::call_hwloc_int_normal("hwloc_linux_set_tid_cpubind", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_linux_set_tid_cpubind", || unsafe {
                 hwlocality_sys::hwloc_linux_set_tid_cpubind(self_.as_ptr(), tid, set.as_ptr())
             })
-            .map(std::mem::drop)
         }
         polymorphized(self, tid, &set)
     }
@@ -88,10 +87,10 @@ impl Topology {
         //           valid state unless stated otherwise
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
-        errors::call_hwloc_int_normal("hwloc_linux_get_tid_cpubind", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_linux_get_tid_cpubind", || unsafe {
             hwlocality_sys::hwloc_linux_get_tid_cpubind(self.as_ptr(), tid, set.as_mut_ptr())
         })
-        .map(|_| set)
+        .map(|()| set)
     }
 
     /// Last physical CPU where thread `tid` ran.
@@ -114,14 +113,14 @@ impl Topology {
         //           valid state unless stated otherwise
         //         - TID cannot be validated (think TOCTOU), but hwloc should be
         //           able to handle an invalid TID
-        errors::call_hwloc_int_normal("hwloc_linux_get_tid_last_cpu_location", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_linux_get_tid_last_cpu_location", || unsafe {
             hwlocality_sys::hwloc_linux_get_tid_last_cpu_location(
                 self.as_ptr(),
                 tid,
                 set.as_mut_ptr(),
             )
         })
-        .map(|_| set)
+        .map(|()| set)
     }
 
     /// Convert a linux kernel cpumask file path into a hwloc bitmap set.
@@ -130,7 +129,7 @@ impl Topology {
     /// `topology` and `caches` for processors, or `local_cpus` for devices.
     ///
     /// Note that this function ignores the [HWLOC_FSROOT environment
-    /// variable](https://hwloc.readthedocs.io/en/v2.9/envvar.html).
+    /// variable](https://hwloc.readthedocs.io/en/stable/envvar.html).
     ///
     /// # Errors
     ///
@@ -181,11 +180,11 @@ impl Topology {
             //         - hwloc ops are trusted not to modify *const parameters
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
-            errors::call_hwloc_int_normal("hwloc_linux_read_path_as_cpumask", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_linux_read_path_as_cpumask", || unsafe {
                 hwlocality_sys::hwloc_linux_read_path_as_cpumask(path.borrow(), set.as_mut_ptr())
             })
-            .map_err(HybridError::Hwloc)?;
-            Ok(set)
+            .map(|()| set)
+            .map_err(HybridError::Hwloc)
         }
         polymorphized(path.as_ref())
     }

@@ -24,8 +24,8 @@ env:
   RUSTDOCFLAGS: '-D warnings'
   RUST_LOG: 'info'
   MINIMAL_RUST: '1.75.0'  # Minimal Supported Rust Version
-  HWLOC_VERSION: '2.10.0'
-  HWLOC_VERSION_SHORT: '2.10'  # Used in URL to official tarball/binaries
+  HWLOC_VERSION: '2.12.1'
+  HWLOC_VERSION_SHORT: '2.12'  # Used in URL to official tarball/binaries
   HWLOC_DEBUG_VERBOSE: 0  # Set to 1 when debugging issues inside of hwloc
   HWLOC_HIDE_ERRORS: 0  # Remove if this proves too chatty
 
@@ -114,7 +114,10 @@ jobs:
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
           - 'hwloc-2_10_0'
-          # Remember to also update scheduled-semver-checks matrix
+          - 'hwloc-2_11_0'
+          - 'hwloc-2_12_0'
+          - 'hwloc-2_12_1'
+          # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
@@ -181,7 +184,10 @@ jobs:
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
           - 'hwloc-2_10_0'
-          # Remember to also update lints matrix
+          - 'hwloc-2_11_0'
+          - 'hwloc-2_12_0'
+          - 'hwloc-2_12_1'
+          # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
@@ -242,14 +248,20 @@ jobs:
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
         features:
           - '""'
-          - 'hwloc-2_0_4'
-          - 'hwloc-2_1_0'
+          # To the author's knowledge, no Linux distribution in common use
+          # distributes hwloc v2.x where x < 2. The oldest hwloc2 version in
+          # common use is hwloc v2.2 from RHEL/Alma/Rocky v8. Therefore we
+          # disable CI tests for older releases to save machine time.
           - 'hwloc-2_2_0'
           - 'hwloc-2_3_0'
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
           - 'hwloc-2_10_0'
+          - 'hwloc-2_11_0'
+          - 'hwloc-2_12_0'
+          - 'hwloc-2_12_1'
+          # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 
@@ -510,14 +522,20 @@ jobs:
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
         features:
           - '""'
-          - 'hwloc-2_0_4'
-          - 'hwloc-2_1_0'
+          # To the author's knowledge, no Linux distribution in common use
+          # distributes hwloc v2.x where x < 2. The oldest hwloc2 version in
+          # common use is hwloc v2.2 from RHEL/Alma/Rocky v8. Therefore we
+          # disable CI tests for older releases to save machine time.
           - 'hwloc-2_2_0'
           - 'hwloc-2_3_0'
           - 'hwloc-2_4_0'
           - 'hwloc-2_5_0'
           - 'hwloc-2_8_0'
           - 'hwloc-2_10_0'
+          - 'hwloc-2_11_0'
+          - 'hwloc-2_12_0'
+          - 'hwloc-2_12_1'
+          # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
 

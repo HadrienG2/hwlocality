@@ -13,6 +13,8 @@
 //! The module itself only hosts type definitions that are related to this
 //! functionality.
 
+#[cfg(feature = "hwloc-2_12_0")]
+use crate::memory::nodeset::NodeSet;
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
@@ -24,12 +26,14 @@ use crate::{
         string::LibcString,
         transparent::{AsInner, AsNewtype},
     },
-    object::{types::ObjectType, TopologyObject},
+    object::{types::ObjectType, TopologyObject, TopologyObjectID},
     topology::{editor::TopologyEditor, Topology},
 };
 use bitflags::bitflags;
 use derive_more::{Display, From};
 use errno::Errno;
+#[cfg(feature = "hwloc-2_12_1")]
+use hwlocality_sys::HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY;
 use hwlocality_sys::{
     hwloc_const_topology_t, hwloc_local_numanode_flag_e, hwloc_location, hwloc_location_u,
     hwloc_memattr_flag_e, hwloc_memattr_id_t, hwloc_obj, HWLOC_LOCAL_NUMANODE_FLAG_ALL,
@@ -87,6 +91,27 @@ use thiserror::Error;
 /// for these nodes, if any, may then be obtained with
 /// [`MemoryAttribute::value()`] and manually compared with the desired criteria.
 ///
+/// Memory attributes are also used internally to build Memory Tiers which
+/// provide an easy way to distinguish NUMA nodes of different kinds.
+///
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "Beside tiers, hwloc defines a set of \"default\" nodes where normal memory"
+)]
+#[cfg_attr(feature = "hwloc-2_12_0", doc = "allocations should be made from (see")]
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "[`get_default_nodeset()`](Topology::get_default_nodeset)). This is also"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "useful for dividing the machine into a set of non-overlapping NUMA domains,"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "for instance for binding tasks per domain."
+)]
+#[cfg_attr(feature = "hwloc-2_12_0", doc = "")]
 /// The API also supports specific objects as initiator, but it is currently not
 /// used internally by hwloc. Users may for instance use it to provide custom
 /// performance values for host memory accesses performed by GPUs.
@@ -94,7 +119,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs.html
 impl Topology {
     /// Identifier of the memory attribute with the given name
     ///
@@ -117,13 +142,13 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, id is a pure out parameter that hwloc
         //           does not read
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_by_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
         });
         match res {
             // SAFETY: If hwloc indicates success, it should have initialized id
             //         to a valid memory attribute ID
-            Ok(_positive) => Ok(Some(unsafe {
+            Ok(()) => Ok(Some(unsafe {
                 MemoryAttribute::wrap(self, id.assume_init())
             })),
             Err(RawHwlocError {
@@ -182,7 +207,7 @@ impl Topology {
                 //         - The TargetNumaNodes API is designed in such a way that
                 //           an invalid (location, flags) tuple cannot happen.
                 //         - nr_mut and out_ptr are call site dependent, see below.
-                errors::call_hwloc_int_normal("hwloc_get_local_numanode_objs", || unsafe {
+                errors::call_hwloc_zero_or_minus1("hwloc_get_local_numanode_objs", || unsafe {
                     hwlocality_sys::hwloc_get_local_numanode_objs(
                         self_.as_ptr(),
                         &location,
@@ -221,6 +246,68 @@ impl Topology {
                 .collect())
         }
         polymorphized(self, target.into())
+    }
+
+    /// Set of default NUMA nodes
+    ///
+    /// In machines with heterogeneous memory, some NUMA nodes are
+    /// considered the default ones, i.e. where basic allocations should be made
+    /// from. These are usually DRAM nodes.
+    ///
+    /// Other nodes may be reserved for specific use (I/O device memory, e.g.
+    /// GPU memory), small but high performance (HBM), large but slow memory
+    /// (NVM), etc. Buffers should usually not be allocated from there unless
+    /// explicitly required.
+    ///
+    /// This function returns the [`NodeSet`] of NUMA nodes considered default.
+    ///
+    /// It is guaranteed that these nodes have non-intersecting CPU sets, i.e.
+    /// cores may not have multiple local NUMA nodes anymore. Hence this may be
+    /// used to iterate over the platform divided into separate NUMA localities,
+    /// for instance for binding one task per NUMA domain.
+    ///
+    /// Any core that had some local NUMA node(s) in the initial topology should
+    /// still have one in the default nodeset. Corner cases where this would be
+    /// wrong consist in asymmetric platforms with missing DRAM nodes, or
+    /// topologies that were already restricted to less NUMA nodes.
+    ///
+    /// The returned nodeset may be passed to [`TopologyEditor::restrict()`] to
+    /// remove all non-default nodes from the topology. The resulting topology
+    /// will be easier to use when iterating over (now homogeneous) NUMA nodes.
+    ///
+    /// The heuristics for finding default nodes relies on memory tiers and
+    /// subtypes as well as the assumption that hardware vendors list default
+    /// nodes first in hardware tables.
+    ///
+    /// The returned nodeset usually contains all nodes from a single
+    /// memory tier, likely the DRAM one.
+    ///
+    /// The returned nodeset is included in the list of available nodes
+    /// returned by [`nodeset()`](Topology::nodeset). It is
+    /// strictly smaller if the machine has heterogeneous memory.
+    ///
+    /// The heuristics may return a suboptimal set of nodes if hwloc
+    /// could not guess memory types and/or if some default nodes were
+    /// removed earlier from the topology (e.g. with
+    /// [`TopologyEditor::restrict()`]).
+    #[allow(clippy::missing_errors_doc)]
+    #[cfg(feature = "hwloc-2_12_0")]
+    pub fn get_default_nodeset(&self) -> Result<NodeSet, RawHwlocError> {
+        let mut result = NodeSet::new();
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted not to modify *const parameters
+        //         - Bitmaps are trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        //         - flags are set to zero as directed
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_get_default_nodeset", || unsafe {
+            hwlocality_sys::hwloc_topology_get_default_nodeset(
+                self.as_ptr(),
+                result.as_mut_ptr(),
+                0,
+            )
+        })
+        .map(|()| result)
     }
 
     /// Dump the values of all built-in memory attributes
@@ -499,7 +586,7 @@ impl Debug for NodeAttributeDump<'_> {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs__manage.html
 impl<'topology> TopologyEditor<'topology> {
     /// Register a new memory attribute
     ///
@@ -534,7 +621,7 @@ impl<'topology> TopologyEditor<'topology> {
         //           valid state unless stated otherwise
         //         - flags are validated to be correct
         //         - id is an out-parameter, so it can take any input value
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_register", || unsafe {
             hwlocality_sys::hwloc_memattr_register(
                 self.topology_mut_ptr(),
                 libc_name.borrow(),
@@ -544,7 +631,7 @@ impl<'topology> TopologyEditor<'topology> {
         });
         let handle_ebusy = || Err(RegisterError::NameTaken(name.into()));
         match res {
-            Ok(_positive) => Ok(MemoryAttributeBuilder {
+            Ok(()) => Ok(MemoryAttributeBuilder {
                 editor: self,
                 flags,
                 id,
@@ -730,7 +817,7 @@ impl MemoryAttributeBuilder<'_, '_> {
                 //         - initiator_ptr was checked to belong to this topology
                 //         - Flags must be 0 for now
                 //         - Any attribute value is valid
-                errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
+                errors::call_hwloc_zero_or_minus1("hwloc_memattr_set_value", || unsafe {
                     hwlocality_sys::hwloc_memattr_set_value(
                         self_.editor.topology_mut_ptr(),
                         self_.id,
@@ -938,13 +1025,13 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - id is assumed to be valid (type invariant)
         //         - name is an out parameter, its initial value doesn't matter
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
-            Ok(_positive) => {}
+            Ok(()) => {}
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
@@ -1003,13 +1090,13 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - id is assumed to be valid (type invariant)
         //         - flags is an out parameter, its initial value doesn't matter
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
             hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
-            Ok(_positive) => MemoryAttributeFlags::from_bits_retain(flags),
+            Ok(()) => MemoryAttributeFlags::from_bits_retain(flags),
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
@@ -1037,12 +1124,21 @@ impl<'topology> MemoryAttribute<'topology> {
     /// use it to provide custom information about host memory accesses
     /// performed by GPUs.
     ///
+    /// For certain attributes, `target_node` should satisfy extra propreties:
+    ///
+    /// - It must be a NUMA node when `self` is [`MemoryAttribute::capacity()`]
+    /// - It must have a CPU set when `self` is [`MemoryAttribute::locality()`]
+    ///
+    /// If this is not true, the [`InvalidTarget`] error will be returned.
+    ///
     /// # Errors
     ///
     /// - [`ForeignInitiator`] if the `initiator` parameter was set to a
     ///   [`TopologyObject`] that does not belong to this topology
     /// - [`ForeignTarget`] if the `target_node` object does not belong to this
     ///   topology
+    /// - [`InvalidTarget`] if `target_node` is not a valid target for this
+    ///   attribute.
     /// - [`NeedInitiator`] if no `initiator` was provided but this memory
     ///   attribute needs one
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
@@ -1050,6 +1146,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
     /// [`ForeignTarget`]: ValueQueryError::ForeignTarget
+    /// [`InvalidTarget`]: ValueQueryError::InvalidTarget
     /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
     /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_get_value")]
@@ -1069,6 +1166,14 @@ impl<'topology> MemoryAttribute<'topology> {
         if !self.topology.contains(target_node) {
             return Err(ValueQueryError::ForeignTarget(target_node.into()).into());
         }
+        if (self.id == HWLOC_MEMATTR_ID_CAPACITY
+            && target_node.object_type() != ObjectType::NUMANode)
+            || (self.id == HWLOC_MEMATTR_ID_LOCALITY && target_node.cpuset().is_none())
+        {
+            return Err(
+                ValueQueryError::InvalidTarget(target_node.global_persistent_index()).into(),
+            );
+        }
 
         // Run the query
         let mut value = u64::MAX;
@@ -1080,7 +1185,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //           to be NULL if and only if the attribute has no initiator
         //         - flags must be 0
         //         - Value is an out parameter, its initial value isn't read
-        errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
@@ -1090,7 +1195,7 @@ impl<'topology> MemoryAttribute<'topology> {
                 &mut value,
             )
         })
-        .map(|_| value)
+        .map(|()| value)
         .map_err(HybridError::Hwloc)
     }
 
@@ -1362,7 +1467,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ) -> Result<(Vec<Endpoint>, Vec<u64>), RawHwlocError> {
         // Prepare to call hwloc
         let mut call_ffi = |nr_mut, endpoint_out, values_out| {
-            errors::call_hwloc_int_normal(api, || {
+            errors::call_hwloc_zero_or_minus1(api, || {
                 // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
                 //         - hwloc ops are trusted not to modify *const parameters
                 //         - id is trusted to be valid (type invariant)
@@ -1417,9 +1522,9 @@ impl<'topology> MemoryAttribute<'topology> {
         query: impl FnOnce(hwloc_const_topology_t, hwloc_memattr_id_t, c_ulong, *mut u64) -> c_int,
     ) -> Option<u64> {
         /// Polymorphized subset of this function (avoids generics code bloat)
-        fn process_result(final_value: u64, result: Result<c_uint, RawHwlocError>) -> Option<u64> {
+        fn process_result(final_value: u64, result: Result<(), RawHwlocError>) -> Option<u64> {
             match result {
-                Ok(_positive) => Some(final_value),
+                Ok(()) => Some(final_value),
                 Err(RawHwlocError {
                     errno: Some(Errno(ENOENT)),
                     ..
@@ -1444,7 +1549,7 @@ impl<'topology> MemoryAttribute<'topology> {
 
         // Call hwloc and process its results
         let mut value = u64::MAX;
-        let result = errors::call_hwloc_int_normal(api, || {
+        let result = errors::call_hwloc_zero_or_minus1(api, || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - id is trusted to be valid (type invariant)
@@ -1610,6 +1715,10 @@ pub enum ValueQueryError {
     /// Specified target object does not belong to this topology
     #[error("memory attribute target {0}")]
     ForeignTarget(ForeignObjectError),
+
+    /// Specified target object is not valid for this attribute
+    #[error("target object #{0} is not valid for this attribute")]
+    InvalidTarget(TopologyObjectID),
 }
 
 /// Where to measure attributes from
@@ -1773,6 +1882,19 @@ bitflags! {
         /// also select nodes that are attached to only a half of that package.
         #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY")]
         const SMALLER_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY;
+
+        /// Select NUMA nodes whose locality intersects the given cpuset
+        ///
+        /// This includes larger and smaller localities (as if `LARGER_LOCALITY`
+        /// and `SMALLER_LOCALITY` were both specified), and also localities
+        /// that are only partially included.
+        ///
+        /// For instance, on a multi-CPU system, if the locality is one core of
+        /// both packages, a NUMA node local to one package is neither larger
+        /// nor smaller than this locality, but it intersects it.
+        #[cfg(feature = "hwloc-2_12_1")]
+        #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY")]
+        const INTERSECT_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY;
 
         /// Select all NUMA nodes in the topology
         ///

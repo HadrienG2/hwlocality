@@ -20,15 +20,15 @@ use std::{collections::HashMap, ffi::c_uint, fmt::Debug, iter::FusedIterator};
 /// # Object levels, depths and types
 ///
 /// Be sure to see read through the
-/// [Terms and Definitions](https://hwloc.readthedocs.io/en/v2.9/termsanddefs.html)
+/// [Terms and Definitions](https://hwloc.readthedocs.io/en/stable/termsanddefs.html)
 /// section of the upstream hwloc documentation to avoid any confusion about
 /// depths, child/sibling/cousin relationships, and see an example of an
 /// asymmetric topology where one package has fewer caches than its peers.
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
-// Also includes https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html,
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__levels.html
+// Also includes https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__cache.html,
 // which had to be reimplemented because it's static.
 impl Topology {
     /// Depth of the hierarchical tree of objects
@@ -88,6 +88,7 @@ impl Topology {
     pub fn memory_parents_depth(&self) -> Result<NormalDepth, TypeToDepthError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
+        //         - Depth value comes from hwloc
         unsafe {
             Depth::from_hwloc(hwlocality_sys::hwloc_get_memory_parents_depth(
                 self.as_ptr(),
@@ -135,6 +136,7 @@ impl Topology {
         //           of hwloc, and build.rs checks that the active version of
         //           hwloc is not older than that, so into() may only generate
         //           valid hwloc_obj_type_t values for current hwloc
+        //         - Depth value comes from hwloc
         unsafe {
             Depth::from_hwloc(hwlocality_sys::hwloc_get_type_depth(
                 self.as_ptr(),
@@ -353,9 +355,6 @@ impl Topology {
                         Err(TypeToDepthError::Multiple) => {
                             unreachable!("setting this value triggers a loop break")
                         }
-                        Err(TypeToDepthError::Unexpected(_)) => {
-                            unreachable!("this value is never set")
-                        }
                     }
                 }
             }
@@ -392,6 +391,7 @@ impl Topology {
             //           version of hwloc, and build.rs checks that the active
             //           version of hwloc is not older than that, so into() may only
             //           generate valid hwloc_get_depth_type_e values for current hwloc
+            //         - Depth value comes from hwloc
             match unsafe {
                 ObjectType::from_hwloc(hwlocality_sys::hwloc_get_depth_type(
                     self_.as_ptr(),
@@ -1124,7 +1124,6 @@ pub(crate) mod tests {
                     prop_assert!(cache_type.is_none());
                     prop_assert!(matches.len() >= 2);
                 },
-                Err(TypeToDepthError::Unexpected(e)) => panic!("got unexpected error {e}"),
             }
         }
     }

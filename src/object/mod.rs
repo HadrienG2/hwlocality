@@ -72,8 +72,8 @@ use std::{
 // --- Implementation details ---
 //
 // Upstream docs:
-// - https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
-// - https://hwloc.readthedocs.io/en/v2.9/attributes.html
+// - https://hwloc.readthedocs.io/en/stable/structhwloc__obj.html
+// - https://hwloc.readthedocs.io/en/stable/attributes.html
 //
 // See the matching accessor methods and hwloc documentation for more details on
 // field semantics, the struct member documentation will only be focused on
@@ -104,12 +104,14 @@ use std::{
 // - object_type is assumed to be in sync with attr
 // - It is okay to change attr inner data as long as no union is switched
 //   from one variant to another
-// - subtype may be replaced with another C string allocated by malloc(),
-//   which hwloc will automatically free() on topology destruction (source:
-//   documentation of hwloc_topology_insert_group_object() encourages it).
-//   However, this is only safe if hwloc is linked against the same libc as the
-//   application, so it should be made unsafe on Windows where linking against
-//   two different CRTs is both easy to do and hard to avoid.
+// - On hwloc <2.11, subtype may be replaced with another C string allocated by
+//   malloc(), which hwloc will automatically free() on topology destruction
+//   (source: documentation of hwloc_topology_insert_group_object() encourages
+//   it). However, this is only safe if hwloc is linked against the same libc as
+//   the application, so it should be made unsafe on Windows where linking
+//   against two different CRTs is both easy to do and hard to avoid. On hwloc
+//   2.11, the new hwloc_obj_set_subtype() avoids this problem, at the expense
+//   of requiring topology access.
 // - depth is in sync with parent
 // - logical_index is in sync with (next|prev)_cousin
 // - sibling_rank is in sync with (next|prev)_sibling
@@ -132,13 +134,14 @@ impl TopologyObject {
     /// Type of object
     #[doc(alias = "hwloc_obj::type")]
     pub fn object_type(&self) -> ObjectType {
-        // SAFETY: Object type does come from hwloc
+        // SAFETY: Object type is not user-editable so we are sure this value
+        //         comes from hwloc
         unsafe { ObjectType::from_hwloc(self.0.ty) }
     }
 
     /// Subtype string to better describe the type field
     ///
-    /// See <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal>
+    /// See <https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_normal>
     /// for a list of subtype strings that hwloc can emit.
     #[doc(alias = "hwloc_obj::subtype")]
     pub fn subtype(&self) -> Option<&CStr> {
@@ -150,11 +153,20 @@ impl TopologyObject {
 
     /// Set the subtype string
     ///
+    /// <div class="warning">
+    ///
+    /// To accomodate API changes in hwloc v2.11, this method had to be
+    /// deprecated and replaced with a new `subtype` optional parameter to the
+    /// `TopologyEditor::insert_group_object()` method.
+    ///
+    /// </div>
+    ///
     /// This exposes [`TopologyObject::set_subtype_unchecked()`] as a safe
     /// method on operating systems which aren't known to facilitate mixing and
     /// matching libc versions between an application and its dependencies.
-    #[allow(clippy::missing_errors_doc)]
-    #[cfg(all(feature = "hwloc-2_3_0", not(windows)))]
+    #[allow(clippy::missing_errors_doc, deprecated)]
+    #[cfg(all(feature = "hwloc-2_3_0", not(windows), not(tarpaulin_include)))]
+    #[deprecated = "Use the subtype parameter to TopologyEditor::insert_group_object()"]
     pub fn set_subtype(&mut self, subtype: &str) -> Result<(), NulError> {
         // SAFETY: Underlying OS is assumed not to ergonomically encourage
         //         unsafe multi-libc linkage
@@ -162,6 +174,14 @@ impl TopologyObject {
     }
 
     /// Set the subtype string
+    ///
+    /// <div class="warning">
+    ///
+    /// To accomodate API changes in hwloc v2.11, this method had to be
+    /// deprecated and replaced with a new `subtype` optional parameter to the
+    /// `TopologyEditor::insert_group_object()` method.
+    ///
+    /// </div>
     ///
     /// This is something you'll often want to do when creating Group or Misc
     /// objects in order to make them more descriptive.
@@ -185,7 +205,8 @@ impl TopologyObject {
     /// # Errors
     ///
     /// - [`NulError`] if `subtype` contains NUL chars.
-    #[cfg(feature = "hwloc-2_3_0")]
+    #[cfg(all(feature = "hwloc-2_3_0", not(tarpaulin_include)))]
+    #[deprecated = "Use the subtype parameter to TopologyEditor::insert_group_object()"]
     pub unsafe fn set_subtype_unchecked(&mut self, subtype: &str) -> Result<(), NulError> {
         // SAFETY: Per input precondition
         self.0.subtype = unsafe { LibcString::new(subtype)?.into_raw() };
@@ -251,7 +272,7 @@ pub type TopologyObjectID = u64;
 //
 // --- Implementation details ---
 //
-// Includes functionality inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__ancestors.html
+// Includes functionality inspired by https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__ancestors.html
 impl TopologyObject {
     /// Vertical index in the hierarchy
     ///
@@ -264,7 +285,8 @@ impl TopologyObject {
     /// tree, this is a special value that is unique to their type.
     #[doc(alias = "hwloc_obj::depth")]
     pub fn depth(&self) -> Depth {
-        // SAFETY: Depth value does come from hwloc
+        // SAFETY: Object depth is not user-editable so we are sure this value
+        //         comes from hwloc
         unsafe { Depth::from_hwloc(self.0.depth) }.expect("Got unexpected depth value")
     }
 
@@ -894,7 +916,7 @@ impl TopologyObject {
     /// Complete list of (key, value) textual info pairs
     ///
     /// hwloc defines [a number of standard object info attribute names with
-    /// associated semantics](https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info).
+    /// associated semantics](https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_info).
     ///
     /// Beware that hwloc allows multiple informations with the same key to
     /// exist, although sane users should not leverage this possibility.
@@ -969,10 +991,9 @@ impl TopologyObject {
         //         - hwloc is trusted not to make object invalid
         //         - LibcStrings are valid C strings by construction, and not
         //           used after the end of their lifetimes
-        errors::call_hwloc_int_normal("hwloc_obj_add_info", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_obj_add_info", || unsafe {
             hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
         })
-        .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
     }
 }
@@ -1757,27 +1778,6 @@ pub(crate) mod tests {
         }
 
         proptest! {
-            // Try to set an object's subtype
-            #[cfg(not(windows))]
-            #[test]
-            fn set_subtype(subtype in any_string()) {
-                test_object_editing(|obj| {
-                    // Try to set an object's subtype
-                    let res = obj.set_subtype(&subtype);
-
-                    // Handle inner NULs
-                    if subtype.chars().any(|c| c == '\0') {
-                        prop_assert_eq!(res, Err(NulError));
-                        return Ok(());
-                    }
-
-                    // Assume success otherwise
-                    res.unwrap();
-                    prop_assert_eq!(obj.subtype().unwrap().to_str().unwrap(), subtype);
-                    Ok(())
-                })?;
-            }
-
             // Try to add an info (key, value) pair to an object
             #[test]
             fn add_info(name in any_string(), value in any_string()) {

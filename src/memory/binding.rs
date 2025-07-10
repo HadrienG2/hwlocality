@@ -20,6 +20,8 @@ use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::Errno;
+#[cfg(feature = "hwloc-2_11_0")]
+use hwlocality_sys::HWLOC_MEMBIND_WEIGHTED_INTERLEAVE;
 use hwlocality_sys::{
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
     hwloc_membind_policy_t, hwloc_pid_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET,
@@ -93,7 +95,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__membinding.html
 impl Topology {
     /// Allocate some memory
     ///
@@ -291,6 +293,10 @@ impl Topology {
             MemoryBindingPolicy::Bind
             | MemoryBindingPolicy::Interleave
             | MemoryBindingPolicy::Unknown(_) => {
+                bytes.fill(MaybeUninit::new(0));
+            }
+            #[cfg(feature = "hwloc-2_11_0")]
+            MemoryBindingPolicy::WeightedInterleave => {
                 bytes.fill(MaybeUninit::new(0));
             }
         }
@@ -1142,7 +1148,7 @@ impl Topology {
             ///
             /// # Safety
             ///
-            /// `raw_policy` must come from `hwloc`
+            /// `raw_policy` must come from hwloc
             unsafe fn check_policy(
                 raw_policy: hwloc_membind_policy_t,
             ) -> Option<MemoryBindingPolicy> {
@@ -1158,7 +1164,7 @@ impl Topology {
             }
             // SAFETY: If control reaches this point, the hwloc function
             //         returned with a success status, which means it should
-            //         have set `raw_policy` to a sensible value.
+            //         have set `raw_policy` to a value value.
             (set.into(), unsafe { check_policy(raw_policy) })
         })
     }
@@ -1471,6 +1477,21 @@ pub enum MemoryBindingPolicy {
     #[doc(alias = "HWLOC_MEMBIND_INTERLEAVE")]
     Interleave = HWLOC_MEMBIND_INTERLEAVE,
 
+    /// Allocate memory on the given nodes in an interleaved / weighted manner.
+    ///
+    /// The precise layout of the memory across multiple NUMA nodes is OS/system
+    /// specific.
+    ///
+    /// Weighted interleaving can be useful when threads distributed across the
+    /// specified NUMA nodes with different bandwidth capabilities will all be
+    /// accessing the whole memory range concurrently, since the interleave will
+    /// then balance the memory references.
+    ///
+    /// Requires [`MemoryBindingSupport::weighted_interleave_policy()`].
+    #[cfg(feature = "hwloc-2_11_0")]
+    #[doc(alias = "HWLOC_MEMBIND_WEIGHTED_INTERLEAVE")]
+    WeightedInterleave = HWLOC_MEMBIND_WEIGHTED_INTERLEAVE,
+
     /// Migrate pages on next touch
     ///
     /// For each page bound with this policy, by next time it is touched (and
@@ -1482,9 +1503,9 @@ pub enum MemoryBindingPolicy {
     #[doc(alias = "HWLOC_MEMBIND_NEXTTOUCH")]
     NextTouch = HWLOC_MEMBIND_NEXTTOUCH,
 
-    /// Unknown [`hwloc_membind_policy_t`] from `hwloc`
+    /// Unknown [`hwloc_membind_policy_t`] from hwloc
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_membind_policy_t>),
+    Unknown(UnknownVariant<hwloc_membind_policy_t>) = hwloc_membind_policy_t::MAX,
 }
 //
 impl MemoryBindingPolicy {
@@ -1492,7 +1513,17 @@ impl MemoryBindingPolicy {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_membind_policy_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -1506,6 +1537,8 @@ impl From<MemoryBindingPolicy> for hwloc_membind_policy_t {
             MemoryBindingPolicy::FirstTouch => HWLOC_MEMBIND_FIRSTTOUCH,
             MemoryBindingPolicy::Bind => HWLOC_MEMBIND_BIND,
             MemoryBindingPolicy::Interleave => HWLOC_MEMBIND_INTERLEAVE,
+            #[cfg(feature = "hwloc-2_11_0")]
+            MemoryBindingPolicy::WeightedInterleave => HWLOC_MEMBIND_WEIGHTED_INTERLEAVE,
             MemoryBindingPolicy::NextTouch => HWLOC_MEMBIND_NEXTTOUCH,
             MemoryBindingPolicy::Unknown(unknown) => unknown.0,
         }
@@ -1611,8 +1644,8 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
     clone_set: &dyn Fn() -> Option<Set>,
     ffi: impl FnOnce() -> c_int,
 ) -> Result<(), HybridError<MemoryBindingError<Set>>> {
-    match errors::call_hwloc_int_normal(api, ffi) {
-        Ok(_) => Ok(()),
+    match errors::call_hwloc_zero_or_minus1(api, ffi) {
+        Ok(()) => Ok(()),
         Err(e @ RawHwlocError { errno, .. }) => {
             Err(decode_errno(object, operation, clone_set, errno)
                 .map_or_else(|| HybridError::Hwloc(e), HybridError::Rust))
@@ -1754,7 +1787,7 @@ impl Drop for Bytes<'_> {
             //         - self.data is trusted to be valid (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - Bytes will not be usable again after Drop
-            let result = errors::call_hwloc_int_normal("hwloc_free", || unsafe {
+            let result = errors::call_hwloc_zero_or_minus1("hwloc_free", || unsafe {
                 hwlocality_sys::hwloc_free(
                     self.topology.as_ptr(),
                     self.data.as_ptr().cast::<c_void>(),

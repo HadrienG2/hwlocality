@@ -18,7 +18,7 @@ use std::iter::FusedIterator;
 //
 // --- Implementation details ---
 //
-// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__advanced__io.html
+// Inspired by https://hwloc.readthedocs.io/en/stable/group__hwlocality__advanced__io.html
 // but inline functions had to be reimplemented in Rust. Further, queries
 // pertaining to ancestors and children were moved to the corresponding sections.
 impl Topology {

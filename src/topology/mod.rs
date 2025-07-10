@@ -66,7 +66,10 @@ use thiserror::Error;
 /// - [CPU cache statistics](#cpu-cache-statistics) (specific to Rust bindings)
 /// - [CPU binding](#cpu-binding)
 /// - [Memory binding](#memory-binding)
-/// - [Modifying a loaded topology](#modifying-a-loaded-topology)
+#[cfg_attr(
+    feature = "hwloc-2_3_0",
+    doc = "- [Modifying a loaded topology](#modifying-a-loaded-topology) (hwloc 2.3+)"
+)]
 /// - [Finding objects inside a CPU set](#finding-objects-inside-a-cpu-set)
 /// - [Finding objects covering at least a CPU set](#finding-objects-covering-at-least-a-cpu-set)
 /// - [Finding other objects](#finding-other-objects)
@@ -117,8 +120,8 @@ pub struct Topology(NonNull<hwloc_topology>);
 // --- Implementation details ---
 //
 // Upstream docs:
-// - Creation: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
-// - Build queries: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+// - Creation: https://hwloc.readthedocs.io/en/stable/group__hwlocality__creation.html
+// - Build queries: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html
 impl Topology {
     /// Creates a new Topology.
     ///
@@ -216,11 +219,11 @@ impl Topology {
     pub fn is_abi_compatible(&self) -> bool {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
+        let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_abi_check", || unsafe {
             hwlocality_sys::hwloc_topology_abi_check(self.as_ptr())
         });
         match result {
-            Ok(_) => true,
+            Ok(()) => true,
             #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
@@ -385,10 +388,11 @@ impl Topology {
         //           hwloc is not older than that, so into() may only generate
         //           valid hwloc_obj_type_t values for current hwloc
         //         - filter is an out-parameter, initial value shouldn't matter
-        errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
-        // SAFETY: Filter is from a successful hwloc API call
+        // SAFETY: Filter is from a successful hwloc API call, so it should be
+        //         a valid hwloc type filter that can be fed back to hwloc.
         Ok(unsafe { TypeFilter::from_hwloc(filter) })
     }
 }
@@ -397,7 +401,7 @@ impl Topology {
 //
 // --- Implementation details ---
 //
-// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html,
+// Inspired by https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__distribute.html,
 // but the inline header implementation had to be rewritten in Rust.
 impl Topology {
     /// Distribute `num_items` work items over the topology under `roots`
@@ -698,7 +702,7 @@ fn sets_overlap(mut sets: impl Iterator<Item = impl Deref<Target = CpuSet>>) -> 
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__topology__sets.html
 impl Topology {
     /// Topology CPU set
     ///
@@ -872,7 +876,7 @@ impl Topology {
     ///
     /// `getter` must be one of the functions described in the ["CPU and node
     /// sets of entire
-    /// topologies"](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html)
+    /// topologies"](https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__topology__sets.html)
     /// section of the hwloc documentation, which means in particular that it...
     ///
     /// - Cannot return NULL
@@ -941,10 +945,10 @@ impl Clone for Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - clone is an out-parameter, it can have any initial value
-        errors::call_hwloc_int_normal("hwloc_topology_dup", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_dup", || unsafe {
             hwlocality_sys::hwloc_topology_dup(&mut clone, self.as_ptr())
         })
-        .expect("Duplicating a topology should not fail");
+        .expect("Duplicating a topology only fail with ENOMEM, which is a panic in Rust");
 
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
     }
