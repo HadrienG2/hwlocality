@@ -65,7 +65,17 @@ impl BridgeType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_bridge_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -111,7 +121,17 @@ impl CacheType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_cache_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -192,7 +212,17 @@ impl OSDeviceType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_osdev_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
@@ -424,7 +454,17 @@ impl ObjectType {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, and therefore be a valid hwloc input.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
+    ///   output, and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(value: hwloc_obj_type_t) -> Self {
         Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
     }
