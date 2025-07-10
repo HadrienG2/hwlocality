@@ -1554,7 +1554,7 @@ pub enum DistancesTransform {
 
     /// Unknown [`hwloc_distances_transform_e`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_distances_transform_e>),
+    Unknown(UnknownVariant<hwloc_distances_transform_e>) = hwloc_distances_transform_e::MAX,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]

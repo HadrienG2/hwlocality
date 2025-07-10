@@ -57,7 +57,7 @@ pub enum BridgeType {
 
     /// Unknown [`hwloc_obj_bridge_type_t`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_bridge_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_bridge_type_t>) = hwloc_obj_bridge_type_t::MAX,
 }
 //
 impl BridgeType {
@@ -103,7 +103,7 @@ pub enum CacheType {
 
     /// Unknown [`hwloc_obj_cache_type_t`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_cache_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_cache_type_t>) = hwloc_obj_cache_type_t::MAX,
 }
 //
 impl CacheType {
@@ -184,7 +184,7 @@ pub enum OSDeviceType {
 
     /// Unknown [`hwloc_obj_osdev_type_t`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_osdev_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_osdev_type_t>) = hwloc_obj_osdev_type_t::MAX,
 }
 //
 impl OSDeviceType {
@@ -416,7 +416,7 @@ pub enum ObjectType {
 
     /// Unknown [`hwloc_obj_type_t`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_obj_type_t>),
+    Unknown(UnknownVariant<hwloc_obj_type_t>) = hwloc_obj_type_t::MAX,
 }
 //
 impl ObjectType {

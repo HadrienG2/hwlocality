@@ -970,7 +970,7 @@ pub enum TypeFilter {
 
     /// Unknown [`hwloc_type_filter_e`] from `hwloc`
     #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_type_filter_e>),
+    Unknown(UnknownVariant<hwloc_type_filter_e>) = hwloc_type_filter_e::MAX,
 }
 //
 impl TypeFilter {
