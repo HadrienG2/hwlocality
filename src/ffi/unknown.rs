@@ -43,8 +43,6 @@ pub struct UnknownVariant<T>(pub(crate) T);
 //
 impl<T> UnknownVariant<T> {
     /// Access the inner hwloc enum value
-    ///
-    /// Notice that
     pub fn get(self) -> T {
         self.0
     }
