@@ -244,8 +244,10 @@ jobs:
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
         features:
           - '""'
-          - 'hwloc-2_0_4'
-          - 'hwloc-2_1_0'
+          # To the author's knowledge, no Linux distribution in common use
+          # distributes hwloc v2.x where x < 2. The oldest hwloc2 version in
+          # common use is hwloc v2.2 from RHEL/Alma/Rocky v8. Therefore we
+          # disable CI tests for older releases to save machine time.
           - 'hwloc-2_2_0'
           - 'hwloc-2_3_0'
           - 'hwloc-2_4_0'
@@ -513,8 +515,10 @@ jobs:
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
         features:
           - '""'
-          - 'hwloc-2_0_4'
-          - 'hwloc-2_1_0'
+          # To the author's knowledge, no Linux distribution in common use
+          # distributes hwloc v2.x where x < 2. The oldest hwloc2 version in
+          # common use is hwloc v2.2 from RHEL/Alma/Rocky v8. Therefore we
+          # disable CI tests for older releases to save machine time.
           - 'hwloc-2_2_0'
           - 'hwloc-2_3_0'
           - 'hwloc-2_4_0'
