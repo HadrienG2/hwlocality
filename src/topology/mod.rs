@@ -219,11 +219,11 @@ impl Topology {
     pub fn is_abi_compatible(&self) -> bool {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
-        let result = errors::call_hwloc_int_normal("hwloc_topology_abi_check", || unsafe {
+        let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_abi_check", || unsafe {
             hwlocality_sys::hwloc_topology_abi_check(self.as_ptr())
         });
         match result {
-            Ok(_) => true,
+            Ok(()) => true,
             #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
@@ -388,7 +388,7 @@ impl Topology {
         //           hwloc is not older than that, so into() may only generate
         //           valid hwloc_obj_type_t values for current hwloc
         //         - filter is an out-parameter, initial value shouldn't matter
-        errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
         // SAFETY: Filter is from a successful hwloc API call, so it should be
@@ -945,10 +945,10 @@ impl Clone for Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - clone is an out-parameter, it can have any initial value
-        errors::call_hwloc_int_normal("hwloc_topology_dup", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_dup", || unsafe {
             hwlocality_sys::hwloc_topology_dup(&mut clone, self.as_ptr())
         })
-        .expect("Duplicating a topology should not fail");
+        .expect("Duplicating a topology only fail with ENOMEM, which is a panic in Rust");
 
         Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
     }

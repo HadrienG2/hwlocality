@@ -117,13 +117,13 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, id is a pure out parameter that hwloc
         //           does not read
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_by_name", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_by_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_by_name(self.as_ptr(), name.borrow(), id.as_mut_ptr())
         });
         match res {
             // SAFETY: If hwloc indicates success, it should have initialized id
             //         to a valid memory attribute ID
-            Ok(_positive) => Ok(Some(unsafe {
+            Ok(()) => Ok(Some(unsafe {
                 MemoryAttribute::wrap(self, id.assume_init())
             })),
             Err(RawHwlocError {
@@ -182,7 +182,7 @@ impl Topology {
                 //         - The TargetNumaNodes API is designed in such a way that
                 //           an invalid (location, flags) tuple cannot happen.
                 //         - nr_mut and out_ptr are call site dependent, see below.
-                errors::call_hwloc_int_normal("hwloc_get_local_numanode_objs", || unsafe {
+                errors::call_hwloc_zero_or_minus1("hwloc_get_local_numanode_objs", || unsafe {
                     hwlocality_sys::hwloc_get_local_numanode_objs(
                         self_.as_ptr(),
                         &location,
@@ -534,7 +534,7 @@ impl<'topology> TopologyEditor<'topology> {
         //           valid state unless stated otherwise
         //         - flags are validated to be correct
         //         - id is an out-parameter, so it can take any input value
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_register", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_register", || unsafe {
             hwlocality_sys::hwloc_memattr_register(
                 self.topology_mut_ptr(),
                 libc_name.borrow(),
@@ -544,7 +544,7 @@ impl<'topology> TopologyEditor<'topology> {
         });
         let handle_ebusy = || Err(RegisterError::NameTaken(name.into()));
         match res {
-            Ok(_positive) => Ok(MemoryAttributeBuilder {
+            Ok(()) => Ok(MemoryAttributeBuilder {
                 editor: self,
                 flags,
                 id,
@@ -730,7 +730,7 @@ impl MemoryAttributeBuilder<'_, '_> {
                 //         - initiator_ptr was checked to belong to this topology
                 //         - Flags must be 0 for now
                 //         - Any attribute value is valid
-                errors::call_hwloc_int_normal("hwloc_memattr_set_value", || unsafe {
+                errors::call_hwloc_zero_or_minus1("hwloc_memattr_set_value", || unsafe {
                     hwlocality_sys::hwloc_memattr_set_value(
                         self_.editor.topology_mut_ptr(),
                         self_.id,
@@ -938,13 +938,13 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - id is assumed to be valid (type invariant)
         //         - name is an out parameter, its initial value doesn't matter
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_name", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
-            Ok(_positive) => {}
+            Ok(()) => {}
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
@@ -1003,13 +1003,13 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - id is assumed to be valid (type invariant)
         //         - flags is an out parameter, its initial value doesn't matter
-        let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
             hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
-            Ok(_positive) => MemoryAttributeFlags::from_bits_retain(flags),
+            Ok(()) => MemoryAttributeFlags::from_bits_retain(flags),
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
@@ -1098,7 +1098,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //           to be NULL if and only if the attribute has no initiator
         //         - flags must be 0
         //         - Value is an out parameter, its initial value isn't read
-        errors::call_hwloc_int_normal("hwloc_memattr_get_value", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
@@ -1108,7 +1108,7 @@ impl<'topology> MemoryAttribute<'topology> {
                 &mut value,
             )
         })
-        .map(|_| value)
+        .map(|()| value)
         .map_err(HybridError::Hwloc)
     }
 
@@ -1380,7 +1380,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ) -> Result<(Vec<Endpoint>, Vec<u64>), RawHwlocError> {
         // Prepare to call hwloc
         let mut call_ffi = |nr_mut, endpoint_out, values_out| {
-            errors::call_hwloc_int_normal(api, || {
+            errors::call_hwloc_zero_or_minus1(api, || {
                 // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
                 //         - hwloc ops are trusted not to modify *const parameters
                 //         - id is trusted to be valid (type invariant)
@@ -1435,9 +1435,9 @@ impl<'topology> MemoryAttribute<'topology> {
         query: impl FnOnce(hwloc_const_topology_t, hwloc_memattr_id_t, c_ulong, *mut u64) -> c_int,
     ) -> Option<u64> {
         /// Polymorphized subset of this function (avoids generics code bloat)
-        fn process_result(final_value: u64, result: Result<c_uint, RawHwlocError>) -> Option<u64> {
+        fn process_result(final_value: u64, result: Result<(), RawHwlocError>) -> Option<u64> {
             match result {
-                Ok(_positive) => Some(final_value),
+                Ok(()) => Some(final_value),
                 Err(RawHwlocError {
                     errno: Some(Errno(ENOENT)),
                     ..
@@ -1462,7 +1462,7 @@ impl<'topology> MemoryAttribute<'topology> {
 
         // Call hwloc and process its results
         let mut value = u64::MAX;
-        let result = errors::call_hwloc_int_normal(api, || {
+        let result = errors::call_hwloc_zero_or_minus1(api, || {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - id is trusted to be valid (type invariant)

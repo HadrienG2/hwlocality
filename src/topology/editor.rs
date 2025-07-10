@@ -116,7 +116,7 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
-        let result = errors::call_hwloc_int_normal("hwloc_topology_refresh", || unsafe {
+        let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_refresh", || unsafe {
             hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
         if let Err(e) = result {
@@ -292,7 +292,7 @@ impl<'topology> TopologyEditor<'topology> {
             //         - hwloc ops are trusted not to modify *const parameters
             //         - By construction, only allowed flag combinations may be sent
             //           to hwloc
-            let result = errors::call_hwloc_int_normal("hwloc_topology_restrict", || unsafe {
+            let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_restrict", || unsafe {
                 hwlocality_sys::hwloc_topology_restrict(
                     self_.topology_mut_ptr(),
                     set.as_bitmap_ref().as_ptr(),
@@ -305,7 +305,7 @@ impl<'topology> TopologyEditor<'topology> {
                 std::process::abort()
             };
             match result {
-                Ok(_) => Ok(()),
+                Ok(()) => Ok(()),
                 Err(
                     raw_err @ RawHwlocError {
                         errno: Some(errno), ..
@@ -402,11 +402,11 @@ impl<'topology> TopologyEditor<'topology> {
         //         - By construction, flags are trusted to be in sync with the
         //           cpuset and nodeset params + only one of them is set as
         //           requested by hwloc
-        let result = errors::call_hwloc_int_normal("hwloc_topology_allow", || unsafe {
+        let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_allow", || unsafe {
             hwlocality_sys::hwloc_topology_allow(self.topology_mut_ptr(), cpuset, nodeset, flags)
         });
         match result {
-            Ok(_) => Ok(()),
+            Ok(()) => Ok(()),
             Err(RawHwlocError {
                 errno: Some(Errno(ENOSYS)),
                 ..
@@ -1321,7 +1321,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                     //         - child was checked to belong to the same
                     //           topology as group
                     //         - AsInner is trusted to be implemented correctly
-                    errors::call_hwloc_int_normal("hwloc_obj_add_other_obj_sets", || unsafe {
+                    errors::call_hwloc_zero_or_minus1("hwloc_obj_add_other_obj_sets", || unsafe {
                         hwlocality_sys::hwloc_obj_add_other_obj_sets(
                             group.as_inner().as_ptr(),
                             child.as_inner(),
@@ -1330,7 +1330,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                 let handle_enomem =
                     |raw_err: RawHwlocError| panic!("Internal reallocation failed: {raw_err}");
                 match result {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(
                         raw_err @ RawHwlocError {
                             errno: Some(errno::Errno(ENOMEM)),
@@ -1408,7 +1408,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             //           LibcString type invariant.
             //         - hwloc_obj_set_subtype is documented to only copy in the
             //           subtype value, not retain a pointer around.
-            let result = errors::call_hwloc_int_normal("hwloc_obj_set_subtype", || unsafe {
+            let result = errors::call_hwloc_zero_or_minus1("hwloc_obj_set_subtype", || unsafe {
                 hwlocality_sys::hwloc_obj_set_subtype(
                     self.editor.topology_mut_ptr(),
                     self.group.as_inner().as_ptr(),
@@ -1416,10 +1416,7 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                 )
             });
             match result {
-                Ok(0) => Ok(()),
-                Ok(positive) => {
-                    panic!("Got unexpected positive result {positive} from hwloc_obj_set_subtype()")
-                }
+                Ok(()) => Ok(()),
                 Err(RawHwlocError {
                     api: "hwloc_obj_set_subtype",
                     errno: Some(Errno(ENOMEM)),
@@ -1530,7 +1527,7 @@ impl Drop for AllocatedGroup<'_, '_> {
         // Since hwloc v2.10 there is a way to cleanly free group objects
         #[cfg(feature = "hwloc-2_10_0")]
         {
-            let result = errors::call_hwloc_int_normal(
+            let result = errors::call_hwloc_zero_or_minus1(
                 "hwloc_topology_free_group_object",
                 // SAFETY: - Inner group pointer is assumed valid as a type invariant
                 //         - The state where this invariant is broken, produced

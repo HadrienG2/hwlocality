@@ -991,10 +991,9 @@ impl TopologyObject {
         //         - hwloc is trusted not to make object invalid
         //         - LibcStrings are valid C strings by construction, and not
         //           used after the end of their lifetimes
-        errors::call_hwloc_int_normal("hwloc_obj_add_info", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_obj_add_info", || unsafe {
             hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
         })
-        .map(std::mem::drop)
         .map_err(HybridError::Hwloc)
     }
 }

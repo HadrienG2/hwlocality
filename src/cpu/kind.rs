@@ -96,7 +96,7 @@ impl Topology {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, flags should be zero
-        let count = errors::call_hwloc_int_normal("hwloc_cpukinds_get_nr", || unsafe {
+        let count = errors::call_hwloc_positive_or_minus1("hwloc_cpukinds_get_nr", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_nr(self.as_ptr(), 0)
         })
         .expect("All known failure cases are prevented by API design");
@@ -152,7 +152,7 @@ impl Topology {
         //         - Per documentation, efficiency, nr_infos and infos are
         //           pure out parameters that hwloc does not read
         //         - Per documentation, flags should be zero
-        errors::call_hwloc_int_normal("hwloc_cpukinds_get_info", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_cpukinds_get_info", || unsafe {
             hwlocality_sys::hwloc_cpukinds_get_info(
                 self.as_ptr(),
                 kind_index,
@@ -373,7 +373,7 @@ impl TopologyEditor<'_> {
             //         - The source raw_infos struct has valid contents per
             //           function precondition
             //         - Per documentation, flags should be zero
-            errors::call_hwloc_int_normal("hwloc_cpukinds_register", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_cpukinds_register", || unsafe {
                 hwlocality_sys::hwloc_cpukinds_register(
                     self_.topology_mut_ptr(),
                     cpuset.as_ptr(),
@@ -383,7 +383,6 @@ impl TopologyEditor<'_> {
                     0,
                 )
             })
-            .map(std::mem::drop)
             .expect("All known failure cases are prevented by API design");
             Ok(())
         }

@@ -471,14 +471,14 @@ impl CpuSet {
         //         - hwloc ops are trusted to keep *mut parameters in a
         //           valid state unless stated otherwise
         //         - Per documentation, hwloc should handle arbitrarily large which values
-        errors::call_hwloc_int_normal("hwloc_bitmap_singlify_per_core", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_bitmap_singlify_per_core", || unsafe {
             hwlocality_sys::hwloc_bitmap_singlify_per_core(
                 topology.as_ptr(),
                 self.as_mut_ptr(),
                 c_uint::try_from(which).unwrap_or(c_uint::MAX),
             )
         })
-        .expect("Per hwloc documentation, this function should not fail");
+        .expect("Per hwloc documentation, this function shouldn't fail");
     }
 
     /// Convert a NUMA node set into a CPU set

@@ -39,7 +39,7 @@ impl Topology {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - Per documentation, flags must be zero
-            errors::call_hwloc_int_normal("hwloc_windows_get_nr_processor_groups", || unsafe {
+            errors::call_hwloc_positive_or_minus1("hwloc_windows_get_nr_processor_groups", || unsafe {
                 hwlocality_sys::hwloc_windows_get_nr_processor_groups(self.as_ptr(), 0)
             })?;
         let count = NonZeroUsize::new(int::expect_usize(count))
@@ -70,7 +70,7 @@ impl Topology {
                 let mut set = CpuSet::new();
                 let pg_index = c_uint::try_from(pg_index)
                     .expect("Can't fail, pg_index upper bound comes from hwloc");
-                errors::call_hwloc_int_normal(
+                errors::call_hwloc_zero_or_minus1(
                     "hwloc_windows_get_processor_group_cpuset",
                     // SAFETY: - Topology is trusted to contain a valid ptr
                     //           (type invariant)

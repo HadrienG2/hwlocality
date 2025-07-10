@@ -1644,8 +1644,8 @@ pub(crate) fn call_hwloc_int<Set: SpecializedBitmap>(
     clone_set: &dyn Fn() -> Option<Set>,
     ffi: impl FnOnce() -> c_int,
 ) -> Result<(), HybridError<MemoryBindingError<Set>>> {
-    match errors::call_hwloc_int_normal(api, ffi) {
-        Ok(_) => Ok(()),
+    match errors::call_hwloc_zero_or_minus1(api, ffi) {
+        Ok(()) => Ok(()),
         Err(e @ RawHwlocError { errno, .. }) => {
             Err(decode_errno(object, operation, clone_set, errno)
                 .map_or_else(|| HybridError::Hwloc(e), HybridError::Rust))
@@ -1787,7 +1787,7 @@ impl Drop for Bytes<'_> {
             //         - self.data is trusted to be valid (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
             //         - Bytes will not be usable again after Drop
-            let result = errors::call_hwloc_int_normal("hwloc_free", || unsafe {
+            let result = errors::call_hwloc_zero_or_minus1("hwloc_free", || unsafe {
                 hwlocality_sys::hwloc_free(
                     self.topology.as_ptr(),
                     self.data.as_ptr().cast::<c_void>(),

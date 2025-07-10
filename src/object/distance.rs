@@ -298,7 +298,7 @@ impl Topology {
             // Prepare to call hwloc
             let mut nr = 0;
             let mut call_ffi = |nr_mut, distances_out| {
-                errors::call_hwloc_int_normal(getter_name, || {
+                errors::call_hwloc_zero_or_minus1(getter_name, || {
                     // SAFETY: - Topology is trusted to contain a valid ptr
                     //           (type invariant)
                     //         - hwloc ops are trusted not to modify *const
@@ -462,7 +462,7 @@ impl TopologyEditor<'_> {
             //           objects from the active topology
             //         - values comes from a distances that's still in scope and
             //           whose length has been checked
-            errors::call_hwloc_int_normal("hwloc_distances_add_values", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_add_values", || unsafe {
                 hwlocality_sys::hwloc_distances_add_values(
                     self_.topology_mut_ptr(),
                     handle.as_ptr(),
@@ -480,7 +480,7 @@ impl TopologyEditor<'_> {
             //         - hwloc ops are trusted to keep *mut parameters in a
             //           valid state unless stated otherwise
             //         - commit_flags only allows values supported by hwloc
-            errors::call_hwloc_int_normal("hwloc_distances_add_commit", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_add_commit", || unsafe {
                 hwlocality_sys::hwloc_distances_add_commit(
                     self_.topology_mut_ptr(),
                     handle.as_ptr(),
@@ -636,13 +636,12 @@ impl TopologyEditor<'_> {
             //         - hwloc ops are trusted to keep *mut parameters in a valid
             //           state unless stated otherwise
             //         - distances is trusted per function contract
-            errors::call_hwloc_int_normal("hwloc_distances_release_remove", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_release_remove", || unsafe {
                 hwlocality_sys::hwloc_distances_release_remove(
                     self_.topology_mut_ptr(),
                     distances.as_ptr(),
                 )
             })
-            .map(std::mem::drop)
         }
 
         // Run user callback and call polymorphized subset with result
@@ -665,10 +664,9 @@ impl TopologyEditor<'_> {
         //         - Distances lifetime is bound by the host topology, so this
         //           will invalidate all Distances struct in existence and thus
         //           use-after-free cannot happen
-        errors::call_hwloc_int_normal("hwloc_distances_remove", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_distances_remove", || unsafe {
             hwlocality_sys::hwloc_distances_remove(self.topology_mut_ptr())
         })
-        .map(std::mem::drop)
     }
 
     /// Remove distance matrices for objects at a specific depth in the topology
@@ -700,13 +698,12 @@ impl TopologyEditor<'_> {
             //           will invalidate all Distances struct in existence and thus
             //           use-after-free cannot happen
             //         - hwloc should be able to handle any valid depth value
-            errors::call_hwloc_int_normal("hwloc_distances_remove_by_depth", || unsafe {
+            errors::call_hwloc_zero_or_minus1("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
                     self_.topology_mut_ptr(),
                     depth.to_hwloc(),
                 )
             })
-            .map(std::mem::drop)
         }
 
         // There cannot be any object at a depth below the hwloc-supported max
@@ -1343,7 +1340,7 @@ impl<'topology> Distances<'topology> {
         //           valid state unless stated otherwise
         //         - Any supported transform value is accepted by hwloc
         //         - Per documentation, transform attr/flags must be NULL/0
-        errors::call_hwloc_int_normal("hwloc_distances_transform", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_distances_transform", || unsafe {
             hwlocality_sys::hwloc_distances_transform(
                 self.topology.as_ptr(),
                 self.inner_mut(),
@@ -1352,7 +1349,6 @@ impl<'topology> Distances<'topology> {
                 0,
             )
         })
-        .map(std::mem::drop)
         .map_err(|e| match e {
             RawHwlocError {
                 errno: Some(Errno(EINVAL)),

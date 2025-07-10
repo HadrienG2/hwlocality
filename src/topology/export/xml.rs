@@ -72,7 +72,7 @@ impl Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - path has been checked to be fit for hwloc consumption
         //         - flags only allows values supported by the active hwloc version
-        errors::call_hwloc_int_normal("hwloc_topology_export_xml", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_export_xml", || unsafe {
             hwlocality_sys::hwloc_topology_export_xml(self.as_ptr(), path.borrow(), flags.bits())
         })
         .map_err(HybridError::Hwloc)?;
@@ -108,7 +108,7 @@ impl Topology {
         //         - xmlbuffer and buflen are out parameters, their initial value
         //           should not be read by hwloc
         //         - flags only allows values supported by the active hwloc version
-        errors::call_hwloc_int_normal("hwloc_topology_export_xmlbuffer", || unsafe {
+        errors::call_hwloc_zero_or_minus1("hwloc_topology_export_xmlbuffer", || unsafe {
             hwlocality_sys::hwloc_topology_export_xmlbuffer(
                 self.as_ptr(),
                 &mut xmlbuffer,
