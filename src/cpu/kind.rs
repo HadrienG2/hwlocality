@@ -656,7 +656,6 @@ mod tests {
 
     proptest! {
         #[test]
-        #[ignore = "Waiting for hwloc release with patch for https://github.com/open-mpi/hwloc/issues/683"]
         fn register_cpu_kind(
             cpuset in topology_related_set(Topology::complete_cpuset),
             forced_efficiency in forced_efficiency(),
@@ -745,9 +744,8 @@ mod tests {
                     if !expected_kind.old_infos.iter().any(|old| old.name() == info.name()) {
                         let info_name = info.name().to_str().unwrap();
                         let info_value = info.value().to_str().unwrap();
-                        prop_assert_eq!(
-                            &infos.iter().find(|(name, _value)| name == info_name).unwrap().1,
-                            info_value
+                        prop_assert!(
+                            infos.iter().any(|(name, value)| name == info_name && value == info_value)
                         );
                     }
                 }
