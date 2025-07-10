@@ -1866,6 +1866,19 @@ bitflags! {
         #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY")]
         const SMALLER_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY;
 
+        /// Select NUMA nodes whose locality intersects the given cpuset
+        ///
+        /// This includes larger and smaller localities (as if `LARGER_LOCALITY`
+        /// and `SMALLER_LOCALITY` were both specified), and also localities
+        /// that are only partially included.
+        ///
+        /// For instance, on a multi-CPU system, if the locality is one core of
+        /// both packages, a NUMA node local to one package is neither larger
+        /// nor smaller than this locality, but it intersects it.
+        #[cfg(target = "hwloc-2_12_1")]
+        #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY")]
+        const INTERSECT_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY;
+
         /// Select all NUMA nodes in the topology
         ///
         /// The initiator is ignored.

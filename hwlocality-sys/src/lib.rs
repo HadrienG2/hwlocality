@@ -2275,6 +2275,17 @@ mod memory_attributes {
     /// also select nodes that are attached to only a half of that package.
     pub const HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY: hwloc_local_numanode_flag_e = 1 << 1;
 
+    /// Select NUMA nodes whose locality intersects the given cpuset
+    ///
+    /// This includes larger and smaller localities as well as localities that
+    /// are partially included.
+    ///
+    /// For instance, if the locality is one core of both packages, a NUMA node
+    /// local to one package is neither larger nor smaller than this locality,
+    /// but it intersects it.
+    #[cfg(feature = "hwloc-2_12_1")]
+    pub const HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY: hwloc_local_numanode_flag_e = 1 << 3;
+
     /// Select all NUMA nodes in the topology
     ///
     /// The initiator is ignored.
