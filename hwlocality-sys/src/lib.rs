@@ -3323,7 +3323,7 @@ macro_rules! extern_c_block {
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_memattr_register(
-                topology: hwloc_const_topology_t,
+                topology: hwloc_topology_t,
                 name: *const c_char,
                 flags: hwloc_memattr_flag_e,
                 id: *mut hwloc_memattr_id_t,
@@ -3331,7 +3331,7 @@ macro_rules! extern_c_block {
             #[cfg(feature = "hwloc-2_3_0")]
             #[must_use]
             pub fn hwloc_memattr_set_value(
-                topology: hwloc_const_topology_t,
+                topology: hwloc_topology_t,
                 attribute: hwloc_memattr_id_t,
                 target_node: *const hwloc_obj,
                 initiator: *const hwloc_location,
