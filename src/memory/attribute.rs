@@ -13,6 +13,8 @@
 //! The module itself only hosts type definitions that are related to this
 //! functionality.
 
+#[cfg(feature = "hwloc-2_12_0")]
+use crate::memory::nodeset::NodeSet;
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
@@ -274,6 +276,7 @@ impl Topology {
     /// could not guess memory types and/or if some default nodes were
     /// removed earlier from the topology (e.g. with
     /// [`TopologyEditor::restrict()`]).
+    #[allow(clippy::missing_errors_doc)]
     #[cfg(feature = "hwloc-2_12_0")]
     pub fn get_default_nodeset(&self) -> Result<NodeSet, RawHwlocError> {
         let mut result = NodeSet::new();
@@ -289,8 +292,8 @@ impl Topology {
                 result.as_mut_ptr(),
                 0,
             )
-        })?;
-        result
+        })
+        .map(|()| result)
     }
 
     /// Dump the values of all built-in memory attributes
