@@ -94,12 +94,24 @@ use thiserror::Error;
 /// Memory attributes are also used internally to build Memory Tiers which
 /// provide an easy way to distinguish NUMA nodes of different kinds.
 ///
-/// Beside tiers, hwloc defines a set of "default" nodes where normal memory
-/// allocations should be made from (see
-/// [`get_default_nodeset()`](Topology::get_default_nodeset)). This is also
-/// useful for dividing the machine into a set of non-overlapping NUMA domains,
-/// for instance for binding tasks per domain.
-///
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "Beside tiers, hwloc defines a set of \"default\" nodes where normal memory"
+)]
+#[cfg_attr(feature = "hwloc-2_12_0", doc = "allocations should be made from (see")]
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "[`get_default_nodeset()`](Topology::get_default_nodeset)). This is also"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "useful for dividing the machine into a set of non-overlapping NUMA domains,"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_12_0",
+    doc = "for instance for binding tasks per domain."
+)]
+#[cfg_attr(feature = "hwloc-2_12_0", doc = "")]
 /// The API also supports specific objects as initiator, but it is currently not
 /// used internally by hwloc. Users may for instance use it to provide custom
 /// performance values for host memory accesses performed by GPUs.
