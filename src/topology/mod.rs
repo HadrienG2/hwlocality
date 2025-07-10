@@ -391,7 +391,8 @@ impl Topology {
         errors::call_hwloc_int_normal("hwloc_topology_get_type_filter", || unsafe {
             hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
         })?;
-        // SAFETY: Filter is from a successful hwloc API call
+        // SAFETY: Filter is from a successful hwloc API call, so it should be
+        //         a valid hwloc type filter that can be fed back to hwloc.
         Ok(unsafe { TypeFilter::from_hwloc(filter) })
     }
 }

@@ -104,12 +104,14 @@ use std::{
 // - object_type is assumed to be in sync with attr
 // - It is okay to change attr inner data as long as no union is switched
 //   from one variant to another
-// - subtype may be replaced with another C string allocated by malloc(),
-//   which hwloc will automatically free() on topology destruction (source:
-//   documentation of hwloc_topology_insert_group_object() encourages it).
-//   However, this is only safe if hwloc is linked against the same libc as the
-//   application, so it should be made unsafe on Windows where linking against
-//   two different CRTs is both easy to do and hard to avoid.
+// - On hwloc <2.11, subtype may be replaced with another C string allocated by
+//   malloc(), which hwloc will automatically free() on topology destruction
+//   (source: documentation of hwloc_topology_insert_group_object() encourages
+//   it). However, this is only safe if hwloc is linked against the same libc as
+//   the application, so it should be made unsafe on Windows where linking
+//   against two different CRTs is both easy to do and hard to avoid. On hwloc
+//   2.11, the new hwloc_obj_set_subtype() avoids this problem, at the expense
+//   of requiring topology access.
 // - depth is in sync with parent
 // - logical_index is in sync with (next|prev)_cousin
 // - sibling_rank is in sync with (next|prev)_sibling
@@ -132,7 +134,8 @@ impl TopologyObject {
     /// Type of object
     #[doc(alias = "hwloc_obj::type")]
     pub fn object_type(&self) -> ObjectType {
-        // SAFETY: Object type does come from hwloc
+        // SAFETY: Object type is not user-editable so we are sure this value
+        //         comes from hwloc
         unsafe { ObjectType::from_hwloc(self.0.ty) }
     }
 
@@ -282,7 +285,8 @@ impl TopologyObject {
     /// tree, this is a special value that is unique to their type.
     #[doc(alias = "hwloc_obj::depth")]
     pub fn depth(&self) -> Depth {
-        // SAFETY: Depth value does come from hwloc
+        // SAFETY: Object depth is not user-editable so we are sure this value
+        //         comes from hwloc
         unsafe { Depth::from_hwloc(self.0.depth) }.expect("Got unexpected depth value")
     }
 

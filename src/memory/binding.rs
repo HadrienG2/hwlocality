@@ -1164,7 +1164,7 @@ impl Topology {
             }
             // SAFETY: If control reaches this point, the hwloc function
             //         returned with a success status, which means it should
-            //         have set `raw_policy` to a sensible value.
+            //         have set `raw_policy` to a value value.
             (set.into(), unsafe { check_policy(raw_policy) })
         })
     }

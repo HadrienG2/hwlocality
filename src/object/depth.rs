@@ -117,8 +117,17 @@ impl Depth {
     ///
     /// # Safety
     ///
-    /// `value` must come from hwloc, or else arbitrary mayhem may ensue when
-    /// the resulting value eventually gets sent to hwloc.
+    /// This type normally maintains the invariant that it holds a valid hwloc
+    /// input, and safe code relies on this to treat any C representation of
+    /// this enum as valid to send to hwloc. Therefore, you must enforce that
+    /// either of the following is true:
+    ///
+    /// - `value` is a known hwloc depth valueor was emitted by hwloc as output,
+    ///   and therefore is known/suspected to be a safe hwloc input.
+    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
+    ///   hwloc input is never sent to any hwloc API, either directly or via a
+    ///   safe `hwlocality` method. This possibility is mainly provided for
+    ///   unit testing code and not meant to be used on a larger scale.
     pub(crate) unsafe fn from_hwloc(
         value: hwloc_get_type_depth_e,
     ) -> Result<Self, TypeToDepthError> {
@@ -266,19 +275,6 @@ pub enum TypeToDepthError {
     #[doc(alias = "HWLOC_TYPE_DEPTH_MULTIPLE")]
     #[error("objects of requested type exist at different depths in the topology")]
     Multiple,
-
-    /// Unexpected special depth value or hwloc error
-    ///
-    /// You can get this error for two different reasons:
-    ///
-    /// - hwloc introduced a new virtual depth, and the version of the Rust
-    ///   bindings that you are using has not yet been updated to handle this
-    ///   new virtual depth. This is the most likely scenario.
-    /// - hwloc failed to probe the requested depth and returned a negative
-    ///   value to indicate that, but this negative value is not documented so
-    ///   the Rust bindings couldn't figure out what's going on.
-    #[error("got unexpected special object depth value or hwloc error code {0}")]
-    Unexpected(c_int),
 }
 
 #[cfg(test)]

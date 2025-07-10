@@ -14,9 +14,6 @@ fn main() -> eyre::Result<()> {
         ),
         Err(TypeToDepthError::Nonexistent) => println!("*** No package object found"),
         Err(TypeToDepthError::Multiple) => println!("*** Package objects exist at multiple depths"),
-        Err(TypeToDepthError::Unexpected(i)) => {
-            println!("*** Unknown error while probing packages: {i}")
-        }
     }
 
     Ok(())

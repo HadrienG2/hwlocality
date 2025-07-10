@@ -71,7 +71,8 @@ impl CacheAttributes {
     #[doc(alias = "hwloc_cache_attr_s::type")]
     #[doc(alias = "hwloc_obj_attr_u::hwloc_cache_attr_s::type")]
     pub fn cache_type(&self) -> CacheType {
-        // SAFETY: Cache type comes from hwloc
+        // SAFETY: Cache attributes are not user-editable so we are sure this
+        //         value comes from hwloc
         unsafe { CacheType::from_hwloc(self.0.ty) }
     }
 }

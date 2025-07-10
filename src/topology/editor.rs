@@ -1209,7 +1209,7 @@ pub enum InsertGroupError {
     ///
     /// Because of this, unless hwlocality is configured to drop support for
     /// hwloc <2.11 and use the new `hwloc_obj_set_subtype()` API with the Cargo
-    /// feature flag `hwloc-2_11_0`, giving a `Group` object a subtype is not
+    /// feature flag `hwloc-2_11_0`, giving a `Group` object a `subtype` is not
     /// supported on Windows.
     #[error("group subtypes are not supported in the current configuration")]
     SubtypeUnsupported,
