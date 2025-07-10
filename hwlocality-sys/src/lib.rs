@@ -3295,7 +3295,11 @@ macro_rules! extern_c_block {
             /// [`hwloc_topology_restrict()`]).
             #[cfg(feature = "hwloc-2_12_0")]
             pub fn hwloc_topology_get_default_nodeset(
-                topology: hwloc_topology_t,
+                // FIXME: Defined as hwloc_topology_t in hwloc, but that's
+                //        hopefully an oversight as there is no reason for
+                //        this function to modify the topology. See
+                //        https://github.com/open-mpi/hwloc/issues/722 .
+                topology: hwloc_const_topology_t,
                 nodeset: hwloc_nodeset_t,
                 flags: c_ulong,
             ) -> c_int;
