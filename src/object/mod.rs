@@ -72,8 +72,8 @@ use std::{
 // --- Implementation details ---
 //
 // Upstream docs:
-// - https://hwloc.readthedocs.io/en/v2.9/structhwloc__obj.html
-// - https://hwloc.readthedocs.io/en/v2.9/attributes.html
+// - https://hwloc.readthedocs.io/en/stable/structhwloc__obj.html
+// - https://hwloc.readthedocs.io/en/stable/attributes.html
 //
 // See the matching accessor methods and hwloc documentation for more details on
 // field semantics, the struct member documentation will only be focused on
@@ -141,7 +141,7 @@ impl TopologyObject {
 
     /// Subtype string to better describe the type field
     ///
-    /// See <https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal>
+    /// See <https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_normal>
     /// for a list of subtype strings that hwloc can emit.
     #[doc(alias = "hwloc_obj::subtype")]
     pub fn subtype(&self) -> Option<&CStr> {
@@ -272,7 +272,7 @@ pub type TopologyObjectID = u64;
 //
 // --- Implementation details ---
 //
-// Includes functionality inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__ancestors.html
+// Includes functionality inspired by https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__ancestors.html
 impl TopologyObject {
     /// Vertical index in the hierarchy
     ///
@@ -916,7 +916,7 @@ impl TopologyObject {
     /// Complete list of (key, value) textual info pairs
     ///
     /// hwloc defines [a number of standard object info attribute names with
-    /// associated semantics](https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_info).
+    /// associated semantics](https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_info).
     ///
     /// Beware that hwloc allows multiple informations with the same key to
     /// exist, although sane users should not leverage this possibility.

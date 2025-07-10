@@ -22,7 +22,7 @@
 //! [Memory]: ObjectType::is_memory()
 //! [Misc]: ObjectType::Misc
 
-// Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
+// Main docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__levels.html
 
 use crate::ffi::{int::PositiveInt, unknown::UnknownVariant};
 #[cfg(doc)]

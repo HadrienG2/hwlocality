@@ -120,8 +120,8 @@ pub struct Topology(NonNull<hwloc_topology>);
 // --- Implementation details ---
 //
 // Upstream docs:
-// - Creation: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
-// - Build queries: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+// - Creation: https://hwloc.readthedocs.io/en/stable/group__hwlocality__creation.html
+// - Build queries: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html
 impl Topology {
     /// Creates a new Topology.
     ///
@@ -401,7 +401,7 @@ impl Topology {
 //
 // --- Implementation details ---
 //
-// Inspired by https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__distribute.html,
+// Inspired by https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__distribute.html,
 // but the inline header implementation had to be rewritten in Rust.
 impl Topology {
     /// Distribute `num_items` work items over the topology under `roots`
@@ -702,7 +702,7 @@ fn sets_overlap(mut sets: impl Iterator<Item = impl Deref<Target = CpuSet>>) -> 
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__topology__sets.html
 impl Topology {
     /// Topology CPU set
     ///
@@ -876,7 +876,7 @@ impl Topology {
     ///
     /// `getter` must be one of the functions described in the ["CPU and node
     /// sets of entire
-    /// topologies"](https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__topology__sets.html)
+    /// topologies"](https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__topology__sets.html)
     /// section of the hwloc documentation, which means in particular that it...
     ///
     /// - Cannot return NULL

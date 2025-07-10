@@ -67,7 +67,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__tinker.html
 impl Topology {
     /// Modify this topology
     ///
@@ -195,7 +195,7 @@ impl<'topology> TopologyEditor<'topology> {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__tinker.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__tinker.html
 impl<'topology> TopologyEditor<'topology> {
     /// Restrict the topology to the given CPU set or nodeset
     ///
@@ -423,7 +423,7 @@ impl<'topology> TopologyEditor<'topology> {
     /// object type. For example, this is how the intra-chip NUMA clusters of
     /// modern high-core-count AMD and Intel CPUs are usually modeled. See the
     /// ["What are these Group objects in my
-    /// topology"](https://hwloc.readthedocs.io/en/v2.9/faq.html#faq_groups)
+    /// topology"](https://hwloc.readthedocs.io/en/stable/faq.html#faq_groups)
     /// entry of the hwloc FAQ for more information.
     ///
     /// Alas, creating hwloc groups is a lot less straightforward than the above

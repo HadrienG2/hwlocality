@@ -31,7 +31,7 @@ use std::{
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__xmlexport.html
 impl Topology {
     /// Export the topology into an XML file at filesystem location `path`
     ///
@@ -173,7 +173,7 @@ impl<'topology> XML<'topology> {
     /// # Panics
     ///
     /// If the string is not valid UTF-8 (according to
-    /// <https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce>,
+    /// <https://hwloc.readthedocs.io/en/stable/group__hwlocality__xmlexport.html#ga333f79975b4eeb28a3d8fad3373583ce>,
     /// hwloc should only generates ASCII at the time of writing)
     pub(crate) unsafe fn wrap(
         topology: &'topology Topology,

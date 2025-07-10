@@ -48,7 +48,7 @@ use thiserror::Error;
 ///
 /// Information about CPU kinds can also be enumerated using [`cpu_kinds()`].
 /// For each CPU kind, an abstracted efficiency value is provided, along with
-/// [info attributes](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_cpukinds)
+/// [info attributes](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_cpukinds)
 /// such as "CoreType" or "FrequencyMaxMHz".
 ///
 /// A higher efficiency value means greater intrinsic performance (and possibly
@@ -69,7 +69,7 @@ use thiserror::Error;
 /// (on ARM), or core types and frequencies (on other architectures). The
 /// environment variable `HWLOC_CPUKINDS_RANKING` may be used to change this
 /// heuristics, see [Environment
-/// Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html).
+/// Variables](https://hwloc.readthedocs.io/en/stable/envvar.html).
 ///
 /// If hwloc fails to rank any kind, for instance because the operating system
 /// does not expose efficiencies and core frequencies, all kinds will have an
@@ -84,7 +84,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpukinds.html
 impl Topology {
     /// Number of different kinds of CPU cores in the topology
     ///
@@ -112,7 +112,7 @@ impl Topology {
     /// For each CPU kind, we provide the [`CpuSet`] of PUs belonging to that
     /// kind, how efficient this CPU kind is (if CPU kind efficiencies are
     /// known) and [other things we know about
-    /// it](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_cpukinds).
+    /// it](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_cpukinds).
     ///
     /// # Errors
     ///
@@ -276,7 +276,7 @@ pub struct CpuKind<'topology> {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpukinds.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpukinds.html
 impl TopologyEditor<'_> {
     /// Register a kind of CPU in the topology.
     ///

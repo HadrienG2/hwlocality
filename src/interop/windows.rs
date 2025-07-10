@@ -24,7 +24,7 @@ use std::{ffi::c_uint, iter::FusedIterator, num::NonZeroUsize};
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__windows.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__windows.html
 impl Topology {
     /// Number of Windows processor groups
     ///

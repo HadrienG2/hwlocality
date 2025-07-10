@@ -46,7 +46,7 @@
 //! [`BitmapRef`] and standard Rust references to the specialized [`CpuSet`] and
 //! [`NodeSet`] bitmap types by leveraging the [`SpecializedBitmapRef`] trait.
 //
-// Main docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__bitmap.html
+// Main docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__bitmap.html
 
 mod newtypes;
 mod reference;

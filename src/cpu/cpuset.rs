@@ -33,7 +33,7 @@ use thiserror::Error;
 // --- Implementation details ---
 //
 // This is inspired by the upstream functionality described at
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__inside.html
+// https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__inside.html
 // but the code had to be ported to Rust as most C code is inline and thus
 // cannot be called from Rust, and the only function that's not inline does not
 // fit Rust's design (assumes caller has allocated large enough storage with no
@@ -335,8 +335,8 @@ pub struct CoarsestPartitionError {
 // --- Implementation details ---
 //
 // This is inspired by the upstream functionality described at
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__covering.html
-// and https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html
+// https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__covering.html
+// and https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__cache.html
 // but the code had to be ported to Rust because it's inline
 impl Topology {
     /// Get the lowest object covering at least the given cpuset `set`, if any

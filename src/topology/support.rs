@@ -5,8 +5,8 @@
 //! which you can query using the [`Topology::feature_support()`] method and its
 //! [`Topology::supports()`] shortcut.
 
-// - API: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
-// - Struct: https://hwloc.readthedocs.io/en/v2.9/structhwloc__topology__support.html
+// - API: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html#gab8c76173c4a8ce1a9a9366012b1388e6
+// - Struct: https://hwloc.readthedocs.io/en/stable/structhwloc__topology__support.html
 
 #[cfg(doc)]
 use super::{builder::BuildFlags, Topology};

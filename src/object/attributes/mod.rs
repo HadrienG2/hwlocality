@@ -5,8 +5,8 @@
 //! the [`TopologyObject::attributes()`] method, and are described using types
 //! defined inside of this module.
 
-// - Main docs: https://hwloc.readthedocs.io/en/v2.9/unionhwloc__obj__attr__u.html
-// - Union semantics: https://hwloc.readthedocs.io/en/v2.9/attributes.html#attributes_normal
+// - Main docs: https://hwloc.readthedocs.io/en/stable/unionhwloc__obj__attr__u.html
+// - Union semantics: https://hwloc.readthedocs.io/en/stable/attributes.html#attributes_normal
 
 mod bridge;
 mod cache;

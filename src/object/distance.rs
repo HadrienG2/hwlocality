@@ -65,7 +65,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__get.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__get.html
 impl Topology {
     /// Retrieve distance matrices from the topology
     ///
@@ -189,7 +189,7 @@ impl Topology {
     /// Usually only one distances matrix may match a given name.
     ///
     /// Names of distances matrices currently created by hwloc may be found
-    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
     ///
     /// # Errors
     ///
@@ -340,7 +340,7 @@ impl Topology {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__add.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__add.html
 #[cfg(feature = "hwloc-2_5_0")]
 impl TopologyEditor<'_> {
     /// Create a new object distances matrix
@@ -537,7 +537,7 @@ bitflags! {
         /// relax the comparisons during the grouping algorithms. The actual
         /// accuracy may be modified through the HWLOC_GROUPING_ACCURACY
         /// environment variable (see [Environment
-        /// Variables](https://hwloc.readthedocs.io/en/v2.9/envvar.html)).
+        /// Variables](https://hwloc.readthedocs.io/en/stable/envvar.html)).
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
         const GROUP_INACCURATE = HWLOC_DISTANCES_ADD_FLAG_GROUP | HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE;
     }
@@ -609,7 +609,7 @@ impl<'topology> From<&'topology TopologyObject> for AddDistancesError {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__remove.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__remove.html
 #[cfg(feature = "hwloc-2_3_0")]
 impl TopologyEditor<'_> {
     /// Remove a single distances matrix from the topology
@@ -754,7 +754,7 @@ impl TopologyEditor<'_> {
 ///
 /// The names and semantics of other distances matrices currently created by
 /// hwloc may be found [in the hwloc
-/// documentation](https://hwloc.readthedocs.io/en/v2.9/topoattrs.html#topoattrs_distances).
+/// documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
 ///
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the [`kind()`] attribute.
@@ -788,7 +788,7 @@ impl TopologyEditor<'_> {
 //
 // --- Implementation details
 //
-// Upstream inspiration: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__distances__consult.html
+// Upstream inspiration: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__consult.html
 //
 // # Safety
 //

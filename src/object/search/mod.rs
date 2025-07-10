@@ -25,7 +25,7 @@ use thiserror::Error;
 // --- Implementation details ---
 //
 // This is inspired by the upstream functionality described at
-// https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__misc.html
+// https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__misc.html
 // but the code had to be ported to Rust because it's inline
 impl Topology {
     /// Get the object of type [`ObjectType::PU`] with the specified OS index

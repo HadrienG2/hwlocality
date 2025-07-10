@@ -77,7 +77,7 @@ pub struct TopologyBuilder(NonNull<hwloc_topology>);
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__creation.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__creation.html
 impl TopologyBuilder {
     /// Start building a [`Topology`]
     ///
@@ -160,7 +160,7 @@ impl TopologyBuilder {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__setsource.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__setsource.html
 impl TopologyBuilder {
     /// Change which process the topology is viewed from
     ///
@@ -215,7 +215,7 @@ impl TopologyBuilder {
     ///
     /// Instead of being probed from the host system, topology information will
     /// be read from the given [textual
-    /// description](https://hwloc.readthedocs.io/en/v2.9/synthetic.html).
+    /// description](https://hwloc.readthedocs.io/en/stable/synthetic.html).
     ///
     /// Setting the environment variable `HWLOC_SYNTHETIC` may also result in
     /// this behavior.
@@ -264,7 +264,7 @@ impl TopologyBuilder {
     ///
     /// Instead of being probed from the host system, topology information will
     /// be read from the given
-    /// [XML description](https://hwloc.readthedocs.io/en/v2.9/xml.html).
+    /// [XML description](https://hwloc.readthedocs.io/en/stable/xml.html).
     ///
     /// CPU and memory binding operations will not to anything with this backend,
     /// unless [`BuildFlags::ASSUME_THIS_SYSTEM`] is set to assert that the
@@ -381,7 +381,7 @@ impl TopologyBuilder {
     /// name of a phase, for instance "linux:io". A list of components
     /// distributed with hwloc can be found
     /// [in the hwloc
-    /// documentation](https://hwloc.readthedocs.io/en/v2.9/plugins.html#plugins_list).
+    /// documentation](https://hwloc.readthedocs.io/en/stable/plugins.html#plugins_list).
     ///
     /// This may be used to avoid expensive parts of the discovery process. For
     /// instance, CUDA-specific discovery may be expensive and unneeded while
@@ -470,7 +470,7 @@ bitflags! {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__configuration.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__configuration.html
 impl TopologyBuilder {
     /// Set topology building flags
     ///
@@ -1429,7 +1429,7 @@ pub(crate) mod tests {
                 Err(StringInputError::Invalid)
             ));
 
-            // Example from https://hwloc.readthedocs.io/en/v2.9/synthetic.html
+            // Example from https://hwloc.readthedocs.io/en/stable/synthetic.html
             let synthetic = "Package:2 NUMANode:3 L2Cache:4 Core:5 PU:6";
             #[allow(clippy::wildcard_enum_match_arm)]
             let expected_object_count = |ty: ObjectType| match ty {

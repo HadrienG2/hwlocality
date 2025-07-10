@@ -20,15 +20,15 @@ use std::{collections::HashMap, ffi::c_uint, fmt::Debug, iter::FusedIterator};
 /// # Object levels, depths and types
 ///
 /// Be sure to see read through the
-/// [Terms and Definitions](https://hwloc.readthedocs.io/en/v2.9/termsanddefs.html)
+/// [Terms and Definitions](https://hwloc.readthedocs.io/en/stable/termsanddefs.html)
 /// section of the upstream hwloc documentation to avoid any confusion about
 /// depths, child/sibling/cousin relationships, and see an example of an
 /// asymmetric topology where one package has fewer caches than its peers.
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__levels.html
-// Also includes https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__find__cache.html,
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__levels.html
+// Also includes https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__find__cache.html,
 // which had to be reimplemented because it's static.
 impl Topology {
     /// Depth of the hierarchical tree of objects

@@ -49,7 +49,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
 impl Topology {
     /// Binds the current process or thread on given CPUs
     ///
@@ -953,7 +953,7 @@ pub(crate) fn call_hwloc(
                 },
             ) => match errno.0 {
                 // Using errno documentation from
-                // https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__cpubinding.html
+                // https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
                 EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
                     object,

@@ -29,7 +29,7 @@ struct pid_t;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__linux.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__linux.html
 impl Topology {
     /// Bind a thread `tid` on cpus given in `set`
     ///
@@ -129,7 +129,7 @@ impl Topology {
     /// `topology` and `caches` for processors, or `local_cpus` for devices.
     ///
     /// Note that this function ignores the [HWLOC_FSROOT environment
-    /// variable](https://hwloc.readthedocs.io/en/v2.9/envvar.html).
+    /// variable](https://hwloc.readthedocs.io/en/stable/envvar.html).
     ///
     /// # Errors
     ///

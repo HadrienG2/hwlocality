@@ -5,8 +5,8 @@
 //! probed via [`TopologyObject::attributes()`]. All the enumerated types
 //! associated with these categories are collected into this module.
 
-// - Enums: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__object__types.html
-// - Kinds: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__helper__types.html
+// - Enums: https://hwloc.readthedocs.io/en/stable/group__hwlocality__object__types.html
+// - Kinds: https://hwloc.readthedocs.io/en/stable/group__hwlocality__helper__types.html
 
 #[cfg(doc)]
 use crate::{

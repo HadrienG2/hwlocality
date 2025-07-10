@@ -94,7 +94,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs.html
 impl Topology {
     /// Identifier of the memory attribute with the given name
     ///
@@ -499,7 +499,7 @@ impl Debug for NodeAttributeDump<'_> {
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__memattrs__manage.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__memattrs__manage.html
 impl<'topology> TopologyEditor<'topology> {
     /// Register a new memory attribute
     ///

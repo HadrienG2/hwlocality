@@ -28,7 +28,7 @@ use std::ffi::{c_char, CString};
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__syntheticexport.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__syntheticexport.html
 impl Topology {
     /// Export the topology as a synthetic string
     ///

@@ -95,7 +95,7 @@ use thiserror::Error;
 //
 // --- Implementation details ---
 //
-// Upstream docs: https://hwloc.readthedocs.io/en/v2.9/group__hwlocality__membinding.html
+// Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__membinding.html
 impl Topology {
     /// Allocate some memory
     ///
