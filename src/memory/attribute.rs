@@ -32,6 +32,8 @@ use crate::{
 use bitflags::bitflags;
 use derive_more::{Display, From};
 use errno::Errno;
+#[cfg(feature = "hwloc-2_12_1")]
+use hwlocality_sys::HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY;
 use hwlocality_sys::{
     hwloc_const_topology_t, hwloc_local_numanode_flag_e, hwloc_location, hwloc_location_u,
     hwloc_memattr_flag_e, hwloc_memattr_id_t, hwloc_obj, HWLOC_LOCAL_NUMANODE_FLAG_ALL,
@@ -1878,7 +1880,7 @@ bitflags! {
         /// For instance, on a multi-CPU system, if the locality is one core of
         /// both packages, a NUMA node local to one package is neither larger
         /// nor smaller than this locality, but it intersects it.
-        #[cfg(target = "hwloc-2_12_1")]
+        #[cfg(feature = "hwloc-2_12_1")]
         #[doc(alias = "HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY")]
         const INTERSECT_LOCALITY = HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY;
 
