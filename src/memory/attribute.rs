@@ -1202,14 +1202,17 @@ impl<'topology> MemoryAttribute<'topology> {
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
+        #[cfg(not(tarpaulin_include))]
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
             Ok(()) => {}
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => handle_einval(),
+            #[cfg(not(tarpaulin_include))]
             #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
@@ -1267,14 +1270,17 @@ impl<'topology> MemoryAttribute<'topology> {
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
             hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
+        #[cfg(not(tarpaulin_include))]
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
             Ok(()) => MemoryAttributeFlags::from_bits_retain(flags),
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => handle_einval(),
+            #[cfg(not(tarpaulin_include))]
             #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
@@ -2090,6 +2096,7 @@ impl<'target> Initiator<'target> {
     }
 }
 //
+#[cfg(not(tarpaulin_include))]
 impl<'target> From<CpuSet> for Initiator<'target> {
     fn from(cpuset: CpuSet) -> Self {
         BitmapCow::from(cpuset).into()
@@ -2102,15 +2109,17 @@ impl<'target> From<BitmapCow<'target, CpuSet>> for Initiator<'target> {
     }
 }
 //
+#[cfg(not(tarpaulin_include))]
 impl<'target> From<BitmapRef<'target, CpuSet>> for Initiator<'target> {
     fn from(cpuset: BitmapRef<'target, CpuSet>) -> Self {
         BitmapCow::from(cpuset).into()
     }
 }
 //
+#[cfg(not(tarpaulin_include))]
 impl<'target> From<&'target CpuSet> for Initiator<'target> {
     fn from(cpuset: &'target CpuSet) -> Self {
-        BitmapRef::from(cpuset).into()
+        BitmapCow::from(cpuset).into()
     }
 }
 //
@@ -2275,6 +2284,7 @@ impl NUMAInitiator<'_> {
     }
 }
 //
+#[cfg(not(tarpaulin_include))]
 impl<'target, T: Into<Initiator<'target>>> From<T> for NUMAInitiator<'target> {
     fn from(initiator: T) -> Self {
         Self::Local {
