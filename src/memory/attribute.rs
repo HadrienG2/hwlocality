@@ -1107,11 +1107,11 @@ impl<'topology> MemoryAttribute<'topology> {
             //         - It has been stated by upstream that probing flags for
             //           an invalid ID is fine and will just lead to EINVAL
             //         - flags is an out parameter, its initial value doesn't matter
-            let res = errors::call_hwloc_int_normal("hwloc_memattr_get_flags", || unsafe {
+            let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
                 hwlocality_sys::hwloc_memattr_get_flags(topology.as_ptr(), id, &mut flags)
             });
             match res {
-                Ok(_positive) => Some(
+                Ok(()) => Some(
                     // SAFETY: Checked id validity per upstream suggestion
                     unsafe { Self::wrap(topology, id) },
                 ),
@@ -1316,7 +1316,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //           to be NULL if and only if the attribute has no initiator
         //         - flags must be 0
         //         - Value is an out parameter, its initial value isn't read
-        errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
@@ -1726,7 +1726,11 @@ impl<'topology> MemoryAttribute<'topology> {
         query: impl FnOnce(hwloc_const_topology_t, hwloc_memattr_id_t, c_ulong, *mut u64) -> c_int,
     ) -> Option<u64> {
         /// Polymorphized subset of this function (avoids generics code bloat)
-        fn process_result(final_value: u64, result: Result<(), RawHwlocError>) -> Option<u64> {
+        fn process_result(
+            api: &'static str,
+            final_value: u64,
+            result: Result<(), RawHwlocError>,
+        ) -> Option<u64> {
             match result {
                 Ok(()) => Some(final_value),
                 Err(RawHwlocError {
@@ -2640,21 +2644,21 @@ mod tests {
         fn value_query_errors(
             (attr, target, initiator) in memory_attribute_target_initiator()
         ) {
-            // Avoid invalid value() calls which are not caught by hwloc's error
-            // handling, resulting in segfaults until
-            // https://github.com/open-mpi/hwloc/issues/685 is resolved.
-            let locality_name = CString::new("Locality").unwrap();
-            if attr.name() == locality_name.as_c_str() && target.cpuset().is_none() {
-                return Ok(());
-            }
-
             // Detect errors which are handled on the Rust side
             let foreign_initiator = is_foreign_initiator(&attr.topology, &initiator);
             let foreign_target = !attr.topology.contains(target);
             let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
             let need_initiator = attr_needs_initiator && initiator.is_none();
             let unwanted_initiator = !attr_needs_initiator && initiator.is_some();
-            let any_error = foreign_initiator || foreign_target || need_initiator || unwanted_initiator;
+            let invalid_target =
+                (attr.id == HWLOC_MEMATTR_ID_CAPACITY && target.object_type() != ObjectType::NUMANode)
+                || (attr.id == HWLOC_MEMATTR_ID_LOCALITY && target.cpuset().is_none());
+            let any_error =
+                foreign_initiator
+                || foreign_target
+                || need_initiator
+                || unwanted_initiator
+                || invalid_target;
 
             // Detect invalid (target, initiator) pairs.
             let (valid_targets, _values) = attr.targets(None).unwrap();
@@ -2699,6 +2703,7 @@ mod tests {
                         InitiatorInputError::UnwantedInitiator(_) => prop_assert!(unwanted_initiator),
                     },
                     ValueQueryError::ForeignTarget(_) => prop_assert!(foreign_target),
+                    ValueQueryError::InvalidTarget(_) => prop_assert!(invalid_target),
                 },
                 Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error {e}"),
             };
@@ -2825,9 +2830,10 @@ mod tests {
                         .filter_map(|node| {
                             let node_cpuset = node.cpuset().unwrap();
                             let flags = flags - LocalNUMANodeFlags::ALL;
-                            let is_match = (flags == LocalNUMANodeFlags::empty() && node_cpuset == cpuset)
+                            let is_match = (node_cpuset == cpuset)
                                 || (flags.contains(LocalNUMANodeFlags::LARGER_LOCALITY) && node_cpuset.includes(cpuset.as_ref()))
-                                || (flags.contains(LocalNUMANodeFlags::SMALLER_LOCALITY) && cpuset.includes(node_cpuset));
+                                || (flags.contains(LocalNUMANodeFlags::SMALLER_LOCALITY) && cpuset.includes(node_cpuset))
+                                || (flags.contains(LocalNUMANodeFlags::INTERSECT_LOCALITY) && cpuset.intersects(node_cpuset));
                             is_match.then(|| node.global_persistent_index())
                         })
                         .collect::<HashSet<_>>();
