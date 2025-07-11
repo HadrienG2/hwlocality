@@ -3022,10 +3022,11 @@ mod tests {
                         .filter_map(|node| {
                             let node_cpuset = node.cpuset().unwrap();
                             let flags = flags - LocalNUMANodeFlags::ALL;
-                            let is_match = (node_cpuset == cpuset)
+                            let mut is_match = (node_cpuset == cpuset)
                                 || (flags.contains(LocalNUMANodeFlags::LARGER_LOCALITY) && node_cpuset.includes(cpuset.as_ref()))
-                                || (flags.contains(LocalNUMANodeFlags::SMALLER_LOCALITY) && cpuset.includes(node_cpuset))
-                                || (flags.contains(LocalNUMANodeFlags::INTERSECT_LOCALITY) && cpuset.intersects(node_cpuset));
+                                || (flags.contains(LocalNUMANodeFlags::SMALLER_LOCALITY) && cpuset.includes(node_cpuset));
+                            #[cfg(feature = "hwloc-2_12_1")]
+                            is_match |= (flags.contains(LocalNUMANodeFlags::INTERSECT_LOCALITY) && cpuset.intersects(node_cpuset));
                             is_match.then(|| node.global_persistent_index())
                         })
                         .collect::<HashSet<_>>();
