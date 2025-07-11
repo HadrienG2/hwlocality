@@ -3155,7 +3155,7 @@ mod tests {
     }
 
     /// Pick a set of targets and values for a memory attribute
-    fn targets_and_values() -> impl Strategy<Value = Vec<(&'static TopologyObject, u64)>> {
+    fn targets_and_values() -> impl Strategy<Value = TargetsAndValues> {
         // Pick attribute targets
         let topology = Topology::test_instance();
         let all_objects = topology.objects().collect::<Vec<_>>();
@@ -3180,6 +3180,125 @@ mod tests {
                 .prop_map(|(targets, values)| targets.into_iter().zip(values).collect::<Vec<_>>())
         })
     }
+    //
+    type TargetsAndValues = Vec<(&'static TopologyObject, u64)>;
+
+    /// Given a set of flags, targets and values, pick a matching set of initiators
+    fn initiators(
+        flags: MemoryAttributeFlags,
+        targets_and_values: &TargetsAndValues,
+    ) -> impl Strategy<Value = Initiators> {
+        // Query basic topology properties
+        let topology = Topology::test_instance();
+        let num_objects = topology.objects().count();
+
+        // Pick a number of initiators that may or may not be correct
+        let num_values = targets_and_values.len();
+        let num_initiators = prop_oneof![
+            2 => Just(num_values),
+            3 => 0..=num_objects,
+        ];
+
+        // Pick initiators
+        let initiators = num_initiators
+            .prop_flat_map(move |num_initiators| {
+                // Determine how many initiators will be cpusets, knowing
+                // that there has to be at least one cpu in the CPUset so we
+                // cannot have more cpuset initiators than we have CPUs.
+                let num_cpus = topology.complete_cpuset().weight().unwrap();
+                (Just(num_initiators), 0..=num_initiators.min(num_cpus))
+            })
+            .prop_flat_map(move |(num_initiators, num_initiator_sets)| {
+                // Pick initiator cpusets, starting from a full list of CPUs
+                let correct_initiator_sets = prop::sample::subsequence(
+                    topology.complete_cpuset().iter_set().collect::<Vec<_>>(),
+                    num_initiator_sets,
+                )
+                .prop_flat_map(move |first_cpu_per_set| {
+                    // Start by allocating one CPU to each initiator
+                    // cpuset, so that none is empty. Remove them
+                    // from the pool of available CPUs.
+                    let mut remaining_cpus = topology.complete_cpuset().clone_target();
+                    for &cpu in &first_cpu_per_set {
+                        remaining_cpus.unset(cpu)
+                    }
+
+                    // Allocate remaining CPUs to cpusets randomly,
+                    // leaving some CPUs unallocated.
+                    let set_index = if num_initiator_sets == 0 {
+                        Just(None).boxed()
+                    } else {
+                        prop_oneof![Just(None), (0..num_initiator_sets).prop_map(Some)].boxed()
+                    };
+                    prop::collection::vec(set_index, remaining_cpus.weight().unwrap()).prop_map(
+                        move |set_indices| {
+                            let mut cpusets = first_cpu_per_set
+                                .iter()
+                                .copied()
+                                .map(CpuSet::from)
+                                .collect::<Vec<_>>();
+                            for (cpu, set_idx) in remaining_cpus.iter_set().zip(set_indices) {
+                                if let Some(set_idx) = set_idx {
+                                    cpusets[set_idx].set(cpu);
+                                }
+                            }
+                            cpusets
+                        },
+                    )
+                });
+                let initiator_sets = prop_oneof![
+                    3 => correct_initiator_sets,
+                    2 => prop::collection::vec(
+                        topology_related_set(Topology::complete_cpuset),
+                        num_initiator_sets,
+                    )
+                ];
+
+                // Pick initiator objects
+                let num_initiator_objs = num_initiators - num_initiator_sets;
+                let initiator_objs = if num_initiator_objs <= num_objects {
+                    prop_oneof![
+                        3 => prop::sample::subsequence(
+                            topology.objects().collect::<Vec<_>>(),
+                            num_initiator_objs
+                        ),
+                        2 => prop::collection::vec(
+                            any_object(),
+                            num_initiator_objs
+                        )
+                    ]
+                    .boxed()
+                } else {
+                    prop::collection::vec(any_object(), num_initiator_objs).boxed()
+                };
+
+                // Put cpusets and objects together, randomize order
+                (initiator_sets, initiator_objs)
+                    .prop_map(|(sets, objs)| {
+                        sets.into_iter()
+                            .map(Initiator::from)
+                            .chain(objs.into_iter().map(Initiator::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .prop_shuffle()
+            });
+
+        // Provide initiators or not, in such a way that the correct case
+        // has a reasonably good chance of occuring
+        if flags.contains(MemoryAttributeFlags::NEED_INITIATOR) {
+            prop_oneof![
+                1 => Just(None),
+                4 => initiators.prop_map(Some)
+            ]
+        } else {
+            prop_oneof![
+                3 => Just(None),
+                2 => initiators.prop_map(Some)
+            ]
+        }
+    }
+    //
+    type Initiators = Option<Vec<Initiator<'static>>>;
 
     /// Pick memory attribute building blocks that have a high chance of being
     /// consistent with each other, but may not be
@@ -3187,128 +3306,47 @@ mod tests {
         // Pick attribute flags
         let flags = any::<MemoryAttributeFlags>();
 
-        // Pick attribute targets
-        let topology = Topology::test_instance();
-        let num_objects = topology.objects().count();
-
         // Given a (flags, targets, values) configuration...
         (flags, targets_and_values()).prop_flat_map(move |(flags, targets_and_values)| {
-            // Pick a number of initiators that may or may not be correct
-            let num_initiators = prop_oneof![
-                2 => Just(targets_and_values.len()),
-                3 => 0..=num_objects,
-            ];
+            // ...set up a set of matching initiators
+            let initiators = initiators(flags, &targets_and_values);
 
-            // Pick initiators
-            let initiators = num_initiators
-                .prop_flat_map(move |num_initiators| {
-                    // Determine how many initiators will be cpusets, knowing
-                    // that there has to be at least one cpu in the CPUset so we
-                    // cannot have more cpuset initiators than we have CPUs.
-                    let num_cpus = topology.complete_cpuset().weight().unwrap();
-                    (Just(num_initiators), 0..=num_initiators.min(num_cpus))
-                })
-                .prop_flat_map(move |(num_initiators, num_initiator_sets)| {
-                    // Pick initiator cpusets, starting from a full list of CPUs
-                    let correct_initiator_sets = prop::sample::subsequence(
-                        topology.complete_cpuset().iter_set().collect::<Vec<_>>(),
-                        num_initiator_sets,
-                    )
-                    .prop_flat_map(move |first_cpu_per_set| {
-                        // Start by allocating one CPU to each initiator
-                        // cpuset, so that none is empty. Remove them
-                        // from the pool of available CPUs.
-                        let mut remaining_cpus = topology.complete_cpuset().clone_target();
-                        for &cpu in &first_cpu_per_set {
-                            remaining_cpus.unset(cpu)
-                        }
+            // Randomly inject duplicate (initiator, target) pairs
+            let initiators_targets_values = (initiators, Just(targets_and_values)).prop_flat_map(
+                move |(initiators, targets_and_values)| {
+                    // Can't do this if there are no values
+                    let num_values = targets_and_values.len();
+                    if num_values == 0 {
+                        return (Just(initiators), Just(targets_and_values)).boxed();
+                    }
 
-                        // Allocate remaining CPUs to cpusets randomly,
-                        // leaving some CPUs unallocated.
-                        let set_index = if num_initiator_sets == 0 {
-                            Just(None).boxed()
-                        } else {
-                            prop_oneof![Just(None), (0..num_initiator_sets).prop_map(Some)].boxed()
-                        };
-                        prop::collection::vec(set_index, remaining_cpus.weight().unwrap()).prop_map(
-                            move |set_indices| {
-                                let mut cpusets = first_cpu_per_set
-                                    .iter()
-                                    .copied()
-                                    .map(CpuSet::from)
-                                    .collect::<Vec<_>>();
-                                for (cpu, set_idx) in remaining_cpus.iter_set().zip(set_indices) {
-                                    if let Some(set_idx) = set_idx {
-                                        cpusets[set_idx].set(cpu);
+                    // Otherwise stochastically insert one duplicate
+                    prop_oneof![
+                        3 => (Just(initiators.clone()), Just(targets_and_values.clone())),
+                        2 => (Just(initiators), Just(targets_and_values), 0..num_values, any::<u64>(), 0..=num_values)
+                            .prop_flat_map(move |(mut initiators, mut targets_and_values, dupe_src_idx, dupe_value, dupe_dst_idx)| {
+                                let dupe_target = targets_and_values[dupe_src_idx].0;
+                                targets_and_values.insert(dupe_dst_idx, (dupe_target, dupe_value));
+                                if let Some(initiators) = &mut initiators {
+                                    if initiators.len() == num_values {
+                                        let dupe_initiator = initiators[dupe_src_idx].clone();
+                                        initiators.insert(dupe_dst_idx, dupe_initiator);
                                     }
                                 }
-                                cpusets
-                            },
-                        )
-                    });
-                    let initiator_sets = prop_oneof![
-                        3 => correct_initiator_sets,
-                        2 => prop::collection::vec(
-                            topology_related_set(Topology::complete_cpuset),
-                            num_initiator_sets,
-                        )
-                    ];
+                                (Just(initiators), Just(targets_and_values)).boxed()
+                            })
+                    ].boxed()
+                },
+            );
 
-                    // Pick initiator objects
-                    let num_initiator_objs = num_initiators - num_initiator_sets;
-                    let initiator_objs = if num_initiator_objs <= num_objects {
-                        prop_oneof![
-                            3 => prop::sample::subsequence(
-                                topology.objects().collect::<Vec<_>>(),
-                                num_initiator_objs
-                            ),
-                            2 => prop::collection::vec(
-                                any_object(),
-                                num_initiator_objs
-                            )
-                        ]
-                        .boxed()
-                    } else {
-                        prop::collection::vec(any_object(), num_initiator_objs).boxed()
-                    };
-
-                    // Put cpusets and objects together, randomize order
-                    (initiator_sets, initiator_objs)
-                        .prop_map(|(sets, objs)| {
-                            sets.into_iter()
-                                .map(Initiator::from)
-                                .chain(objs.into_iter().map(Initiator::from))
-                                .collect::<Vec<_>>()
-                        })
-                        .prop_shuffle()
-                });
-
-            // Provide initiators or not, in such a way that the correct case
-            // has a reasonably good chance of occuring
-            let initiators = if flags.contains(MemoryAttributeFlags::NEED_INITIATOR) {
-                prop_oneof![
-                    1 => Just(None),
-                    4 => initiators.prop_map(Some)
-                ]
-            } else {
-                prop_oneof![
-                    3 => Just(None),
-                    2 => initiators.prop_map(Some)
-                ]
-            };
-
-            // TODO: Randomly inject duplicate (initiator, target) pairs if
-            //       there is not enough coverage for the duplicate detection
-
-            (Just(flags), initiators, Just(targets_and_values))
+            // And add back the flags at the end
+            initiators_targets_values.prop_map(move |(initiators, targets_and_values)| {
+                (flags, initiators, targets_and_values)
+            })
         })
     }
     //
-    type AttributeBuildingBlocks = (
-        MemoryAttributeFlags,
-        Option<Vec<Initiator<'static>>>,
-        Vec<(&'static TopologyObject, u64)>,
-    );
+    type AttributeBuildingBlocks = (MemoryAttributeFlags, Initiators, TargetsAndValues);
 
     proptest! {
         #[test]
