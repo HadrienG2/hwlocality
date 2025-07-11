@@ -66,6 +66,8 @@ use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
+#[cfg(test)]
+use std::cell::Cell;
 #[cfg(any(test, feature = "proptest"))]
 use std::collections::HashSet;
 use std::{
@@ -829,6 +831,13 @@ impl Bitmap {
     #[doc(alias = "hwloc_bitmap_foreach_end")]
     #[doc(alias = "hwloc_bitmap_next")]
     pub fn iter_set(&self) -> Iter<&Self> {
+        #[cfg(test)]
+        {
+            assert!(
+                ALLOW_INFINITE_ITERATION.get() || self.last_set().is_some() || self.is_empty(),
+                "Test code initiated infinite bitmap set index iteration without asserting support for it"
+            );
+        }
         Iter::new(self, Self::next_set)
     }
 
@@ -917,6 +926,13 @@ impl Bitmap {
     /// ```
     #[doc(alias = "hwloc_bitmap_next_unset")]
     pub fn iter_unset(&self) -> Iter<&Self> {
+        #[cfg(test)]
+        {
+            assert!(
+                ALLOW_INFINITE_ITERATION.get() || self.last_unset().is_some() || self.is_full(),
+                "Test code initiated infinite bitmap unset index iteration without asserting support for it"
+            );
+        }
         Iter::new(self, Self::next_unset)
     }
 
@@ -1173,6 +1189,39 @@ const MALLOC_FAIL_ONLY: &str =
 
 /// Common error message for operations that shouldn't fail
 const SHOULD_NOT_FAIL: &str = "This operation has no known failure mode";
+
+// Infinite iteration test bug detector
+//
+// One recurring bug in this project's test suite is to involuntarily start
+// iterating over an infinite bitmap, resulting in a frozen test. These bugs
+// take a while to understand each time, so the following little trick has been
+// devised to make sure that tests don't start iterating over infinite bitmaps
+// unless they assert that they are explicitly designed for it.
+//
+#[cfg(test)]
+thread_local! {
+    /// Truth that the current thread is ready for infinite iteration
+    static ALLOW_INFINITE_ITERATION: Cell<bool> = const { Cell::new(false) };
+}
+//
+/// Assert that the present code is ready to iterate over an infinite bitmap
+///
+/// Those assertions should be scoped as narrowly as possible, ideally no more
+/// than a single iteration. In particular, they should not be nested.
+pub(crate) fn allow_infinite_iteration<R>(scope: impl FnOnce() -> R) -> R {
+    #[cfg(test)]
+    {
+        assert!(
+            !ALLOW_INFINITE_ITERATION.get(),
+            "Don't nest allow_infinite_iteration()"
+        );
+        ALLOW_INFINITE_ITERATION.set(true);
+    }
+    let result = scope();
+    #[cfg(test)]
+    ALLOW_INFINITE_ITERATION.set(false);
+    result
+}
 
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for Bitmap {
@@ -1446,12 +1495,14 @@ impl Hash for Bitmap {
             .unwrap_or(BitmapIndex::MIN);
 
         // Iterate over the finite part of the bitmap
-        for index in self
-            .iter_set()
-            .take_while(|&idx| idx <= last_significant_index)
-        {
-            index.hash(state);
-        }
+        allow_infinite_iteration(|| {
+            for index in self
+                .iter_set()
+                .take_while(|&idx| idx <= last_significant_index)
+            {
+                index.hash(state);
+            }
+        });
 
         // Add a terminator that is different depending on if what follows the
         // finite part of the bitmap is an infinite sequence of 1s or 0s.
@@ -1499,6 +1550,13 @@ impl IntoIterator for &Bitmap {
     type IntoIter = Iter<Self>;
 
     fn into_iter(self) -> Self::IntoIter {
+        #[cfg(test)]
+        {
+            assert!(
+                ALLOW_INFINITE_ITERATION.get() || self.last_set().is_some() || self.is_empty(),
+                "Test code initiated infinite bitmap set index iteration without asserting support for it"
+            );
+        }
         Iter::new(self, Bitmap::next_set)
     }
 }
@@ -1508,6 +1566,13 @@ impl IntoIterator for Bitmap {
     type IntoIter = Iter<Self>;
 
     fn into_iter(self) -> Self::IntoIter {
+        #[cfg(test)]
+        {
+            assert!(
+                ALLOW_INFINITE_ITERATION.get() || self.last_set().is_some() || self.is_empty(),
+                "Test code initiated infinite bitmap set index iteration without asserting support for it"
+            );
+        }
         Iter::new(self, Self::next_set)
     }
 }
@@ -1800,9 +1865,12 @@ pub(crate) mod tests {
             buf.weight(),
             initial.weight().map(|w| w + usize::from(!initially_set))
         );
-        for idx in std::iter::once(index).chain(initial.iter_set().take(max_iters)) {
-            prop_assert!(buf.is_set(idx));
-        }
+        allow_infinite_iteration(|| {
+            for idx in std::iter::once(index).chain(initial.iter_set().take(max_iters)) {
+                prop_assert!(buf.is_set(idx));
+            }
+            Ok(())
+        })?;
 
         buf.copy_from(initial);
         buf.set_only(index);
@@ -1818,10 +1886,12 @@ pub(crate) mod tests {
             buf.weight(),
             initial.weight().map(|w| w - usize::from(initially_set))
         );
-        for idx in initial.iter_set().take(max_iters) {
-            prop_assert_eq!(buf.is_set(idx), idx != index);
-        }
-        Ok(())
+        allow_infinite_iteration(|| {
+            for idx in initial.iter_set().take(max_iters) {
+                prop_assert_eq!(buf.is_set(idx), idx != index);
+            }
+            Ok(())
+        })
     }
 
     fn test_and_sub(b1: &Bitmap, b2: &Bitmap, and: &Bitmap) -> Result<(), TestCaseError> {
@@ -1921,17 +1991,20 @@ pub(crate) mod tests {
             prop_assert_eq!(empty.last_unset(), None);
             prop_assert_eq!(empty.weight(), Some(0));
 
-            for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
-                prop_assert_eq!(expected, usize::from(idx));
-            }
-            for (expected, idx) in empty
-                .clone()
-                .into_iter()
-                .enumerate()
-                .take(INFINITE_EXPLORE_ITERS)
-            {
-                prop_assert_eq!(expected, usize::from(idx));
-            }
+            allow_infinite_iteration(|| {
+                for (expected, idx) in empty.iter_unset().enumerate().take(INFINITE_EXPLORE_ITERS) {
+                    prop_assert_eq!(expected, usize::from(idx));
+                }
+                for (expected, idx) in empty
+                    .clone()
+                    .into_iter()
+                    .enumerate()
+                    .take(INFINITE_EXPLORE_ITERS)
+                {
+                    prop_assert_eq!(expected, usize::from(idx));
+                }
+                Ok(())
+            })?;
 
             prop_assert_eq!(format!("{empty:?}"), "");
             prop_assert_eq!(format!("{empty}"), "");
@@ -2049,15 +2122,20 @@ pub(crate) mod tests {
             prop_assert_eq!(full.last_unset(), None);
             prop_assert_eq!(full.weight(), None);
 
-            fn test_iter_set(iter: impl Iterator<Item = BitmapIndex>) -> Result<(), TestCaseError> {
-                for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
-                    prop_assert_eq!(expected, usize::from(idx));
+            allow_infinite_iteration(|| {
+                fn test_iter_set(
+                    iter: impl Iterator<Item = BitmapIndex>,
+                ) -> Result<(), TestCaseError> {
+                    for (expected, idx) in iter.enumerate().take(INFINITE_EXPLORE_ITERS) {
+                        prop_assert_eq!(expected, usize::from(idx));
+                    }
+                    Ok(())
                 }
-                Ok(())
-            }
-            test_iter_set(full.into_iter())?;
-            test_iter_set(full.clone().into_iter())?;
-            test_iter_set(full.iter_set())?;
+                test_iter_set(full.into_iter())?;
+                test_iter_set(full.clone().into_iter())?;
+                test_iter_set(full.iter_set())?;
+                Ok::<(), TestCaseError>(())
+            })?;
 
             prop_assert_eq!(format!("{full:?}"), "0-");
             prop_assert_eq!(format!("{full}"), "0-");
@@ -2194,17 +2272,20 @@ pub(crate) mod tests {
                 prop_assert_eq!(ranged_bitmap.last_unset(), None);
                 prop_assert_eq!(ranged_bitmap.weight(), Some(elems.len()));
 
-                let mut unset = ranged_bitmap.iter_unset();
-                if let Some(first_set) = elems.first() {
-                    for expected_unset in 0..usize::from(*first_set) {
-                        prop_assert_eq!(unset.next().map(usize::from), Some(expected_unset));
+                allow_infinite_iteration(|| {
+                    let mut unset = ranged_bitmap.iter_unset();
+                    if let Some(first_set) = elems.first() {
+                        for expected_unset in 0..usize::from(*first_set) {
+                            prop_assert_eq!(unset.next().map(usize::from), Some(expected_unset));
+                        }
                     }
-                }
-                let mut expected_unset =
-                    std::iter::successors(unset_after_set, |unset| unset.checked_add_signed(1));
-                for unset_index in unset.take(INFINITE_EXPLORE_ITERS) {
-                    prop_assert_eq!(unset_index, expected_unset.next().unwrap())
-                }
+                    let mut expected_unset =
+                        std::iter::successors(unset_after_set, |unset| unset.checked_add_signed(1));
+                    for unset_index in unset.take(INFINITE_EXPLORE_ITERS) {
+                        prop_assert_eq!(unset_index, expected_unset.next().unwrap())
+                    }
+                    Ok(())
+                })?;
 
                 prop_assert_eq!(&format!("{ranged_bitmap:?}"), &display);
                 prop_assert_eq!(&format!("{ranged_bitmap}"), &display);
@@ -2405,8 +2486,11 @@ pub(crate) mod tests {
         #[test]
         fn arbitrary(bitmap: Bitmap) {
             // Test properties pertaining to first iterator output
-            prop_assert_eq!(bitmap.first_set(), bitmap.iter_set().next());
-            prop_assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
+            allow_infinite_iteration(|| {
+                prop_assert_eq!(bitmap.first_set(), bitmap.iter_set().next());
+                prop_assert_eq!(bitmap.first_unset(), bitmap.iter_unset().next());
+                Ok(())
+            })?;
             prop_assert_eq!(bitmap.is_empty(), bitmap.first_set().is_none());
             prop_assert_eq!(bitmap.is_full(), bitmap.first_unset().is_none());
 
@@ -2535,9 +2619,13 @@ pub(crate) mod tests {
                 // Return predicted bitmap inverse and display
                 Ok((inverse, display))
             }
-            let (inverse, display) = test_iter(&bitmap, (&bitmap).into_iter())?;
-            let (inverse2, display2) = test_iter(&bitmap, bitmap.clone().into_iter())?;
-            let (inverse3, display3) = test_iter(&bitmap, bitmap.iter_set())?;
+            let ((inverse, display), (inverse2, display2), (inverse3, display3)) =
+                allow_infinite_iteration(|| {
+                    let tuple1 = test_iter(&bitmap, (&bitmap).into_iter())?;
+                    let tuple2 = test_iter(&bitmap, bitmap.clone().into_iter())?;
+                    let tuple3 = test_iter(&bitmap, bitmap.iter_set())?;
+                    Ok::<_, TestCaseError>((tuple1, tuple2, tuple3))
+                })?;
             //
             prop_assert_eq!(&inverse, &inverse2);
             prop_assert_eq!(&inverse, &inverse3);
@@ -2582,20 +2670,26 @@ pub(crate) mod tests {
                     }
                     Ok(())
                 };
-                test_iter(Box::new((&clone).into_iter()))?;
-                test_iter(Box::new(clone.iter_set()))?;
+                allow_infinite_iteration(|| {
+                    test_iter(Box::new((&clone).into_iter()))?;
+                    test_iter(Box::new(clone.iter_set()))?;
+                    Ok::<(), TestCaseError>(())
+                })?;
             } else {
                 prop_assert_eq!(&((&clone).into_iter().collect::<Bitmap>()), &finite);
                 prop_assert_eq!(&(clone.iter_set().collect::<Bitmap>()), &finite);
 
-                let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN)) + 1
-                    - finite.weight().unwrap()
-                    + INFINITE_EXPLORE_ITERS;
-                let mut iterator = finite.iter_unset().zip(clone.iter_unset());
-                for _ in 0..num_iters {
-                    let (expected, actual) = iterator.next().unwrap();
-                    prop_assert_eq!(expected, actual);
-                }
+                allow_infinite_iteration(|| {
+                    let num_iters = usize::from(finite.last_set().unwrap_or(BitmapIndex::MIN)) + 1
+                        - finite.weight().unwrap()
+                        + INFINITE_EXPLORE_ITERS;
+                    let mut iterator = finite.iter_unset().zip(clone.iter_unset());
+                    for _ in 0..num_iters {
+                        let (expected, actual) = iterator.next().unwrap();
+                        prop_assert_eq!(expected, actual);
+                    }
+                    Ok(())
+                })?;
             }
             //
             prop_assert_eq!(&format!("{clone:?}"), &display);
