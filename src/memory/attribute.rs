@@ -2342,11 +2342,153 @@ mod tests {
     use crate::{
         object::types::ObjectType,
         strategies::{any_object, any_string, set_with_reference, topology_related_set},
+        topology::support::{FeatureSupport, DiscoverySupport},
     };
     use proptest::{prelude::*, sample::SizeRange};
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use std::{cmp::Ordering, collections::HashMap, ffi::CString, sync::OnceLock};
+
+    /// Test a predefined memory attribute
+    fn test_predefined(
+        constructor: impl FnOnce(&Topology) -> MemoryAttribute<'_>,
+        expected_name: &CStr,
+        expected_flags: MemoryAttributeFlags,
+        extra_tests: impl FnOnce(&Topology, MemoryAttribute<'_>),
+    ) {
+        let topology = Topology::test_instance();
+        let attribute = constructor(&topology);
+        assert_eq!(attribute.name(), expected_name);
+        assert_eq!(attribute.flags(), expected_flags);
+        assert_eq!(attribute.dynamic_flags(), expected_flags);
+        extra_tests(topology, attribute);
+    }
+    //
+    /// Extra tests for NUMANode convenience attributes
+    fn extra_tests_numa(
+        required_support: fn(&DiscoverySupport) -> bool,
+        mut expected_value: impl FnMut(&TopologyObject) -> u64,
+    ) -> impl FnOnce(&Topology, MemoryAttribute<'_>) {
+        move |topology, attribute| {
+            // They require a certain kind of support
+            if !topology.supports(FeatureSupport::discovery, required_support) {
+                return;
+            }
+
+            // They have an expected value that's easy to query
+            let mut numa_set = HashSet::new();
+            for numa in topology.objects_with_type(ObjectType::NUMANode) {
+                assert!(matches!(
+                    attribute.initiators(numa),
+                    Err(HybridError::Rust(InitiatorQueryError::NoInitiators(_)))
+                ));
+                assert_eq!(
+                    attribute.value(None, numa),
+                    Ok(Some(expected_value(numa)))
+                );
+                numa_set.insert(numa.global_persistent_index());
+            }
+
+            // The targets query returns values and a target set that matches
+            // the numa node set
+            let (targets, values) = attribute.targets(None).unwrap();
+            assert!(values.is_some());
+            let target_set =
+                targets
+                    .into_iter()
+                    .map(TopologyObject::global_persistent_index)
+                    .collect::<HashSet<_>>();
+            assert_eq!(numa_set, target_set);
+        }
+    }
+    //
+    #[test]
+    fn capacity() {
+        test_predefined(
+            |t| MemoryAttribute::capacity(t),
+            c"Capacity",
+            MemoryAttributeFlags::HIGHER_IS_BEST,
+            extra_tests_numa(DiscoverySupport::numa_memory, TopologyObject::total_memory),
+        );
+    }
+    //
+    #[test]
+    fn locality() {
+        test_predefined(
+            |t| MemoryAttribute::locality(t),
+            c"Locality",
+            MemoryAttributeFlags::LOWER_IS_BEST,
+            extra_tests_numa(
+                DiscoverySupport::pu_count,
+                |numa| numa.cpuset().unwrap().weight().unwrap() as u64
+            ),
+        );
+    }
+    //
+    #[test]
+    fn bandwidth() {
+        test_predefined(
+            |t| MemoryAttribute::bandwidth(t),
+            c"Bandwidth",
+            MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+            |_, _| {}
+        );
+    }
+    //
+    #[test]
+    fn latency() {
+        test_predefined(
+            |t| MemoryAttribute::latency(t),
+            c"Latency",
+            MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+            |_, _| {}
+        );
+    }
+    //
+    #[cfg(feature = "hwloc-2_8_0")]
+    mod hwloc28 {
+        use super::*;
+
+        #[test]
+        fn read_bandwidth() {
+            test_predefined(
+                |t| MemoryAttribute::read_bandwidth(t),
+                c"ReadBandwidth",
+                MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {}
+            );
+        }
+
+        #[test]
+        fn write_bandwidth() {
+            test_predefined(
+                |t| MemoryAttribute::write_bandwidth(t),
+                c"WriteBandwidth",
+                MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {}
+            );
+        }
+
+        #[test]
+        fn read_latency() {
+            test_predefined(
+                |t| MemoryAttribute::read_latency(t),
+                c"ReadLatency",
+                MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {}
+            );
+        }
+
+        #[test]
+        fn write_latency() {
+            test_predefined(
+                |t| MemoryAttribute::write_latency(t),
+                c"WriteLatency",
+                MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {}
+            );
+        }
+    }
 
     /// Mechanism to track the best value of a memory attribute and the
     /// endpoints for which the memory attribute has this value.
