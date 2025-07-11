@@ -200,6 +200,22 @@ impl Topology {
             self_: &'self_ Topology,
             target: NUMAInitiator<'_>,
         ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignInitiatorError>> {
+            // FIXME: As of hwloc 2.12.1, empty cpusets are not correctly
+            //        handled by hwloc_get_local_numanode_objs(). Fix submitted
+            //        upstream at https://github.com/open-mpi/hwloc/pull/723 .
+            #[cfg(feature = "hwloc-2_12_1")]
+            if let NUMAInitiator::Local { initiator, flags } = &target {
+                if flags.contains(
+                    LocalNUMANodeFlags::INTERSECT_LOCALITY | LocalNUMANodeFlags::LARGER_LOCALITY,
+                ) {
+                    if let Initiator::CpuSet(cpuset) = initiator {
+                        if cpuset.is_empty() {
+                            return Ok(self_.objects_with_type(ObjectType::NUMANode).collect());
+                        }
+                    }
+                }
+            }
+
             // Prepare to call hwloc
             // SAFETY: Will only be used before returning from this function
             let (location, flags) = unsafe { target.as_checked_raw(self_)? };
