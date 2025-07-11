@@ -2352,7 +2352,7 @@ mod tests {
     use crate::{
         object::types::ObjectType,
         strategies::{any_object, any_string, set_with_reference, topology_related_set},
-        topology::support::{FeatureSupport, DiscoverySupport},
+        topology::support::{DiscoverySupport, FeatureSupport},
     };
     use proptest::{prelude::*, sample::SizeRange};
     #[allow(unused)]
@@ -2392,10 +2392,7 @@ mod tests {
                     attribute.initiators(numa),
                     Err(HybridError::Rust(InitiatorQueryError::NoInitiators(_)))
                 ));
-                assert_eq!(
-                    attribute.value(None, numa),
-                    Ok(Some(expected_value(numa)))
-                );
+                assert_eq!(attribute.value(None, numa), Ok(Some(expected_value(numa))));
                 numa_set.insert(numa.global_persistent_index());
             }
 
@@ -2403,11 +2400,10 @@ mod tests {
             // the numa node set
             let (targets, values) = attribute.targets(None).unwrap();
             assert!(values.is_some());
-            let target_set =
-                targets
-                    .into_iter()
-                    .map(TopologyObject::global_persistent_index)
-                    .collect::<HashSet<_>>();
+            let target_set = targets
+                .into_iter()
+                .map(TopologyObject::global_persistent_index)
+                .collect::<HashSet<_>>();
             assert_eq!(numa_set, target_set);
         }
     }
@@ -2428,10 +2424,9 @@ mod tests {
             |t| MemoryAttribute::locality(t),
             c"Locality",
             MemoryAttributeFlags::LOWER_IS_BEST,
-            extra_tests_numa(
-                DiscoverySupport::pu_count,
-                |numa| numa.cpuset().unwrap().weight().unwrap() as u64
-            ),
+            extra_tests_numa(DiscoverySupport::pu_count, |numa| {
+                numa.cpuset().unwrap().weight().unwrap() as u64
+            }),
         );
     }
     //
@@ -2441,7 +2436,7 @@ mod tests {
             |t| MemoryAttribute::bandwidth(t),
             c"Bandwidth",
             MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
-            |_, _| {}
+            |_, _| {},
         );
     }
     //
@@ -2451,7 +2446,7 @@ mod tests {
             |t| MemoryAttribute::latency(t),
             c"Latency",
             MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
-            |_, _| {}
+            |_, _| {},
         );
     }
     //
@@ -2465,7 +2460,7 @@ mod tests {
                 |t| MemoryAttribute::read_bandwidth(t),
                 c"ReadBandwidth",
                 MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
-                |_, _| {}
+                |_, _| {},
             );
         }
 
@@ -2475,7 +2470,7 @@ mod tests {
                 |t| MemoryAttribute::write_bandwidth(t),
                 c"WriteBandwidth",
                 MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
-                |_, _| {}
+                |_, _| {},
             );
         }
 
@@ -2485,7 +2480,7 @@ mod tests {
                 |t| MemoryAttribute::read_latency(t),
                 c"ReadLatency",
                 MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
-                |_, _| {}
+                |_, _| {},
             );
         }
 
@@ -2495,7 +2490,7 @@ mod tests {
                 |t| MemoryAttribute::write_latency(t),
                 c"WriteLatency",
                 MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
-                |_, _| {}
+                |_, _| {},
             );
         }
     }
