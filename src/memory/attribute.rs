@@ -2412,7 +2412,7 @@ mod tests {
     fn capacity() {
         test_predefined(
             |t| MemoryAttribute::capacity(t),
-            c"Capacity",
+            &CString::new("Capacity").unwrap(),
             MemoryAttributeFlags::HIGHER_IS_BEST,
             extra_tests_numa(DiscoverySupport::numa_memory, TopologyObject::total_memory),
         );
@@ -2422,7 +2422,7 @@ mod tests {
     fn locality() {
         test_predefined(
             |t| MemoryAttribute::locality(t),
-            c"Locality",
+            &CString::new("Locality").unwrap(),
             MemoryAttributeFlags::LOWER_IS_BEST,
             extra_tests_numa(DiscoverySupport::pu_count, |numa| {
                 numa.cpuset().unwrap().weight().unwrap() as u64
@@ -2434,7 +2434,7 @@ mod tests {
     fn bandwidth() {
         test_predefined(
             |t| MemoryAttribute::bandwidth(t),
-            c"Bandwidth",
+            &CString::new("Bandwidth").unwrap(),
             MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
             |_, _| {},
         );
@@ -2444,7 +2444,7 @@ mod tests {
     fn latency() {
         test_predefined(
             |t| MemoryAttribute::latency(t),
-            c"Latency",
+            &CString::new("Latency").unwrap(),
             MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
             |_, _| {},
         );
@@ -2458,7 +2458,7 @@ mod tests {
         fn read_bandwidth() {
             test_predefined(
                 |t| MemoryAttribute::read_bandwidth(t),
-                c"ReadBandwidth",
+                &CString::new("ReadBandwidth").unwrap(),
                 MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
                 |_, _| {},
             );
@@ -2468,7 +2468,7 @@ mod tests {
         fn write_bandwidth() {
             test_predefined(
                 |t| MemoryAttribute::write_bandwidth(t),
-                c"WriteBandwidth",
+                &CString::new("WriteBandwidth").unwrap(),
                 MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
                 |_, _| {},
             );
@@ -2478,7 +2478,7 @@ mod tests {
         fn read_latency() {
             test_predefined(
                 |t| MemoryAttribute::read_latency(t),
-                c"ReadLatency",
+                &CString::new("ReadLatency").unwrap(),
                 MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
                 |_, _| {},
             );
@@ -2488,7 +2488,7 @@ mod tests {
         fn write_latency() {
             test_predefined(
                 |t| MemoryAttribute::write_latency(t),
-                c"WriteLatency",
+                &CString::new("WriteLatency").unwrap(),
                 MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
                 |_, _| {},
             );
