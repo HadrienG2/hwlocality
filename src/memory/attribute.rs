@@ -2888,6 +2888,38 @@ mod tests {
         }
     }
 
+    /// On hwloc v2.12.0+, test that the default nodeset makes sense
+    #[cfg(feature = "hwloc-2_12_0")]
+    #[test]
+    fn get_default_nodeset() {
+        // Get the default nodeset
+        let topology = Topology::test_instance();
+        let Ok(default_nodeset) = topology.get_default_nodeset() else {
+            // Error cases are not documented by hwloc, so there's little we can
+            // do when an error is encountered.
+            return;
+        };
+
+        // The returned nodeset is included in the topology nodeset
+        assert!(topology.nodeset().includes(&default_nodeset));
+
+        // It is guaranteed that nodes from the default nodeset have
+        // non-intersecting CPU sets
+        let mut cpuset_so_far = CpuSet::new();
+        for node in topology.nodes_from_nodeset(&default_nodeset) {
+            let node_cpuset = node.cpuset().unwrap();
+            assert!(!cpuset_so_far.intersects(node_cpuset));
+            cpuset_so_far |= node_cpuset;
+        }
+
+        // Any core that had some local NUMA nodes in the initial topology
+        // should still have one in the default nodeset.
+        for pu in topology.objects_with_type(ObjectType::PU) {
+            let pu_nodeset = pu.nodeset().unwrap();
+            assert!(pu_nodeset.intersects(&default_nodeset) || pu_nodeset.is_empty());
+        }
+    }
+
     fn attr_names() -> &'static [String] {
         static NAMES: OnceLock<Vec<String>> = OnceLock::new();
         NAMES
