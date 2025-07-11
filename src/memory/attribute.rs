@@ -18,7 +18,7 @@ use crate::memory::nodeset::NodeSet;
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
-    bitmap::{BitmapCow, BitmapIndex, BitmapRef},
+    bitmap::{BitmapCow, BitmapRef},
     cpu::cpuset::CpuSet,
     errors::{self, FlagsError, ForeignObjectError, HybridError, NulError, RawHwlocError},
     ffi::{
@@ -52,7 +52,7 @@ use libc::{EBUSY, EINVAL, ENOENT};
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::{c_int, c_uint, c_ulong, CStr},
     fmt::{self, Debug},
     hash::Hash,
@@ -922,23 +922,13 @@ impl MemoryAttributeBuilder<'_, '_> {
             }
 
             // Iterate over (initiator, target, value) triplets
-            let mut unique_initiator_targets = HashSet::with_capacity(initiators.len());
+            let mut initiator_targets = InitiatorTargetSet::new();
             let out_initiators = out_initiators.insert(Vec::with_capacity(initiators.len()));
             for (initiator, (target, value)) in
                 initiators.iter().zip(targets_and_values.iter().copied())
             {
                 // Check for absence of (initiator, target) overlap
-                let target_id = target.global_persistent_index();
-                let overlaps = match initiator {
-                    Initiator::CpuSet(set) => set.iter_set().any(|cpu| {
-                        !unique_initiator_targets.insert((InitiatorId::Cpu(cpu), target_id))
-                    }),
-                    Initiator::Object(obj) => !unique_initiator_targets.insert((
-                        InitiatorId::Object(obj.global_persistent_index()),
-                        target_id,
-                    )),
-                };
-                if overlaps {
+                if !initiator_targets.insert(initiator, target) {
                     return Err(ValueInputError::OverlappingValues.into());
                 }
 
@@ -976,14 +966,49 @@ impl MemoryAttributeBuilder<'_, '_> {
     }
 }
 
-/// Simplified [`Initiator`] that fits in [`HashSet`]
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-enum InitiatorId {
-    /// One entry per set bit in [`Initiator::CpuSet`]
-    Cpu(BitmapIndex),
+/// Set of `(initiator, target)` pairs, used to detect duplicates
+#[derive(Default)]
+struct InitiatorTargetSet {
+    targets_to_initiators: HashMap<TopologyObjectID, InitiatorSet>,
+}
+//
+impl InitiatorTargetSet {
+    /// Set up an `InitiatorTargetSet`
+    fn new() -> Self {
+        Self::default()
+    }
 
-    /// Unique identifier of [`Initiator::Object`]
-    Object(TopologyObjectID),
+    /// Insert an `(initiator, target)` pair, tell if this was a true insertion
+    /// (as opposed to some (initiator, target) pairs being already present)
+    fn insert(&mut self, initiator: &Initiator<'_>, target: &TopologyObject) -> bool {
+        let initiators = self
+            .targets_to_initiators
+            .entry(target.global_persistent_index())
+            .or_default();
+        initiators.insert(initiator)
+    }
+}
+//
+/// Set of initiators for a particular target, used to detect duplicates
+#[derive(Default)]
+struct InitiatorSet {
+    initiator_cpus: CpuSet,
+    initiator_objs: HashSet<TopologyObjectID>,
+}
+//
+impl InitiatorSet {
+    /// Insert an initiator, tell if this was a true insertion (as opposed to
+    /// some initiators being already present in the set)
+    fn insert(&mut self, initiator: &Initiator<'_>) -> bool {
+        match initiator {
+            Initiator::CpuSet(set) => {
+                let result = !self.initiator_cpus.intersects(set.as_ref());
+                self.initiator_cpus |= set.as_ref();
+                result
+            }
+            Initiator::Object(obj) => self.initiator_objs.insert(obj.global_persistent_index()),
+        }
+    }
 }
 
 /// Predigested initiators for [`MemoryAttributeBuilder::set_values`]
