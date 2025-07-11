@@ -969,6 +969,7 @@ impl MemoryAttributeBuilder<'_, '_> {
 /// Set of `(initiator, target)` pairs, used to detect duplicates
 #[derive(Default)]
 struct InitiatorTargetSet {
+    /// Mapping from targets which were seen before, to associated initiators
     targets_to_initiators: HashMap<TopologyObjectID, InitiatorSet>,
 }
 //
@@ -992,7 +993,10 @@ impl InitiatorTargetSet {
 /// Set of initiators for a particular target, used to detect duplicates
 #[derive(Default)]
 struct InitiatorSet {
+    /// CPUs that were used as initiators before
     initiator_cpus: CpuSet,
+
+    /// Objects that were used as initiators before
     initiator_objs: HashSet<TopologyObjectID>,
 }
 //
@@ -2686,7 +2690,7 @@ mod tests {
             (attr, target, initiator) in memory_attribute_target_initiator()
         ) {
             // Detect errors which are handled on the Rust side
-            let foreign_initiator = is_foreign_initiator(&attr.topology, &initiator);
+            let foreign_initiator = is_foreign_initiator(attr.topology, &initiator);
             let foreign_target = !attr.topology.contains(target);
             let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
             let need_initiator = attr_needs_initiator && initiator.is_none();
@@ -2764,7 +2768,7 @@ mod tests {
         fn target_query_errors(
             (attr, initiator) in memory_attribute_and_initiator()
         ) {
-            let foreign_initiator = is_foreign_initiator(&attr.topology, &initiator);
+            let foreign_initiator = is_foreign_initiator(attr.topology, &initiator);
             let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
             let need_initiator = attr_needs_initiator && initiator.is_none();
             let unwanted_initiator = !attr_needs_initiator && initiator.is_some();
@@ -2976,18 +2980,8 @@ mod tests {
         }
     }
 
-    /// Pick memory attribute building blocks that have a high chance of being
-    /// consistent with each other, but may not be
-    fn attribute_building_blocks() -> impl Strategy<
-        Value = (
-            MemoryAttributeFlags,
-            Option<Vec<Initiator<'static>>>,
-            Vec<(&'static TopologyObject, u64)>,
-        ),
-    > {
-        // Pick attribute flags
-        let flags = any::<MemoryAttributeFlags>();
-
+    /// Pick a set of targets and values for a memory attribute
+    fn targets_and_values() -> impl Strategy<Value = Vec<(&'static TopologyObject, u64)>> {
         // Pick attribute targets
         let topology = Topology::test_instance();
         let all_objects = topology.objects().collect::<Vec<_>>();
@@ -3005,15 +2999,26 @@ mod tests {
         ];
 
         // Associate values with targets
-        let targets_and_values = targets.prop_flat_map(|targets| {
+        targets.prop_flat_map(|targets| {
             let len = targets.len();
             let values = prop::collection::vec(any::<u64>(), len);
             (Just(targets), values)
                 .prop_map(|(targets, values)| targets.into_iter().zip(values).collect::<Vec<_>>())
-        });
+        })
+    }
+
+    /// Pick memory attribute building blocks that have a high chance of being
+    /// consistent with each other, but may not be
+    fn attribute_building_blocks() -> impl Strategy<Value = AttributeBuildingBlocks> {
+        // Pick attribute flags
+        let flags = any::<MemoryAttributeFlags>();
+
+        // Pick attribute targets
+        let topology = Topology::test_instance();
+        let num_objects = topology.objects().count();
 
         // Given a (flags, targets, values) configuration...
-        (flags, targets_and_values).prop_flat_map(move |(flags, targets_and_values)| {
+        (flags, targets_and_values()).prop_flat_map(move |(flags, targets_and_values)| {
             // Pick a number of initiators that may or may not be correct
             let num_initiators = prop_oneof![
                 2 => Just(targets_and_values.len()),
@@ -3124,6 +3129,12 @@ mod tests {
             (Just(flags), initiators, Just(targets_and_values))
         })
     }
+    //
+    type AttributeBuildingBlocks = (
+        MemoryAttributeFlags,
+        Option<Vec<Initiator<'static>>>,
+        Vec<(&'static TopologyObject, u64)>,
+    );
 
     proptest! {
         #[test]
