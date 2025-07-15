@@ -3176,11 +3176,11 @@ mod tests {
         let num_objects = all_objects.len();
         let targets = prop_oneof![
             1 => Just(Vec::new()),
-            2 => prop::sample::subsequence(
+            3 => prop::sample::subsequence(
                 all_objects,
                 1..=num_objects,
             ).prop_shuffle(),
-            2 => prop::collection::vec(
+            1 => prop::collection::vec(
                 any_object(),
                 SizeRange::default(),
             ),
@@ -3209,8 +3209,8 @@ mod tests {
         // Pick a number of initiators that may or may not be correct
         let num_values = targets_and_values.len();
         let num_initiators = prop_oneof![
-            2 => Just(num_values),
-            3 => 0..=num_objects,
+            4 => Just(num_values),
+            1 => 0..=num_objects,
         ];
 
         // Pick initiators
@@ -3261,8 +3261,8 @@ mod tests {
                     )
                 });
                 let initiator_sets = prop_oneof![
-                    3 => correct_initiator_sets,
-                    2 => prop::collection::vec(
+                    4 => correct_initiator_sets,
+                    1 => prop::collection::vec(
                         topology_related_set(Topology::complete_cpuset),
                         num_initiator_sets,
                     )
@@ -3272,11 +3272,11 @@ mod tests {
                 let num_initiator_objs = num_initiators - num_initiator_sets;
                 let initiator_objs = if num_initiator_objs <= num_objects {
                     prop_oneof![
-                        3 => prop::sample::subsequence(
+                        4 => prop::sample::subsequence(
                             topology.objects().collect::<Vec<_>>(),
                             num_initiator_objs
                         ),
-                        2 => prop::collection::vec(
+                        1 => prop::collection::vec(
                             any_object(),
                             num_initiator_objs
                         )
