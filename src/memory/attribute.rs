@@ -3546,7 +3546,7 @@ mod tests {
                     prop_assert!(AttributeDump::new(i).eq_modulo_topology(&AttributeDump::new(f)))
                 }
                 (None, Some(f)) => break f,
-                (Some(_), None) | (None, None) => unreachable!(),
+                (_, None) => unreachable!(),
             }
         };
 
