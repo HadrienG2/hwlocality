@@ -3342,7 +3342,7 @@ mod tests {
                                         initiators.insert(dupe_dst_idx, dupe_initiator);
                                     }
                                 }
-                                (Just(initiators), Just(targets_and_values)).boxed()
+                                (Just(initiators), Just(targets_and_values))
                             })
                     ].boxed()
                 },
@@ -3350,70 +3350,231 @@ mod tests {
 
             // And add back the flags at the end
             initiators_targets_values.prop_map(move |(initiators, targets_and_values)| {
-                (flags, initiators, targets_and_values)
+                AttributeBuildingBlocks { flags, initiators, targets_and_values }
             })
         })
     }
     //
-    type AttributeBuildingBlocks = (MemoryAttributeFlags, Initiators, TargetsAndValues);
+    #[derive(Debug)]
+    struct AttributeBuildingBlocks {
+        flags: MemoryAttributeFlags,
+        initiators: Initiators,
+        targets_and_values: TargetsAndValues,
+    }
 
     proptest! {
         #[test]
         fn build_any_attribute(
             name in any_string(),
-            (flags, initiators, targets_and_values) in attribute_building_blocks(),
+            building_blocks in attribute_building_blocks(),
         ) {
             let initial_topology = Topology::test_instance();
             let mut topology = initial_topology.clone();
+
+            // Predict value setup errors
+            let overlapping_values = has_duplicates(&building_blocks);
+            let (inconsistent_data_len, foreign_initiator) =
+                if let Some(initiators) = &building_blocks.initiators {
+                    (
+                        initiators.len() != building_blocks.targets_and_values.len(),
+                        initiators.iter().any(|initiator| match initiator {
+                            Initiator::CpuSet(set) => {
+                                set.is_empty()
+                                || !initial_topology.complete_cpuset().includes(set.as_ref())
+                            }
+                            Initiator::Object(obj) => !initial_topology.contains(obj),
+                        })
+                    )
+                } else {
+                    (false, false)
+                };
+            let foreign_target = building_blocks.targets_and_values.iter().any(|(target, _value)| {
+                !initial_topology.contains(target)
+            });
+            let need_initiator =
+                building_blocks.flags.contains(MemoryAttributeFlags::NEED_INITIATOR)
+                && building_blocks.initiators.is_none();
+            let unwanted_initiator =
+                !building_blocks.flags.contains(MemoryAttributeFlags::NEED_INITIATOR)
+                && building_blocks.initiators.is_some();
+            let will_error =
+                inconsistent_data_len
+                || overlapping_values
+                || foreign_initiator
+                || foreign_target
+                || need_initiator
+                || unwanted_initiator;
+
+            // Start editing the topology
             topology.edit(|editor| {
-                let builder = editor.register_memory_attribute(&name, flags);
-                let Some(mut builder) = check_register_errors(&name, flags, builder)? else {
+                // Register the memory attribute
+                let builder = editor.register_memory_attribute(&name, building_blocks.flags);
+                let Some(mut builder) = check_register_errors(&name, building_blocks.flags, builder)? else {
                     prop_assert_eq!(editor.topology(), initial_topology);
                     return Ok(());
                 };
 
-                let res = builder.set_values(|topology| {
-                    // Translate input references to test topology objects into
-                    // references to this topology's equivalent object, using
-                    // the global persistent index as a key.
-                    let id_to_object = topology
-                        .objects()
-                        .map(|obj| (obj.global_persistent_index(), obj))
-                        .collect::<HashMap<_, _>>();
-                    let initiators = initiators.as_ref().map(|initiators| {
-                        initiators.iter().cloned().map(|initiator| {
-                            match initiator {
-                                Initiator::Object(obj) => {
-                                    let obj = if initial_topology.contains(obj) {
-                                        id_to_object[&obj.global_persistent_index()]
-                                    } else {
-                                        obj
-                                    };
-                                    Initiator::from(obj)
-                                }
-                                Initiator::CpuSet(set) => {
-                                    Initiator::from(set)
-                                }
-                            }
-                        }).collect::<Vec<_>>()
-                    });
-                    let targets_and_values = targets_and_values.iter().copied().map(|(target, value)| {
-                        let target = if initial_topology.contains(target) {
-                            id_to_object[&target.global_persistent_index()]
-                        } else {
-                            target
-                        };
-                        (target, value)
-                    }).collect::<Vec<_>>();
-                    (initiators, targets_and_values)
+                // Back up the topology before value setup
+                let topology_with_empty_attribute = builder.editor.topology().clone();
+
+                // Run the value setup
+                let res = builder.set_values(|final_topology| {
+                    translate_building_blocks(
+                        initial_topology,
+                        building_blocks.initiators.as_deref(),
+                        &building_blocks.targets_and_values,
+                        final_topology
+                    )
                 });
-                // TODO: Test outcome of set_values: direct error code, topology
-                //       changes after returning from successful or unsuccessful
-                //       set_values...
+
+                // Check the result against expectation
+                match res {
+                    Ok(()) => prop_assert!(!will_error),
+                    Err(HybridError::Rust(e)) => {
+                        match e {
+                            ValueInputError::InconsistentDataLen => prop_assert!(inconsistent_data_len),
+                            ValueInputError::OverlappingValues => prop_assert!(overlapping_values),
+                            ValueInputError::BadInitiators(bi) => match bi {
+                                InitiatorInputError::ForeignInitiator(_) => prop_assert!(foreign_initiator),
+                                InitiatorInputError::NeedInitiator(_) => prop_assert!(need_initiator),
+                                InitiatorInputError::UnwantedInitiator(_) => prop_assert!(unwanted_initiator),
+                            }
+                            ValueInputError::ForeignTarget(_) => prop_assert!(foreign_target),
+                        }
+                        prop_assert_eq!(editor.topology(), &topology_with_empty_attribute);
+                        return Ok(());
+                    }
+                    Err(other) => panic!("unexpected error {other}"),
+                }
+
+                // If control reached this point, the memory attribute should
+                // have been added. Check the new topology state.
+                check_new_topology_attribute(
+                    initial_topology,
+                    &name,
+                    &building_blocks,
+                    editor.topology(),
+                )?;
 
                 Ok(())
             })?;
         }
+    }
+
+    /// Truth that [`AttributeBuildingBlocks`] contain duplicate entries
+    fn has_duplicates(building_blocks: &AttributeBuildingBlocks) -> bool {
+        if let Some(initiators) = &building_blocks.initiators {
+            let mut set = InitiatorTargetSet::new();
+            for (initiator, (target, _value)) in
+                initiators.iter().zip(&building_blocks.targets_and_values)
+            {
+                if !set.insert(initiator, target) {
+                    return true;
+                }
+            }
+        } else {
+            let mut hash_set = HashSet::with_capacity(building_blocks.targets_and_values.len());
+            for (target, _value) in &building_blocks.targets_and_values {
+                if !hash_set.insert(target.global_persistent_index()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Translate an initiator from one topology to another
+    fn translate_building_blocks<'out, 'initial: 'out, 'final_: 'out>(
+        initial_topology: &Topology,
+        initiators: Option<&[Initiator<'initial>]>,
+        targets_and_values: &[(&'initial TopologyObject, u64)],
+        final_topology: &'final_ Topology,
+    ) -> (
+        Option<Vec<Initiator<'out>>>,
+        Vec<(&'out TopologyObject, u64)>,
+    ) {
+        let id_to_object = final_topology
+            .objects()
+            .map(|obj| (obj.global_persistent_index(), obj))
+            .collect::<HashMap<_, _>>();
+        let initiators = initiators.as_ref().map(|initiators| {
+            initiators
+                .iter()
+                .cloned()
+                .map(|initiator| match initiator {
+                    Initiator::Object(obj) => {
+                        let obj = if initial_topology.contains(obj) {
+                            id_to_object[&obj.global_persistent_index()]
+                        } else {
+                            obj
+                        };
+                        Initiator::from(obj)
+                    }
+                    Initiator::CpuSet(set) => Initiator::from(set),
+                })
+                .collect::<Vec<_>>()
+        });
+        let targets_and_values = targets_and_values
+            .iter()
+            .copied()
+            .map(|(target, value)| {
+                let target = if initial_topology.contains(target) {
+                    id_to_object[&target.global_persistent_index()]
+                } else {
+                    target
+                };
+                (target, value)
+            })
+            .collect::<Vec<_>>();
+        (initiators, targets_and_values)
+    }
+
+    /// Part of [`build_any_attribute()`] that checks topology state after
+    /// successfully adding an attribute
+    fn check_new_topology_attribute(
+        initial_topology: &Topology,
+        name: &str,
+        building_blocks: &AttributeBuildingBlocks,
+        final_topology: &Topology,
+    ) -> Result<(), TestCaseError> {
+        // Attributes that used to be around are still around, with the same values
+        let mut initial_attrs = MemoryAttribute::all(initial_topology);
+        let mut final_attrs = MemoryAttribute::all(final_topology);
+        let new_attr = loop {
+            match (initial_attrs.next(), final_attrs.next()) {
+                (Some(i), Some(f)) => {
+                    prop_assert!(AttributeDump::new(i).eq_modulo_topology(&AttributeDump::new(f)))
+                }
+                (None, Some(f)) => break f,
+                (Some(_), None) | (None, None) => unreachable!(),
+            }
+        };
+
+        // New attribute has the expected properties
+        prop_assert_eq!(new_attr.name().to_str().unwrap(), name);
+        prop_assert_eq!(new_attr.flags(), building_blocks.flags);
+        let (initiators, targets_and_values) = translate_building_blocks(
+            initial_topology,
+            building_blocks.initiators.as_deref(),
+            &building_blocks.targets_and_values,
+            final_topology,
+        );
+        if let Some(initiators) = &initiators {
+            for (initiator, (target, expected_value)) in initiators.iter().zip(&targets_and_values)
+            {
+                prop_assert_eq!(
+                    new_attr.value(Some(initiator.clone()), target),
+                    Ok(Some(*expected_value))
+                );
+            }
+        } else {
+            for (target, expected_value) in &targets_and_values {
+                prop_assert_eq!(new_attr.value(None, target), Ok(Some(*expected_value)));
+            }
+        }
+
+        // TODO: Check debug output
+        Ok(())
     }
 
     // TODO: Build attribute with contents, test attribute dumps and their Debug
