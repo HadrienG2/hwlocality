@@ -200,22 +200,6 @@ impl Topology {
             self_: &'self_ Topology,
             target: NUMAInitiator<'_>,
         ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignInitiatorError>> {
-            // FIXME: As of hwloc 2.12.1, empty cpusets are not correctly
-            //        handled by hwloc_get_local_numanode_objs(). Fix submitted
-            //        upstream at https://github.com/open-mpi/hwloc/pull/723 .
-            #[cfg(feature = "hwloc-2_12_1")]
-            if let NUMAInitiator::Local { initiator, flags } = &target {
-                if flags.contains(
-                    LocalNUMANodeFlags::INTERSECT_LOCALITY | LocalNUMANodeFlags::LARGER_LOCALITY,
-                ) {
-                    if let Initiator::CpuSet(cpuset) = initiator {
-                        if cpuset.is_empty() {
-                            return Ok(self_.objects_with_type(ObjectType::NUMANode).collect());
-                        }
-                    }
-                }
-            }
-
             // Prepare to call hwloc
             // SAFETY: Will only be used before returning from this function
             let (location, flags) = unsafe { target.as_checked_raw(self_)? };
@@ -2035,7 +2019,7 @@ impl<'target> Initiator<'target> {
     ) -> Result<hwloc_location, ForeignInitiatorError> {
         match self {
             Self::CpuSet(cpuset) => {
-                if topology.complete_cpuset().includes(cpuset.as_ref()) {
+                if !cpuset.is_empty() && topology.complete_cpuset().includes(cpuset.as_ref()) {
                     Ok(hwloc_location {
                         ty: HWLOC_LOCATION_TYPE_CPUSET,
                         location: hwloc_location_u {
@@ -2822,12 +2806,13 @@ mod tests {
     /// Truth that an initiator does not belong to a topology
     fn is_foreign_initiator<'topology>(
         topology: &'topology Topology,
-        initiator: &Option<Initiator<'topology>>,
+        initiator: &Initiator<'topology>,
     ) -> bool {
         match initiator {
-            Some(Initiator::Object(obj)) => !topology.contains(obj),
-            Some(Initiator::CpuSet(set)) => !topology.complete_cpuset().includes(set.as_ref()),
-            None => false,
+            Initiator::Object(obj) => !topology.contains(obj),
+            Initiator::CpuSet(set) => {
+                set.is_empty() || !topology.complete_cpuset().includes(set.as_ref())
+            }
         }
     }
 
@@ -2837,7 +2822,7 @@ mod tests {
             (attr, target, initiator) in memory_attribute_target_initiator()
         ) {
             // Detect errors which are handled on the Rust side
-            let foreign_initiator = is_foreign_initiator(attr.topology, &initiator);
+            let foreign_initiator = initiator.as_ref().is_some_and(|initiator| is_foreign_initiator(attr.topology, initiator));
             let foreign_target = !attr.topology.contains(target);
             let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
             let need_initiator = attr_needs_initiator && initiator.is_none();
@@ -2915,7 +2900,7 @@ mod tests {
         fn target_query_errors(
             (attr, initiator) in memory_attribute_and_initiator()
         ) {
-            let foreign_initiator = is_foreign_initiator(attr.topology, &initiator);
+            let foreign_initiator = initiator.as_ref().is_some_and(|initiator| is_foreign_initiator(attr.topology, initiator));
             let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
             let need_initiator = attr_needs_initiator && initiator.is_none();
             let unwanted_initiator = !attr_needs_initiator && initiator.is_some();
@@ -2988,8 +2973,7 @@ mod tests {
             let res = topology.local_numa_nodes(initiator.clone());
 
             let foreign_object = match &initiator {
-                NUMAInitiator::Local { initiator: Initiator::Object(obj), .. } => !topology.contains(obj),
-                NUMAInitiator::Local { initiator: Initiator::CpuSet(set), .. } => !topology.complete_cpuset().includes(set.as_ref()),
+                NUMAInitiator::Local { initiator, .. } => is_foreign_initiator(topology, initiator),
                 NUMAInitiator::All => false,
             };
             prop_assert_eq!(res.is_err(), foreign_object);
