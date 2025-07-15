@@ -1340,7 +1340,7 @@ impl<'topology> MemoryAttribute<'topology> {
         // Check and translate initiator argument
         // SAFETY: Will only be used before returning from this function
         let initiator = unsafe {
-            self.checked_initiator(initiator, false)
+            self.checked_initiator(initiator.as_ref(), false)
                 .map_err(|err| HybridError::Rust(ValueQueryError::BadInitiator(err)))?
         };
 
@@ -1430,7 +1430,7 @@ impl<'topology> MemoryAttribute<'topology> {
     ) -> Result<Option<(&'topology TopologyObject, u64)>, InitiatorInputError> {
         // Validate the query
         // SAFETY: Will only be used before returning from this function,
-        let initiator = unsafe { self.checked_initiator(initiator, false)? };
+        let initiator = unsafe { self.checked_initiator(initiator.as_ref(), false)? };
 
         // Run the query
         let mut best_target = ptr::null();
@@ -1562,7 +1562,7 @@ impl<'topology> MemoryAttribute<'topology> {
             initiator.is_some() || !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
         // SAFETY: - Will only be used before returning from this function,
         //         - get_targets is documented to accept a NULL initiator
-        let initiator = unsafe { self.checked_initiator(initiator, true)? };
+        let initiator = unsafe { self.checked_initiator(initiator.as_ref(), true)? };
 
         // Run the query
         // SAFETY: - hwloc_memattr_get_targets is indeed an array query
@@ -1874,7 +1874,7 @@ impl<'topology> MemoryAttribute<'topology> {
     #[allow(clippy::needless_lifetimes)]
     unsafe fn checked_initiator<'initiator>(
         &self,
-        initiator: Option<Initiator<'initiator>>,
+        initiator: Option<&Initiator<'initiator>>,
         is_optional: bool,
     ) -> Result<hwloc_location, InitiatorInputError> {
         // Collect flags
