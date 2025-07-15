@@ -1591,7 +1591,7 @@ impl<'topology> MemoryAttribute<'topology> {
             // SAFETY: Targets originate from a query against this topology
             .map(|node_ptr| unsafe { self.encapsulate_target_node(node_ptr) })
             .collect();
-        let values = (!values.is_empty()).then_some(values);
+        let values = get_values.then_some(values);
         Ok((targets, values))
     }
 
@@ -3119,7 +3119,10 @@ mod tests {
             prop_assert_eq!(attr.flags(), flags);
             let (targets, values) = attr.targets(None).unwrap();
             prop_assert!(targets.is_empty());
-            prop_assert_eq!(values, None);
+            prop_assert_eq!(
+                values,
+                (!flags.contains(MemoryAttributeFlags::NEED_INITIATOR)).then_some(Vec::new())
+            );
 
             let mut expected_dump = initial_topology.dump_memory_attributes();
             expected_dump.0.push(AttributeDump::new(attr));
