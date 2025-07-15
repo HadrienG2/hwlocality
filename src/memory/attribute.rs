@@ -212,9 +212,12 @@ impl Topology {
                 //           happen.
                 //         - nr_mut and out_ptr are call site dependent, see below.
                 errors::call_hwloc_zero_or_minus1("hwloc_get_local_numanode_objs", || unsafe {
+                    let location_ptr: *const hwloc_location = location
+                        .as_ref()
+                        .map_or(ptr::null(), |location_ref| location_ref);
                     hwlocality_sys::hwloc_get_local_numanode_objs(
                         self_.as_ptr(),
-                        &location,
+                        location_ptr,
                         nr_mut,
                         out_ptr,
                         flags.bits(),
@@ -1352,11 +1355,14 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - flags must be 0
         //         - Value is an out parameter, its initial value isn't read
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
+            let initiator_ptr: *const hwloc_location = initiator
+                .as_ref()
+                .map_or(ptr::null(), |initiator_ref| initiator_ref);
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
                 target_node.as_inner(),
-                &initiator,
+                initiator_ptr,
                 0,
                 &mut value,
             )
@@ -1427,10 +1433,13 @@ impl<'topology> MemoryAttribute<'topology> {
             self.get_best(
                 "hwloc_memattr_get_best_target",
                 |topology, attribute, flags, value| {
+                    let initiator_ptr: *const hwloc_location = initiator
+                        .as_ref()
+                        .map_or(ptr::null(), |initiator_ref| initiator_ref);
                     hwlocality_sys::hwloc_memattr_get_best_target(
                         topology,
                         attribute,
-                        &initiator,
+                        initiator_ptr,
                         flags,
                         &mut best_target,
                         value,
@@ -1470,7 +1479,7 @@ impl<'topology> MemoryAttribute<'topology> {
 
         // Run the query
         // SAFETY: This is an out parameter, initial value won't be read
-        let mut best_initiator = NULL_LOCATION;
+        let mut best_initiator = INVALID_LOCATION;
         // SAFETY: - hwloc_memattr_get_best_initiator is a "best X" query
         //         - Parameters are forwarded in the right order
         //         - target node has been checked to come from this topology
@@ -1559,8 +1568,17 @@ impl<'topology> MemoryAttribute<'topology> {
                 ptr::null(),
                 get_values,
                 |topology, attribute, flags, nr, targets, values| {
+                    let initiator_ptr: *const hwloc_location = initiator
+                        .as_ref()
+                        .map_or(ptr::null(), |initiator_ref| initiator_ref);
                     hwlocality_sys::hwloc_memattr_get_targets(
-                        topology, attribute, &initiator, flags, nr, targets, values,
+                        topology,
+                        attribute,
+                        initiator_ptr,
+                        flags,
+                        nr,
+                        targets,
+                        values,
                     )
                 },
             )
@@ -1607,7 +1625,7 @@ impl<'topology> MemoryAttribute<'topology> {
         let (initiators, values) = unsafe {
             self.array_query(
                 "hwloc_memattr_get_initiators",
-                NULL_LOCATION,
+                INVALID_LOCATION,
                 true,
                 |topology, attribute, flags, nr, initiators, values| {
                     hwlocality_sys::hwloc_memattr_get_initiators(
@@ -1860,7 +1878,7 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         initiator: Option<&Initiator<'initiator>>,
         is_optional: bool,
-    ) -> Result<hwloc_location, InitiatorInputError> {
+    ) -> Result<Option<hwloc_location>, InitiatorInputError> {
         // Collect flags
         let flags = self.flags();
 
@@ -1880,8 +1898,8 @@ impl<'topology> MemoryAttribute<'topology> {
         // Handle expected absence of initiator
         let Some(initiator) = initiator else {
             // SAFETY: Per input precondition of is_optional + check above that
-            //         initiator can only be none if initiator is optional
-            return Ok(NULL_LOCATION);
+            //         initiator can only be NULL if initiator is optional
+            return Ok(None);
         };
 
         // Make sure initiator does belong to this topology
@@ -1889,6 +1907,7 @@ impl<'topology> MemoryAttribute<'topology> {
         unsafe {
             initiator
                 .as_checked_raw(self.topology)
+                .map(Some)
                 .map_err(InitiatorInputError::ForeignInitiator)
         }
     }
@@ -2156,9 +2175,8 @@ struct LocationTypeError(c_int);
 ///
 /// # Safety
 ///
-/// Do not expose this location value to an hwloc function that actually
-/// reads it, unless it is explicitly documented to accept NULL locations.
-const NULL_LOCATION: hwloc_location = hwloc_location {
+/// Do not expose this location value to an hwloc function that reads it.
+const INVALID_LOCATION: hwloc_location = hwloc_location {
     ty: HWLOC_LOCATION_TYPE_CPUSET,
     location: hwloc_location_u {
         cpuset: ptr::null(),
@@ -2251,7 +2269,7 @@ impl NUMAInitiator<'_> {
     pub(crate) unsafe fn as_checked_raw(
         &self,
         topology: &Topology,
-    ) -> Result<(hwloc_location, LocalNUMANodeFlags), ForeignInitiatorError> {
+    ) -> Result<(Option<hwloc_location>, LocalNUMANodeFlags), ForeignInitiatorError> {
         match self {
             Self::Local {
                 initiator,
@@ -2259,11 +2277,11 @@ impl NUMAInitiator<'_> {
             } => {
                 flags.remove(LocalNUMANodeFlags::ALL);
                 // SAFETY: Per function precondition
-                Ok((unsafe { initiator.as_checked_raw(topology)? }, flags))
+                Ok((Some(unsafe { initiator.as_checked_raw(topology)? }), flags))
             }
             // SAFETY: In presence of the ALL flag, the initiator is ignored,
             //         so a null location is fine.
-            Self::All => Ok((NULL_LOCATION, LocalNUMANodeFlags::ALL)),
+            Self::All => Ok((None, LocalNUMANodeFlags::ALL)),
         }
     }
 }
