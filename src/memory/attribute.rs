@@ -3449,7 +3449,7 @@ mod tests {
                         prop_assert_eq!(editor.topology(), &topology_with_empty_attribute);
                         return Ok(());
                     }
-                    Err(other) => panic!("unexpected error {other}"),
+                    Err(other) => panic!("unexpected error: {other}"),
                 }
 
                 // If control reached this point, the memory attribute should
@@ -3564,25 +3564,104 @@ mod tests {
             &building_blocks.targets_and_values,
             final_topology,
         );
-        if let Some(initiators) = &initiators {
+        let mut id_to_target = HashMap::new();
+        let target_id_to_value = if let Some(initiators) = &initiators {
+            // Query individual values, preparing for subsequent bulk queries
             for (initiator, (target, expected_value)) in initiators.iter().zip(&targets_and_values)
             {
                 prop_assert_eq!(
                     new_attr.value(Some(initiator.clone()), target),
                     Ok(Some(*expected_value))
                 );
+                let target_id = target.global_persistent_index();
+                id_to_target.entry(target_id).or_insert(target);
             }
+
+            // No target-to-value mapping if there is an initiator
+            None
         } else {
+            // Query individual values, preparing for subsequent bulk queries
+            let mut target_id_to_value = HashMap::new();
             for (target, expected_value) in &targets_and_values {
                 prop_assert_eq!(new_attr.value(None, target), Ok(Some(*expected_value)));
+                let target_id = target.global_persistent_index();
+                id_to_target.entry(target_id).or_insert(target);
+                prop_assert!(target_id_to_value
+                    .insert(target_id, *expected_value)
+                    .is_none());
             }
+
+            // There is no initiator, so there's a target-to-value mapping
+            Some(target_id_to_value)
+        };
+
+        // Query full target list
+        let expected_target_ids = id_to_target.keys().copied().collect::<HashSet<_>>();
+        let (targets, values) = new_attr.targets(None).unwrap();
+        prop_assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.global_persistent_index())
+                .collect::<HashSet<_>>(),
+            expected_target_ids,
+        );
+        let expected_values = target_id_to_value.map(|mut target_id_to_value| {
+            targets
+                .into_iter()
+                .map(|target| {
+                    target_id_to_value
+                        .remove(&target.global_persistent_index())
+                        .unwrap()
+                })
+                .collect()
+        });
+        prop_assert_eq!(values, expected_values);
+
+        // New attribute should not compare equal to existing attributes because
+        // it does not have the same ID.
+        let new_dump = AttributeDump::new(new_attr);
+        for initial_attr in MemoryAttribute::all(initial_topology) {
+            let initial_dump = AttributeDump::new(initial_attr);
+            prop_assert!(!new_dump.eq_modulo_topology(&initial_dump));
         }
 
-        // TODO: Check debug output
+        // Test attribute dumps using this new attribute dump, which has the
+        // advantage of having contents under our control.
+        test_attribute_dump(new_dump)?;
         Ok(())
     }
 
-    // TODO: Build attribute with contents, test attribute dumps and their Debug
+    /// Test attribute dumps, used for debugging and topology comparison
+    fn test_attribute_dump(dump: AttributeDump<'_>) -> Result<(), TestCaseError> {
+        // Dump should compare equal to itself
+        prop_assert!(dump.eq_modulo_topology(&dump));
 
-    // TODO: Check coverage and see if I need any other test
+        // Can't do more if the dump doesn't have targets
+        if dump.targets.0.is_empty() {
+            return Ok(());
+        }
+
+        // Dump should not compare equal to another dump with less targets
+        {
+            let mut less_targets = dump.clone();
+            less_targets.targets.0.pop();
+            prop_assert!(!dump.eq_modulo_topology(&less_targets));
+        }
+
+        // Can't do more if the dump doesn't have 2+ targets
+        if dump.targets.0.len() < 2 {
+            return Ok(());
+        }
+
+        // Dump should not compare equal to another dump with targets swapped
+        {
+            let mut swapped_targets = dump.clone();
+            swapped_targets.targets.0.swap(0, 1);
+            prop_assert!(!dump.eq_modulo_topology(&swapped_targets));
+        }
+
+        // TODO: Stress InitiatorsAndValues component of dump some more,
+        //       including its Debug impl. Then hopefully final tarpaulin run.
+        Ok(())
+    }
 }
