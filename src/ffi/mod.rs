@@ -103,12 +103,14 @@ pub(crate) unsafe fn call_snprintf(
         let len =
             usize::try_from(len_i32).expect("Got invalid string length from an snprintf-like API");
         let mut buf = vec![0; len + 1];
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             // SAFETY: Per input precondition
             snprintf(buf.as_mut_ptr(), buf.len()),
             len_i32,
             "Got inconsistent string length from an snprintf-like API"
         );
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             buf.last().copied(),
             Some(0),

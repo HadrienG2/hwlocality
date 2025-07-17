@@ -174,6 +174,7 @@ impl Topology {
             }
         };
         let infos = if infos.is_null() {
+            #[cfg(not(tarpaulin_include))]
             assert_eq!(
                 nr_infos, 0,
                 "hwloc pretended to yield {nr_infos} infos but provided a null infos pointer"
@@ -358,6 +359,7 @@ impl TopologyEditor<'_> {
 
             // Translate number of infos into hwloc's preferred format
             let infos_ptr = raw_infos.as_ptr();
+            #[cfg(not(tarpaulin_include))]
             let num_infos =
                 c_uint::try_from(raw_infos.len()).map_err(|_| RegisterError::TooManyInfos)?;
 

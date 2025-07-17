@@ -1589,7 +1589,7 @@ impl From<DistancesTransform> for hwloc_distances_transform_e {
             DistancesTransform::TransitiveSwitchClosure => {
                 HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE
             }
-            DistancesTransform::Unknown(unknown) => unknown.0,
+            DistancesTransform::Unknown(unknown) => unknown.get(),
         }
     }
 }

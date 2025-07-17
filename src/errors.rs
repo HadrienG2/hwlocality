@@ -750,4 +750,25 @@ mod tests {
             prop_assert_eq!(ParameterError::from(x), ParameterError(x));
         }
     }
+
+    /// Generate a mostly-arbitrary [`HybridError`]
+    fn any_hybrid_error() -> impl Strategy<Value = HybridError<ParameterError<u64>>> {
+        prop_oneof![
+            any::<u64>().prop_map(|p| HybridError::Rust(ParameterError(p))),
+            any::<Option<i32>>().prop_map(|errno| HybridError::Hwloc(RawHwlocError {
+                api: "hwloc_fancy_api",
+                errno: errno.map(Errno),
+            }))
+        ]
+    }
+    //
+    proptest! {
+        #[test]
+        fn expect_only_hwloc(hybrid in any_hybrid_error()) {
+            match &hybrid {
+                HybridError::Rust(_) => assert_panics(|| hybrid.expect_only_hwloc("will happen"))?,
+                HybridError::Hwloc(h) => prop_assert_eq!(hybrid.expect_only_hwloc("won't happen"), *h),
+            }
+        }
+    }
 }

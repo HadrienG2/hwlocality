@@ -2,14 +2,16 @@
 
 #[cfg(doc)]
 use super::BitmapRef;
-use super::{hwloc_bitmap_s, Bitmap};
+use super::{hwloc_bitmap_s, Bitmap, BitmapIndex};
 use crate::Sealed;
 #[cfg(doc)]
 use crate::{cpu::cpuset::CpuSet, memory::nodeset::NodeSet};
 use std::{
     borrow::{Borrow, BorrowMut},
     fmt::{Debug, Display, Pointer},
-    ops::Deref,
+    hash::Hash,
+    ops::{BitAnd, BitOr, BitXor, Deref, Not, Sub, SubAssign},
+    panic::UnwindSafe,
     ptr::NonNull,
 };
 
@@ -28,16 +30,33 @@ use std::{
 // `NonNull<hwloc_bitmap_s>`, possibly with some ZSTs added.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait OwnedBitmap:
-    Borrow<Bitmap>
+    BitAnd
+    + BitOr
+    + BitXor
     + BorrowMut<Bitmap>
     + Clone
     + Debug
+    + Default
     + Display
+    + Eq
+    + Extend<BitmapIndex>
     + From<Bitmap>
+    + From<BitmapIndex>
+    + FromIterator<BitmapIndex>
+    + Hash
     + Into<Bitmap>
+    + IntoIterator<Item = BitmapIndex>
+    + Not
+    + Ord
     + PartialEq
     + Pointer
     + Sealed
+    + Sized
+    + Sub
+    + SubAssign
+    + Sync
+    + Unpin
+    + UnwindSafe
     + 'static
 {
     /// Access the inner `NonNull<hwloc_bitmap_s>`
@@ -70,7 +89,7 @@ unsafe impl OwnedBitmap for Bitmap {
 /// See also [`SpecializedBitmapRef`].
 #[doc(alias = "HWLOC_MEMBIND_BYNODESET")]
 #[doc(alias = "HWLOC_RESTRICT_FLAG_BYNODESET")]
-pub trait SpecializedBitmap: OwnedBitmap {
+pub trait SpecializedBitmap: OwnedBitmap + AsMut<Bitmap> {
     /// Tag used to discriminate between specialized bitmaps in code
     const BITMAP_KIND: BitmapKind;
 }
@@ -677,6 +696,7 @@ macro_rules! impl_bitmap_newtype {
                 trivial_casts
             )]
             #[cfg(test)]
+            #[cfg(not(tarpaulin_include))]
             mod tests {
                 use super::*;
                 use $crate::{

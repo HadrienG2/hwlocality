@@ -575,6 +575,7 @@ impl TopologyObject {
         &self,
     ) -> impl DoubleEndedIterator<Item = &Self> + Clone + ExactSizeIterator + FusedIterator {
         if self.0.children.is_null() {
+            #[cfg(not(tarpaulin_include))]
             assert_eq!(
                 self.normal_arity(),
                 0,
@@ -584,6 +585,7 @@ impl TopologyObject {
         (0..self.normal_arity()).map(move |offset| {
             // SAFETY: Pointer is in bounds by construction
             let child = unsafe { *self.0.children.add(offset) };
+            #[cfg(not(tarpaulin_include))]
             assert!(!child.is_null(), "Got null child pointer");
             // SAFETY: - We checked that the pointer isn't null
             //         - Pointer & target validity assumed as a type invariant
@@ -728,6 +730,7 @@ impl TopologyObject {
     ) -> impl ExactSizeIterator<Item = &Self> + Clone + FusedIterator {
         let mut current = first;
         (0..arity).map(move |_| {
+            #[cfg(not(tarpaulin_include))]
             assert!(!current.is_null(), "Got null child before expected arity");
             // SAFETY: - We checked that the pointer isn't null
             //         - Pointer & target validity assumed as a type invariant
@@ -924,6 +927,7 @@ impl TopologyObject {
     pub fn infos(&self) -> &[TextualInfo] {
         // Handle null infos pointer
         if self.0.infos.is_null() {
+            #[cfg(not(tarpaulin_include))]
             assert_eq!(
                 self.0.infos_count, 0,
                 "Got null infos pointer with nonzero info count"

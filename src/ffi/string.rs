@@ -46,6 +46,7 @@ impl LibcString {
 
             // Make sure the output C string would follow Rust's rules
             let len = s.len() + 1;
+            #[cfg(not(tarpaulin_include))]
             assert!(
                 len < isize::MAX as usize,
                 "Cannot add a final NUL without breaking Rust's slice requirements"

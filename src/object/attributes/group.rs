@@ -71,6 +71,7 @@ impl GroupAttributes {
     /// parent or children
     #[cfg(feature = "hwloc-2_0_4")]
     pub fn merging_prevented(&self) -> bool {
+        #[cfg(not(tarpaulin_include))]
         assert!(
             self.0.dont_merge == 0 || self.0.dont_merge == 1,
             "unexpected hwloc_group_attr_s::dont_merge value"

@@ -161,7 +161,7 @@ impl Depth {
             Self::Misc => HWLOC_TYPE_DEPTH_MISC,
             #[cfg(feature = "hwloc-2_1_0")]
             Self::MemCache => HWLOC_TYPE_DEPTH_MEMCACHE,
-            Self::Unknown(unknown) => unknown.0,
+            Self::Unknown(unknown) => unknown.get(),
         }
     }
 }

@@ -192,13 +192,16 @@ impl TopologyBuilder {
                 hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
             )
         });
+        #[cfg(not(tarpaulin_include))]
         let handle_enosys = || Err(FromPIDError(pid).into());
         match result {
             Ok(()) => Ok(self),
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(ENOSYS)),
                 ..
             }) => handle_enosys(),
+            #[cfg(not(tarpaulin_include))]
             #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
@@ -1003,7 +1006,7 @@ impl From<TypeFilter> for hwloc_type_filter_e {
             TypeFilter::KeepNone => HWLOC_TYPE_FILTER_KEEP_NONE,
             TypeFilter::KeepStructure => HWLOC_TYPE_FILTER_KEEP_STRUCTURE,
             TypeFilter::KeepImportant => HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
-            TypeFilter::Unknown(unknown) => unknown.0,
+            TypeFilter::Unknown(unknown) => unknown.get(),
         }
     }
 }
@@ -1538,7 +1541,7 @@ pub(crate) mod tests {
                 check_xml_topology(&topology)?;
             }
 
-            // Test round trip throguh XML file
+            // Test round trip through XML file
             {
                 let path = NamedTempFile::new().unwrap().into_temp_path();
                 default
@@ -1551,6 +1554,24 @@ pub(crate) mod tests {
                     .build()
                     .unwrap();
                 check_xml_topology(&topology)?;
+            }
+
+            // Test invalid XML file load
+            {
+                let bad_path = NamedTempFile::new().unwrap().into_temp_path();
+                let res = builder_with_flags(build_flags)?
+                    .unwrap()
+                    .from_xml_file(&bad_path);
+                // For unknown reasons, hwloc does not always detect that the
+                // XML file is empty ahead of time.
+                if res.is_err() {
+                    prop_assert!(matches!(
+                        res,
+                        Err(FileInputError::Invalid(path)) if *path == *bad_path,
+                    ));
+                } else {
+                    prop_assert!(res.unwrap().build().is_err());
+                }
             }
         }
 
