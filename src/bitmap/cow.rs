@@ -126,7 +126,7 @@ mod tests {
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
-    use std::hash::{BuildHasher, RandomState};
+    use std::{collections::hash_map::RandomState, hash::BuildHasher};
 
     // Test BitmapCow construction and intrinsic properties
     proptest! {
