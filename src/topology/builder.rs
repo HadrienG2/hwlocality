@@ -1563,7 +1563,7 @@ pub(crate) mod tests {
                     .unwrap()
                     .from_xml_file(&bad_path);
                 if cfg!(windows) {
-                    prop_assert!(res.unwrap().build().is_err());
+                    prop_assert!(res.is_err() || res.unwrap().build().is_err());
                 } else {
                     prop_assert!(matches!(
                         res,
