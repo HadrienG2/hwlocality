@@ -1622,4 +1622,12 @@ mod tests {
     //       callback for testing distances, which is called both by the
     //       topology editing test and the test for the default distances in
     //       the topology.
+
+    #[cfg(feature = "hwloc-2_5_0")]
+    mod hwloc25 {
+        use super::*;
+
+        // TODO: Try adding distances, check operation, then call distance
+        //       matrix and topology checks
+    }
 }
