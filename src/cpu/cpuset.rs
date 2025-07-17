@@ -274,6 +274,7 @@ impl Topology {
                         }
                     }
                 }
+                #[cfg(not(tarpaulin_include))]
                 assert!(
                     !ptr::eq(parent, old_parent),
                     "This should not happen because...\n\
