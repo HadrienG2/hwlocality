@@ -1541,7 +1541,7 @@ pub(crate) mod tests {
                 check_xml_topology(&topology)?;
             }
 
-            // Test round trip throguh XML file
+            // Test round trip through XML file
             {
                 let path = NamedTempFile::new().unwrap().into_temp_path();
                 default
