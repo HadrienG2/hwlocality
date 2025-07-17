@@ -955,6 +955,7 @@ pub(crate) fn call_hwloc(
                 // Using errno documentation from
                 // https://hwloc.readthedocs.io/en/stable/group__hwlocality__cpubinding.html
                 ENOSYS => Err(CpuBindingError::BadObject(object).into()),
+                #[cfg(not(tarpaulin_include))]
                 EXDEV => Err(CpuBindingError::UnsupportedCpuSet(
                     object,
                     cpuset
