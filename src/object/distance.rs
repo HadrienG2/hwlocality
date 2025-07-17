@@ -1600,3 +1600,19 @@ impl From<DistancesTransform> for hwloc_distances_transform_e {
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
 #[error("can't empty a distance matrix using DistancesTransform::RemoveNone")]
 pub struct TransformError;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+
+    // TODO: Since there are no built-in distances on many machines, the test
+    //       will usually depend on adding distances through topology editing to
+    //       do anything useful. But I should still test the built-in distances,
+    //       if any. It should be possible to handle this by having a common
+    //       callback for testing distances, which is called both by the
+    //       topology editing test and the test for the default distances in
+    //       the topology.
+}
