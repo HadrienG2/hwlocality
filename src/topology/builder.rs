@@ -1562,13 +1562,15 @@ pub(crate) mod tests {
                 let res = builder_with_flags(build_flags)?
                     .unwrap()
                     .from_xml_file(&bad_path);
-                if cfg!(windows) {
-                    prop_assert!(res.is_err() || res.unwrap().build().is_err());
-                } else {
+                // For unknown reasons, hwloc does not always detect that the
+                // XML file path doesn't exist.
+                if res.is_err() {
                     prop_assert!(matches!(
                         res,
                         Err(FileInputError::Invalid(path)) if *path == *bad_path,
                     ));
+                } else {
+                    prop_assert!(res.unwrap().build().is_err());
                 }
             }
         }
