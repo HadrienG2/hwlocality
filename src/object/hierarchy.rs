@@ -205,6 +205,7 @@ impl Topology {
                 // First depth above + 1 is first depth below
                 Ok(Depth::from(first_depth_above + 1))
             }
+            #[cfg(not(tarpaulin_include))]
             other_err => other_err,
         }
     }
@@ -269,6 +270,7 @@ impl Topology {
                 // First depth below - 1 is first depth above
                 Ok(Depth::from(first_depth_below - 1))
             }
+            #[cfg(not(tarpaulin_include))]
             other_err => other_err,
         }
     }

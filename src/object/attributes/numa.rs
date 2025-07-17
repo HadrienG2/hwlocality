@@ -56,6 +56,7 @@ impl<'object> NUMANodeAttributes<'object> {
     #[doc(alias = "hwloc_obj_attr_u::hwloc_numanode_attr_s::page_types")]
     pub fn page_types(&self) -> &'object [MemoryPageType] {
         if self.0.page_types.is_null() {
+            #[cfg(not(tarpaulin_include))]
             assert_eq!(
                 self.0.page_types_len, 0,
                 "Got null pages types pointer with non-zero length"

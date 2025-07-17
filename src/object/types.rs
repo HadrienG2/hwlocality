@@ -88,6 +88,7 @@ impl From<BridgeType> for hwloc_obj_bridge_type_t {
         match value {
             BridgeType::Host => HWLOC_OBJ_BRIDGE_HOST,
             BridgeType::PCI => HWLOC_OBJ_BRIDGE_PCI,
+            #[cfg(not(tarpaulin_include))]
             BridgeType::Unknown(unknown) => unknown.get(),
         }
     }
@@ -145,6 +146,7 @@ impl From<CacheType> for hwloc_obj_cache_type_t {
             CacheType::Unified => HWLOC_OBJ_CACHE_UNIFIED,
             CacheType::Data => HWLOC_OBJ_CACHE_DATA,
             CacheType::Instruction => HWLOC_OBJ_CACHE_INSTRUCTION,
+            #[cfg(not(tarpaulin_include))]
             CacheType::Unknown(unknown) => unknown.get(),
         }
     }
@@ -241,6 +243,7 @@ impl From<OSDeviceType> for hwloc_obj_osdev_type_t {
             OSDeviceType::CoProcessor => HWLOC_OBJ_OSDEV_COPROC,
             #[cfg(feature = "hwloc-3_0_0")]
             OSDeviceType::Memory => HWLOC_OBJ_OSDEV_MEMORY,
+            #[cfg(not(tarpaulin_include))]
             OSDeviceType::Unknown(unknown) => unknown.get(),
         }
     }

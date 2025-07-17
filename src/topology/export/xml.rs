@@ -191,6 +191,7 @@ impl<'topology> XML<'topology> {
         let s = unsafe { CStr::from_ptr(base) };
         s.to_str()
             .expect("Unexpected non-UTF8 XML string from hwloc");
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             s.to_bytes_with_nul().len(),
             len,

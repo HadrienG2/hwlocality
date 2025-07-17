@@ -1156,6 +1156,7 @@ impl Topology {
                 // SAFETY: Per function precondition
                 match unsafe { MemoryBindingPolicy::from_hwloc(raw_policy) } {
                     MemoryBindingPolicy::Unknown(UnknownVariant(HWLOC_MEMBIND_MIXED)) => None,
+                    #[cfg(not(tarpaulin_include))]
                     MemoryBindingPolicy::Unknown(UnknownVariant(err)) if err < 0 => {
                         panic!("Got unexpected negative memory policy #{err}")
                     }
@@ -1666,6 +1667,7 @@ fn decode_errno<Set: SpecializedBitmap>(
     match errno {
         Some(Errno(ENOSYS)) => Some(MemoryBindingError::Unsupported),
         Some(Errno(EXDEV)) => match operation {
+            #[cfg(not(tarpaulin_include))]
             MemoryBindingOperation::Bind | MemoryBindingOperation::Allocate => {
                 Some(MemoryBindingError::BadSet(
                     object,
@@ -1680,6 +1682,7 @@ fn decode_errno<Set: SpecializedBitmap>(
                 unreachable!("The empty set should always be considered valid")
             }
         },
+        #[cfg(not(tarpaulin_include))]
         Some(Errno(ENOMEM)) => Some(MemoryBindingError::AllocationFailed),
         #[cfg(windows)]
         // Work around CRT mismatch issues on Windows, which break errno
@@ -1794,6 +1797,7 @@ impl Drop for Bytes<'_> {
                     len,
                 )
             });
+            #[cfg(not(tarpaulin_include))]
             if let Err(e) = result {
                 // Cannot panic in Drop
                 eprintln!("ERROR: Failed to liberate hwloc allocation ({e}).",);

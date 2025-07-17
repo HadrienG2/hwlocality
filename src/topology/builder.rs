@@ -192,13 +192,16 @@ impl TopologyBuilder {
                 hwloc_pid_t::try_from(pid).expect("shouldn't fail for a valid PID"),
             )
         });
+        #[cfg(not(tarpaulin_include))]
         let handle_enosys = || Err(FromPIDError(pid).into());
         match result {
             Ok(()) => Ok(self),
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(ENOSYS)),
                 ..
             }) => handle_enosys(),
+            #[cfg(not(tarpaulin_include))]
             #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
