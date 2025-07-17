@@ -1555,6 +1555,18 @@ pub(crate) mod tests {
                     .unwrap();
                 check_xml_topology(&topology)?;
             }
+
+            // Test invalid XML file load
+            {
+                let bad_path = NamedTempFile::new().unwrap().into_temp_path();
+                let res = builder_with_flags(build_flags)?
+                    .unwrap()
+                    .from_xml_file(&bad_path);
+                prop_assert!(matches!(
+                    res,
+                    Err(FileInputError::Invalid(path)) if *path == *bad_path,
+                ));
+            }
         }
 
         /// Add a targeted type filter
