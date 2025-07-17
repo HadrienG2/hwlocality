@@ -53,7 +53,10 @@ use std::{
 //   arises we will need to add BitmapMut<Target>
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct BitmapRef<'target, Target>(NonNull<hwloc_bitmap_s>, PhantomData<&'target Target>);
+pub struct BitmapRef<'target, Target: OwnedBitmap>(
+    NonNull<hwloc_bitmap_s>,
+    PhantomData<&'target Target>,
+);
 
 impl<'target, Target: OwnedBitmap> BitmapRef<'target, Target> {
     /// Wrap a borrowed hwloc bitmap
@@ -307,7 +310,7 @@ where
     }
 }
 
-impl<Target> Pointer for BitmapRef<'_, Target> {
+impl<Target: OwnedBitmap> Pointer for BitmapRef<'_, Target> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <NonNull<hwloc_bitmap_s> as fmt::Pointer>::fmt(&self.0, f)
     }
@@ -403,6 +406,8 @@ macro_rules! impl_bitmap_newtype_ref_tests {
         $(#[$attr:meta])*
         $newtype:ident
     ) => {
+        use $crate::bitmap;
+
         // Check that newtypes keep implementing all expected traits,
         // in the interest of detecting future semver-breaking changes
         assert_impl_all!($newtype:
@@ -536,14 +541,17 @@ macro_rules! impl_bitmap_newtype_ref_tests {
             prop_assert_eq!(state.hash_one(new), state.hash_one(new_ref));
             prop_assert_eq!(format!("{:p}", new.as_ptr()), format!("{new_ref:p}"));
 
-            prop_assert!(new
-                .iter_set()
-                .take(INFINITE_EXPLORE_ITERS)
-                .eq(new_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
-            prop_assert!(new
-                .iter_set()
-                .take(INFINITE_EXPLORE_ITERS)
-                .eq((&new_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+            bitmap::allow_infinite_iteration(|| {
+                prop_assert!(new
+                    .iter_set()
+                    .take(INFINITE_EXPLORE_ITERS)
+                    .eq(new_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
+                prop_assert!(new
+                    .iter_set()
+                    .take(INFINITE_EXPLORE_ITERS)
+                    .eq((&new_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+                Ok(())
+            })?;
 
             prop_assert_eq!(!new, !new_ref);
             prop_assert_eq!(!new, !&new_ref);
@@ -573,7 +581,7 @@ macro_rules! impl_bitmap_newtype_ref_tests {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::bitmap::tests::INFINITE_EXPLORE_ITERS;
+    use crate::bitmap::{self, tests::INFINITE_EXPLORE_ITERS};
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
@@ -704,14 +712,17 @@ pub(super) mod tests {
         prop_assert_eq!(state.hash_one(bitmap), state.hash_one(bitmap_ref));
         prop_assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
 
-        prop_assert!(bitmap
-            .iter_set()
-            .take(INFINITE_EXPLORE_ITERS)
-            .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
-        prop_assert!(bitmap
-            .iter_set()
-            .take(INFINITE_EXPLORE_ITERS)
-            .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+        bitmap::allow_infinite_iteration(|| {
+            prop_assert!(bitmap
+                .iter_set()
+                .take(INFINITE_EXPLORE_ITERS)
+                .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
+            prop_assert!(bitmap
+                .iter_set()
+                .take(INFINITE_EXPLORE_ITERS)
+                .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+            Ok(())
+        })?;
 
         prop_assert_eq!(!bitmap, !bitmap_ref);
         prop_assert_eq!(!bitmap, !&bitmap_ref);

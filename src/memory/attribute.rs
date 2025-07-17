@@ -18,7 +18,7 @@ use crate::memory::nodeset::NodeSet;
 #[cfg(doc)]
 use crate::topology::support::DiscoverySupport;
 use crate::{
-    bitmap::BitmapRef,
+    bitmap::{BitmapCow, BitmapRef},
     cpu::cpuset::CpuSet,
     errors::{self, FlagsError, ForeignObjectError, HybridError, NulError, RawHwlocError},
     ffi::{
@@ -52,6 +52,7 @@ use libc::{EBUSY, EINVAL, ENOENT};
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
+    collections::{HashMap, HashSet},
     ffi::{c_int, c_uint, c_ulong, CStr},
     fmt::{self, Debug},
     hash::Hash,
@@ -167,7 +168,7 @@ impl Topology {
         }
     }
 
-    /// Find local NUMA nodes
+    /// Find NUMA nodes that are local to some CPUs or [`TopologyObject`].
     ///
     /// If `target` is given as a [`TopologyObject`], its CPU set is used to
     /// find NUMA nodes with the corresponding locality. If the object does not
@@ -184,33 +185,39 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// - [`ForeignObjectError`] if `target` refers to a [`TopologyObject`] that
-    ///   does not belong to this topology.
+    /// - [`ForeignInitiatorError`] if `target` refers to a [`TopologyObject`]
+    ///   that does not belong to this topology; or if it refers to a [`CpuSet`]
+    ///   that is empty or that contains CPUs that do not belong to the
+    ///   topology's [`complete_cpuset()`](Topology::complete_cpuset).
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_get_local_numanode_objs")]
     pub fn local_numa_nodes<'target>(
         &self,
-        target: impl Into<TargetNumaNodes<'target>>,
-    ) -> Result<Vec<&TopologyObject>, HybridError<ForeignObjectError>> {
+        target: impl Into<NUMAInitiator<'target>>,
+    ) -> Result<Vec<&TopologyObject>, HybridError<ForeignInitiatorError>> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
-            target: TargetNumaNodes<'_>,
-        ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignObjectError>> {
+            target: NUMAInitiator<'_>,
+        ) -> Result<Vec<&'self_ TopologyObject>, HybridError<ForeignInitiatorError>> {
             // Prepare to call hwloc
             // SAFETY: Will only be used before returning from this function
-            let (location, flags) = unsafe { target.to_checked_raw(self_)? };
+            let (location, flags) = unsafe { target.as_checked_raw(self_)? };
             let mut nr = 0;
             let call_ffi = |nr_mut, out_ptr| {
                 // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
                 //         - hwloc ops are trusted not to modify *const parameters
-                //         - The TargetNumaNodes API is designed in such a way that
-                //           an invalid (location, flags) tuple cannot happen.
+                //         - The NUMAInitiator API is designed in such a way
+                //           that an invalid (location, flags) tuple cannot
+                //           happen.
                 //         - nr_mut and out_ptr are call site dependent, see below.
                 errors::call_hwloc_zero_or_minus1("hwloc_get_local_numanode_objs", || unsafe {
+                    let location_ptr: *const hwloc_location = location
+                        .as_ref()
+                        .map_or(ptr::null(), |location_ref| location_ref);
                     hwlocality_sys::hwloc_get_local_numanode_objs(
                         self_.as_ptr(),
-                        &location,
+                        location_ptr,
                         nr_mut,
                         out_ptr,
                         flags.bits(),
@@ -310,23 +317,22 @@ impl Topology {
         .map(|()| result)
     }
 
-    /// Dump the values of all built-in memory attributes
-    pub(crate) fn dump_builtin_attributes(&self) -> MultiAttributeDump<'_> {
-        MultiAttributeDump::builtins(self)
+    /// Dump the values of all memory attributes
+    pub(crate) fn dump_memory_attributes(&self) -> MultiAttributeDump<'_> {
+        MultiAttributeDump::new(self)
     }
 }
 
-/// Dumb of memory attributes, for now only usable via its Debug implementation
+/// Dump of memory attributes, used to implement topology Debug and comparison
 #[derive(Clone)]
 pub(crate) struct MultiAttributeDump<'topology>(Vec<AttributeDump<'topology>>);
 //
 impl<'topology> MultiAttributeDump<'topology> {
-    /// Dump all built-in memory attributes
-    fn builtins(topology: &'topology Topology) -> Self {
+    /// Dump all memory attributes
+    fn new(topology: &'topology Topology) -> Self {
         Self(
-            MemoryAttribute::BUILTIN_ATTRIBUTES
-                .into_iter()
-                .map(|constructor| AttributeDump::for_each_numa(constructor(topology)))
+            MemoryAttribute::all(topology)
+                .map(AttributeDump::new)
                 .collect(),
         )
     }
@@ -356,36 +362,121 @@ impl Debug for MultiAttributeDump<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut attr_to_dump = f.debug_map();
         for attr_dump in &self.0 {
-            attr_to_dump.entry(&attr_dump.attribute, &format_args!("{attr_dump:#?}"));
+            attr_to_dump.entry(&attr_dump.attribute, &attr_dump.targets);
         }
         attr_to_dump.finish()
     }
 }
 
 /// Dump of a specific memory attribute
-//
-// --- Implementation notes ---
-//
-// Before making this pub, find a cleaner way to implement fmt_value
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AttributeDump<'topology> {
     /// Attribute being dumped
     attribute: MemoryAttribute<'topology>,
 
-    /// Attribute dump for each NUMA node on the system
-    numa_nodes: Vec<NodeAttributeDump<'topology>>,
+    /// Data dump for each known attribute target
+    targets: AttributeDumpTargets<'topology>,
 }
 //
 impl<'topology> AttributeDump<'topology> {
-    /// Dump the value of the attribute for each NUMA node on the system
-    fn for_each_numa(attribute: MemoryAttribute<'topology>) -> Self {
+    /// Dump the value of the attribute for each registered target
+    fn new(attribute: MemoryAttribute<'topology>) -> Self {
         Self {
             attribute,
-            numa_nodes: attribute
-                .topology
-                .objects_with_type(ObjectType::NUMANode)
-                .map(|node| NodeAttributeDump::new(attribute, node))
+            targets: AttributeDumpTargets::new(attribute),
+        }
+    }
+
+    /// Truth that this dump contains the same data as another dump, assuming
+    /// both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    fn eq_modulo_topology(&self, other: &Self) -> bool {
+        if self.attribute.id != other.attribute.id {
+            return false;
+        }
+        self.targets.eq_modulo_topology(&other.targets)
+    }
+}
+
+/// `targets` field of `AttributeDump`
+///
+/// Needs to be its own struct due to design limitations of the
+/// `Debug`/`Formatter` machinery.
+#[derive(Clone)]
+struct AttributeDumpTargets<'topology>(Vec<TargetAttributeDump<'topology>>);
+//
+impl<'topology> AttributeDumpTargets<'topology> {
+    /// Dump the value of the attribute for each target on the system
+    fn new(attribute: MemoryAttribute<'topology>) -> Self {
+        let (targets, _values) = attribute
+            .targets(None)
+            .expect("targets() should never panic with a None input");
+        Self(
+            targets
+                .into_iter()
+                .map(|target| TargetAttributeDump::new(attribute, target))
                 .collect(),
+        )
+    }
+
+    /// Truth that this dump contains the same data as another dump, assuming
+    /// both dumps originate from related topologies.
+    ///
+    /// By related, we mean that `other` should either originate from the same
+    /// [`Topology`] as `self`, or from a (possibly modified) clone of that
+    /// topology, which allows us to use object global persistent indices as
+    /// object identifiers.
+    ///
+    /// Comparing dumps from unrelated topologies will yield an unpredictable
+    /// boolean value.
+    fn eq_modulo_topology(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        self.0
+            .iter()
+            .zip(&other.0)
+            .all(|(dump1, dump2)| dump1.eq_modulo_topology(dump2))
+    }
+}
+//
+impl Debug for AttributeDumpTargets<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut targets_to_initiators = f.debug_map();
+        for target_dump in &self.0 {
+            targets_to_initiators.entry(&target_dump.target, &target_dump.initiators_and_values);
+        }
+        targets_to_initiators.finish()
+    }
+}
+
+/// Dump of a specific memory attribute for a specific target
+#[derive(Clone, Debug)]
+struct TargetAttributeDump<'topology> {
+    /// Target for which the memory attribute values were queried
+    target: &'topology TopologyObject,
+
+    /// Result of the memory attribute value query
+    initiators_and_values: InitiatorsAndValues<'topology>,
+}
+//
+impl<'topology> TargetAttributeDump<'topology> {
+    /// Dump the value of the attribute for a specific target
+    ///
+    /// # Panics
+    ///
+    /// Expects `target` to belong to the same topology as `attribute`.
+    fn new(attribute: MemoryAttribute<'topology>, target: &'topology TopologyObject) -> Self {
+        Self {
+            target,
+            initiators_and_values: InitiatorsAndValues::new(attribute, target),
         }
     }
 
@@ -400,94 +491,59 @@ impl<'topology> AttributeDump<'topology> {
     /// Comparing dumps from unrelated topologies will yield an unpredictable
     /// boolean value.
     pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
-        if self.attribute.id != other.attribute.id {
+        if self.target.global_persistent_index() != other.target.global_persistent_index() {
             return false;
         }
-        if self.numa_nodes.len() != other.numa_nodes.len() {
-            return false;
-        }
-        self.numa_nodes
-            .iter()
-            .zip(&other.numa_nodes)
-            .all(|(dump1, dump2)| dump1.eq_modulo_topology(dump2))
-    }
-
-    /// Format the `numa_nodes` field
-    fn fmt_value(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let mut node_to_initiators = f.debug_map();
-        for node in &self.numa_nodes {
-            node_to_initiators.entry(&format_args!("{}", node.numa), &format_args!("{node:#?}"));
-        }
-        node_to_initiators.finish()
-    }
-}
-//
-impl Debug for AttributeDump<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Dreadful hack to get a Formatter, thankfully this struct isn't pub
-        #[allow(clippy::recursive_format_impl)]
-        if f.alternate() {
-            self.fmt_value(f)
-        } else {
-            f.debug_struct("AttributeDump")
-                .field("attribute", &self.attribute)
-                .field("numa_nodes", &format_args!("{self:#?}"))
-                .finish()
-        }
+        self.initiators_and_values
+            .eq_modulo_topology(&other.initiators_and_values)
     }
 }
 
-/// Dump of a specific memory attribute for a specific NUMA node
-//
-// --- Implementation notes ---
-//
-// Before making this pub, find a cleaner way to implement fmt_value
+/// `initiators_and_values` field of `TargetAttributeDump`
+///
+/// Needs to be its own struct due to design limitations of the
+/// `Debug`/`Formatter` machinery.
 #[derive(Clone)]
-struct NodeAttributeDump<'topology> {
-    /// NUMA node for which the memory attribute values were queried
-    numa: &'topology TopologyObject,
+enum InitiatorsAndValues<'topology> {
+    /// Has no initiator => Single attribute value for this target
+    NoInitiator(u64),
 
-    /// Result of the memory attribute value query
-    initiators_and_values:
-        Result<(Option<Vec<MemoryAttributeLocation<'topology>>>, Vec<u64>), RawHwlocError>,
+    /// Has initiators => One attribute value per initiator for this target
+    HasInitiators {
+        /// Initiators for this target
+        initiators: Vec<Initiator<'topology>>,
+        /// Values for this target (same length)
+        values: Vec<u64>,
+    },
 }
 //
-impl<'topology> NodeAttributeDump<'topology> {
-    /// Dump the value of the attribute for a specific NUMA node
+impl<'topology> InitiatorsAndValues<'topology> {
+    /// Dump the value of the attribute for a specific target
     ///
     /// # Panics
     ///
-    /// Expects `numa` to belong to the same topology as `attribute`.
-    fn new(attribute: MemoryAttribute<'topology>, numa: &'topology TopologyObject) -> Self {
-        let initiators_and_values = if attribute
+    /// Expects `target` to belong to the same topology as `attribute`.
+    fn new(attribute: MemoryAttribute<'topology>, target: &'topology TopologyObject) -> Self {
+        if attribute
             .flags()
             .contains(MemoryAttributeFlags::NEED_INITIATOR)
         {
             attribute
-                .initiators(numa)
-                .map(|(initiators, values)| (Some(initiators), values))
-                .map_err(|e| {
-                    e.expect_only_hwloc(
-                        "shouldn't happen because this attribute \
-                        does have initiators and the target NUMA \
-                        node does belong to the topology",
-                    )
-                })
+                .initiators(target)
+                .map(|(initiators, values)| Self::HasInitiators { initiators, values })
+                .expect(
+                    "local initiator provided when NEED_INITIATOR, \
+                    target is local & valid, no other known error case",
+                )
         } else {
             attribute
-                .value(None, numa)
-                .map(|value| (None, vec![value]))
-                .map_err(|e| {
-                    e.expect_only_hwloc(
-                        "shouldn't happen because this attribute \
-                        has no initiators and the target NUMA \
-                        node does belong to the topology",
-                    )
-                })
-        };
-        Self {
-            numa,
-            initiators_and_values,
+                .value(None, target)
+                .expect(
+                    "initiator not provided when !NEED_INITIATOR, \
+                    target is local & valid, no other known error case",
+                )
+                .map(Self::NoInitiator)
+                .expect("initiator from this attribute => should get a value")
         }
     }
 
@@ -502,83 +558,86 @@ impl<'topology> NodeAttributeDump<'topology> {
     /// Comparing dumps from unrelated topologies will yield an unpredictable
     /// boolean value.
     pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
-        if self.numa.global_persistent_index() != other.numa.global_persistent_index() {
-            return false;
-        }
-        let (ok1, ok2) = match (&self.initiators_and_values, &other.initiators_and_values) {
-            (Ok(ok1), Ok(ok2)) => (ok1, ok2),
-            (Err(err1), Err(err2)) => return err1 == err2,
-            (Ok(_), Err(_)) | (Err(_), Ok(_)) => return false,
+        // Compare presence of initiators
+        let (initiators1, values1, initiators2, values2) = match (self, other) {
+            // Both have no initiator => Value should match
+            (Self::NoInitiator(val1), Self::NoInitiator(val2)) => return val1 == val2,
+            // Attributes don't agree on this matter => Not equal
+            (Self::NoInitiator(_), Self::HasInitiators { .. })
+            | (Self::HasInitiators { .. }, Self::NoInitiator(_)) => return false,
+            // Both have initiators => Need more tests
+            // (tarpaulin says no coverage but that's a lie, otherwise next code
+            // would not have any coverage)
+            (
+                Self::HasInitiators {
+                    initiators: initiators1,
+                    values: values1,
+                },
+                Self::HasInitiators {
+                    initiators: initiators2,
+                    values: values2,
+                },
+            ) => (initiators1, values1, initiators2, values2),
         };
-        let ((initiators1, values1), (initiators2, values2)) = (ok1, ok2);
-        if values1 != values2 {
-            return false;
-        }
-        let (initiators1, initiators2) = match (initiators1, initiators2) {
-            (Some(i1), Some(i2)) => (i1, i2),
-            (None, None) => return true,
-            (Some(_), None) | (None, Some(_)) => return false,
-        };
+
+        // Check initiator/length matches, then compare length
+        // (tarpaulin says no coverage but that's expected, these asserts should
+        // never fail if the rest of the code behaves correctly)
+        assert_eq!(
+            initiators1.len(),
+            values1.len(),
+            "Should have the same amount of initiators and values"
+        );
+        assert_eq!(
+            initiators2.len(),
+            values2.len(),
+            "Should have the same amount of initiators and values"
+        );
         if initiators1.len() != initiators2.len() {
             return false;
         }
-        initiators1.iter().zip(initiators2.iter()).all(|(i1, i2)| {
-            use MemoryAttributeLocation as MAL;
-            match (i1, i2) {
-                (MAL::CpuSet(set1), MAL::CpuSet(set2)) => set1 == set2,
-                (MAL::Object(obj1), MAL::Object(obj2)) => {
-                    obj1.global_persistent_index() == obj2.global_persistent_index()
+
+        // If length matches, compare contents
+        (initiators1.iter().zip(values1))
+            .zip(initiators2.iter().zip(values2))
+            .all(|((i1, v1), (i2, v2))| {
+                // Values should match
+                if v1 != v2 {
+                    return false;
                 }
-                (MAL::CpuSet(_), MAL::Object(_)) | (MAL::Object(_), MAL::CpuSet(_)) => false,
-            }
-        })
+
+                // Initiator type and content should match
+                match (i1, i2) {
+                    (Initiator::CpuSet(set1), Initiator::CpuSet(set2)) => set1 == set2,
+                    (Initiator::Object(obj1), Initiator::Object(obj2)) => {
+                        obj1.global_persistent_index() == obj2.global_persistent_index()
+                    }
+                    (Initiator::CpuSet(_), Initiator::Object(_))
+                    | (Initiator::Object(_), Initiator::CpuSet(_)) => false,
+                }
+            })
     }
-
-    /// Format the `initiators_and_values` field
-    fn fmt_value(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        // Handle query errors
-        let (initiators, values) = match &self.initiators_and_values {
-            Ok(o) => o,
-            Err(e) => {
-                let mut err = f.debug_tuple("Err");
-                if let Some(errno) = &e.errno {
-                    err.field(&errno);
-                }
-                return err.finish();
-            }
-        };
-
+}
+//
+impl Debug for InitiatorsAndValues<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Handle initiator-less attributes
-        let Some(initiators) = initiators else {
-            assert_eq!(
-                values.len(),
-                1,
-                "memory attributes without an initiator should have only one value"
-            );
-            return write!(f, "{}", values[0]);
+        let (initiators, values) = match self {
+            Self::NoInitiator(value) => return write!(f, "{value}"),
+            Self::HasInitiators { initiators, values } => (initiators, values),
         };
 
         // Handle initiator-ful attributes
         let mut initiator_to_value = f.debug_map();
+        assert_eq!(
+            initiators.len(),
+            values.len(),
+            "Should have the same amount of initiators and values"
+        );
         for (initiator, value) in initiators.iter().zip(values) {
             initiator_to_value.entry(&initiator, &value);
         }
         initiator_to_value.finish()
-    }
-}
-//
-impl Debug for NodeAttributeDump<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Dreadful hack to get a Formatter, thankfully this struct isn't pub
-        #[allow(clippy::recursive_format_impl)]
-        if f.alternate() {
-            self.fmt_value(f)
-        } else {
-            f.debug_struct("NodeAttributeDump")
-                .field("numa", self.numa)
-                .field("initiators_and_values", &format_args!("{self:#?}"))
-                .finish()
-        }
     }
 }
 
@@ -728,19 +787,27 @@ impl MemoryAttributeBuilder<'_, '_> {
     /// optional list of initiators. If a list of initiators is provided, it
     /// must be as long as the provided list of `(target, value)` pairs.
     ///
-    /// Initiators should be specified as
-    /// [`CpuSet`](MemoryAttributeLocation::CpuSet) when referring to accesses
-    /// performed by CPU cores. The [`Object`](MemoryAttributeLocation::Object)
-    /// initiator type is currently  unused internally by hwloc, but users may
-    /// for instance use it to provide custom information about host memory
-    /// accesses performed by GPUs.
+    /// Initiators should be specified as [`CpuSet`](Initiator::CpuSet) when
+    /// referring to accesses performed by CPU cores. Any CPU in the `CpuSet` is
+    /// then considered an initiator for this target. In other words, if you
+    /// later query the attribute using a non-empty subset of this `CpuSet` as
+    /// the initiator, you will get the same result as if you queried using the
+    /// full `CpuSet`.
+    ///
+    /// The [`Object`](Initiator::Object) initiator type is currently unused
+    /// internally by hwloc, but users may for instance use it to provide custom
+    /// information about host memory accesses performed by GPUs.
     ///
     /// # Errors
     ///
-    /// - [`InconsistentData`] if the number of provided initiators and
+    /// - [`InconsistentDataLen`] if the number of provided initiators and
     ///   attribute values does not match
+    /// - [`OverlappingValues`] if there are multiple values that match for a
+    ///   given (initiator, target) pair.
     /// - [`ForeignInitiator`] if some of the provided initiators are
-    ///   [`TopologyObject`]s that do not belong to this [`Topology`]
+    ///   [`TopologyObject`]s that do not belong to this [`Topology`]; or are
+    ///   `CpuSet`s that are empty or contain CPUs outside of the topology's
+    ///   [`complete_cpuset()`](Topology::complete_cpuset).
     /// - [`ForeignTarget`] if some of the provided targets are
     ///   [`TopologyObject`]s that do not belong to this [`Topology`]
     /// - [`NeedInitiator`] if initiators were not specified for an attribute
@@ -748,55 +815,30 @@ impl MemoryAttributeBuilder<'_, '_> {
     /// - [`UnwantedInitiator`] if initiators were specified for an attribute
     ///   that does not requires them
     ///
-    /// [`InconsistentData`]: ValueInputError::InconsistentData
     /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
     /// [`ForeignTarget`]: ValueInputError::ForeignTarget
+    /// [`InconsistentDataLen`]: ValueInputError::InconsistentDataLen
     /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
+    /// [`OverlappingValues`]: ValueInputError::OverlappingValues
     /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_set_value")]
     pub fn set_values(
         &mut self,
-        find_values: impl FnOnce(
-            &Topology,
-        ) -> (
-            Option<Vec<MemoryAttributeLocation<'_>>>,
-            Vec<(&TopologyObject, u64)>,
-        ),
+        find_values: impl FnOnce(&Topology) -> (Option<Vec<Initiator<'_>>>, Vec<(&TopologyObject, u64)>),
     ) -> Result<(), HybridError<ValueInputError>> {
-        /// Polymorphized subset of this function (avoids generics code bloat)
+        /// Polymorphized subset of this function (reduces generics code bloat)
         ///
         /// # Safety
         ///
-        /// - `initiators` must have just gone through the `to_checked_raw()`
+        /// - `initiators` must have just gone through the `as_checked_raw()`
         ///   validation process against this attribute's topology.
         /// - `target_ptrs_and_values` must only contain pointers to objects
         ///   from this memory attribute's topology.
         unsafe fn polymorphized(
             self_: &mut MemoryAttributeBuilder<'_, '_>,
-            initiators: Option<Vec<hwloc_location>>,
-            target_ptrs_and_values: Vec<(NonNull<hwloc_obj>, u64)>,
+            initiators: RawInitiators,
+            target_ptrs_and_values: RawTargetsAndValues,
         ) -> Result<(), HybridError<ValueInputError>> {
-            // Validate initiator and target correctness
-            if self_.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_none() {
-                return Err(
-                    ValueInputError::BadInitiators(InitiatorInputError::NeedInitiator(
-                        self_.name.clone(),
-                    ))
-                    .into(),
-                );
-            }
-            if !self_.flags.contains(MemoryAttributeFlags::NEED_INITIATOR) && initiators.is_some() {
-                return Err(ValueInputError::BadInitiators(
-                    InitiatorInputError::UnwantedInitiator(self_.name.clone()),
-                )
-                .into());
-            }
-            if let Some(initiators) = &initiators {
-                if initiators.len() != target_ptrs_and_values.len() {
-                    return Err(ValueInputError::InconsistentData.into());
-                }
-            }
-
             // Massage initiators into an iterator of what hwloc wants
             let initiator_ptrs = initiators
                 .iter()
@@ -832,41 +874,176 @@ impl MemoryAttributeBuilder<'_, '_> {
             Ok(())
         }
 
-        // Run user callback, post-process results to fit hwloc and borrow
-        // checker expectations
+        // Run user callback
         let topology = self.editor.topology();
         let (initiators, targets_and_values) = find_values(topology);
-        let initiators = initiators
-            .map(|vec| {
-                vec.into_iter()
-                    // SAFETY: Will only be used before returning from this function
-                    .map(|initiator| unsafe {
-                        initiator.to_checked_raw(topology).map_err(|e| {
-                            ValueInputError::BadInitiators(InitiatorInputError::ForeignInitiator(e))
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ValueInputError>>()
-            })
-            .transpose()
-            .map_err(HybridError::Rust)?;
-        let target_ptrs_and_values = targets_and_values
-            .into_iter()
-            .map(|(target_ref, value)| {
-                if !topology.contains(target_ref) {
-                    return Err(ValueInputError::ForeignTarget(target_ref.into()));
-                }
-                let target_ptr = NonNull::from(target_ref).as_inner();
-                Ok((target_ptr, value))
-            })
-            .collect::<Result<Vec<_>, ValueInputError>>()?;
 
-        // Invoke polymorphized subser with the results
+        // Check user inputs and get them closer to hwloc expectations
+        //
+        // SAFETY: Raw initiators and targets will be used before the end of
+        //         this function, without tampering
+        let (initiators, target_ptrs_and_values) = unsafe {
+            Self::checked_set_values_inputs(
+                self.flags,
+                &self.name,
+                topology,
+                initiators.as_deref(),
+                &targets_and_values[..],
+            )?
+        };
+
+        // Invoke polymorphized subset with the results
         // SAFETY: Initiators and target_ptrs_and_values have been checked to
         //         belong to this memory attribute's topology, and initiators
         //         have not been tampered with.
         unsafe { polymorphized(self, initiators, target_ptrs_and_values) }
     }
+
+    /// Check inputs to `set_values` for usage errors. If everything is alright,
+    /// return lower-level inputs for the polymorphic subset of `set_values`.
+    ///
+    /// # Safety
+    ///
+    /// The output values must be used before the end of the lifetime of the
+    /// `initiators` and `targets_and_values` inputs. Inputs should not have
+    /// been tampered with before this happens.
+    unsafe fn checked_set_values_inputs<'topology>(
+        flags: MemoryAttributeFlags,
+        name: &str,
+        topology: &'topology Topology,
+        initiators: Option<&[Initiator<'topology>]>,
+        targets_and_values: &[(&'topology TopologyObject, u64)],
+    ) -> Result<(RawInitiators, RawTargetsAndValues), HybridError<ValueInputError>> {
+        // Set up output storage
+        let mut out_initiators = None;
+        let mut target_ptrs_and_values = Vec::with_capacity(targets_and_values.len());
+
+        /// Common code for adding a (target, value) pair + checking the target
+        macro_rules! try_push_target_and_value {
+            ($target_and_value:expr) => {
+                let (target_ref, value): (&TopologyObject, u64) = $target_and_value;
+                if !topology.contains(target_ref) {
+                    return Err(ValueInputError::ForeignTarget(target_ref.into()).into());
+                }
+                let target_ptr = NonNull::from(target_ref).as_inner();
+                target_ptrs_and_values.push((target_ptr, value));
+            };
+        }
+
+        // Case where the user provided initiators
+        if let Some(initiators) = &initiators {
+            // The memory attribute should call for an initiator
+            if !flags.contains(MemoryAttributeFlags::NEED_INITIATOR) {
+                return Err(ValueInputError::BadInitiators(
+                    InitiatorInputError::UnwantedInitiator(name.into()),
+                )
+                .into());
+            }
+
+            // There should be as many initiators as there are targets/values
+            if initiators.len() != targets_and_values.len() {
+                return Err(ValueInputError::InconsistentDataLen.into());
+            }
+
+            // Iterate over (initiator, target, value) triplets
+            let mut initiator_targets = InitiatorTargetSet::new();
+            let out_initiators = out_initiators.insert(Vec::with_capacity(initiators.len()));
+            for (initiator, (target, value)) in
+                initiators.iter().zip(targets_and_values.iter().copied())
+            {
+                // Check for absence of (initiator, target) overlap
+                if !initiator_targets.insert(initiator, target) {
+                    return Err(ValueInputError::OverlappingValues.into());
+                }
+
+                // Record initiator, target and value into output Vecs
+                out_initiators.push(
+                    // SAFETY: Per function precondition
+                    unsafe {
+                        initiator.as_checked_raw(topology).map_err(|e| {
+                            ValueInputError::BadInitiators(InitiatorInputError::ForeignInitiator(e))
+                        })?
+                    },
+                );
+                try_push_target_and_value!((target, value));
+            }
+        } else {
+            // Case where the user did not provide initiators. This is only
+            // valid if the memory attribute doesn't call for initiators
+            if flags.contains(MemoryAttributeFlags::NEED_INITIATOR) {
+                return Err(
+                    ValueInputError::BadInitiators(InitiatorInputError::NeedInitiator(name.into()))
+                        .into(),
+                );
+            }
+
+            // Record (target, value) pairs, tracking target uniqueness
+            let mut unique_target_ids = HashSet::with_capacity(targets_and_values.len());
+            for (target, value) in targets_and_values.iter().copied() {
+                if !unique_target_ids.insert(target.global_persistent_index()) {
+                    return Err(ValueInputError::OverlappingValues.into());
+                }
+                try_push_target_and_value!((target, value));
+            }
+        }
+        Ok((out_initiators, target_ptrs_and_values))
+    }
 }
+
+/// Set of `(initiator, target)` pairs, used to detect duplicates
+#[derive(Default)]
+struct InitiatorTargetSet {
+    /// Mapping from targets which were seen before, to associated initiators
+    targets_to_initiators: HashMap<TopologyObjectID, InitiatorSet>,
+}
+//
+impl InitiatorTargetSet {
+    /// Set up an `InitiatorTargetSet`
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert an `(initiator, target)` pair, tell if this was a true insertion
+    /// (as opposed to some (initiator, target) pairs being already present)
+    fn insert(&mut self, initiator: &Initiator<'_>, target: &TopologyObject) -> bool {
+        let initiators = self
+            .targets_to_initiators
+            .entry(target.global_persistent_index())
+            .or_default();
+        initiators.insert(initiator)
+    }
+}
+//
+/// Set of initiators for a particular target, used to detect duplicates
+#[derive(Default)]
+struct InitiatorSet {
+    /// CPUs that were used as initiators before
+    initiator_cpus: CpuSet,
+
+    /// Objects that were used as initiators before
+    initiator_objs: HashSet<TopologyObjectID>,
+}
+//
+impl InitiatorSet {
+    /// Insert an initiator, tell if this was a true insertion (as opposed to
+    /// some initiators being already present in the set)
+    fn insert(&mut self, initiator: &Initiator<'_>) -> bool {
+        match initiator {
+            Initiator::CpuSet(set) => {
+                let result = !self.initiator_cpus.intersects(set.as_ref());
+                self.initiator_cpus |= set.as_ref();
+                result
+            }
+            Initiator::Object(obj) => self.initiator_objs.insert(obj.global_persistent_index()),
+        }
+    }
+}
+
+/// Predigested initiators for [`MemoryAttributeBuilder::set_values`]
+type RawInitiators = Option<Vec<hwloc_location>>;
+
+/// Predigested targets and values for [`MemoryAttributeBuilder::set_values`]
+type RawTargetsAndValues = Vec<(NonNull<hwloc_obj>, u64)>;
 
 /// Error returned by [`MemoryAttributeBuilder::set_values`] when the
 /// `find_values` callback returns incorrect initiators or targets
@@ -874,7 +1051,11 @@ impl MemoryAttributeBuilder<'_, '_> {
 pub enum ValueInputError {
     /// The number of provided initiators does not match the number of attribute values
     #[error("number of memory attribute values doesn't match number of initiators")]
-    InconsistentData,
+    InconsistentDataLen,
+
+    /// Multiple values match for some (initiator, target) pairs
+    #[error("multiple values match for some (initiator, target) pairs")]
+    OverlappingValues,
 
     /// Specified initiators for these attribute values are not valid
     #[error(transparent)]
@@ -910,23 +1091,6 @@ macro_rules! wrap_ids_unchecked {
                 unsafe { Self::wrap(topology, $id) }
             }
         )*
-
-        /// List of all built-in memory attributes
-        #[allow(unused_doc_comments)]
-        pub(crate) const BUILTIN_ATTRIBUTES: [
-            fn(&'topology Topology) -> Self;
-            {[
-                $(
-                    $(#[$attr])*
-                    { stringify!($constructor) }
-                ),*
-            ].len()}
-        ] = [
-            $(
-                $(#[$attr])*
-                { Self::$constructor }
-            ),*
-        ];
     };
 }
 
@@ -969,39 +1133,73 @@ impl<'topology> MemoryAttribute<'topology> {
         /// Requires [`DiscoverySupport::pu_count()`].
         HWLOC_MEMATTR_ID_LOCALITY -> locality,
 
-        /// Average bandwidth in MiB/s, as seen from the given initiator location
+        /// Average bandwidth in MiB/s, as seen from the given initiator
         ///
         /// This is the average bandwidth for read and write accesses. If the
         /// platform provides individual read and write bandwidths but no
         /// explicit average value, hwloc computes and returns the average.
         HWLOC_MEMATTR_ID_BANDWIDTH -> bandwidth,
 
-        /// Read bandwidth in MiB/s, as seen from the given initiator location
+        /// Read bandwidth in MiB/s, as seen from the given initiator
         #[cfg(feature = "hwloc-2_8_0")]
         HWLOC_MEMATTR_ID_READ_BANDWIDTH -> read_bandwidth,
 
-        /// Write bandwidth in MiB/s, as seen from the given initiator location
+        /// Write bandwidth in MiB/s, as seen from the given initiator
         #[cfg(feature = "hwloc-2_8_0")]
         HWLOC_MEMATTR_ID_WRITE_BANDWIDTH -> write_bandwidth,
 
-        /// Average latency in nanoseconds, as seen from the given initiator location
+        /// Average latency in nanoseconds, as seen from the given initiator
         ///
         /// This is the average latency for read and write accesses. If the
         /// platform value provides individual read and write latencies but no
         /// explicit average, hwloc computes and returns the average.
         HWLOC_MEMATTR_ID_LATENCY -> latency,
 
-        /// Read latency in nanoseconds, as seen from the given initiator location
+        /// Read latency in nanoseconds, as seen from the given initiator
         #[cfg(feature = "hwloc-2_8_0")]
         HWLOC_MEMATTR_ID_READ_LATENCY -> read_latency,
 
-        /// Write latency in nanoseconds, as seen from the given initiator location
+        /// Write latency in nanoseconds, as seen from the given initiator
         #[cfg(feature = "hwloc-2_8_0")]
         HWLOC_MEMATTR_ID_WRITE_LATENCY -> write_latency
 
         // TODO: If you add new attributes, add support to static_flags and
         //       a matching MemoryAttribute constructor below
     );
+
+    /// Enumerate all registered memory attributes
+    fn all(topology: &'topology Topology) -> impl Iterator<Item = Self> {
+        (0..).map_while(move |id| {
+            let mut flags = 0;
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - hwloc ops are trusted not to modify *const parameters
+            //         - It has been stated by upstream that probing flags for
+            //           an invalid ID is fine and will just lead to EINVAL
+            //         - flags is an out parameter, its initial value doesn't matter
+            let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
+                hwlocality_sys::hwloc_memattr_get_flags(topology.as_ptr(), id, &mut flags)
+            });
+            match res {
+                Ok(()) => Some(
+                    // SAFETY: Checked id validity per upstream suggestion
+                    unsafe { Self::wrap(topology, id) },
+                ),
+                Err(RawHwlocError {
+                    errno: Some(Errno(EINVAL)),
+                    ..
+                }) => None,
+                #[cfg(windows)]
+                Err(RawHwlocError { errno: None, .. }) => {
+                    // As explained in the RawHwlocError documentation, errno values
+                    // may not correctly propagate from hwloc to hwlocality on
+                    // Windows. Since there is only one expected errno value here,
+                    // we'll interpret lack of errno as EINVAL on Windows.
+                    None
+                }
+                Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
+            }
+        })
+    }
 }
 //
 /// # Memory attribute API
@@ -1028,14 +1226,17 @@ impl<'topology> MemoryAttribute<'topology> {
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_name", || unsafe {
             hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
         });
+        #[cfg(not(tarpaulin_include))]
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
             Ok(()) => {}
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => handle_einval(),
+            #[cfg(not(tarpaulin_include))]
             #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
@@ -1093,14 +1294,17 @@ impl<'topology> MemoryAttribute<'topology> {
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
             hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
         });
+        #[cfg(not(tarpaulin_include))]
         let handle_einval =
             || unreachable!("MemoryAttribute should only hold valid attribute indices");
         match res {
             Ok(()) => MemoryAttributeFlags::from_bits_retain(flags),
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => handle_einval(),
+            #[cfg(not(tarpaulin_include))]
             #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
@@ -1113,16 +1317,16 @@ impl<'topology> MemoryAttribute<'topology> {
         }
     }
 
-    /// Value of this attribute for a specific initiator and target NUMA node
+    /// Value of this attribute for a specific initiator and target NUMA node,
+    /// if any.
     ///
     /// `initiator` should be specified if and only if this attribute has the
     /// flag [`MemoryAttributeFlags::NEED_INITIATOR`].
     ///
     /// The initiator should be a [`CpuSet`] when refering to accesses performed
-    /// by CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
-    /// internally by hwloc, but user-defined memory attributes may for instance
-    /// use it to provide custom information about host memory accesses
-    /// performed by GPUs.
+    /// by CPU cores. [`Initiator::Object`] is currently unused internally by
+    /// hwloc, but user-defined memory attributes may for instance use it to
+    /// provide custom information about host memory accesses performed by GPUs.
     ///
     /// For certain attributes, `target_node` should satisfy extra propreties:
     ///
@@ -1134,7 +1338,9 @@ impl<'topology> MemoryAttribute<'topology> {
     /// # Errors
     ///
     /// - [`ForeignInitiator`] if the `initiator` parameter was set to a
-    ///   [`TopologyObject`] that does not belong to this topology
+    ///   [`TopologyObject`] that does not belong to this topology; or a
+    ///   [`CpuSet`] that is empty or contains CPUs outside of the topology's
+    ///   [`complete_cpuset()`](Topology::complete_cpuset)
     /// - [`ForeignTarget`] if the `target_node` object does not belong to this
     ///   topology
     /// - [`InvalidTarget`] if `target_node` is not a valid target for this
@@ -1152,13 +1358,13 @@ impl<'topology> MemoryAttribute<'topology> {
     #[doc(alias = "hwloc_memattr_get_value")]
     pub fn value(
         &self,
-        initiator: Option<MemoryAttributeLocation<'_>>,
+        initiator: Option<Initiator<'_>>,
         target_node: &TopologyObject,
-    ) -> Result<u64, HybridError<ValueQueryError>> {
+    ) -> Result<Option<u64>, HybridError<ValueQueryError>> {
         // Check and translate initiator argument
         // SAFETY: Will only be used before returning from this function
         let initiator = unsafe {
-            self.checked_initiator(initiator, false)
+            self.checked_initiator(initiator.as_ref(), false)
                 .map_err(|err| HybridError::Rust(ValueQueryError::BadInitiator(err)))?
         };
 
@@ -1185,18 +1391,37 @@ impl<'topology> MemoryAttribute<'topology> {
         //           to be NULL if and only if the attribute has no initiator
         //         - flags must be 0
         //         - Value is an out parameter, its initial value isn't read
-        errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
+        let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_value", || unsafe {
+            let initiator_ptr: *const hwloc_location = initiator
+                .as_ref()
+                .map_or(ptr::null(), |initiator_ref| initiator_ref);
             hwlocality_sys::hwloc_memattr_get_value(
                 self.topology.as_ptr(),
                 self.id,
                 target_node.as_inner(),
-                &initiator,
+                initiator_ptr,
                 0,
                 &mut value,
             )
-        })
-        .map(|()| value)
-        .map_err(HybridError::Hwloc)
+        });
+        match res {
+            Ok(()) => Ok(Some(value)),
+            // We should have handled all sources of EINVAL besides calling
+            // value() with an (initiator, target_node) for which there is no
+            // memory attribute value, so returning None feels appropriate here.
+            Err(RawHwlocError {
+                errno: Some(Errno(EINVAL)),
+                ..
+            }) => Ok(None),
+            #[cfg(windows)]
+            Err(RawHwlocError { errno: None, .. }) => {
+                // As explained in the RawHwlocError documentation, errno values
+                // may not correctly propagate from hwloc to hwlocality on
+                // Windows. But only EINVAL is expected here so we're fine.
+                Ok(None)
+            }
+            Err(other_err) => Err(HybridError::Hwloc(other_err)),
+        }
     }
 
     /// Best target node and associated attribute value, if any, for a given initiator
@@ -1214,7 +1439,9 @@ impl<'topology> MemoryAttribute<'topology> {
     /// # Errors
     ///
     /// - [`ForeignInitiator`] if the `initiator` parameter was set to a
-    ///   [`TopologyObject`] that does not belong to this topology
+    ///   [`TopologyObject`] that does not belong to this topology; or a
+    ///   [`CpuSet`] that is empty or contains CPUs outside of the topology's
+    ///   [`complete_cpuset()`](Topology::complete_cpuset)
     /// - [`NeedInitiator`] if no `initiator` was provided but this memory
     ///   attribute needs one
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
@@ -1226,11 +1453,11 @@ impl<'topology> MemoryAttribute<'topology> {
     #[doc(alias = "hwloc_memattr_get_best_target")]
     pub fn best_target(
         &self,
-        initiator: Option<MemoryAttributeLocation<'_>>,
+        initiator: Option<Initiator<'_>>,
     ) -> Result<Option<(&'topology TopologyObject, u64)>, InitiatorInputError> {
         // Validate the query
         // SAFETY: Will only be used before returning from this function,
-        let initiator = unsafe { self.checked_initiator(initiator, false)? };
+        let initiator = unsafe { self.checked_initiator(initiator.as_ref(), false)? };
 
         // Run the query
         let mut best_target = ptr::null();
@@ -1243,10 +1470,13 @@ impl<'topology> MemoryAttribute<'topology> {
             self.get_best(
                 "hwloc_memattr_get_best_target",
                 |topology, attribute, flags, value| {
+                    let initiator_ptr: *const hwloc_location = initiator
+                        .as_ref()
+                        .map_or(ptr::null(), |initiator_ref| initiator_ref);
                     hwlocality_sys::hwloc_memattr_get_best_target(
                         topology,
                         attribute,
-                        &initiator,
+                        initiator_ptr,
                         flags,
                         &mut best_target,
                         value,
@@ -1271,22 +1501,22 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`NoInitiators`] if this memory attribute doesn't have initiators
+    /// - [`NoInitiator`] if this memory attribute doesn't have initiators
     /// - [`ForeignTarget`] if `target` does not belong to this topology
     ///
     /// [`ForeignTarget`]: InitiatorQueryError::ForeignTarget
-    /// [`NoInitiators`]: InitiatorQueryError::NoInitiators
+    /// [`NoInitiator`]: InitiatorQueryError::NoInitiator
     #[doc(alias = "hwloc_memattr_get_best_initiator")]
     pub fn best_initiator(
         &self,
         target: &TopologyObject,
-    ) -> Result<Option<(MemoryAttributeLocation<'topology>, u64)>, InitiatorQueryError> {
+    ) -> Result<Option<(Initiator<'topology>, u64)>, InitiatorQueryError> {
         // Validate the query
         self.check_initiator_query_target(target)?;
 
         // Run the query
         // SAFETY: This is an out parameter, initial value won't be read
-        let mut best_initiator = NULL_LOCATION;
+        let mut best_initiator = INVALID_LOCATION;
         // SAFETY: - hwloc_memattr_get_best_initiator is a "best X" query
         //         - Parameters are forwarded in the right order
         //         - target node has been checked to come from this topology
@@ -1314,17 +1544,25 @@ impl<'topology> MemoryAttribute<'topology> {
     }
 
     /// Target NUMA nodes that have some values for a given attribute, along
-    /// with the associated values.
+    /// with the associated values if possible.
     ///
     /// An `initiator` may only be specified if this attribute has the flag
-    /// [`MemoryAttributeFlags::NEED_INITIATOR`]. In that case, it acts as a
-    /// filter to only report targets that have a value for this initiator.
+    /// [`MemoryAttributeFlags::NEED_INITIATOR`]. In that case, specifying an
+    /// initiator is optional and does two things:
+    ///
+    /// 1. It acts as a filter to only report targets that have a value for this
+    ///    initiator.
+    /// 2. It reports the memory attribute values for each listed target and
+    ///    this initiator. Otherwise no values are reported, i.e. the output
+    ///    `Option<Vec<u64>>` is `None`.
     ///
     /// The initiator should be a [`CpuSet`] when refering to accesses performed
-    /// by CPU cores. [`MemoryAttributeLocation::Object`] is currently unused
-    /// internally by hwloc, but user-defined memory attributes may for instance
-    /// use it to provide custom information about host memory accesses
-    /// performed by GPUs.
+    /// by CPU cores. [`Initiator::Object`] is currently unused internally by
+    /// hwloc, but user-defined memory attributes may for instance use it to
+    /// provide custom information about host memory accesses performed by GPUs.
+    ///
+    /// In the case of memory attributes that have no initiators, `initiator`
+    /// should be `None`, and memory attribute values will always be reported.
     ///
     /// This function is meant for tools and debugging (listing internal
     /// information) rather than for application queries. Applications should
@@ -1334,24 +1572,27 @@ impl<'topology> MemoryAttribute<'topology> {
     /// # Errors
     ///
     /// - [`ForeignInitiator`] if the `initiator` parameter was set to a
-    ///   [`TopologyObject`] that does not belong to this topology
-    /// - [`NeedInitiator`] if no `initiator` was provided but this memory
-    ///   attribute needs one
+    ///   [`TopologyObject`] that does not belong to this topology; or a
+    ///   [`CpuSet`] that is empty or contains CPUs outside of the topology's
+    ///   [`complete_cpuset()`](Topology::complete_cpuset)
     /// - [`UnwantedInitiator`] if an `initiator` was provided but this memory
     ///   attribute doesn't need one
     ///
     /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
-    /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
     /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
+    #[allow(clippy::type_complexity)]
     #[doc(alias = "hwloc_memattr_get_targets")]
     pub fn targets(
         &self,
-        initiator: Option<MemoryAttributeLocation<'_>>,
-    ) -> Result<(Vec<&'topology TopologyObject>, Vec<u64>), HybridError<InitiatorInputError>> {
+        initiator: Option<Initiator<'_>>,
+    ) -> Result<(Vec<&'topology TopologyObject>, Option<Vec<u64>>), HybridError<InitiatorInputError>>
+    {
         // Validate the query + translate initiator to hwloc format
+        let get_values =
+            initiator.is_some() || !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
         // SAFETY: - Will only be used before returning from this function,
         //         - get_targets is documented to accept a NULL initiator
-        let initiator = unsafe { self.checked_initiator(initiator, true)? };
+        let initiator = unsafe { self.checked_initiator(initiator.as_ref(), true)? };
 
         // Run the query
         // SAFETY: - hwloc_memattr_get_targets is indeed an array query
@@ -1362,9 +1603,19 @@ impl<'topology> MemoryAttribute<'topology> {
             self.array_query(
                 "hwloc_memattr_get_targets",
                 ptr::null(),
+                get_values,
                 |topology, attribute, flags, nr, targets, values| {
+                    let initiator_ptr: *const hwloc_location = initiator
+                        .as_ref()
+                        .map_or(ptr::null(), |initiator_ref| initiator_ref);
                     hwlocality_sys::hwloc_memattr_get_targets(
-                        topology, attribute, &initiator, flags, nr, targets, values,
+                        topology,
+                        attribute,
+                        initiator_ptr,
+                        flags,
+                        nr,
+                        targets,
+                        values,
                     )
                 },
             )
@@ -1377,13 +1628,12 @@ impl<'topology> MemoryAttribute<'topology> {
             // SAFETY: Targets originate from a query against this topology
             .map(|node_ptr| unsafe { self.encapsulate_target_node(node_ptr) })
             .collect();
+        let values = get_values.then_some(values);
         Ok((targets, values))
     }
 
     /// Initiators that have values for a given attribute for a specific target
     /// NUMA node, along with the associated values
-    ///
-    /// If this memory attribute has no initiator, an empty list is returned.
     ///
     /// This function is meant for tools and debugging (listing internal
     /// information) rather than for application queries. Applications should
@@ -1392,17 +1642,16 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`NoInitiators`] if this memory attribute doesn't have initiators
+    /// - [`NoInitiator`] if this memory attribute doesn't have initiators
     /// - [`ForeignTarget`] if `target` does not belong to this topology
     ///
     /// [`ForeignTarget`]: InitiatorQueryError::ForeignTarget
-    /// [`NoInitiators`]: InitiatorQueryError::NoInitiators
+    /// [`NoInitiator`]: InitiatorQueryError::NoInitiator
     #[doc(alias = "hwloc_memattr_get_initiators")]
     pub fn initiators(
         &self,
         target_node: &TopologyObject,
-    ) -> Result<(Vec<MemoryAttributeLocation<'topology>>, Vec<u64>), HybridError<InitiatorQueryError>>
-    {
+    ) -> Result<(Vec<Initiator<'topology>>, Vec<u64>), HybridError<InitiatorQueryError>> {
         // Validate the query
         self.check_initiator_query_target(target_node)?;
 
@@ -1413,7 +1662,8 @@ impl<'topology> MemoryAttribute<'topology> {
         let (initiators, values) = unsafe {
             self.array_query(
                 "hwloc_memattr_get_initiators",
-                NULL_LOCATION,
+                INVALID_LOCATION,
+                true,
                 |topology, attribute, flags, nr, initiators, values| {
                     hwlocality_sys::hwloc_memattr_get_initiators(
                         topology,
@@ -1440,6 +1690,11 @@ impl<'topology> MemoryAttribute<'topology> {
 
     /// Perform a `get_targets` style memory attribute query
     ///
+    /// `get_values` indicates whether the caller is interested in associated
+    /// memory attribute values. If so, the output `Vec<u64>` will be filled
+    /// with as many values as the number of initiators/targets, if not it will
+    /// be an empty `Vec`.
+    ///
     /// # Safety
     ///
     /// `query` must be one of the `hwloc_memattr_<plural>` queries, with the
@@ -1456,6 +1711,7 @@ impl<'topology> MemoryAttribute<'topology> {
         &self,
         api: &'static str,
         placeholder: Endpoint,
+        get_values: bool,
         mut query: impl FnMut(
             hwloc_const_topology_t,
             hwloc_memattr_id_t,
@@ -1485,20 +1741,58 @@ impl<'topology> MemoryAttribute<'topology> {
             })
         };
 
-        // Allocate arrays of endpoints and values
+        // Determine the right size for arrays of endpoints and values
         // SAFETY: 1 elements + throw-away buffers is the correct way to request
         //         the buffer size to be allocated from hwloc
         let mut nr = 1;
-        call_ffi(&mut nr, [placeholder].as_mut_ptr(), [u64::MAX].as_mut_ptr())?;
+        let res = call_ffi(&mut nr, [placeholder].as_mut_ptr(), [u64::MAX].as_mut_ptr());
         let len = int::expect_usize(nr);
         let mut endpoints = vec![placeholder; len];
-        let mut values = vec![u64::MAX; len];
 
-        // Let hwloc fill the arrays
+        // At the time of writing, all error cases of hwloc_memattr_get_targets
+        // are either avoided through API design or checked before attempting to
+        // call array_query(), so errors can only emerged through hwloc changes.
+        // But this is not true for hwloc_memattr_get_initiators. In that case,
+        // EINVAL is returned if the specified target has no memory attribute
+        // attached to it. This is only subtly different from having a memory
+        // attribute defined for this target, but no value/initiator attached,
+        // which yields no errors (just an empty initiator/value list), so we
+        // choose to handle it identically by returning an empty list.
+        if api == "hwloc_memattr_get_initiators" {
+            match res {
+                Ok(_positive) => {}
+                Err(RawHwlocError {
+                    errno: Some(Errno(EINVAL)),
+                    ..
+                }) => return Ok((Vec::new(), Vec::new())),
+                #[cfg(windows)]
+                Err(RawHwlocError { errno: None, .. }) => {
+                    // As explained in the RawHwlocError documentation, errno values
+                    // may not correctly propagate from hwloc to hwlocality on
+                    // Windows. But only EINVAL is expected here so we're fine.
+                    return Ok((Vec::new(), Vec::new()));
+                }
+                Err(other_err) => return Err(other_err),
+            }
+        } else {
+            res?;
+        }
+
+        // Get the values if requested
         let old_nr = nr;
-        // SAFETY: - endpoints and values are indeed arrays of nr = len elements
-        //         - Input array contents don't matter as this is an out-parameter
-        call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
+        let values = if get_values {
+            let mut values = vec![u64::MAX; len];
+            // SAFETY: - endpoints and values are indeed arrays of nr = len elements
+            //         - Input array contents don't matter as this is an out-parameter
+            call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
+            values
+        } else {
+            // SAFETY: - endpoints is indeed an array of nr = len elements,
+            //           values can be null to indicate lack of interest
+            //         - Input array contents don't matter as this is an out-parameter
+            call_ffi(&mut nr, endpoints.as_mut_ptr(), ptr::null_mut())?;
+            Vec::new()
+        };
         assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
         Ok((endpoints, values))
     }
@@ -1522,25 +1816,45 @@ impl<'topology> MemoryAttribute<'topology> {
         query: impl FnOnce(hwloc_const_topology_t, hwloc_memattr_id_t, c_ulong, *mut u64) -> c_int,
     ) -> Option<u64> {
         /// Polymorphized subset of this function (avoids generics code bloat)
-        fn process_result(final_value: u64, result: Result<(), RawHwlocError>) -> Option<u64> {
+        fn process_result(
+            api: &'static str,
+            final_value: u64,
+            result: Result<(), RawHwlocError>,
+        ) -> Option<u64> {
             match result {
                 Ok(()) => Some(final_value),
                 Err(RawHwlocError {
                     errno: Some(Errno(ENOENT)),
                     ..
                 }) => None,
-                // All cases other than "no such attribute" should be handled by the caller
+                // EINVAL can mean several different things here:
+                // - Queried an initiator on a memory attribute that doesn't
+                //   have them. This error is handled before calling this, so we
+                //   should never observe an associated EINVAL.
+                // - Flags are nonzero. We prevent this by not letting the user
+                //   set flags.
+                // - Memory attribute ID is invalid. We prevent this by not
+                //   letting the user create a MemoryAttribute with an invalid
+                //   ID.
+                // - Requested best initiator on a target that is not associated
+                //   with this memory attribute. This error is only subtly
+                //   different fom ENOENT which means that the target is
+                //   registered but no initiator is registered. This is also
+                //   inconsistent with best_target queries which return ENOENT
+                //   in the case of a nonexistent initiator. Since Windows may
+                //   not know the difference anyway (see below), we do not
+                //   expose this distinction in the API and handle every case
+                //   where there is no "best X for this Y" by returning None.
                 Err(RawHwlocError {
                     errno: Some(Errno(EINVAL)),
                     ..
-                }) => unreachable!("Parameters should have been checked by the caller"),
+                }) if api == "hwloc_memattr_get_best_initiator" => None,
                 #[cfg(windows)]
                 Err(RawHwlocError { errno: None, .. }) => {
                     // As explained in the RawHwlocError documentation, errno values
                     // may not correctly propagate from hwloc to hwlocality on
-                    // Windows. Since EINVAL should not occur here, only ENOENT
-                    // is expected here, so we'll interpret lack of errno as
-                    // ENOENT on Windows.
+                    // Windows. But only EINVAL and ENOENT are expected here,
+                    // and we handle them identically above, so we're fine.
                     None
                 }
                 Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
@@ -1557,7 +1871,7 @@ impl<'topology> MemoryAttribute<'topology> {
             //         - value is an out-parameter, input value doesn't matter
             query(self.topology.as_ptr(), self.id, 0, &mut value)
         });
-        process_result(value, result)
+        process_result(api, value, result)
     }
 
     /// Encapsulate a `*const TopologyObject` to a target NUMA node from hwloc
@@ -1579,12 +1893,9 @@ impl<'topology> MemoryAttribute<'topology> {
     /// # Safety
     ///
     /// `initiator` must originate a query against this attribute
-    unsafe fn encapsulate_initiator(
-        &self,
-        initiator: hwloc_location,
-    ) -> MemoryAttributeLocation<'topology> {
+    unsafe fn encapsulate_initiator(&self, initiator: hwloc_location) -> Initiator<'topology> {
         // SAFETY: Lifetime per input precondition, query output assumed valid
-        unsafe { MemoryAttributeLocation::from_raw(self.topology, initiator) }
+        unsafe { Initiator::from_raw(self.topology, initiator) }
             .expect("Failed to decode location from hwloc")
     }
 
@@ -1602,9 +1913,9 @@ impl<'topology> MemoryAttribute<'topology> {
     #[allow(clippy::needless_lifetimes)]
     unsafe fn checked_initiator<'initiator>(
         &self,
-        initiator: Option<MemoryAttributeLocation<'initiator>>,
+        initiator: Option<&Initiator<'initiator>>,
         is_optional: bool,
-    ) -> Result<hwloc_location, InitiatorInputError> {
+    ) -> Result<Option<hwloc_location>, InitiatorInputError> {
         // Collect flags
         let flags = self.flags();
 
@@ -1624,15 +1935,16 @@ impl<'topology> MemoryAttribute<'topology> {
         // Handle expected absence of initiator
         let Some(initiator) = initiator else {
             // SAFETY: Per input precondition of is_optional + check above that
-            //         initiator can only be none if initiator is optional
-            return Ok(NULL_LOCATION);
+            //         initiator can only be NULL if initiator is optional
+            return Ok(None);
         };
 
         // Make sure initiator does belong to this topology
         // SAFETY: Per function precondition on output usage
         unsafe {
             initiator
-                .to_checked_raw(self.topology)
+                .as_checked_raw(self.topology)
+                .map(Some)
                 .map_err(InitiatorInputError::ForeignInitiator)
         }
     }
@@ -1643,7 +1955,7 @@ impl<'topology> MemoryAttribute<'topology> {
         target: &TopologyObject,
     ) -> Result<(), InitiatorQueryError> {
         if !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) {
-            return Err(InitiatorQueryError::NoInitiators(self.error_name()));
+            return Err(InitiatorQueryError::NoInitiator(self.error_name()));
         }
         if !self.topology.contains(target) {
             return Err(target.into());
@@ -1667,10 +1979,9 @@ impl Debug for MemoryAttribute<'_> {
 /// An invalid initiator was passed to a memory attribute function
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum InitiatorInputError {
-    /// Provided initiator is a [`TopologyObject`] that does not belong to this
-    /// topology
+    /// Provided initiator does not belong to this topology
     #[error("memory attribute initiator {0}")]
-    ForeignInitiator(#[from] ForeignObjectError),
+    ForeignInitiator(#[from] ForeignInitiatorError),
 
     /// An initiator had to be provided, but was not provided
     #[error("memory attribute {0} needs an initiator but none was provided")]
@@ -1679,12 +1990,6 @@ pub enum InitiatorInputError {
     /// No initiator should have been provided, but one was provided
     #[error("memory attribute {0} has no initiator but an initiator was provided")]
     UnwantedInitiator(Box<str>),
-}
-//
-impl<'topology> From<&'topology TopologyObject> for InitiatorInputError {
-    fn from(object: &'topology TopologyObject) -> Self {
-        Self::ForeignInitiator(object.into())
-    }
 }
 
 /// A query for memory attribute initiators is invalid
@@ -1696,7 +2001,7 @@ pub enum InitiatorQueryError {
 
     /// This memory attribute doesn't have initiators
     #[error("memory attribute {0} has no initiator but its initiator was queried")]
-    NoInitiators(Box<str>),
+    NoInitiator(Box<str>),
 }
 //
 impl<'topology> From<&'topology TopologyObject> for InitiatorQueryError {
@@ -1721,22 +2026,22 @@ pub enum ValueQueryError {
     InvalidTarget(TopologyObjectID),
 }
 
-/// Where to measure attributes from
+/// Initiator from the perspective of which memory attributes are measured
 #[doc(alias = "hwloc_location")]
 #[doc(alias = "hwloc_location::location")]
 #[doc(alias = "hwloc_location::type")]
 #[doc(alias = "hwloc_location_u")]
 #[doc(alias = "hwloc_location::hwloc_location_u")]
 #[doc(alias = "hwloc_location_type_e")]
-#[derive(Clone, Copy, Debug, Display)]
-pub enum MemoryAttributeLocation<'target> {
+#[derive(Clone, Debug, Display)]
+pub enum Initiator<'target> {
     /// Directly provide CPU set to find NUMA nodes with corresponding locality
     ///
     /// This is the only initiator type supported by most memory attribute
     /// queries on hwloc-defined memory attributes, though `Object` remains an
     /// option for user-defined memory attributes.
     #[doc(alias = "HWLOC_LOCATION_TYPE_CPUSET")]
-    CpuSet(BitmapRef<'target, CpuSet>),
+    CpuSet(BitmapCow<'target, CpuSet>),
 
     /// Use a topology object as an initiator
     ///
@@ -1752,29 +2057,35 @@ pub enum MemoryAttributeLocation<'target> {
     Object(&'target TopologyObject),
 }
 //
-impl<'target> MemoryAttributeLocation<'target> {
+impl<'target> Initiator<'target> {
     /// Convert to the C representation for the purpose of running an hwloc
     /// query against `topology`.
     ///
     /// # Errors
     ///
-    /// [`ForeignObjectError`] if this [`MemoryAttributeLocation`] is constructed
-    /// from an `&TopologyObject` that does not belong to the target [`Topology`].
+    /// [`ForeignObjectError`] if this [`Initiator`] is constructed from an
+    /// `&TopologyObject` that does not belong to the target [`Topology`].
     ///
     /// # Safety
     ///
     /// Do not use the output after the source lifetime has expired
-    pub(crate) unsafe fn to_checked_raw(
-        self,
+    pub(crate) unsafe fn as_checked_raw(
+        &self,
         topology: &Topology,
-    ) -> Result<hwloc_location, ForeignObjectError> {
+    ) -> Result<hwloc_location, ForeignInitiatorError> {
         match self {
-            Self::CpuSet(cpuset) => Ok(hwloc_location {
-                ty: HWLOC_LOCATION_TYPE_CPUSET,
-                location: hwloc_location_u {
-                    cpuset: cpuset.as_ptr(),
-                },
-            }),
+            Self::CpuSet(cpuset) => {
+                if !cpuset.is_empty() && topology.complete_cpuset().includes(cpuset.as_ref()) {
+                    Ok(hwloc_location {
+                        ty: HWLOC_LOCATION_TYPE_CPUSET,
+                        location: hwloc_location_u {
+                            cpuset: cpuset.as_ptr(),
+                        },
+                    })
+                } else {
+                    Err(cpuset.clone().into_owned().into())
+                }
+            }
             Self::Object(object) => {
                 if topology.contains(object) {
                     Ok(hwloc_location {
@@ -1784,7 +2095,7 @@ impl<'target> MemoryAttributeLocation<'target> {
                         },
                     })
                 } else {
-                    Err(object.into())
+                    Err((*object).into())
                 }
             }
         }
@@ -1812,12 +2123,12 @@ impl<'target> MemoryAttributeLocation<'target> {
                     let ptr = NonNull::new(raw.location.cpuset.cast_mut())
                         .expect("Unexpected null CpuSet from hwloc");
                     let cpuset = CpuSet::borrow_from_nonnull(ptr);
-                    Ok(MemoryAttributeLocation::CpuSet(cpuset))
+                    Ok(Initiator::from(cpuset))
                 }
                 HWLOC_LOCATION_TYPE_OBJECT => {
                     let ptr = NonNull::new(raw.location.object.cast_mut())
                         .expect("Unexpected null TopologyObject from hwloc");
-                    Ok(MemoryAttributeLocation::Object(ptr.as_ref().as_newtype()))
+                    Ok(Initiator::Object(ptr.as_ref().as_newtype()))
                 }
                 unknown => Err(LocationTypeError(unknown)),
             }
@@ -1825,21 +2136,70 @@ impl<'target> MemoryAttributeLocation<'target> {
     }
 }
 //
-impl<'target> From<BitmapRef<'target, CpuSet>> for MemoryAttributeLocation<'target> {
-    fn from(cpuset: BitmapRef<'target, CpuSet>) -> Self {
+#[cfg(not(tarpaulin_include))]
+impl<'target> From<CpuSet> for Initiator<'target> {
+    fn from(cpuset: CpuSet) -> Self {
+        BitmapCow::from(cpuset).into()
+    }
+}
+//
+impl<'target> From<BitmapCow<'target, CpuSet>> for Initiator<'target> {
+    fn from(cpuset: BitmapCow<'target, CpuSet>) -> Self {
         Self::CpuSet(cpuset)
     }
 }
 //
-impl<'target> From<&'target CpuSet> for MemoryAttributeLocation<'target> {
-    fn from(cpuset: &'target CpuSet) -> Self {
-        BitmapRef::from(cpuset).into()
+#[cfg(not(tarpaulin_include))]
+impl<'target> From<BitmapRef<'target, CpuSet>> for Initiator<'target> {
+    fn from(cpuset: BitmapRef<'target, CpuSet>) -> Self {
+        BitmapCow::from(cpuset).into()
     }
 }
 //
-impl<'target> From<&'target TopologyObject> for MemoryAttributeLocation<'target> {
+#[cfg(not(tarpaulin_include))]
+impl<'target> From<&'target CpuSet> for Initiator<'target> {
+    fn from(cpuset: &'target CpuSet) -> Self {
+        BitmapCow::from(cpuset).into()
+    }
+}
+//
+impl<'target> From<&'target TopologyObject> for Initiator<'target> {
     fn from(object: &'target TopologyObject) -> Self {
         Self::Object(object)
+    }
+}
+
+/// An out-of-topology initiator was passed to a memory attribute function
+#[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
+pub enum ForeignInitiatorError {
+    /// [`TopologyObject`] that does not belong to this topology
+    #[error(transparent)]
+    Object(#[from] ForeignObjectError),
+
+    /// [`CpuSet`] that is empty or contains CPUs outside of
+    /// [`Topology::complete_cpuset()`]
+    #[error("cpuset {0} is empty or contains CPUs outside of this topology")]
+    CpuSet(CpuSet),
+}
+//
+impl From<&TopologyObject> for ForeignInitiatorError {
+    fn from(obj: &TopologyObject) -> Self {
+        Self::Object(obj.into())
+    }
+}
+//
+impl From<CpuSet> for ForeignInitiatorError {
+    fn from(set: CpuSet) -> Self {
+        Self::CpuSet(set)
+    }
+}
+//
+impl From<Initiator<'_>> for ForeignInitiatorError {
+    fn from(initiator: Initiator<'_>) -> Self {
+        match initiator {
+            Initiator::Object(obj) => obj.into(),
+            Initiator::CpuSet(set) => set.into_owned().into(),
+        }
     }
 }
 
@@ -1852,9 +2212,8 @@ struct LocationTypeError(c_int);
 ///
 /// # Safety
 ///
-/// Do not expose this location value to an hwloc function that actually
-/// reads it, unless it is explicitly documented to accept NULL locations.
-const NULL_LOCATION: hwloc_location = hwloc_location {
+/// Do not expose this location value to an hwloc function that reads it.
+const INVALID_LOCATION: hwloc_location = hwloc_location {
     ty: HWLOC_LOCATION_TYPE_CPUSET,
     location: hwloc_location_u {
         cpuset: ptr::null(),
@@ -1864,7 +2223,7 @@ const NULL_LOCATION: hwloc_location = hwloc_location {
 bitflags! {
     /// Flags for selecting more target NUMA nodes
     ///
-    /// By default only NUMA nodes whose locality is exactly the given location
+    /// By default only NUMA nodes whose locality is exactly the given initiator
     /// are selected.
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_local_numanode_flag_e")]
@@ -1901,7 +2260,7 @@ bitflags! {
         /// The initiator is ignored.
         ///
         /// This flag is automatically set when users specify
-        /// [`TargetNumaNodes::All`] as the target NUMA node set.
+        /// [`NUMAInitiator::All`] as the target NUMA node set.
         #[doc(hidden)]
         const ALL = HWLOC_LOCAL_NUMANODE_FLAG_ALL;
     }
@@ -1909,17 +2268,17 @@ bitflags! {
 //
 crate::impl_arbitrary_for_bitflags!(LocalNUMANodeFlags, hwloc_local_numanode_flag_e);
 
-/// Target NUMA nodes
-#[derive(Copy, Clone, Debug)]
-pub enum TargetNumaNodes<'target> {
-    /// Nodes local to some object
+/// Scope of a [`Topology::local_numa_nodes()`] query
+#[derive(Clone, Debug)]
+pub enum NUMAInitiator<'target> {
+    /// Nodes local to some initiator object
     Local {
         /// Initiator which NUMA nodes should be local to
         ///
         /// By default, the search only returns NUMA nodes whose locality is
-        /// exactly the given `location`. More nodes can be selected using
+        /// exactly the given `initiator`. More nodes can be selected using
         /// `flags`.
-        location: MemoryAttributeLocation<'target>,
+        initiator: Initiator<'target>,
 
         /// Flags for enlarging the NUMA node search
         flags: LocalNUMANodeFlags,
@@ -1930,42 +2289,45 @@ pub enum TargetNumaNodes<'target> {
     All,
 }
 //
-impl TargetNumaNodes<'_> {
+impl NUMAInitiator<'_> {
     /// Convert to the inputs expected by a `hwloc_get_local_numanode_objs`
     /// query against `topology`
     ///
     /// # Errors
     ///
-    /// [`ForeignObjectError`] if the input location is a [`TopologyObject`] that
-    /// does not belong to the target [`Topology`]
+    /// [`ForeignInitiatorError`] if the input initiator is a [`TopologyObject`]
+    /// that does not belong to the target [`Topology`]; or if it is a
+    /// [`CpuSet`] that is empty or contains CPUs outside of the topology's
+    /// [`complete_cpuset()`](Topology::complete_cpuset).
     ///
     /// # Safety
     ///
     /// Do not use the output raw location after the source lifetime has expired
-    pub(crate) unsafe fn to_checked_raw(
-        self,
+    pub(crate) unsafe fn as_checked_raw(
+        &self,
         topology: &Topology,
-    ) -> Result<(hwloc_location, LocalNUMANodeFlags), ForeignObjectError> {
+    ) -> Result<(Option<hwloc_location>, LocalNUMANodeFlags), ForeignInitiatorError> {
         match self {
             Self::Local {
-                location,
+                initiator,
                 mut flags,
             } => {
                 flags.remove(LocalNUMANodeFlags::ALL);
                 // SAFETY: Per function precondition
-                Ok((unsafe { location.to_checked_raw(topology)? }, flags))
+                Ok((Some(unsafe { initiator.as_checked_raw(topology)? }), flags))
             }
             // SAFETY: In presence of the ALL flag, the initiator is ignored,
             //         so a null location is fine.
-            Self::All => Ok((NULL_LOCATION, LocalNUMANodeFlags::ALL)),
+            Self::All => Ok((None, LocalNUMANodeFlags::ALL)),
         }
     }
 }
 //
-impl<'target, T: Into<MemoryAttributeLocation<'target>>> From<T> for TargetNumaNodes<'target> {
-    fn from(location: T) -> Self {
+#[cfg(not(tarpaulin_include))]
+impl<'target, T: Into<Initiator<'target>>> From<T> for NUMAInitiator<'target> {
+    fn from(initiator: T) -> Self {
         Self::Local {
-            location: location.into(),
+            initiator: initiator.into(),
             flags: LocalNUMANodeFlags::empty(),
         }
     }
@@ -2022,3 +2384,1383 @@ impl MemoryAttributeFlags {
 }
 //
 crate::impl_arbitrary_for_bitflags!(MemoryAttributeFlags, hwloc_memattr_flag_e);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        object::types::ObjectType,
+        strategies::{any_object, any_string, set_with_reference, topology_related_set},
+        topology::support::{DiscoverySupport, FeatureSupport},
+    };
+    use proptest::{prelude::*, sample::SizeRange};
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+    use std::{cmp::Ordering, collections::HashMap, ffi::CString, sync::OnceLock};
+
+    /// Test a predefined memory attribute
+    fn test_predefined(
+        constructor: impl FnOnce(&Topology) -> MemoryAttribute<'_>,
+        expected_name: &CStr,
+        expected_flags: MemoryAttributeFlags,
+        extra_tests: impl FnOnce(&Topology, MemoryAttribute<'_>),
+    ) {
+        let topology = Topology::test_instance();
+        let attribute = constructor(topology);
+        assert_eq!(attribute.name(), expected_name);
+        assert_eq!(attribute.flags(), expected_flags);
+        assert_eq!(attribute.dynamic_flags(), expected_flags);
+        extra_tests(topology, attribute);
+    }
+    //
+    /// Extra tests for `NUMANode` convenience attributes
+    fn extra_tests_numa(
+        required_support: fn(&DiscoverySupport) -> bool,
+        mut expected_value: impl FnMut(&TopologyObject) -> u64,
+    ) -> impl FnOnce(&Topology, MemoryAttribute<'_>) {
+        move |topology, attribute| {
+            // They require a certain kind of support
+            if !topology.supports(FeatureSupport::discovery, required_support) {
+                return;
+            }
+
+            // They have an expected value that's easy to query
+            let mut numa_set = HashSet::new();
+            for numa in topology.objects_with_type(ObjectType::NUMANode) {
+                assert!(matches!(
+                    attribute.initiators(numa),
+                    Err(HybridError::Rust(InitiatorQueryError::NoInitiator(_)))
+                ));
+                assert_eq!(attribute.value(None, numa), Ok(Some(expected_value(numa))));
+                numa_set.insert(numa.global_persistent_index());
+            }
+
+            // The targets query returns values and a target set that matches
+            // the numa node set
+            let (targets, values) = attribute.targets(None).unwrap();
+            assert!(values.is_some());
+            let target_set = targets
+                .into_iter()
+                .map(TopologyObject::global_persistent_index)
+                .collect::<HashSet<_>>();
+            assert_eq!(numa_set, target_set);
+        }
+    }
+    //
+    #[test]
+    fn capacity() {
+        test_predefined(
+            |t| MemoryAttribute::capacity(t),
+            &CString::new("Capacity").unwrap(),
+            MemoryAttributeFlags::HIGHER_IS_BEST,
+            extra_tests_numa(DiscoverySupport::numa_memory, TopologyObject::total_memory),
+        );
+    }
+    //
+    #[test]
+    fn locality() {
+        test_predefined(
+            |t| MemoryAttribute::locality(t),
+            &CString::new("Locality").unwrap(),
+            MemoryAttributeFlags::LOWER_IS_BEST,
+            extra_tests_numa(DiscoverySupport::pu_count, |numa| {
+                numa.cpuset().unwrap().weight().unwrap() as u64
+            }),
+        );
+    }
+    //
+    #[test]
+    fn bandwidth() {
+        test_predefined(
+            |t| MemoryAttribute::bandwidth(t),
+            &CString::new("Bandwidth").unwrap(),
+            MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+            |_, _| {},
+        );
+    }
+    //
+    #[test]
+    fn latency() {
+        test_predefined(
+            |t| MemoryAttribute::latency(t),
+            &CString::new("Latency").unwrap(),
+            MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+            |_, _| {},
+        );
+    }
+    //
+    #[cfg(feature = "hwloc-2_8_0")]
+    mod hwloc28 {
+        use super::*;
+
+        #[test]
+        fn read_bandwidth() {
+            test_predefined(
+                |t| MemoryAttribute::read_bandwidth(t),
+                &CString::new("ReadBandwidth").unwrap(),
+                MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {},
+            );
+        }
+
+        #[test]
+        fn write_bandwidth() {
+            test_predefined(
+                |t| MemoryAttribute::write_bandwidth(t),
+                &CString::new("WriteBandwidth").unwrap(),
+                MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {},
+            );
+        }
+
+        #[test]
+        fn read_latency() {
+            test_predefined(
+                |t| MemoryAttribute::read_latency(t),
+                &CString::new("ReadLatency").unwrap(),
+                MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {},
+            );
+        }
+
+        #[test]
+        fn write_latency() {
+            test_predefined(
+                |t| MemoryAttribute::write_latency(t),
+                &CString::new("WriteLatency").unwrap(),
+                MemoryAttributeFlags::LOWER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+                |_, _| {},
+            );
+        }
+    }
+
+    /// Mechanism to track the best value of a memory attribute and the
+    /// endpoints for which the memory attribute has this value.
+    struct BestValueEndpoints<Endpoint> {
+        higher_is_best: bool,
+        best_value: u64,
+        best_endpoints: Vec<Endpoint>,
+    }
+    //
+    impl<Endpoint> BestValueEndpoints<Endpoint> {
+        fn new(higher_is_best: bool) -> Self {
+            Self {
+                higher_is_best,
+                best_value: if higher_is_best { u64::MIN } else { u64::MAX },
+                best_endpoints: Vec::new(),
+            }
+        }
+
+        fn push(&mut self, endpoint: Endpoint, value: u64) {
+            match (self.higher_is_best, value.cmp(&self.best_value)) {
+                (true, Ordering::Greater) | (false, Ordering::Less) => {
+                    self.best_value = value;
+                    self.best_endpoints.clear();
+                    self.best_endpoints.push(endpoint);
+                }
+                (_, Ordering::Equal) => {
+                    self.best_endpoints.push(endpoint);
+                }
+                _ => {}
+            }
+        }
+
+        fn collect_value_and_endpoints(self) -> Option<(Vec<Endpoint>, u64)> {
+            (!self.best_endpoints.is_empty()).then_some((self.best_endpoints, self.best_value))
+        }
+    }
+
+    /// Test all memory attributes for all queries that should succeed
+    #[test]
+    fn successful_queries() {
+        let topology = Topology::test_instance();
+        for attr in MemoryAttribute::all(topology) {
+            let name = attr.name().to_str().unwrap();
+            let by_name = topology
+                .memory_attribute_named(name)
+                .expect("Memory attributes should not have a NUL in their name")
+                .expect("MemoryAttribute::all() should not yield nonexistent attributes");
+            assert!(ptr::eq(by_name.topology, attr.topology));
+            assert_eq!(by_name.id, attr.id);
+
+            let flags = attr.flags();
+            assert_eq!(
+                flags
+                    .intersection(
+                        MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::LOWER_IS_BEST
+                    )
+                    .iter()
+                    .count(),
+                1
+            );
+
+            if flags.contains(MemoryAttributeFlags::NEED_INITIATOR) {
+                test_targets_with_initiators(attr);
+            } else {
+                test_targets_wo_initiators(attr);
+            }
+        }
+    }
+
+    /// Target and initiator testing for memory attributes that need an
+    /// initiator
+    fn test_targets_with_initiators(attr_with_initiator: MemoryAttribute<'_>) {
+        // Check basic attribute properties and query targets
+        let attr = attr_with_initiator;
+        let higher_is_best = attr.flags().contains(MemoryAttributeFlags::HIGHER_IS_BEST);
+        let (target_nodes, no_values) = attr.targets(None).unwrap();
+        assert!(no_values.is_none());
+
+        // For each target...
+        let mut key_to_initiator = HashMap::new();
+        let mut initiator_key_to_target_ids_and_values = HashMap::<_, HashSet<_>>::new();
+        for target in target_nodes {
+            // Check initiators, collect best initiator and targets for
+            // each initiator
+            let (initiators, values) = attr.initiators(target).unwrap();
+            let mut expected_best_initiators = BestValueEndpoints::new(higher_is_best);
+            for (initiator, value) in initiators.into_iter().zip(values) {
+                assert_eq!(attr.value(Some(initiator.clone()), target), Ok(Some(value)));
+                /// Unique initiator identifier
+                #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+                enum InitiatorKey {
+                    CpuSet(CpuSet),
+                    Object(TopologyObjectID),
+                }
+                let initiator_key = match initiator.clone() {
+                    Initiator::CpuSet(set) => InitiatorKey::CpuSet(set.into_owned()),
+                    Initiator::Object(obj) => InitiatorKey::Object(obj.global_persistent_index()),
+                };
+                key_to_initiator.insert(initiator_key.clone(), initiator.clone());
+                let inserted = initiator_key_to_target_ids_and_values
+                    .entry(initiator_key)
+                    .or_default()
+                    .insert((target.global_persistent_index(), value));
+                assert!(inserted);
+                expected_best_initiators.push(initiator, value);
+            }
+
+            // Check best initiator
+            let expected_best_initiators = expected_best_initiators.collect_value_and_endpoints();
+            let best_initiator = attr.best_initiator(target).unwrap();
+            assert_eq!(expected_best_initiators.is_none(), best_initiator.is_none());
+            if let (
+                Some((expected_best_initiators, expected_best_value)),
+                Some((best_initiator, best_value)),
+            ) = (expected_best_initiators, best_initiator)
+            {
+                assert_eq!(best_value, expected_best_value);
+                assert!(expected_best_initiators.into_iter().any(|initiator| {
+                    match (initiator, &best_initiator) {
+                        (Initiator::CpuSet(set1), Initiator::CpuSet(set2)) => set1 == *set2,
+                        (Initiator::Object(obj1), Initiator::Object(obj2)) => {
+                            obj1.global_persistent_index() == obj2.global_persistent_index()
+                        }
+                        _ => false,
+                    }
+                }));
+            }
+        }
+
+        // For each initiator...
+        for (initiator_key, target_ids_and_values) in initiator_key_to_target_ids_and_values {
+            // Check targets, find best targets
+            let initiator = &key_to_initiator[&initiator_key];
+            let (targets, values) = attr.targets(Some(initiator.clone())).unwrap();
+            let values = values.unwrap();
+            assert_eq!(targets.len(), values.len());
+            assert_eq!(targets.len(), target_ids_and_values.len());
+            let mut expected_best_targets = BestValueEndpoints::new(higher_is_best);
+            for (target, value) in targets.iter().zip(values) {
+                assert!(target_ids_and_values.contains(&(target.global_persistent_index(), value)));
+                expected_best_targets.push(target.global_persistent_index(), value);
+            }
+
+            // Check best target
+            let expected_best_targets = expected_best_targets.collect_value_and_endpoints();
+            let best_target = attr.best_target(Some(initiator.clone())).unwrap();
+            assert_eq!(expected_best_targets.is_none(), best_target.is_none());
+            if let (
+                Some((expected_best_targets, expected_best_value)),
+                Some((best_target, best_value)),
+            ) = (expected_best_targets, best_target)
+            {
+                assert_eq!(best_value, expected_best_value);
+                assert!(expected_best_targets
+                    .into_iter()
+                    .any(|target_id| { best_target.global_persistent_index() == target_id }));
+            }
+        }
+    }
+
+    /// Target and initiator testing for memory attributes that have no
+    /// initiator
+    fn test_targets_wo_initiators(attr_wo_initiator: MemoryAttribute<'_>) {
+        // Check basic attribute properties and query targets
+        let attr = attr_wo_initiator;
+        let higher_is_best = attr.flags().contains(MemoryAttributeFlags::HIGHER_IS_BEST);
+        let (target_nodes, values) = attr.targets(None).unwrap();
+        let values_via_targets = values.unwrap();
+        assert_eq!(target_nodes.len(), values_via_targets.len());
+
+        // Check values, find best targets
+        let mut expected_best_targets = BestValueEndpoints::new(higher_is_best);
+        for (target, value) in target_nodes.into_iter().zip(values_via_targets) {
+            assert_eq!(attr.value(None, target), Ok(Some(value)));
+            expected_best_targets.push(target, value);
+        }
+
+        // Check best target
+        let expected_best_targets = expected_best_targets.collect_value_and_endpoints();
+        let best_target = attr.best_target(None).unwrap();
+        assert_eq!(expected_best_targets.is_none(), best_target.is_none());
+        if let (
+            Some((expected_best_targets, expected_best_value)),
+            Some((best_target, best_value)),
+        ) = (expected_best_targets, best_target)
+        {
+            assert_eq!(best_value, expected_best_value);
+            assert!(expected_best_targets
+                .into_iter()
+                .any(|target| target.global_persistent_index()
+                    == best_target.global_persistent_index()));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn memory_attribute_named(name in any_string()) {
+            let topology = Topology::test_instance();
+            let res = topology.memory_attribute_named(&name);
+
+            let name_contains_nul = name.contains('\0');
+            let Ok(maybe_attr) = res else {
+                prop_assert!(name_contains_nul);
+                return Ok(());
+            };
+            prop_assert!(!name_contains_nul);
+
+            if maybe_attr.is_none() {
+                let name = CString::new(name).unwrap();
+                for attr in MemoryAttribute::all(topology) {
+                    prop_assert_ne!(attr.name(), name.as_c_str());
+                }
+            }
+        }
+    }
+
+    /// Pick a memory attribute
+    fn memory_attribute() -> impl Strategy<Value = MemoryAttribute<'static>> {
+        prop::sample::select(MemoryAttribute::all(Topology::test_instance()).collect::<Vec<_>>())
+    }
+
+    /// Pick a memory attribute and a target that has a chance of being correct
+    /// for this attribute, but may be a random object possibly coming from
+    /// another topology.
+    fn memory_attribute_and_target(
+    ) -> impl Strategy<Value = (MemoryAttribute<'static>, &'static TopologyObject)> {
+        memory_attribute().prop_flat_map(|attr| {
+            let targets = attr.targets(None).unwrap().0;
+            let target = if targets.is_empty() {
+                any_object().boxed()
+            } else {
+                prop_oneof![
+                    2 => prop::sample::select(targets),
+                    3 => any_object(),
+                ]
+                .boxed()
+            };
+            (Just(attr), target)
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn initiator_query_errors(
+            (attr, target) in memory_attribute_and_target()
+        ) {
+            let no_initiators = !attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
+            let foreign_target = !attr.topology.contains(target);
+            let check_normalized_error = |res_wo_ok: Result<(), InitiatorQueryError>| {
+                match res_wo_ok {
+                    Ok(()) => prop_assert!(!(no_initiators || foreign_target)),
+                    Err(InitiatorQueryError::ForeignTarget(_)) => prop_assert!(foreign_target),
+                    Err(InitiatorQueryError::NoInitiator(_)) => prop_assert!(no_initiators),
+                }
+                Ok(())
+            };
+            check_normalized_error(attr.best_initiator(target).map(std::mem::drop))?;
+            check_normalized_error(attr.initiators(target).map(std::mem::drop).map_err(|e| {
+                let HybridError::Rust(e) = e else {
+                    unreachable!("No known error cases that aren't handled on the Rust side, yet got {e:?}")
+                };
+                e
+            }))?;
+        }
+    }
+
+    /// Pick a memory attribute initiator that has a low odd of being valid
+    fn any_initiator() -> impl Strategy<Value = Option<Initiator<'static>>> {
+        prop_oneof![
+            topology_related_set(Topology::cpuset).prop_map(|set| Some(Initiator::from(set))),
+            any_object().prop_map(|obj| Some(Initiator::from(obj)))
+        ]
+    }
+
+    /// Pick an (attribute, target, initiator) triple where (target, initiator)
+    /// has a chance of being correct for this attribute, but may be a random
+    /// object/cpuset possibly coming from another topology.
+    fn memory_attribute_target_initiator() -> impl Strategy<
+        Value = (
+            MemoryAttribute<'static>,
+            &'static TopologyObject,
+            Option<Initiator<'static>>,
+        ),
+    > {
+        memory_attribute_and_target().prop_flat_map(move |(attr, target)| {
+            let initiator = if attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) {
+                let (actual_initiators, _values) = attr.initiators(target).unwrap_or_default();
+                if actual_initiators.is_empty() {
+                    prop_oneof![
+                        1 => Just(None),
+                        4 => any_initiator(),
+                    ]
+                    .boxed()
+                } else {
+                    let actual_initiator = prop::sample::select(actual_initiators.clone());
+                    prop_oneof![
+                        1 => Just(None),
+                        2 => actual_initiator.prop_flat_map(move |actual_initiator| {
+                            match actual_initiator {
+                                Initiator::CpuSet(set) => {
+                                    set_with_reference(set)
+                                        .prop_map(|set| Some(Initiator::from(set)))
+                                        .boxed()
+                                }
+                                Initiator::Object(obj) => {
+                                    Just(Some(Initiator::from(obj)))
+                                        .boxed()
+                                }
+                            }
+                        }),
+                        2 => any_initiator(),
+                    ]
+                    .boxed()
+                }
+            } else {
+                prop_oneof![
+                    2 => Just(None),
+                    3 => any_initiator(),
+                ]
+                .boxed()
+            };
+            (Just(attr), Just(target), initiator)
+        })
+    }
+
+    /// Truth that an initiator does not belong to a topology
+    fn is_foreign_initiator<'topology>(
+        topology: &'topology Topology,
+        initiator: &Initiator<'topology>,
+    ) -> bool {
+        match initiator {
+            Initiator::Object(obj) => !topology.contains(obj),
+            Initiator::CpuSet(set) => {
+                set.is_empty() || !topology.complete_cpuset().includes(set.as_ref())
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn value_query_errors(
+            (attr, target, initiator) in memory_attribute_target_initiator()
+        ) {
+            // Detect errors which are handled on the Rust side
+            let foreign_initiator = initiator.as_ref().is_some_and(|initiator| is_foreign_initiator(attr.topology, initiator));
+            let foreign_target = !attr.topology.contains(target);
+            let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
+            let need_initiator = attr_needs_initiator && initiator.is_none();
+            let unwanted_initiator = !attr_needs_initiator && initiator.is_some();
+            let invalid_target =
+                (attr.id == HWLOC_MEMATTR_ID_CAPACITY && target.object_type() != ObjectType::NUMANode)
+                || (attr.id == HWLOC_MEMATTR_ID_LOCALITY && target.cpuset().is_none());
+            let any_error =
+                foreign_initiator
+                || foreign_target
+                || need_initiator
+                || unwanted_initiator
+                || invalid_target;
+
+            // Detect invalid (target, initiator) pairs.
+            let (valid_targets, _values) = attr.targets(None).unwrap();
+            let invalid_initiator_or_target = (attr_needs_initiator != initiator.is_some()) || valid_targets.iter().all(|candidate| {
+                if candidate.global_persistent_index() != target.global_persistent_index() {
+                    return true;
+                }
+                if !attr_needs_initiator {
+                    return false;
+                }
+                let (initiators, _values) = attr.initiators(candidate).unwrap();
+                initiators.iter().all(|candidate| match (candidate, &initiator) {
+                    (Initiator::CpuSet(candidate), Some(Initiator::CpuSet(set))) => {
+                        !candidate.includes(set.as_ref())
+                    }
+                    (Initiator::Object(candidate), Some(Initiator::Object(obj))) => {
+                        candidate.global_persistent_index() != obj.global_persistent_index()
+                    },
+                    _ => true,
+                })
+            });
+
+            // Call value query and check result
+            match attr.value(initiator.clone(), target) {
+                Ok(value) => {
+                    prop_assert!(!any_error);
+                    // NOTE: Right now we're only testing this direction because
+                    //       hwloc can yield attribute values for invalid
+                    //       (initiator, target) pairs.
+                    if value.is_none() {
+                        prop_assert!(invalid_initiator_or_target);
+                    }
+                }
+                Err(HybridError::Rust(er)) => match er {
+                    ValueQueryError::BadInitiator(bad) => match bad {
+                        InitiatorInputError::ForeignInitiator(fi) => {
+                            prop_assert!(foreign_initiator);
+                            prop_assert!(initiator.is_some());
+                            prop_assert_eq!(fi, ForeignInitiatorError::from(initiator.unwrap()));
+                        }
+                        InitiatorInputError::NeedInitiator(_) => prop_assert!(need_initiator),
+                        InitiatorInputError::UnwantedInitiator(_) => prop_assert!(unwanted_initiator),
+                    },
+                    ValueQueryError::ForeignTarget(_) => prop_assert!(foreign_target),
+                    ValueQueryError::InvalidTarget(_) => prop_assert!(invalid_target),
+                },
+                Err(HybridError::Hwloc(e)) => unreachable!("Unexpected hwloc error {e}"),
+            };
+        }
+    }
+
+    /// Given a memory attribute, pick an initiator that has a chance of being
+    /// correct for this attribute, but may be a random object possibly coming
+    /// from another topology.
+    fn memory_attribute_and_initiator(
+    ) -> impl Strategy<Value = (MemoryAttribute<'static>, Option<Initiator<'static>>)> {
+        memory_attribute_target_initiator().prop_map(|(attr, _target, initiator)| (attr, initiator))
+    }
+
+    proptest! {
+        #[test]
+        fn target_query_errors(
+            (attr, initiator) in memory_attribute_and_initiator()
+        ) {
+            let foreign_initiator = initiator.as_ref().is_some_and(|initiator| is_foreign_initiator(attr.topology, initiator));
+            let attr_needs_initiator = attr.flags().contains(MemoryAttributeFlags::NEED_INITIATOR);
+            let need_initiator = attr_needs_initiator && initiator.is_none();
+            let unwanted_initiator = !attr_needs_initiator && initiator.is_some();
+
+            let check_normalized_error = |res_wo_ok: Result<(), InitiatorInputError>,
+                                          initiator_is_optional: bool| {
+                match res_wo_ok {
+                    Ok(()) => prop_assert!(
+                        !(foreign_initiator || unwanted_initiator)
+                        && (initiator_is_optional || !need_initiator)
+                    ),
+                    Err(InitiatorInputError::ForeignInitiator(_)) => prop_assert!(foreign_initiator),
+                    Err(InitiatorInputError::NeedInitiator(_)) => prop_assert!(
+                        need_initiator && !initiator_is_optional
+                    ),
+                    Err(InitiatorInputError::UnwantedInitiator(_)) => prop_assert!(unwanted_initiator),
+                }
+                Ok(())
+            };
+
+            check_normalized_error(
+                attr.best_target(initiator.clone()).map(std::mem::drop),
+                false,
+            )?;
+            check_normalized_error(
+                attr.targets(initiator).map(std::mem::drop).map_err(|e| {
+                    let HybridError::Rust(e) = e else {
+                        unreachable!("No known error cases that aren't handled on the Rust side, yet got {e:?}")
+                    };
+                    e
+                }),
+                true,
+            )?;
+        }
+    }
+
+    /// Generate a `NUMAInitiator`
+    fn numa_initiator() -> impl Strategy<Value = NUMAInitiator<'static>> {
+        let topology = Topology::test_instance();
+        prop_oneof![
+            1 => Just(NUMAInitiator::All),
+            2 => {
+                (any_object(), any::<LocalNUMANodeFlags>()).prop_map(|(obj, flags)| {
+                    NUMAInitiator::Local {
+                        initiator: Initiator::from(obj),
+                        flags,
+                    }
+                })
+            },
+            2 => {
+                let numa_nodes = topology.objects_with_type(ObjectType::NUMANode).filter(|numa| {
+                    numa.cpuset().unwrap().weight().unwrap() > 0
+                }).collect::<Vec<_>>();
+                prop::sample::select(numa_nodes).prop_flat_map(|numa| {
+                    (set_with_reference(numa.cpuset().unwrap()), any::<LocalNUMANodeFlags>()).prop_map(|(set, flags)| {
+                        NUMAInitiator::Local {
+                            initiator: Initiator::from(set),
+                            flags,
+                        }
+                    })
+                })
+            }
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn local_numa_nodes(initiator in numa_initiator()) {
+            let topology = Topology::test_instance();
+            let res = topology.local_numa_nodes(initiator.clone());
+
+            let foreign_object = match &initiator {
+                NUMAInitiator::Local { initiator, .. } => is_foreign_initiator(topology, initiator),
+                NUMAInitiator::All => false,
+            };
+            prop_assert_eq!(res.is_err(), foreign_object);
+            let Ok(nodes) = res else { return Ok(()); };
+            let node_ids = nodes.into_iter()
+                                .map(TopologyObject::global_persistent_index)
+                                .collect::<HashSet<_>>();
+
+            match initiator {
+                NUMAInitiator::All => {
+                    let all_node_ids = topology.objects_with_type(ObjectType::NUMANode)
+                                               .map(TopologyObject::global_persistent_index)
+                                               .collect::<HashSet<_>>();
+                    prop_assert_eq!(node_ids, all_node_ids);
+                }
+                NUMAInitiator::Local { initiator, flags } => {
+                    let cpuset = match initiator {
+                        Initiator::CpuSet(set) => set,
+                        Initiator::Object(obj) => {
+                            obj.cpuset()
+                               .unwrap_or_else(|| obj.first_non_io_ancestor()
+                                                     .unwrap()
+                                                     .cpuset()
+                                                     .unwrap())
+                               .into()
+                        }
+                    };
+                    let expected_node_ids = topology
+                        .objects_with_type(ObjectType::NUMANode)
+                        .filter_map(|node| {
+                            let node_cpuset = node.cpuset().unwrap();
+                            let flags = flags - LocalNUMANodeFlags::ALL;
+                            #[allow(unused_mut)]
+                            let mut is_match = (node_cpuset == cpuset)
+                                || (flags.contains(LocalNUMANodeFlags::LARGER_LOCALITY) && node_cpuset.includes(cpuset.as_ref()))
+                                || (flags.contains(LocalNUMANodeFlags::SMALLER_LOCALITY) && cpuset.includes(node_cpuset));
+                            #[cfg(feature = "hwloc-2_12_1")]
+                            {
+                                is_match |= flags.contains(LocalNUMANodeFlags::INTERSECT_LOCALITY) && cpuset.intersects(node_cpuset);
+                            }
+                            is_match.then(|| node.global_persistent_index())
+                        })
+                        .collect::<HashSet<_>>();
+                    prop_assert_eq!(expected_node_ids, node_ids);
+                }
+            }
+        }
+    }
+
+    /// On hwloc v2.12.0+, test that the default nodeset makes sense
+    #[cfg(feature = "hwloc-2_12_0")]
+    #[test]
+    fn get_default_nodeset() {
+        // Get the default nodeset
+        let topology = Topology::test_instance();
+        let Ok(default_nodeset) = topology.get_default_nodeset() else {
+            // Error cases are not documented by hwloc, so there's little we can
+            // do when an error is encountered.
+            return;
+        };
+
+        // The returned nodeset is included in the topology nodeset
+        assert!(topology.nodeset().includes(&default_nodeset));
+
+        // It is guaranteed that nodes from the default nodeset have
+        // non-intersecting CPU sets
+        let mut cpuset_so_far = CpuSet::new();
+        for node in topology.nodes_from_nodeset(&default_nodeset) {
+            let node_cpuset = node.cpuset().unwrap();
+            assert!(!cpuset_so_far.intersects(node_cpuset));
+            cpuset_so_far |= node_cpuset;
+        }
+
+        // Any core that had some local NUMA nodes in the initial topology
+        // should still have one in the default nodeset.
+        for pu in topology.objects_with_type(ObjectType::PU) {
+            let pu_nodeset = pu.nodeset().unwrap();
+            assert!(pu_nodeset.intersects(&default_nodeset) || pu_nodeset.is_empty());
+        }
+    }
+
+    fn attr_names() -> &'static [String] {
+        static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+        NAMES
+            .get_or_init(|| {
+                MemoryAttribute::all(Topology::test_instance())
+                    .map(|attr| attr.name().to_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .as_slice()
+    }
+
+    // New memory attribute name with a fair chance of collision
+    fn attribute_name() -> impl Strategy<Value = String> {
+        prop_oneof![
+            2 => prop::sample::select(attr_names()),
+            3 => any_string(),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn build_empty_attribute(
+            name in attribute_name(),
+            flags: MemoryAttributeFlags
+        ) {
+            let initial_topology = Topology::test_instance();
+            let mut topology = initial_topology.clone();
+
+            let res = topology.edit(|editor| {
+                editor
+                    .register_memory_attribute(&name, flags)
+                    .map(std::mem::drop)
+            });
+            if check_register_errors(&name, flags, res)?.is_none() {
+                prop_assert_eq!(&topology, initial_topology);
+                return Ok(());
+            }
+
+            prop_assert_ne!(&topology, initial_topology);
+
+            let attr = topology.memory_attribute_named(&name).unwrap().unwrap();
+            let cname = CString::new(name).unwrap();
+            prop_assert_eq!(attr.name(), cname.as_c_str());
+            prop_assert_eq!(attr.flags(), flags);
+            let (targets, values) = attr.targets(None).unwrap();
+            prop_assert!(targets.is_empty());
+            prop_assert_eq!(
+                values,
+                (!flags.contains(MemoryAttributeFlags::NEED_INITIATOR)).then_some(Vec::new())
+            );
+
+            let mut expected_dump = initial_topology.dump_memory_attributes();
+            expected_dump.0.push(AttributeDump::new(attr));
+            prop_assert!(topology.dump_memory_attributes().eq_modulo_topology(&expected_dump));
+        }
+    }
+
+    // Check memory attribute builder creation errors
+    fn check_register_errors<T>(
+        name: &String,
+        flags: MemoryAttributeFlags,
+        res: Result<T, RegisterError>,
+    ) -> Result<Option<T>, TestCaseError> {
+        let bad_flags = (flags
+            & (MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::LOWER_IS_BEST))
+            .iter()
+            .count()
+            != 1;
+        let name_contains_nul = name.contains('\0');
+        let name_taken = attr_names().contains(name);
+        match res {
+            Ok(o) => {
+                prop_assert!(!(bad_flags || name_contains_nul || name_taken));
+                Ok(Some(o))
+            }
+            Err(e) => {
+                match e {
+                    RegisterError::BadFlags(bf) => {
+                        prop_assert!(
+                            bad_flags,
+                            "Got unexpected BadFlags error with flags {flags:?}"
+                        );
+                        prop_assert_eq!(bf, FlagsError::from(flags));
+                    }
+                    RegisterError::NameContainsNul => prop_assert!(name_contains_nul),
+                    RegisterError::NameTaken(taken) => {
+                        prop_assert!(name_taken);
+                        prop_assert_eq!(name, &*taken);
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    /// Pick a set of targets and values for a memory attribute
+    fn targets_and_values() -> impl Strategy<Value = TargetsAndValues> {
+        // Pick attribute targets
+        let topology = Topology::test_instance();
+        let all_objects = topology.objects().collect::<Vec<_>>();
+        let num_objects = all_objects.len();
+        let targets = prop_oneof![
+            1 => Just(Vec::new()),
+            3 => prop::sample::subsequence(
+                all_objects,
+                1..=num_objects,
+            ).prop_shuffle(),
+            1 => prop::collection::vec(
+                any_object(),
+                SizeRange::default(),
+            ),
+        ];
+
+        // Associate values with targets
+        targets.prop_flat_map(|targets| {
+            let len = targets.len();
+            let values = prop::collection::vec(any::<u64>(), len);
+            (Just(targets), values)
+                .prop_map(|(targets, values)| targets.into_iter().zip(values).collect::<Vec<_>>())
+        })
+    }
+    //
+    type TargetsAndValues = Vec<(&'static TopologyObject, u64)>;
+
+    /// Given a set of flags, targets and values, pick a matching set of initiators
+    fn initiators(
+        flags: MemoryAttributeFlags,
+        targets_and_values: &TargetsAndValues,
+    ) -> impl Strategy<Value = Initiators> {
+        // Query basic topology properties
+        let topology = Topology::test_instance();
+        let num_objects = topology.objects().count();
+
+        // Pick a number of initiators that may or may not be correct
+        let num_values = targets_and_values.len();
+        let num_initiators = prop_oneof![
+            4 => Just(num_values),
+            1 => 0..=num_objects,
+        ];
+
+        // Pick initiators
+        let initiators = num_initiators
+            .prop_flat_map(move |num_initiators| {
+                // Determine how many initiators will be cpusets, knowing
+                // that there has to be at least one cpu in the CPUset so we
+                // cannot have more cpuset initiators than we have CPUs.
+                let num_cpus = topology.complete_cpuset().weight().unwrap();
+                (Just(num_initiators), 0..=num_initiators.min(num_cpus))
+            })
+            .prop_flat_map(move |(num_initiators, num_initiator_sets)| {
+                // Pick initiator cpusets, starting from a full list of CPUs
+                let correct_initiator_sets = prop::sample::subsequence(
+                    topology.complete_cpuset().iter_set().collect::<Vec<_>>(),
+                    num_initiator_sets,
+                )
+                .prop_flat_map(move |first_cpu_per_set| {
+                    // Start by allocating one CPU to each initiator
+                    // cpuset, so that none is empty. Remove them
+                    // from the pool of available CPUs.
+                    let mut remaining_cpus = topology.complete_cpuset().clone_target();
+                    for &cpu in &first_cpu_per_set {
+                        remaining_cpus.unset(cpu)
+                    }
+
+                    // Allocate remaining CPUs to cpusets randomly,
+                    // leaving some CPUs unallocated.
+                    let set_index = if num_initiator_sets == 0 {
+                        Just(None).boxed()
+                    } else {
+                        prop_oneof![Just(None), (0..num_initiator_sets).prop_map(Some)].boxed()
+                    };
+                    prop::collection::vec(set_index, remaining_cpus.weight().unwrap()).prop_map(
+                        move |set_indices| {
+                            let mut cpusets = first_cpu_per_set
+                                .iter()
+                                .copied()
+                                .map(CpuSet::from)
+                                .collect::<Vec<_>>();
+                            for (cpu, set_idx) in remaining_cpus.iter_set().zip(set_indices) {
+                                if let Some(set_idx) = set_idx {
+                                    cpusets[set_idx].set(cpu);
+                                }
+                            }
+                            cpusets
+                        },
+                    )
+                });
+                let initiator_sets = prop_oneof![
+                    4 => correct_initiator_sets,
+                    1 => prop::collection::vec(
+                        topology_related_set(Topology::complete_cpuset),
+                        num_initiator_sets,
+                    )
+                ];
+
+                // Pick initiator objects
+                let num_initiator_objs = num_initiators - num_initiator_sets;
+                let initiator_objs = if num_initiator_objs <= num_objects {
+                    prop_oneof![
+                        4 => prop::sample::subsequence(
+                            topology.objects().collect::<Vec<_>>(),
+                            num_initiator_objs
+                        ),
+                        1 => prop::collection::vec(
+                            any_object(),
+                            num_initiator_objs
+                        )
+                    ]
+                    .boxed()
+                } else {
+                    prop::collection::vec(any_object(), num_initiator_objs).boxed()
+                };
+
+                // Put cpusets and objects together, randomize order
+                (initiator_sets, initiator_objs)
+                    .prop_map(|(sets, objs)| {
+                        sets.into_iter()
+                            .map(Initiator::from)
+                            .chain(objs.into_iter().map(Initiator::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .prop_shuffle()
+            });
+
+        // Provide initiators or not, in such a way that the correct case
+        // has a reasonably good chance of occuring
+        if flags.contains(MemoryAttributeFlags::NEED_INITIATOR) {
+            prop_oneof![
+                1 => Just(None),
+                4 => initiators.prop_map(Some)
+            ]
+        } else {
+            prop_oneof![
+                3 => Just(None),
+                2 => initiators.prop_map(Some)
+            ]
+        }
+    }
+    //
+    type Initiators = Option<Vec<Initiator<'static>>>;
+
+    /// Pick memory attribute building blocks that have a high chance of being
+    /// consistent with each other, but may not be
+    fn attribute_building_blocks() -> impl Strategy<Value = AttributeBuildingBlocks> {
+        // Pick attribute flags
+        let flags = any::<MemoryAttributeFlags>();
+
+        // Given a (flags, targets, values) configuration...
+        (flags, targets_and_values()).prop_flat_map(move |(flags, targets_and_values)| {
+            // ...set up a set of matching initiators
+            let initiators = initiators(flags, &targets_and_values);
+
+            // Randomly inject duplicate (initiator, target) pairs
+            let initiators_targets_values = (initiators, Just(targets_and_values)).prop_flat_map(
+                move |(initiators, targets_and_values)| {
+                    // Can't do this if there are no values
+                    let num_values = targets_and_values.len();
+                    if num_values == 0 {
+                        return (Just(initiators), Just(targets_and_values)).boxed();
+                    }
+
+                    // Otherwise stochastically insert one duplicate
+                    prop_oneof![
+                        3 => (Just(initiators.clone()), Just(targets_and_values.clone())),
+                        2 => (Just(initiators), Just(targets_and_values), 0..num_values, any::<u64>(), 0..=num_values)
+                            .prop_flat_map(move |(mut initiators, mut targets_and_values, dupe_src_idx, dupe_value, dupe_dst_idx)| {
+                                let dupe_target = targets_and_values[dupe_src_idx].0;
+                                targets_and_values.insert(dupe_dst_idx, (dupe_target, dupe_value));
+                                if let Some(initiators) = &mut initiators {
+                                    if initiators.len() == num_values {
+                                        let dupe_initiator = initiators[dupe_src_idx].clone();
+                                        initiators.insert(dupe_dst_idx, dupe_initiator);
+                                    }
+                                }
+                                (Just(initiators), Just(targets_and_values))
+                            })
+                    ].boxed()
+                },
+            );
+
+            // And add back the flags at the end
+            initiators_targets_values.prop_map(move |(initiators, targets_and_values)| {
+                AttributeBuildingBlocks { flags, initiators, targets_and_values }
+            })
+        })
+    }
+    //
+    #[derive(Debug)]
+    struct AttributeBuildingBlocks {
+        flags: MemoryAttributeFlags,
+        initiators: Initiators,
+        targets_and_values: TargetsAndValues,
+    }
+
+    proptest! {
+        #[test]
+        fn build_any_attribute(
+            name in any_string(),
+            building_blocks in attribute_building_blocks(),
+        ) {
+            let initial_topology = Topology::test_instance();
+            let mut topology = initial_topology.clone();
+
+            // Predict value setup errors
+            let overlapping_values = has_duplicates(&building_blocks);
+            let (inconsistent_data_len, foreign_initiator) =
+                if let Some(initiators) = &building_blocks.initiators {
+                    (
+                        initiators.len() != building_blocks.targets_and_values.len(),
+                        initiators.iter().any(|initiator| match initiator {
+                            Initiator::CpuSet(set) => {
+                                set.is_empty()
+                                || !initial_topology.complete_cpuset().includes(set.as_ref())
+                            }
+                            Initiator::Object(obj) => !initial_topology.contains(obj),
+                        })
+                    )
+                } else {
+                    (false, false)
+                };
+            let foreign_target = building_blocks.targets_and_values.iter().any(|(target, _value)| {
+                !initial_topology.contains(target)
+            });
+            let need_initiator =
+                building_blocks.flags.contains(MemoryAttributeFlags::NEED_INITIATOR)
+                && building_blocks.initiators.is_none();
+            let unwanted_initiator =
+                !building_blocks.flags.contains(MemoryAttributeFlags::NEED_INITIATOR)
+                && building_blocks.initiators.is_some();
+            let will_error =
+                inconsistent_data_len
+                || overlapping_values
+                || foreign_initiator
+                || foreign_target
+                || need_initiator
+                || unwanted_initiator;
+
+            // Start editing the topology
+            topology.edit(|editor| {
+                // Register the memory attribute
+                let builder = editor.register_memory_attribute(&name, building_blocks.flags);
+                let Some(mut builder) = check_register_errors(&name, building_blocks.flags, builder)? else {
+                    prop_assert_eq!(editor.topology(), initial_topology);
+                    return Ok(());
+                };
+
+                // Back up the topology before value setup
+                let topology_with_empty_attribute = builder.editor.topology().clone();
+
+                // Run the value setup
+                let res = builder.set_values(|final_topology| {
+                    translate_building_blocks(
+                        initial_topology,
+                        building_blocks.initiators.as_deref(),
+                        &building_blocks.targets_and_values,
+                        final_topology
+                    )
+                });
+
+                // Check the result against expectation
+                match res {
+                    Ok(()) => prop_assert!(!will_error),
+                    Err(HybridError::Rust(e)) => {
+                        match e {
+                            ValueInputError::InconsistentDataLen => prop_assert!(inconsistent_data_len),
+                            ValueInputError::OverlappingValues => prop_assert!(overlapping_values),
+                            ValueInputError::BadInitiators(bi) => match bi {
+                                InitiatorInputError::ForeignInitiator(_) => prop_assert!(foreign_initiator),
+                                InitiatorInputError::NeedInitiator(_) => prop_assert!(need_initiator),
+                                InitiatorInputError::UnwantedInitiator(_) => prop_assert!(unwanted_initiator),
+                            }
+                            ValueInputError::ForeignTarget(_) => prop_assert!(foreign_target),
+                        }
+                        prop_assert_eq!(editor.topology(), &topology_with_empty_attribute);
+                        return Ok(());
+                    }
+                    Err(other) => panic!("unexpected error: {other}"),
+                }
+
+                // If control reached this point, the memory attribute should
+                // have been added. Check the new topology state.
+                check_new_topology_attribute(
+                    initial_topology,
+                    &name,
+                    &building_blocks,
+                    editor.topology(),
+                )?;
+
+                Ok(())
+            })?;
+        }
+    }
+
+    /// Truth that [`AttributeBuildingBlocks`] contain duplicate entries
+    fn has_duplicates(building_blocks: &AttributeBuildingBlocks) -> bool {
+        if let Some(initiators) = &building_blocks.initiators {
+            let mut set = InitiatorTargetSet::new();
+            for (initiator, (target, _value)) in
+                initiators.iter().zip(&building_blocks.targets_and_values)
+            {
+                if !set.insert(initiator, target) {
+                    return true;
+                }
+            }
+        } else {
+            let mut hash_set = HashSet::with_capacity(building_blocks.targets_and_values.len());
+            for (target, _value) in &building_blocks.targets_and_values {
+                if !hash_set.insert(target.global_persistent_index()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Translate an initiator from one topology to another
+    fn translate_building_blocks<'out, 'initial: 'out, 'final_: 'out>(
+        initial_topology: &Topology,
+        initiators: Option<&[Initiator<'initial>]>,
+        targets_and_values: &[(&'initial TopologyObject, u64)],
+        final_topology: &'final_ Topology,
+    ) -> (
+        Option<Vec<Initiator<'out>>>,
+        Vec<(&'out TopologyObject, u64)>,
+    ) {
+        let id_to_object = final_topology
+            .objects()
+            .map(|obj| (obj.global_persistent_index(), obj))
+            .collect::<HashMap<_, _>>();
+        let initiators = initiators.as_ref().map(|initiators| {
+            initiators
+                .iter()
+                .cloned()
+                .map(|initiator| match initiator {
+                    Initiator::Object(obj) => {
+                        let obj = if initial_topology.contains(obj) {
+                            id_to_object[&obj.global_persistent_index()]
+                        } else {
+                            obj
+                        };
+                        Initiator::from(obj)
+                    }
+                    Initiator::CpuSet(set) => Initiator::from(set),
+                })
+                .collect::<Vec<_>>()
+        });
+        let targets_and_values = targets_and_values
+            .iter()
+            .copied()
+            .map(|(target, value)| {
+                let target = if initial_topology.contains(target) {
+                    id_to_object[&target.global_persistent_index()]
+                } else {
+                    target
+                };
+                (target, value)
+            })
+            .collect::<Vec<_>>();
+        (initiators, targets_and_values)
+    }
+
+    /// Part of [`build_any_attribute()`] that checks topology state after
+    /// successfully adding an attribute
+    fn check_new_topology_attribute(
+        initial_topology: &Topology,
+        name: &str,
+        building_blocks: &AttributeBuildingBlocks,
+        final_topology: &Topology,
+    ) -> Result<(), TestCaseError> {
+        // Attributes that used to be around are still around, with the same values
+        let mut initial_attrs = MemoryAttribute::all(initial_topology);
+        let mut final_attrs = MemoryAttribute::all(final_topology);
+        let new_attr = loop {
+            match (initial_attrs.next(), final_attrs.next()) {
+                (Some(i), Some(f)) => {
+                    prop_assert!(AttributeDump::new(i).eq_modulo_topology(&AttributeDump::new(f)))
+                }
+                (None, Some(f)) => break f,
+                (_, None) => unreachable!(),
+            }
+        };
+
+        // New attribute has the expected properties
+        prop_assert_eq!(new_attr.name().to_str().unwrap(), name);
+        prop_assert_eq!(new_attr.flags(), building_blocks.flags);
+        let (initiators, targets_and_values) = translate_building_blocks(
+            initial_topology,
+            building_blocks.initiators.as_deref(),
+            &building_blocks.targets_and_values,
+            final_topology,
+        );
+        let mut id_to_target = HashMap::new();
+        let target_id_to_value = if let Some(initiators) = &initiators {
+            // Query individual values, preparing for subsequent bulk queries
+            for (initiator, (target, expected_value)) in initiators.iter().zip(&targets_and_values)
+            {
+                prop_assert_eq!(
+                    new_attr.value(Some(initiator.clone()), target),
+                    Ok(Some(*expected_value))
+                );
+                let target_id = target.global_persistent_index();
+                id_to_target.entry(target_id).or_insert(target);
+            }
+
+            // No target-to-value mapping if there is an initiator
+            None
+        } else {
+            // Query individual values, preparing for subsequent bulk queries
+            let mut target_id_to_value = HashMap::new();
+            for (target, expected_value) in &targets_and_values {
+                prop_assert_eq!(new_attr.value(None, target), Ok(Some(*expected_value)));
+                let target_id = target.global_persistent_index();
+                id_to_target.entry(target_id).or_insert(target);
+                prop_assert!(target_id_to_value
+                    .insert(target_id, *expected_value)
+                    .is_none());
+            }
+
+            // There is no initiator, so there's a target-to-value mapping
+            Some(target_id_to_value)
+        };
+
+        // Query full target list
+        let expected_target_ids = id_to_target.keys().copied().collect::<HashSet<_>>();
+        let (targets, values) = new_attr.targets(None).unwrap();
+        prop_assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.global_persistent_index())
+                .collect::<HashSet<_>>(),
+            expected_target_ids,
+        );
+        let expected_values = target_id_to_value.map(|mut target_id_to_value| {
+            targets
+                .into_iter()
+                .map(|target| {
+                    target_id_to_value
+                        .remove(&target.global_persistent_index())
+                        .unwrap()
+                })
+                .collect()
+        });
+        prop_assert_eq!(values, expected_values);
+
+        // New attribute should not compare equal to existing attributes because
+        // it does not have the same ID.
+        let new_dump = AttributeDump::new(new_attr);
+        for initial_attr in MemoryAttribute::all(initial_topology) {
+            let initial_dump = AttributeDump::new(initial_attr);
+            prop_assert!(!new_dump.eq_modulo_topology(&initial_dump));
+        }
+
+        // Test attribute dumps using this new attribute dump, which has the
+        // advantage of having contents under our control.
+        test_attribute_dump(new_dump)?;
+        Ok(())
+    }
+
+    /// Test attribute dumps, used for debugging and topology comparison
+    fn test_attribute_dump(dump: AttributeDump<'_>) -> Result<(), TestCaseError> {
+        // Dump should compare equal to itself
+        prop_assert!(dump.eq_modulo_topology(&dump));
+
+        // Can't do more if the dump doesn't have targets
+        if dump.targets.0.is_empty() {
+            return Ok(());
+        }
+
+        // Dump should not compare equal to another dump with less targets
+        {
+            let mut less_targets = dump.clone();
+            less_targets.targets.0.pop();
+            prop_assert!(!dump.eq_modulo_topology(&less_targets));
+        }
+
+        // Can't do more if the dump doesn't have 2+ targets
+        if dump.targets.0.len() < 2 {
+            return Ok(());
+        }
+
+        // Dump should not compare equal to another dump with targets swapped
+        {
+            let mut swapped_targets = dump.clone();
+            swapped_targets.targets.0.swap(0, 1);
+            prop_assert!(!dump.eq_modulo_topology(&swapped_targets));
+        }
+
+        // Need an attribute with initiators for the next tests
+        if !dump
+            .attribute
+            .flags()
+            .contains(MemoryAttributeFlags::NEED_INITIATOR)
+        {
+            return Ok(());
+        }
+
+        // Replacing a target with initiators with one without initiators should
+        // make the comparison fail.
+        {
+            let mut without_initiator = dump.clone();
+            without_initiator.targets.0[0].initiators_and_values =
+                InitiatorsAndValues::NoInitiator(42);
+            prop_assert!(!dump.eq_modulo_topology(&without_initiator));
+            prop_assert!(!without_initiator.eq_modulo_topology(&dump));
+        }
+
+        // Changing the number of initiators for one target should make the
+        // comparison fail
+        {
+            let mut less_initiators = dump.clone();
+            let InitiatorsAndValues::HasInitiators { initiators, values } =
+                &mut less_initiators.targets.0[0].initiators_and_values
+            else {
+                panic!("attribute with NEED_INITIATOR should have an initiator")
+            };
+            initiators.pop();
+            values.pop();
+            prop_assert!(!dump.eq_modulo_topology(&less_initiators));
+        }
+
+        // Changing one value should make the comparison fail
+        {
+            let mut different_value = dump.clone();
+            let InitiatorsAndValues::HasInitiators { values, .. } =
+                &mut different_value.targets.0[0].initiators_and_values
+            else {
+                panic!("attribute with NEED_INITIATOR should have an initiator")
+            };
+            values[0] = values[0].wrapping_add(1);
+            prop_assert!(!dump.eq_modulo_topology(&different_value));
+        }
+
+        // Heterogeneous initiators should make the comparison fail
+        {
+            let topology = dump.attribute.topology;
+            let mut different_initiator_type = dump.clone();
+            let InitiatorsAndValues::HasInitiators { initiators, .. } =
+                &mut different_initiator_type.targets.0[0].initiators_and_values
+            else {
+                panic!("attribute with NEED_INITIATOR should have an initiator")
+            };
+            match &mut initiators[0] {
+                r @ Initiator::CpuSet(_) => *r = topology.root_object().into(),
+                r @ Initiator::Object(_) => *r = topology.complete_cpuset().into(),
+            };
+            prop_assert!(!dump.eq_modulo_topology(&different_initiator_type));
+            prop_assert!(!different_initiator_type.eq_modulo_topology(&dump));
+        }
+
+        // Debug impl should not crash
+        let _debug_didnt_crash = format!("{dump:?}");
+        Ok(())
+    }
+}

@@ -8,7 +8,7 @@ use crate::Sealed;
 use crate::{cpu::cpuset::CpuSet, memory::nodeset::NodeSet};
 use std::{
     borrow::{Borrow, BorrowMut},
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Pointer},
     ops::Deref,
     ptr::NonNull,
 };
@@ -36,6 +36,7 @@ pub unsafe trait OwnedBitmap:
     + From<Bitmap>
     + Into<Bitmap>
     + PartialEq
+    + Pointer
     + Sealed
     + 'static
 {
@@ -129,7 +130,7 @@ macro_rules! impl_bitmap_newtype {
             use $crate::{
                 bitmap::{
                     Bitmap, BitmapIndex, BitmapKind, BitmapRef, OwnedBitmap,
-                    Iter, SpecializedBitmap,
+                    Iter, SpecializedBitmap, self,
                 },
             };
             use derive_more::{AsMut, AsRef, From, Into, IntoIterator, Not};
@@ -812,23 +813,26 @@ macro_rules! impl_bitmap_newtype {
                         // SAFETY: No mutation going on
                         unsafe { prop_assert_eq!(new.inner(), new.0.inner()) };
                         //
-                        prop_assert!(new
-                            .iter_set()
-                            .take(INFINITE_EXPLORE_ITERS)
-                            .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                        prop_assert!((&new)
-                            .into_iter()
-                            .take(INFINITE_EXPLORE_ITERS)
-                            .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                        prop_assert!(new
-                            .clone()
-                            .into_iter()
-                            .take(INFINITE_EXPLORE_ITERS)
-                            .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
-                        prop_assert!(new
-                            .iter_unset()
-                            .take(INFINITE_EXPLORE_ITERS)
-                            .eq(new.0.iter_unset().take(INFINITE_EXPLORE_ITERS)));
+                        bitmap::allow_infinite_iteration(|| {
+                            prop_assert!(new
+                                .iter_set()
+                                .take(INFINITE_EXPLORE_ITERS)
+                                .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                            prop_assert!((&new)
+                                .into_iter()
+                                .take(INFINITE_EXPLORE_ITERS)
+                                .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                            prop_assert!(new
+                                .clone()
+                                .into_iter()
+                                .take(INFINITE_EXPLORE_ITERS)
+                                .eq(new.0.iter_set().take(INFINITE_EXPLORE_ITERS)));
+                            prop_assert!(new
+                                .iter_unset()
+                                .take(INFINITE_EXPLORE_ITERS)
+                                .eq(new.0.iter_unset().take(INFINITE_EXPLORE_ITERS)));
+                            Ok(())
+                        })?;
                         //
                         let mut buf = new.clone();
                         buf.clear();
