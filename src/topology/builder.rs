@@ -1562,10 +1562,14 @@ pub(crate) mod tests {
                 let res = builder_with_flags(build_flags)?
                     .unwrap()
                     .from_xml_file(&bad_path);
-                prop_assert!(matches!(
-                    res,
-                    Err(FileInputError::Invalid(path)) if *path == *bad_path,
-                ));
+                if cfg!(windows) {
+                    prop_assert!(res.unwrap().build().is_err());
+                } else {
+                    prop_assert!(matches!(
+                        res,
+                        Err(FileInputError::Invalid(path)) if *path == *bad_path,
+                    ));
+                }
             }
         }
 
