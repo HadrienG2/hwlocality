@@ -566,8 +566,7 @@ impl<'topology> InitiatorsAndValues<'topology> {
             (Self::NoInitiator(_), Self::HasInitiators { .. })
             | (Self::HasInitiators { .. }, Self::NoInitiator(_)) => return false,
             // Both have initiators => Need more tests
-            // (tarpaulin says no coverage but that's a lie, otherwise next code
-            // would not have any coverage)
+            #[cfg(not(tarpaulin_include))]
             (
                 Self::HasInitiators {
                     initiators: initiators1,
@@ -581,13 +580,13 @@ impl<'topology> InitiatorsAndValues<'topology> {
         };
 
         // Check initiator/length matches, then compare length
-        // (tarpaulin says no coverage but that's expected, these asserts should
-        // never fail if the rest of the code behaves correctly)
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             initiators1.len(),
             values1.len(),
             "Should have the same amount of initiators and values"
         );
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             initiators2.len(),
             values2.len(),
@@ -629,6 +628,7 @@ impl Debug for InitiatorsAndValues<'_> {
 
         // Handle initiator-ful attributes
         let mut initiator_to_value = f.debug_map();
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             initiators.len(),
             values.len(),
@@ -1247,6 +1247,7 @@ impl<'topology> MemoryAttribute<'topology> {
             }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
+        #[cfg(not(tarpaulin_include))]
         assert!(
             !name.is_null(),
             "Memory attributes should have non-NULL names"
