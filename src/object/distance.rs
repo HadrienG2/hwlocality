@@ -345,20 +345,29 @@ impl Topology {
 impl TopologyEditor<'_> {
     /// Create a new object distances matrix
     ///
-    /// `kind` specifies the kind of distance. You should not use the
-    /// [`HETEROGENEOUS_TYPES`] kind here, it will be set automatically.
+    /// `kind` specifies the kind of distance you are specifying. You should not
+    /// use the [`HETEROGENEOUS_TYPES`] kind here, it will be set automatically.
     ///
     /// `flags` can be used to request the grouping of existing objects based on
     /// distance.
     ///
-    /// The `collect_objects_and_distances` callback should query the geometry
+    /// The `collect_objects_and_distances` callback should query the topology
     /// to collect references to the objects of interest, and produce the
     /// corresponding distance matrix. If there are N output objects, then there
     /// should be N.pow(2) output distances.
     ///
-    /// Distances must be provided in sender-major order: the distance from
-    /// object 0 to object 1, then object 0 to object 2, ... all the way to
-    /// object N, and then from object 1 to object 0, and so on.
+    /// It is legal for some topology objects to appear multiple times as
+    /// endpoints of the distance matrix. This is how one can describe the
+    /// existence of multiple links between two objects.
+    ///
+    /// Distance values must follow the following requirements:
+    ///
+    /// - They are provided in sender-major order: the distance from object 0 to
+    ///   object 1, then object 0 to object 2, ... all the way to object N, and
+    ///   then from object 1 to object 0, and so on.
+    /// - They must be consistent with the specified type, if specified:
+    ///   diagonal values must be minimal for latency-like distances, and
+    ///   maximal for bandwidh-like distances.
     ///
     /// # Errors
     ///
@@ -368,7 +377,7 @@ impl TopologyEditor<'_> {
     /// - [`BadKind`] if the provided `kind` contains [`HETEROGENEOUS_TYPES`] or
     ///   several of the "FROM_" and "MEANS_" kinds
     /// - [`BadObjectsCount`] if less than 2 or more than `c_uint::MAX` objects
-    ///   are returned by the callback(hwloc does not support such
+    ///   are returned by the callback (hwloc does not support such
     ///   configurations)
     /// - [`ForeignEndpoint`] if the callback returned objects that do not
     ///   belong to this topology
