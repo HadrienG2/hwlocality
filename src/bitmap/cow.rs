@@ -114,3 +114,139 @@ impl<Target: OwnedBitmap> Pointer for BitmapCow<'_, Target> {
         <Target as fmt::Pointer>::fmt(self.as_ref(), f)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        bitmap::{Bitmap, SpecializedBitmap},
+        strategies::topology_related_set,
+        topology::Topology,
+    };
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+    use std::hash::{BuildHasher, RandomState};
+
+    // Test BitmapCow construction and intrinsic properties
+    proptest! {
+        /// Test construction from cpuset
+        #[test]
+        fn from_cpuset(cpuset in topology_related_set(Topology::complete_cpuset)) {
+            check_specialized_cow(cpuset)?;
+        }
+
+        /// Test construction from nodeset
+        #[test]
+        fn from_nodeset(nodeset in topology_related_set(Topology::complete_nodeset)) {
+            check_specialized_cow(nodeset)?;
+        }
+    }
+
+    /// Test construction of [`BitmapCow`] from specialized bitmaps
+    fn check_specialized_cow(target: impl SpecializedBitmap) -> Result<(), TestCaseError> {
+        check_any_cow(target.clone())?;
+        check_any_cow::<Bitmap>(target.into())?;
+        Ok(())
+    }
+
+    /// Test construction of [`BitmapCow`] from any bitmap
+    fn check_any_cow<Target: OwnedBitmap>(target: Target) -> Result<(), TestCaseError> {
+        {
+            let from_owned = BitmapCow::from(target.clone());
+            prop_assert!(matches!(
+                &from_owned,
+                BitmapCow::Owned(target2) if *target2 == target
+            ));
+            check_cow(from_owned)?;
+        }
+        {
+            let from_rust_ref = BitmapCow::from(&target);
+            prop_assert!(matches!(
+                &from_rust_ref,
+                BitmapCow::Borrowed(target2) if *target2 == target
+            ));
+            check_cow(from_rust_ref)?;
+        }
+        {
+            let from_bitmap_ref = BitmapCow::from(BitmapRef::from(&target));
+            prop_assert!(matches!(
+                &from_bitmap_ref,
+                BitmapCow::Borrowed(target2) if *target2 == target
+            ));
+            check_cow(from_bitmap_ref)?;
+        }
+        Ok(())
+    }
+
+    /// Test properties of a [`BitmapCow`]
+    fn check_cow<Target: OwnedBitmap>(cow: BitmapCow<'_, Target>) -> Result<(), TestCaseError> {
+        let owned: Target = cow.clone().into_owned();
+        prop_assert_eq!(&cow, &owned);
+
+        let mut target_ref: &Target = cow.as_ref();
+        prop_assert_eq!(target_ref, &owned);
+
+        target_ref = cow.borrow();
+        prop_assert_eq!(target_ref, &owned);
+
+        target_ref = &cow;
+        prop_assert_eq!(target_ref, &owned);
+
+        prop_assert_eq!(cow.to_string(), owned.to_string());
+
+        let bh = RandomState::new();
+        prop_assert_eq!(bh.hash_one(&cow), bh.hash_one(&owned));
+
+        prop_assert_eq!(format!("{:p}", *target_ref), format!("{cow:p}"));
+        prop_assert_ne!(format!("{owned:p}"), format!("{cow:p}"));
+        Ok(())
+    }
+
+    // Test properties of pair of BitmapCows
+    proptest! {
+        /// Test construction from cpuset
+        #[test]
+        fn cpuset_pair(
+            cpusets in prop::array::uniform2(topology_related_set(Topology::complete_cpuset))
+        ) {
+            check_specialized_cow_pair(cpusets)?;
+        }
+
+        /// Test construction from nodeset
+        #[test]
+        fn nodeset_pair(
+            nodesets in prop::array::uniform2(topology_related_set(Topology::complete_nodeset))
+        ) {
+            check_specialized_cow_pair(nodesets)?;
+        }
+    }
+
+    /// Test construction of [`BitmapCow`] from specialized bitmaps
+    fn check_specialized_cow_pair(
+        targets: [impl SpecializedBitmap; 2],
+    ) -> Result<(), TestCaseError> {
+        check_any_cow_pair(targets.clone())?;
+        check_any_cow_pair::<Bitmap>(targets.map(Into::into))?;
+        Ok(())
+    }
+
+    /// Test construction of [`BitmapCow`] from any bitmap
+    fn check_any_cow_pair<Target: OwnedBitmap>(targets: [Target; 2]) -> Result<(), TestCaseError> {
+        check_cow_pair(targets.clone().map(BitmapCow::from))?;
+        let [target1_ref, target2_ref] = &targets;
+        let target_refs = [target1_ref, target2_ref];
+        check_cow_pair(target_refs.map(BitmapCow::from))?;
+        Ok(())
+    }
+
+    /// Test properties of a [`BitmapCow`]
+    fn check_cow_pair<Target: OwnedBitmap>(
+        [cow1, cow2]: [BitmapCow<'_, Target>; 2],
+    ) -> Result<(), TestCaseError> {
+        let target1: &Target = &cow1;
+        let target2: &Target = &cow2;
+        prop_assert_eq!(cow1 == *target2, target1 == target2);
+        Ok(())
+    }
+}
