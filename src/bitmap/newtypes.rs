@@ -696,6 +696,7 @@ macro_rules! impl_bitmap_newtype {
                 trivial_casts
             )]
             #[cfg(test)]
+            #[cfg(not(tarpaulin_include))]
             mod tests {
                 use super::*;
                 use $crate::{
