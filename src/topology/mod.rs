@@ -231,7 +231,8 @@ impl Topology {
                 errno: Some(Errno(EINVAL)),
                 ..
             }) => false,
-            #[cfg(all(windows, not(tarpaulin_include)))]
+            #[cfg(not(tarpaulin_include))]
+            #[cfg(windows)]
             Err(RawHwlocError { errno: None, .. }) => {
                 // As explained in the RawHwlocError documentation, errno values
                 // may not correctly propagate from hwloc to hwlocality on
@@ -487,11 +488,13 @@ impl Topology {
             result: &mut Vec<CpuSet>,
         ) {
             // Debug mode checks
+            #[cfg(not(tarpaulin_include))]
             debug_assert_ne!(
                 roots_and_cpusets.clone().count(),
                 0,
                 "Can't distribute to 0 roots"
             );
+            #[cfg(not(tarpaulin_include))]
             debug_assert_ne!(
                 num_items, 0,
                 "Shouldn't try to distribute 0 items (just don't call this function)"
@@ -557,6 +560,7 @@ impl Topology {
             }
 
             // Debug mode checks
+            #[cfg(not(tarpaulin_include))]
             debug_assert_eq!(
                 result.len() - initial_len,
                 num_items,
@@ -581,6 +585,7 @@ impl Topology {
         // Run the recursion, collect results
         let mut result = Vec::with_capacity(num_items);
         recurse(decoded_roots, num_items, max_depth, flags, &mut result);
+        #[cfg(not(tarpaulin_include))]
         debug_assert_eq!(
             result.len(),
             num_items,

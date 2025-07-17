@@ -119,6 +119,7 @@ impl Topology {
         let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_refresh", || unsafe {
             hwlocality_sys::hwloc_topology_refresh(self.as_mut_ptr())
         });
+        #[cfg(not(tarpaulin_include))]
         if let Err(e) = result {
             eprintln!("ERROR: Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules. Must abort...");
             std::process::abort()
@@ -299,6 +300,7 @@ impl<'topology> TopologyEditor<'topology> {
                     flags.bits(),
                 )
             });
+            #[cfg(not(tarpaulin_include))]
             let handle_enomem = |certain: bool| {
                 let nuance = if certain { "is" } else { "might be" };
                 eprintln!("ERROR: Topology {nuance} stuck in an invalid state. Must abort...");
@@ -312,9 +314,12 @@ impl<'topology> TopologyEditor<'topology> {
                     },
                 ) => match errno.0 {
                     EINVAL => Err(ParameterError::from(set.to_owned())),
+                    #[cfg(not(tarpaulin_include))]
                     ENOMEM => handle_enomem(true),
+                    #[cfg(not(tarpaulin_include))]
                     _ => unreachable!("Unexpected hwloc error: {raw_err}"),
                 },
+                #[cfg(not(tarpaulin_include))]
                 Err(raw_err @ RawHwlocError { errno: None, .. }) => {
                     if cfg!(windows) {
                         // Due to errno propagation issues on windows, we may not
@@ -407,6 +412,7 @@ impl<'topology> TopologyEditor<'topology> {
         });
         match result {
             Ok(()) => Ok(()),
+            #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(ENOSYS)),
                 ..
@@ -705,6 +711,7 @@ impl<'topology> TopologyEditor<'topology> {
             let Some(obj_name) = obj.name() else {
                 return false;
             };
+            #[cfg(not(tarpaulin_include))]
             let Ok(obj_name) = obj_name.to_str() else {
                 return false;
             };
@@ -727,6 +734,7 @@ impl<'topology> TopologyEditor<'topology> {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 bitflags! {
     /// Flags to be given to [`TopologyEditor::restrict()`]
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -1327,16 +1335,19 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
                             child.as_inner(),
                         )
                     });
+                #[cfg(not(tarpaulin_include))]
                 let handle_enomem =
                     |raw_err: RawHwlocError| panic!("Internal reallocation failed: {raw_err}");
                 match result {
                     Ok(()) => {}
+                    #[cfg(not(tarpaulin_include))]
                     Err(
                         raw_err @ RawHwlocError {
                             errno: Some(errno::Errno(ENOMEM)),
                             ..
                         },
                     ) => handle_enomem(raw_err),
+                    #[cfg(not(tarpaulin_include))]
                     #[cfg(windows)]
                     Err(raw_err @ RawHwlocError { errno: None, .. }) => {
                         // As explained in the RawHwlocError documentation,
@@ -1417,16 +1428,18 @@ impl<'editor, 'topology> AllocatedGroup<'editor, 'topology> {
             });
             match result {
                 Ok(()) => Ok(()),
+                #[cfg(not(tarpaulin_include))]
                 Err(RawHwlocError {
                     api: "hwloc_obj_set_subtype",
                     errno: Some(Errno(ENOMEM)),
                 }) => panic!("Ran out of memory while calling hwloc_obj_set_subtype()"),
+                #[cfg(not(tarpaulin_include))]
                 #[cfg(windows)]
                 Err(RawHwlocError {
                     api: "hwloc_obj_set_subtype",
                     errno: None,
                 }) => panic!("Ran out of memory while calling hwloc_obj_set_subtype()"),
-                Err(error) => panic!(
+                Err(error) => unreachable!(
                     "Encountered unexpected error {error} while calling hwloc_obj_set_subtype()"
                 ),
             }
@@ -1543,6 +1556,7 @@ impl Drop for AllocatedGroup<'_, '_> {
                     )
                 },
             );
+            #[cfg(not(tarpaulin_include))]
             if let Err(e) = result {
                 eprintln!("ERROR: Failed to deallocate group object ({e}).");
             }
