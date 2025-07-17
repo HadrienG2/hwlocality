@@ -504,12 +504,15 @@ impl<'topology> TargetAttributeDump<'topology> {
 /// Needs to be its own struct due to design limitations of the
 /// `Debug`/`Formatter` machinery.
 #[derive(Clone)]
-struct InitiatorsAndValues<'topology> {
-    /// Initiators for which attribute values were recorded, if any
-    initiators: Option<Vec<Initiator<'topology>>>,
+enum InitiatorsAndValues<'topology> {
+    /// Has no initiator => Single attribute value for this target
+    NoInitiator(u64),
 
-    /// Recorded attribute value (only 1 if no initiator)
-    values: Vec<u64>,
+    /// Has initiators => One attribute value per initiator for this target
+    HasInitiators {
+        initiators: Vec<Initiator<'topology>>,
+        values: Vec<u64>,
+    },
 }
 //
 impl<'topology> InitiatorsAndValues<'topology> {
@@ -525,25 +528,20 @@ impl<'topology> InitiatorsAndValues<'topology> {
         {
             attribute
                 .initiators(target)
-                .map(|(initiators, values)| Self {
-                    initiators: Some(initiators),
-                    values,
-                })
+                .map(|(initiators, values)| Self::HasInitiators { initiators, values })
                 .expect(
-                    "initiator provided when NEED_INITIATOR, \
-                    target is local, no other known error case",
+                    "local initiator provided when NEED_INITIATOR, \
+                    target is local & valid, no other known error case",
                 )
         } else {
             attribute
                 .value(None, target)
-                .map(|value| Self {
-                    initiators: None,
-                    values: value.map_or_else(Vec::new, |value| vec![value]),
-                })
                 .expect(
-                    "initiator not provided in absence of NEED_INITIATOR, \
-                    target is local, no other known error case",
+                    "initiator not provided when !NEED_INITIATOR, \
+                    target is local & valid, no other known error case",
                 )
+                .map(|value| Self::NoInitiator(value))
+                .expect("initiator from this attribute => should get a value")
         }
     }
 
@@ -558,27 +556,51 @@ impl<'topology> InitiatorsAndValues<'topology> {
     /// Comparing dumps from unrelated topologies will yield an unpredictable
     /// boolean value.
     pub(crate) fn eq_modulo_topology(&self, other: &Self) -> bool {
-        if self.values != other.values {
-            return false;
-        }
-        let (initiators1, initiators2) = match (&self.initiators, &other.initiators) {
-            (Some(i1), Some(i2)) => (i1, i2),
-            (None, None) => return true,
-            (Some(_), None) | (None, Some(_)) => return false,
+        // Compare presence of initiators
+        let (initiators1, values1, initiators2, values2) = match (self, other) {
+            // Both have no initiator => Value should match
+            (Self::NoInitiator(val1), Self::NoInitiator(val2)) => return val1 == val2,
+            // Attributes don't agree on this matter => Not equal
+            (Self::NoInitiator(_), Self::HasInitiators { .. })
+            | (Self::HasInitiators { .. }, Self::NoInitiator(_)) => return false,
+            // Both have initiators => Need more tests
+            (
+                Self::HasInitiators {
+                    initiators: initiators1,
+                    values: values1,
+                },
+                Self::HasInitiators {
+                    initiators: initiators2,
+                    values: values2,
+                },
+            ) => (initiators1, values1, initiators2, values2),
         };
+
+        // Check initiator/length matches, then compare length
+        assert_eq!(initiators1.len(), values1.len());
+        assert_eq!(initiators2.len(), values2.len());
         if initiators1.len() != initiators2.len() {
             return false;
         }
-        initiators1
-            .iter()
-            .zip(initiators2.iter())
-            .all(|(i1, i2)| match (i1, i2) {
-                (Initiator::CpuSet(set1), Initiator::CpuSet(set2)) => set1 == set2,
-                (Initiator::Object(obj1), Initiator::Object(obj2)) => {
-                    obj1.global_persistent_index() == obj2.global_persistent_index()
+
+        // If length matches, compare contents
+        (initiators1.iter().zip(values1))
+            .zip(initiators2.iter().zip(values2))
+            .all(|((i1, v1), (i2, v2))| {
+                // Values should match
+                if v1 != v2 {
+                    return false;
                 }
-                (Initiator::CpuSet(_), Initiator::Object(_))
-                | (Initiator::Object(_), Initiator::CpuSet(_)) => false,
+
+                // Initiator type and content should match
+                match (i1, i2) {
+                    (Initiator::CpuSet(set1), Initiator::CpuSet(set2)) => set1 == set2,
+                    (Initiator::Object(obj1), Initiator::Object(obj2)) => {
+                        obj1.global_persistent_index() == obj2.global_persistent_index()
+                    }
+                    (Initiator::CpuSet(_), Initiator::Object(_))
+                    | (Initiator::Object(_), Initiator::CpuSet(_)) => false,
+                }
             })
     }
 }
@@ -586,18 +608,15 @@ impl<'topology> InitiatorsAndValues<'topology> {
 impl Debug for InitiatorsAndValues<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Handle initiator-less attributes
-        let Some(initiators) = &self.initiators else {
-            assert_eq!(
-                self.values.len(),
-                1,
-                "memory attributes without an initiator should have only one value"
-            );
-            return write!(f, "{}", self.values[0]);
+        let (initiators, values) = match self {
+            Self::NoInitiator(value) => return write!(f, "{value}"),
+            Self::HasInitiators { initiators, values } => (initiators, values),
         };
 
         // Handle initiator-ful attributes
         let mut initiator_to_value = f.debug_map();
-        for (initiator, value) in initiators.iter().zip(&self.values) {
+        assert_eq!(initiators.len(), values.len());
+        for (initiator, value) in initiators.iter().zip(values) {
             initiator_to_value.entry(&initiator, &value);
         }
         initiator_to_value.finish()
