@@ -1563,7 +1563,7 @@ pub(crate) mod tests {
                     .unwrap()
                     .from_xml_file(&bad_path);
                 // For unknown reasons, hwloc does not always detect that the
-                // XML file path doesn't exist.
+                // XML file is empty ahead of time.
                 if res.is_err() {
                     prop_assert!(matches!(
                         res,
