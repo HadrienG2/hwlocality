@@ -566,8 +566,7 @@ impl<'topology> InitiatorsAndValues<'topology> {
             (Self::NoInitiator(_), Self::HasInitiators { .. })
             | (Self::HasInitiators { .. }, Self::NoInitiator(_)) => return false,
             // Both have initiators => Need more tests
-            // (tarpaulin says no coverage but that's a lie, otherwise next code
-            // would not have any coverage)
+            #[cfg(not(tarpaulin_include))]
             (
                 Self::HasInitiators {
                     initiators: initiators1,
@@ -581,13 +580,13 @@ impl<'topology> InitiatorsAndValues<'topology> {
         };
 
         // Check initiator/length matches, then compare length
-        // (tarpaulin says no coverage but that's expected, these asserts should
-        // never fail if the rest of the code behaves correctly)
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             initiators1.len(),
             values1.len(),
             "Should have the same amount of initiators and values"
         );
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             initiators2.len(),
             values2.len(),
@@ -629,6 +628,7 @@ impl Debug for InitiatorsAndValues<'_> {
 
         // Handle initiator-ful attributes
         let mut initiator_to_value = f.debug_map();
+        #[cfg(not(tarpaulin_include))]
         assert_eq!(
             initiators.len(),
             values.len(),
@@ -1247,6 +1247,7 @@ impl<'topology> MemoryAttribute<'topology> {
             }
             Err(raw_err) => unreachable!("Unexpected hwloc error: {raw_err}"),
         }
+        #[cfg(not(tarpaulin_include))]
         assert!(
             !name.is_null(),
             "Memory attributes should have non-NULL names"
@@ -1760,7 +1761,7 @@ impl<'topology> MemoryAttribute<'topology> {
         // choose to handle it identically by returning an empty list.
         if api == "hwloc_memattr_get_initiators" {
             match res {
-                Ok(_positive) => {}
+                Ok(()) => {}
                 Err(RawHwlocError {
                     errno: Some(Errno(EINVAL)),
                     ..
@@ -2130,13 +2131,13 @@ impl<'target> Initiator<'target> {
                         .expect("Unexpected null TopologyObject from hwloc");
                     Ok(Initiator::Object(ptr.as_ref().as_newtype()))
                 }
+                #[cfg(not(tarpaulin_include))]
                 unknown => Err(LocationTypeError(unknown)),
             }
         }
     }
 }
 //
-#[cfg(not(tarpaulin_include))]
 impl<'target> From<CpuSet> for Initiator<'target> {
     fn from(cpuset: CpuSet) -> Self {
         BitmapCow::from(cpuset).into()
@@ -2149,14 +2150,12 @@ impl<'target> From<BitmapCow<'target, CpuSet>> for Initiator<'target> {
     }
 }
 //
-#[cfg(not(tarpaulin_include))]
 impl<'target> From<BitmapRef<'target, CpuSet>> for Initiator<'target> {
     fn from(cpuset: BitmapRef<'target, CpuSet>) -> Self {
         BitmapCow::from(cpuset).into()
     }
 }
 //
-#[cfg(not(tarpaulin_include))]
 impl<'target> From<&'target CpuSet> for Initiator<'target> {
     fn from(cpuset: &'target CpuSet) -> Self {
         BitmapCow::from(cpuset).into()
@@ -2323,7 +2322,6 @@ impl NUMAInitiator<'_> {
     }
 }
 //
-#[cfg(not(tarpaulin_include))]
 impl<'target, T: Into<Initiator<'target>>> From<T> for NUMAInitiator<'target> {
     fn from(initiator: T) -> Self {
         Self::Local {
@@ -3761,6 +3759,95 @@ mod tests {
 
         // Debug impl should not crash
         let _debug_didnt_crash = format!("{dump:?}");
+        Ok(())
+    }
+
+    // Test Initiator constructors
+    proptest! {
+        /// Test initiator construction from cpuset
+        #[test]
+        fn initiator_from_cpuset(cset in topology_related_set(Topology::complete_cpuset)) {
+            {
+                let from_owned = Initiator::from(cset.clone());
+                prop_assert!(matches!(
+                    &from_owned,
+                    Initiator::CpuSet(cset2) if *cset2 == cset
+                ));
+                check_numa_initiator(from_owned)?;
+            }
+            {
+                let from_rust_ref = Initiator::from(&cset);
+                prop_assert!(matches!(
+                    &from_rust_ref,
+                    Initiator::CpuSet(cset2) if *cset2 == cset
+                ));
+                check_numa_initiator(from_rust_ref)?;
+            }
+            {
+                let from_bitmap_ref = Initiator::from(BitmapRef::from(&cset));
+                prop_assert!(matches!(
+                    &from_bitmap_ref,
+                    Initiator::CpuSet(cset2) if *cset2 == cset
+                ));
+                check_numa_initiator(from_bitmap_ref)?;
+            }
+            {
+                let from_cow_ref = Initiator::from(BitmapCow::from(&cset));
+                prop_assert!(matches!(
+                    &from_cow_ref,
+                    Initiator::CpuSet(cset2) if *cset2 == cset
+                ));
+                check_numa_initiator(from_cow_ref)?;
+            }
+            {
+                let from_cow_owned = Initiator::from(BitmapCow::from(cset.clone()));
+                prop_assert!(matches!(
+                    &from_cow_owned,
+                    Initiator::CpuSet(cset2) if *cset2 == cset
+                ));
+                check_numa_initiator(from_cow_owned)?;
+            }
+        }
+
+        /// Test initiator construction from topology object
+        #[test]
+        fn initiator_from_object(obj in any_object()) {
+            let from_obj = Initiator::from(obj);
+            prop_assert!(matches!(
+                &from_obj,
+                Initiator::Object(obj2)
+                    if obj.global_persistent_index() == obj2.global_persistent_index()
+            ));
+            check_numa_initiator(from_obj)?;
+        }
+    }
+
+    /// Test conversion of [`Initiator`] to [`NUMAInitiator`]
+    fn check_numa_initiator(initiator: Initiator<'_>) -> Result<(), TestCaseError> {
+        let numa = NUMAInitiator::from(initiator.clone());
+        let NUMAInitiator::Local {
+            initiator: initiator2,
+            flags,
+        } = numa
+        else {
+            panic!("Initiator to NUMAInitiator conversion should produce a local NUMA initiator");
+        };
+        prop_assert_eq!(flags, LocalNUMANodeFlags::empty());
+        match (initiator, initiator2) {
+            (Initiator::CpuSet(cset), Initiator::CpuSet(cset2)) => {
+                prop_assert_eq!(cset, cset2);
+            }
+            (Initiator::Object(obj), Initiator::Object(obj2)) => {
+                prop_assert_eq!(
+                    obj.global_persistent_index(),
+                    obj2.global_persistent_index()
+                );
+            }
+            (Initiator::CpuSet(_), Initiator::Object(_))
+            | (Initiator::Object(_), Initiator::CpuSet(_)) => {
+                panic!("Initiator to NUMAInitiator conversion should preserve initiator type")
+            }
+        }
         Ok(())
     }
 }
