@@ -1761,7 +1761,7 @@ impl<'topology> MemoryAttribute<'topology> {
         // choose to handle it identically by returning an empty list.
         if api == "hwloc_memattr_get_initiators" {
             match res {
-                Ok(_positive) => {}
+                Ok(()) => {}
                 Err(RawHwlocError {
                     errno: Some(Errno(EINVAL)),
                     ..
