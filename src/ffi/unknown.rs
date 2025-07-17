@@ -47,3 +47,18 @@ impl<T> UnknownVariant<T> {
         self.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    #[allow(unused)]
+    use similar_asserts::assert_eq;
+
+    proptest! {
+        #[test]
+        fn unknown_get(v: u64) {
+            prop_assert_eq!(UnknownVariant(v).get(), v);
+        }
+    }
+}

@@ -88,7 +88,7 @@ impl From<BridgeType> for hwloc_obj_bridge_type_t {
         match value {
             BridgeType::Host => HWLOC_OBJ_BRIDGE_HOST,
             BridgeType::PCI => HWLOC_OBJ_BRIDGE_PCI,
-            BridgeType::Unknown(unknown) => unknown.0,
+            BridgeType::Unknown(unknown) => unknown.get(),
         }
     }
 }
@@ -145,7 +145,7 @@ impl From<CacheType> for hwloc_obj_cache_type_t {
             CacheType::Unified => HWLOC_OBJ_CACHE_UNIFIED,
             CacheType::Data => HWLOC_OBJ_CACHE_DATA,
             CacheType::Instruction => HWLOC_OBJ_CACHE_INSTRUCTION,
-            CacheType::Unknown(unknown) => unknown.0,
+            CacheType::Unknown(unknown) => unknown.get(),
         }
     }
 }
@@ -241,7 +241,7 @@ impl From<OSDeviceType> for hwloc_obj_osdev_type_t {
             OSDeviceType::CoProcessor => HWLOC_OBJ_OSDEV_COPROC,
             #[cfg(feature = "hwloc-3_0_0")]
             OSDeviceType::Memory => HWLOC_OBJ_OSDEV_MEMORY,
-            OSDeviceType::Unknown(unknown) => unknown.0,
+            OSDeviceType::Unknown(unknown) => unknown.get(),
         }
     }
 }
@@ -632,7 +632,7 @@ impl From<ObjectType> for hwloc_obj_type_t {
             ObjectType::MemCache => HWLOC_OBJ_MEMCACHE,
             #[cfg(feature = "hwloc-2_1_0")]
             ObjectType::Die => HWLOC_OBJ_DIE,
-            ObjectType::Unknown(unknown) => unknown.0,
+            ObjectType::Unknown(unknown) => unknown.get(),
         }
     }
 }

@@ -1540,7 +1540,7 @@ impl From<MemoryBindingPolicy> for hwloc_membind_policy_t {
             #[cfg(feature = "hwloc-2_11_0")]
             MemoryBindingPolicy::WeightedInterleave => HWLOC_MEMBIND_WEIGHTED_INTERLEAVE,
             MemoryBindingPolicy::NextTouch => HWLOC_MEMBIND_NEXTTOUCH,
-            MemoryBindingPolicy::Unknown(unknown) => unknown.0,
+            MemoryBindingPolicy::Unknown(unknown) => unknown.get(),
         }
     }
 }

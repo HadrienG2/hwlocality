@@ -1003,7 +1003,7 @@ impl From<TypeFilter> for hwloc_type_filter_e {
             TypeFilter::KeepNone => HWLOC_TYPE_FILTER_KEEP_NONE,
             TypeFilter::KeepStructure => HWLOC_TYPE_FILTER_KEEP_STRUCTURE,
             TypeFilter::KeepImportant => HWLOC_TYPE_FILTER_KEEP_IMPORTANT,
-            TypeFilter::Unknown(unknown) => unknown.0,
+            TypeFilter::Unknown(unknown) => unknown.get(),
         }
     }
 }
