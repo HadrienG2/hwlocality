@@ -397,9 +397,7 @@ impl TopologyEditor<'_> {
         name: Option<&str>,
         kind: DistancesKind,
         flags: AddDistancesFlags,
-        collect_objects_and_distances: impl FnOnce(
-            &Topology,
-        ) -> (Vec<Option<&TopologyObject>>, Vec<u64>),
+        collect_objects_and_distances: impl FnOnce(&Topology) -> (Vec<&TopologyObject>, Vec<u64>),
     ) -> Result<(), HybridError<AddDistancesError>> {
         /// Polymorphized subset of this function (avoids generics code bloat)
         ///
@@ -511,8 +509,8 @@ impl TopologyEditor<'_> {
         }
         let object_ptrs =
             // SAFETY: - TopologyObject is a repr(transparent) newtype of
-            //           hwloc_obj so Option<&TopologyObject> matches *const
-            //           hwloc_obj in layout and semantics.
+            //           hwloc_obj so &TopologyObject matches *const hwloc_obj
+            //           in layout and semantics.
             //         - The output slice covers the same memory span as the
             //           original objects vec, so if the length was right for
             //           the former, it is right for the latter too.
