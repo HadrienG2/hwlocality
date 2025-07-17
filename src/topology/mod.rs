@@ -224,6 +224,8 @@ impl Topology {
         });
         match result {
             Ok(()) => true,
+            // Lack of tarpaulin coverage expected, this check should never fail
+            // unless something horribly wrong is happening.
             #[cfg(not(tarpaulin_include))]
             Err(RawHwlocError {
                 errno: Some(Errno(EINVAL)),
