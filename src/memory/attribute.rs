@@ -510,7 +510,9 @@ enum InitiatorsAndValues<'topology> {
 
     /// Has initiators => One attribute value per initiator for this target
     HasInitiators {
+        /// Initiators for this target
         initiators: Vec<Initiator<'topology>>,
+        /// Values for this target (same length)
         values: Vec<u64>,
     },
 }
@@ -540,7 +542,7 @@ impl<'topology> InitiatorsAndValues<'topology> {
                     "initiator not provided when !NEED_INITIATOR, \
                     target is local & valid, no other known error case",
                 )
-                .map(|value| Self::NoInitiator(value))
+                .map(Self::NoInitiator)
                 .expect("initiator from this attribute => should get a value")
         }
     }
@@ -564,6 +566,8 @@ impl<'topology> InitiatorsAndValues<'topology> {
             (Self::NoInitiator(_), Self::HasInitiators { .. })
             | (Self::HasInitiators { .. }, Self::NoInitiator(_)) => return false,
             // Both have initiators => Need more tests
+            // (tarpaulin says no coverage but that's a lie, otherwise next code
+            // would not have any coverage)
             (
                 Self::HasInitiators {
                     initiators: initiators1,
@@ -577,8 +581,18 @@ impl<'topology> InitiatorsAndValues<'topology> {
         };
 
         // Check initiator/length matches, then compare length
-        assert_eq!(initiators1.len(), values1.len());
-        assert_eq!(initiators2.len(), values2.len());
+        // (tarpaulin says no coverage but that's expected, these asserts should
+        // never fail if the rest of the code behaves correctly)
+        assert_eq!(
+            initiators1.len(),
+            values1.len(),
+            "Should have the same amount of initiators and values"
+        );
+        assert_eq!(
+            initiators2.len(),
+            values2.len(),
+            "Should have the same amount of initiators and values"
+        );
         if initiators1.len() != initiators2.len() {
             return false;
         }
@@ -615,7 +629,11 @@ impl Debug for InitiatorsAndValues<'_> {
 
         // Handle initiator-ful attributes
         let mut initiator_to_value = f.debug_map();
-        assert_eq!(initiators.len(), values.len());
+        assert_eq!(
+            initiators.len(),
+            values.len(),
+            "Should have the same amount of initiators and values"
+        );
         for (initiator, value) in initiators.iter().zip(values) {
             initiator_to_value.entry(&initiator, &value);
         }
@@ -1483,11 +1501,11 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`NoInitiators`] if this memory attribute doesn't have initiators
+    /// - [`NoInitiator`] if this memory attribute doesn't have initiators
     /// - [`ForeignTarget`] if `target` does not belong to this topology
     ///
     /// [`ForeignTarget`]: InitiatorQueryError::ForeignTarget
-    /// [`NoInitiators`]: InitiatorQueryError::NoInitiators
+    /// [`NoInitiator`]: InitiatorQueryError::NoInitiator
     #[doc(alias = "hwloc_memattr_get_best_initiator")]
     pub fn best_initiator(
         &self,
@@ -1624,11 +1642,11 @@ impl<'topology> MemoryAttribute<'topology> {
     ///
     /// # Errors
     ///
-    /// - [`NoInitiators`] if this memory attribute doesn't have initiators
+    /// - [`NoInitiator`] if this memory attribute doesn't have initiators
     /// - [`ForeignTarget`] if `target` does not belong to this topology
     ///
     /// [`ForeignTarget`]: InitiatorQueryError::ForeignTarget
-    /// [`NoInitiators`]: InitiatorQueryError::NoInitiators
+    /// [`NoInitiator`]: InitiatorQueryError::NoInitiator
     #[doc(alias = "hwloc_memattr_get_initiators")]
     pub fn initiators(
         &self,
@@ -1937,7 +1955,7 @@ impl<'topology> MemoryAttribute<'topology> {
         target: &TopologyObject,
     ) -> Result<(), InitiatorQueryError> {
         if !self.flags().contains(MemoryAttributeFlags::NEED_INITIATOR) {
-            return Err(InitiatorQueryError::NoInitiators(self.error_name()));
+            return Err(InitiatorQueryError::NoInitiator(self.error_name()));
         }
         if !self.topology.contains(target) {
             return Err(target.into());
@@ -1983,7 +2001,7 @@ pub enum InitiatorQueryError {
 
     /// This memory attribute doesn't have initiators
     #[error("memory attribute {0} has no initiator but its initiator was queried")]
-    NoInitiators(Box<str>),
+    NoInitiator(Box<str>),
 }
 //
 impl<'topology> From<&'topology TopologyObject> for InitiatorQueryError {
@@ -2411,7 +2429,7 @@ mod tests {
             for numa in topology.objects_with_type(ObjectType::NUMANode) {
                 assert!(matches!(
                     attribute.initiators(numa),
-                    Err(HybridError::Rust(InitiatorQueryError::NoInitiators(_)))
+                    Err(HybridError::Rust(InitiatorQueryError::NoInitiator(_)))
                 ));
                 assert_eq!(attribute.value(None, numa), Ok(Some(expected_value(numa))));
                 numa_set.insert(numa.global_persistent_index());
@@ -2767,7 +2785,7 @@ mod tests {
                 match res_wo_ok {
                     Ok(()) => prop_assert!(!(no_initiators || foreign_target)),
                     Err(InitiatorQueryError::ForeignTarget(_)) => prop_assert!(foreign_target),
-                    Err(InitiatorQueryError::NoInitiators(_)) => prop_assert!(no_initiators),
+                    Err(InitiatorQueryError::NoInitiator(_)) => prop_assert!(no_initiators),
                 }
                 Ok(())
             };
@@ -3679,8 +3697,70 @@ mod tests {
             prop_assert!(!dump.eq_modulo_topology(&swapped_targets));
         }
 
-        // TODO: Stress InitiatorsAndValues component of dump some more,
-        //       including its Debug impl. Then hopefully final tarpaulin run.
+        // Need an attribute with initiators for the next tests
+        if !dump
+            .attribute
+            .flags()
+            .contains(MemoryAttributeFlags::NEED_INITIATOR)
+        {
+            return Ok(());
+        }
+
+        // Replacing a target with initiators with one without initiators should
+        // make the comparison fail.
+        {
+            let mut without_initiator = dump.clone();
+            without_initiator.targets.0[0].initiators_and_values =
+                InitiatorsAndValues::NoInitiator(42);
+            prop_assert!(!dump.eq_modulo_topology(&without_initiator));
+            prop_assert!(!without_initiator.eq_modulo_topology(&dump));
+        }
+
+        // Changing the number of initiators for one target should make the
+        // comparison fail
+        {
+            let mut less_initiators = dump.clone();
+            let InitiatorsAndValues::HasInitiators { initiators, values } =
+                &mut less_initiators.targets.0[0].initiators_and_values
+            else {
+                panic!("attribute with NEED_INITIATOR should have an initiator")
+            };
+            initiators.pop();
+            values.pop();
+            prop_assert!(!dump.eq_modulo_topology(&less_initiators));
+        }
+
+        // Changing one value should make the comparison fail
+        {
+            let mut different_value = dump.clone();
+            let InitiatorsAndValues::HasInitiators { values, .. } =
+                &mut different_value.targets.0[0].initiators_and_values
+            else {
+                panic!("attribute with NEED_INITIATOR should have an initiator")
+            };
+            values[0] = values[0].wrapping_add(1);
+            prop_assert!(!dump.eq_modulo_topology(&different_value));
+        }
+
+        // Heterogeneous initiators should make the comparison fail
+        {
+            let topology = dump.attribute.topology;
+            let mut different_initiator_type = dump.clone();
+            let InitiatorsAndValues::HasInitiators { initiators, .. } =
+                &mut different_initiator_type.targets.0[0].initiators_and_values
+            else {
+                panic!("attribute with NEED_INITIATOR should have an initiator")
+            };
+            match &mut initiators[0] {
+                r @ Initiator::CpuSet(_) => *r = topology.root_object().into(),
+                r @ Initiator::Object(_) => *r = topology.complete_cpuset().into(),
+            };
+            prop_assert!(!dump.eq_modulo_topology(&different_initiator_type));
+            prop_assert!(!different_initiator_type.eq_modulo_topology(&dump));
+        }
+
+        // Debug impl should not crash
+        let _debug_didnt_crash = format!("{dump:?}");
         Ok(())
     }
 }
