@@ -345,6 +345,8 @@ impl Topology {
 impl TopologyEditor<'_> {
     /// Create a new object distances matrix
     ///
+    /// `name` is optional and can be used to clarify what the distances mean.
+    ///
     /// `kind` specifies the kind of distance you are specifying. You should not
     /// use the [`HETEROGENEOUS_TYPES`] kind here, it will be set automatically.
     ///
@@ -366,28 +368,34 @@ impl TopologyEditor<'_> {
     ///   object 1, then object 0 to object 2, ... all the way to object N, and
     ///   then from object 1 to object 0, and so on.
     /// - They must be consistent with the specified type, if specified:
-    ///   diagonal values must be minimal for latency-like distances, and
-    ///   maximal for bandwidh-like distances.
+    ///   diagonal values (from an object to itself) must be minimal for
+    ///   latency-like distances, and maximal for bandwidh-like distances.
     ///
     /// # Errors
     ///
-    /// - [`InconsistentData`] if the number of distances returned by the
-    ///   callback is not compatible with the number of objects (it should be
-    ///   the square of it)
+    /// - [`NameContainsNul`] if the provided `name` contains NUL chars
     /// - [`BadKind`] if the provided `kind` contains [`HETEROGENEOUS_TYPES`] or
     ///   several of the "FROM_" and "MEANS_" kinds
-    /// - [`BadObjectsCount`] if less than 2 or more than `c_uint::MAX` objects
+    /// - [`BadEndpointCount`] if less than 2 or more than `c_uint::MAX` objects
     ///   are returned by the callback (hwloc does not support such
     ///   configurations)
     /// - [`ForeignEndpoint`] if the callback returned objects that do not
     ///   belong to this topology
-    /// - [`NameContainsNul`] if the provided `name` contains NUL chars
+    /// - [`InconsistentDiagonal`] if a `MEANS_` kind is specified and the
+    ///   diagonal values are not consistent with it (minimal for
+    ///   [`MEANS_LATENCY`], maximal for [`MEANS_BANDWIDTH`])
+    /// - [`InconsistentLen`] if the number of distances returned by the
+    ///   callback is not compatible with the number of objects (it should be
+    ///   the square of it)
     ///
-    /// [`InconsistentData`]: AddDistancesError::InconsistentData
+    /// [`BadEndpointCount`]: AddDistancesError::BadEndpointCount
     /// [`BadKind`]: AddDistancesError::BadKind
-    /// [`BadObjectsCount`]: AddDistancesError::BadObjectsCount
     /// [`ForeignEndpoint`]: AddDistancesError::ForeignEndpoint
     /// [`HETEROGENEOUS_TYPES`]: DistancesKind::HETEROGENEOUS_TYPES
+    /// [`InconsistentDiagonal`]: AddDistancesError::InconsistentDiagonal
+    /// [`InconsistentLen`]: AddDistancesError::InconsistentLen
+    /// [`MEANS_BANDWIDTH`]: DistancesKind::MEANS_BANDWIDTH
+    /// [`MEANS_LATENCY`]: DistancesKind::MEANS_LATENCY
     /// [`NameContainsNul`]: AddDistancesError::NameContainsNul
     #[doc(alias = "hwloc_distances_add_create")]
     #[doc(alias = "hwloc_distances_add_values")]
@@ -423,21 +431,41 @@ impl TopologyEditor<'_> {
             if !kind.is_valid(true) {
                 return Err(AddDistancesError::BadKind(kind.into()).into());
             }
-            let kind = kind.bits();
             //
             let create_add_flags = 0;
             let commit_flags = flags.bits();
             //
             if object_ptrs.len() < 2 {
-                return Err(AddDistancesError::BadObjectsCount(object_ptrs.len()).into());
+                return Err(AddDistancesError::BadEndpointCount(object_ptrs.len()).into());
             }
             let Ok(nbobjs) = c_uint::try_from(object_ptrs.len()) else {
-                return Err(AddDistancesError::BadObjectsCount(object_ptrs.len()).into());
+                return Err(AddDistancesError::BadEndpointCount(object_ptrs.len()).into());
             };
             let expected_distances_len = object_ptrs.len().pow(2);
             if distances.len() != expected_distances_len {
-                return Err(AddDistancesError::InconsistentData.into());
+                return Err(AddDistancesError::InconsistentLen.into());
             }
+            //
+            type ExtremalValue = for<'a> fn(std::slice::Iter<'a, u64>) -> Option<&'a u64>;
+            let check_value_kind_consistency =
+                |kind: DistancesKind, diagonal_value: ExtremalValue| {
+                    if kind.contains(kind) {
+                        for (origin_idx, distances) in
+                            distances.chunks(object_ptrs.len()).enumerate()
+                        {
+                            let min_distance = *diagonal_value(distances.iter())
+                                .expect("There are distance values if control reaches this point");
+                            if distances[origin_idx] != min_distance {
+                                return Err(AddDistancesError::InconsistentDiagonal(kind).into());
+                            }
+                        }
+                    }
+                    Ok::<_, HybridError<AddDistancesError>>(())
+                };
+            check_value_kind_consistency(DistancesKind::MEANS_LATENCY, |iter| iter.min())?;
+            check_value_kind_consistency(DistancesKind::MEANS_BANDWIDTH, |iter| iter.max())?;
+            //
+            let kind = kind.bits();
             let values = distances.as_ptr();
 
             // Create new empty distances structure
@@ -502,7 +530,7 @@ impl TopologyEditor<'_> {
         // something that hwloc and the borrow checker will accept
         let topology = self.topology();
         let (objects, distances) = collect_objects_and_distances(topology);
-        for obj in objects.iter().flatten().copied() {
+        for obj in objects.iter().copied() {
             if !topology.contains(obj) {
                 return Err(AddDistancesError::ForeignEndpoint(obj.into()).into());
             }
@@ -557,6 +585,10 @@ crate::impl_arbitrary_for_bitflags!(AddDistancesFlags, hwloc_distances_add_flag_
 #[cfg(feature = "hwloc-2_5_0")]
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
 pub enum AddDistancesError {
+    /// Provided `name` contains NUL chars
+    #[error("distances name can't contain NUL chars")]
+    NameContainsNul,
+
     /// Provided `kind` is invalid
     ///
     /// Either it contains [`DistancesKind::HETEROGENEOUS_TYPES`], which should
@@ -572,23 +604,32 @@ pub enum AddDistancesError {
     /// hwloc only supports distances matrices involving 2 to [`c_uint::MAX`]
     /// objects.
     #[error("can't add distances between {0} objects")]
-    BadObjectsCount(usize),
+    BadEndpointCount(usize),
 
     /// Provided callback returned one or more enpoint objects that do not
     /// belong to this [`Topology`]
     #[error("distance endpoint {0}")]
     ForeignEndpoint(#[from] ForeignObjectError),
 
+    /// Provided callback returned distance values that are not specified with
+    /// the specified distance kind
+    ///
+    /// If `kind` contains [`MEANS_LATENCY`](DistancesKind::MEANS_LATENCY),
+    /// diagonal distance values (from an object to itself) should be lower than
+    /// other distances from the same origin.
+    ///
+    /// If `kind` contains [`MEANS_BANDWIDTH`](DistancesKind::MEANS_BANDWIDTH),
+    /// diagonal distance values should be higher than other distances from the
+    /// same origin.
+    #[error("diagonal distance values are not compatible with kind {0:?}")]
+    InconsistentDiagonal(DistancesKind),
+
     /// Provided callback returned incompatible objects and distances arrays
     ///
     /// If we denote N the length of the objects array, the distances array
     /// should contain N.pow(2) elements.
     #[error("number of specified objects and distances isn't consistent")]
-    InconsistentData,
-
-    /// Provided `name` contains NUL chars
-    #[error("distances name can't contain NUL chars")]
-    NameContainsNul,
+    InconsistentLen,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
