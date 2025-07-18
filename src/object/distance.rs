@@ -367,9 +367,9 @@ impl TopologyEditor<'_> {
     /// - They are provided in sender-major order: the distance from object 0 to
     ///   object 1, then object 0 to object 2, ... all the way to object N, and
     ///   then from object 1 to object 0, and so on.
-    /// - They must be consistent with the specified type, if specified:
-    ///   diagonal values (from an object to itself) must be minimal for
-    ///   latency-like distances, and maximal for bandwidh-like distances.
+    /// - They must be consistent with the `_MEANS` kind, if specified: diagonal
+    ///   values (from an object to itself) must be minimal for latency-like
+    ///   distances, and maximal for bandwidh-like distances.
     ///
     /// # Errors
     ///
