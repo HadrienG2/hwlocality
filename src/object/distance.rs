@@ -1671,8 +1671,211 @@ mod tests {
     #[cfg(feature = "hwloc-2_5_0")]
     mod hwloc25 {
         use super::*;
+        use crate::strategies::{any_object, any_string};
+        use proptest::sample::SizeRange;
+        use std::collections::{HashMap, HashSet};
 
-        // TODO: Try adding distances, check operation, then call distance
-        //       matrix and topology checks
+        /// Building blocks for a call to `add_distances()`
+        fn add_distances_building_blocks() -> impl Strategy<
+            Value = (
+                Option<String>,
+                DistancesKind,
+                AddDistancesFlags,
+                Vec<&'static TopologyObject>,
+                Vec<u64>,
+            ),
+        > {
+            let name = prop::option::of(any_string());
+            let kind = any::<DistancesKind>();
+            let flags = any::<AddDistancesFlags>();
+            let endpoints = prop::collection::vec(any_object(), SizeRange::default());
+            (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
+                let num_endpoints = endpoints.len();
+                let correct_values_count = prop::collection::vec(
+                    any::<u64>(),
+                    num_endpoints.pow(2),
+                );
+                let values = prop_oneof![
+                    // Correct number of values
+                    3 => correct_values_count.prop_flat_map(move |mut values| {
+                        // Do we have a flag with diagonal value expectations?
+                        if !values.is_empty() && kind.intersects(DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH) {
+                            prop_oneof![
+                                // Correct diagonal values
+                                3 => {
+                                    for (endpoint_idx, values_from_endpoint) in values.chunks_mut(num_endpoints).enumerate() {
+                                        let diagonal_value = if kind.contains(DistancesKind::MEANS_LATENCY) {
+                                            *values_from_endpoint.iter().min().unwrap()
+                                        } else {
+                                            assert!(kind.contains(DistancesKind::MEANS_BANDWIDTH));
+                                            *values_from_endpoint.iter().max().unwrap()
+                                        };
+                                        let diagonal_value_idx = values_from_endpoint.iter().position(|&v| v == diagonal_value).unwrap();
+                                        values_from_endpoint.swap(endpoint_idx, diagonal_value_idx);
+                                    }
+                                    Just(values.clone())
+                                },
+                                // Likely-incorrect diagonal values
+                                2 => Just(values)
+                            ].boxed()
+                        } else {
+                            Just(values).boxed()
+                        }
+                    }),
+                    // Likely-incorrect number of values
+                    2 => prop::collection::vec(any::<u64>(), SizeRange::default()),
+                ];
+                (Just(name), Just(kind), Just(flags), Just(endpoints), values)
+            })
+        }
+        //
+        proptest! {
+            /// Test [`TopologyEditor::add_distances()`]
+            #[test]
+            fn add_distances((name, kind, flags, endpoints, values) in add_distances_building_blocks()) {
+                // Access the reference topology
+                let initial_topology = Topology::test_instance();
+
+                // Predict errors
+                let name_contains_nul =
+                    name.as_ref().is_some_and(|name| name.chars().any(|c| c == '\0'));
+                type Kind = DistancesKind;
+                let bad_kind =
+                    kind.contains(Kind::HETEROGENEOUS_TYPES)
+                    || kind.contains(Kind::FROM_OS | Kind::FROM_USER)
+                    || kind.contains(Kind::MEANS_LATENCY | Kind::MEANS_BANDWIDTH);
+                let bad_endpoint_count = endpoints.len() < 2 || endpoints.len() > c_uint::MAX as usize;
+                let foreign_endpoint = endpoints.iter().any(|obj| !initial_topology.contains(obj));
+                let inconsistent_len = values.len() != endpoints.len().pow(2);
+                let inconsistent_diagonal = {
+                    let preconditions = !bad_endpoint_count && !inconsistent_len;
+                    let has_inconsistent_diagonal = |
+                        means_kind,
+                        reduction: fn(std::slice::Iter<'_, u64>) -> Option<&u64>,
+                    | {
+                        kind.contains(means_kind)
+                        && values
+                            .chunks(endpoints.len())
+                            .enumerate()
+                            .any(|(endpoint_idx, values_from_endpoint)| {
+                                let expected_diagonal = *reduction(values_from_endpoint.iter()).unwrap();
+                                values_from_endpoint[endpoint_idx] != expected_diagonal
+                            })
+                    };
+                    preconditions && (
+                        has_inconsistent_diagonal(Kind::MEANS_LATENCY, |iter| iter.min())
+                        || has_inconsistent_diagonal(Kind::MEANS_BANDWIDTH, |iter| iter.max())
+                    )
+                };
+                let expecting_error =
+                    name_contains_nul
+                    || bad_kind
+                    || bad_endpoint_count
+                    || foreign_endpoint
+                    || inconsistent_diagonal
+                    || inconsistent_len;
+
+                // Now try adding the distances
+                let mut topology = initial_topology.clone();
+                topology.edit(|editor| {
+                    let res = editor.add_distances(name.as_deref(), kind, flags, |topology| {
+                        let id_to_object = topology
+                            .objects()
+                            .map(|obj| (obj.global_persistent_index(), obj))
+                            .collect::<HashMap<_, _>>();
+                        let endpoints = endpoints
+                            .iter()
+                            .map(|obj| {
+                                if initial_topology.contains(obj) {
+                                    id_to_object[&obj.global_persistent_index()]
+                                } else {
+                                    obj
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        (endpoints, values.clone())
+                    });
+
+                    // Check the result against expectations
+                    match res {
+                        Ok(()) => prop_assert!(!expecting_error),
+                        Err(HybridError::Rust(r)) => {
+                            match r {
+                                AddDistancesError::NameContainsNul => prop_assert!(name_contains_nul),
+                                AddDistancesError::BadKind(_) => prop_assert!(bad_kind),
+                                AddDistancesError::BadEndpointCount(_) => prop_assert!(bad_endpoint_count),
+                                AddDistancesError::ForeignEndpoint(_) => prop_assert!(foreign_endpoint),
+                                AddDistancesError::InconsistentDiagonal(_) => prop_assert!(inconsistent_diagonal),
+                                AddDistancesError::InconsistentLen => prop_assert!(inconsistent_len),
+                            }
+                            prop_assert_eq!(editor.topology(), initial_topology);
+                            return Ok(());
+                        },
+                        Err(HybridError::Hwloc(h)) => unreachable!("unexpected hwloc error {h:?}"),
+                    };
+
+                    // If control reached this point, the distances should
+                    // have been added. Let's check that.
+                    //
+                    // First, we should see one more distance matrix
+                    let topology = editor.topology();
+                    let initial_distances = initial_topology.distances(None).unwrap();
+                    let distances = topology.distances(None).unwrap();
+                    prop_assert_eq!(distances.len(), initial_distances.len() + 1);
+
+                    // The first distances should be the same as before, the last
+                    // one should be newly added.
+                    let (last_distances, first_distances) = distances.split_last().unwrap();
+                    for (initial, current) in initial_distances.iter().zip(first_distances) {
+                        prop_assert!(initial.eq_modulo_topology(current));
+                    }
+
+                    // hwloc does not preserve Unicode names well
+                    if let Some(name) = name.as_deref() {
+                        prop_assert!(last_distances.name().is_some());
+                        let last_name = last_distances.name().unwrap();
+                        if name.is_ascii() {
+                            prop_assert_eq!(last_name.to_str(), Ok(name))
+                        }
+                    } else {
+                        prop_assert_eq!(last_distances.name(), None);
+                    }
+
+                    // HETEROGENEOUS_TYPES is automatically added
+                    let mut expected_kind = kind;
+                    if endpoints.iter().map(|obj| obj.object_type()).collect::<HashSet<_>>().len() != 1 {
+                        expected_kind |= DistancesKind::HETEROGENEOUS_TYPES;
+                    }
+                    prop_assert_eq!(last_distances.kind(), expected_kind);
+
+                    // Number and IDs of endpoint objects should match
+                    prop_assert_eq!(
+                        last_distances.num_objects(),
+                        endpoints.len(),
+                    );
+                    prop_assert!(last_distances.objects().all(|opt| opt.is_some()));
+                    prop_assert!(
+                        last_distances
+                            .objects()
+                            .map(|obj_opt| obj_opt.unwrap().global_persistent_index())
+                            .eq(endpoints.iter().copied().map(TopologyObject::global_persistent_index))
+                    );
+
+                    // Distance values should match
+                    prop_assert_eq!(last_distances.distances(), values);
+
+                    // TODO: Have a generic distances test that will be called
+                    //       to test all other Distances operations, starting
+                    //       with object_idx(). This will be called for all
+                    //       distances in the topology by the following test.
+
+                    // TODO: Check the distances of the new topology like we
+                    //       would check the reference topology (new topology
+                    //       test to be added, run on test_instance()).
+
+                    Ok(())
+                })?;
+            }
+        }
     }
 }
