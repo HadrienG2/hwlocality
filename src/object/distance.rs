@@ -448,14 +448,14 @@ impl TopologyEditor<'_> {
             //
             type ExtremalValue = for<'a> fn(std::slice::Iter<'a, u64>) -> Option<&'a u64>;
             let check_value_kind_consistency =
-                |kind: DistancesKind, diagonal_value: ExtremalValue| {
-                    if kind.contains(kind) {
+                |means_kind: DistancesKind, diagonal_value: ExtremalValue| {
+                    if kind.contains(means_kind) {
                         for (origin_idx, distances) in
                             distances.chunks(object_ptrs.len()).enumerate()
                         {
-                            let min_distance = *diagonal_value(distances.iter())
+                            let expected = *diagonal_value(distances.iter())
                                 .expect("There are distance values if control reaches this point");
-                            if distances[origin_idx] != min_distance {
+                            if distances[origin_idx] != expected {
                                 return Err(AddDistancesError::InconsistentDiagonal(kind).into());
                             }
                         }
