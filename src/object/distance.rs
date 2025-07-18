@@ -1039,6 +1039,10 @@ impl<'topology> Distances<'topology> {
     /// This will return `None` if called with an object that does not belong
     /// to the active topology.
     ///
+    /// If an object appears multiple times in the distance matrix (which is
+    /// allowed by hwloc and used to model multiple network links), the index of
+    /// the first occurence will be returned.
+    ///
     /// Beware that calling this in a loop will result in a lot of duplicate
     /// work. It is a good idea to instead build a cache of indices for the
     /// objects that you are interested in, or to use the
