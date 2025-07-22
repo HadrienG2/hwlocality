@@ -94,8 +94,8 @@ pub struct RawHwlocError {
     #[cfg_attr(windows, doc = "documented to set errno, this member may be")]
     #[cfg_attr(windows, doc = "`None` on Windows. This happens because ")]
     #[cfg_attr(windows, doc = "Windows has multiple implementations of its")]
-    #[cfg_attr(windows, doc = "standard C library, called C RunTimes (CRTs),")]
-    #[cfg_attr(windows, doc = "and getting your application to be link")]
+    #[cfg_attr(windows, doc = "standard C library, called C Run-Times (CRTs),")]
+    #[cfg_attr(windows, doc = "and getting your application to be linked")]
     #[cfg_attr(windows, doc = "against the same CRT as your hwloc DLL is")]
     #[cfg_attr(windows, doc = "basically a matter of fragile guesswork...")]
     pub errno: Option<Errno>,
