@@ -226,7 +226,7 @@ hwlocality-sys = { path = "./hwlocality-sys" }
 libc.workspace = true
 
 # Used to interface hwloc enums + for proptests and topology debug output
-strum = { version = "0.27.1", features = ["derive"] }
+strum = { version = "0.27.2", features = ["derive"] }
 
 # Used to simplify error reporting
 thiserror = "2.0"
