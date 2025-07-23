@@ -1697,12 +1697,12 @@ mod tests {
                 );
                 let values = prop_oneof![
                     // Correct number of values
-                    3 => correct_values_count.prop_flat_map(move |mut values| {
+                    4 => correct_values_count.prop_flat_map(move |mut values| {
                         // Do we have a flag with diagonal value expectations?
                         if !values.is_empty() && kind.intersects(DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH) {
                             prop_oneof![
                                 // Correct diagonal values
-                                3 => {
+                                4 => {
                                     for (endpoint_idx, values_from_endpoint) in values.chunks_mut(num_endpoints).enumerate() {
                                         let diagonal_value = if kind.contains(DistancesKind::MEANS_LATENCY) {
                                             *values_from_endpoint.iter().min().unwrap()
@@ -1716,14 +1716,14 @@ mod tests {
                                     Just(values.clone())
                                 },
                                 // Likely-incorrect diagonal values
-                                2 => Just(values)
+                                1 => Just(values)
                             ].boxed()
                         } else {
                             Just(values).boxed()
                         }
                     }),
                     // Likely-incorrect number of values
-                    2 => prop::collection::vec(any::<u64>(), SizeRange::default()),
+                    1 => prop::collection::vec(any::<u64>(), SizeRange::default()),
                 ];
                 (Just(name), Just(kind), Just(flags), Just(endpoints), values)
             })
