@@ -82,6 +82,13 @@ pub(crate) fn enum_repr<Enum: IntoEnumIterator, Repr: Copy + Debug + From<Enum>>
 /// Strategy emitted by [`enum_repr()`]
 pub(crate) type EnumRepr<Repr> = Select<Repr>;
 
+/// Generate a collection size
+pub(crate) fn any_size() -> impl Strategy<Value = usize> {
+    let range = SizeRange::default();
+    let (start, end) = range.start_end_incl();
+    start..=end
+}
+
 /// [`BitmapIndex`] that's generated like a container size
 ///
 /// Many bitmap operations that take an index as a parameter have linear
@@ -99,12 +106,17 @@ pub(crate) type BitmapIndexStrategy = Map<Range<usize>, fn(usize) -> BitmapIndex
 
 /// Pick a random object, mostly from [`Topology::test_instance()`] but
 /// sometimes from [`Topology::foreign_instance()`] as well
+///
+/// Need a `num_objects` clue about the total number of objects being generated
+/// in order to keep a good chance of producing a correct object.
 #[cfg(test)]
-pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
+pub(crate) fn any_object(
+    #[allow(unused)] num_objects: usize,
+) -> impl Strategy<Value = &'static TopologyObject> {
     #[cfg(feature = "hwloc-2_3_0")]
     {
         prop_oneof![
-            4 => test_object(),
+            (3 + num_objects) as u32 => test_object(),
             1 => prop::sample::select(Topology::foreign_objects())
         ]
     }

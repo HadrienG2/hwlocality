@@ -2421,10 +2421,10 @@ mod tests {
     use super::*;
     use crate::{
         object::types::ObjectType,
-        strategies::{any_object, any_string, set_with_reference, topology_related_set},
+        strategies::{any_object, any_size, any_string, set_with_reference, topology_related_set},
         topology::support::{DiscoverySupport, FeatureSupport},
     };
-    use proptest::{prelude::*, sample::SizeRange};
+    use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
     use std::{cmp::Ordering, collections::HashMap, ffi::CString, sync::OnceLock};
@@ -2793,11 +2793,11 @@ mod tests {
         memory_attribute().prop_flat_map(|attr| {
             let targets = attr.targets(None).unwrap().0;
             let target = if targets.is_empty() {
-                any_object().boxed()
+                any_object(1).boxed()
             } else {
                 prop_oneof![
-                    2 => prop::sample::select(targets),
-                    3 => any_object(),
+                    4 => prop::sample::select(targets),
+                    1 => any_object(1),
                 ]
                 .boxed()
             };
@@ -2834,7 +2834,7 @@ mod tests {
     fn any_initiator() -> impl Strategy<Value = Option<Initiator<'static>>> {
         prop_oneof![
             topology_related_set(Topology::cpuset).prop_map(|set| Some(Initiator::from(set))),
-            any_object().prop_map(|obj| Some(Initiator::from(obj)))
+            any_object(1).prop_map(|obj| Some(Initiator::from(obj)))
         ]
     }
 
@@ -2861,7 +2861,7 @@ mod tests {
                     let actual_initiator = prop::sample::select(actual_initiators.clone());
                     prop_oneof![
                         1 => Just(None),
-                        2 => actual_initiator.prop_flat_map(move |actual_initiator| {
+                        3 => actual_initiator.prop_flat_map(move |actual_initiator| {
                             match actual_initiator {
                                 Initiator::CpuSet(set) => {
                                     set_with_reference(set)
@@ -2874,14 +2874,14 @@ mod tests {
                                 }
                             }
                         }),
-                        2 => any_initiator(),
+                        1 => any_initiator(),
                     ]
                     .boxed()
                 }
             } else {
                 prop_oneof![
-                    2 => Just(None),
-                    3 => any_initiator(),
+                    3 => Just(None),
+                    2 => any_initiator(),
                 ]
                 .boxed()
             };
@@ -3029,7 +3029,7 @@ mod tests {
         prop_oneof![
             1 => Just(NUMAInitiator::All),
             2 => {
-                (any_object(), any::<LocalNUMANodeFlags>()).prop_map(|(obj, flags)| {
+                (any_object(1), any::<LocalNUMANodeFlags>()).prop_map(|(obj, flags)| {
                     NUMAInitiator::Local {
                         initiator: Initiator::from(obj),
                         flags,
@@ -3248,10 +3248,10 @@ mod tests {
                 all_objects,
                 1..=num_objects,
             ).prop_shuffle(),
-            1 => prop::collection::vec(
-                any_object(),
-                SizeRange::default(),
-            ),
+            1 => any_size().prop_flat_map(|size| prop::collection::vec(
+                any_object(size),
+                size,
+            )),
         ];
 
         // Associate values with targets
@@ -3360,13 +3360,14 @@ mod tests {
                             num_initiator_objs
                         ),
                         1 => prop::collection::vec(
-                            any_object(),
+                            any_object(num_initiator_objs),
                             num_initiator_objs
                         )
                     ]
                     .boxed()
                 } else {
-                    prop::collection::vec(any_object(), num_initiator_objs).boxed()
+                    prop::collection::vec(any_object(num_initiator_objs), num_initiator_objs)
+                        .boxed()
                 };
 
                 // Put cpusets and objects together, randomize order
@@ -3923,7 +3924,7 @@ mod tests {
 
         /// Test initiator construction from topology object
         #[test]
-        fn initiator_from_object(obj in any_object()) {
+        fn initiator_from_object(obj in any_object(1)) {
             let from_obj = Initiator::from(obj);
             prop_assert!(matches!(
                 &from_obj,

@@ -313,9 +313,9 @@ mod tests {
         } else {
             prop_oneof![
                 // Actually a PCI address, with or without the domain part
-                2 => prop::sample::select(valid_str_addresses),
+                3 => prop::sample::select(valid_str_addresses),
                 // Random string that may or may not look like a PCI address
-                3 => random_string,
+                2 => random_string,
             ]
             .boxed()
         }

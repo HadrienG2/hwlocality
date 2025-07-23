@@ -1651,21 +1651,21 @@ pub(crate) mod tests {
             })
             .collect::<Vec<_>>();
         if bridge_coverages.is_empty() {
-            (any_object(), any::<PCIDomain>(), any::<u8>()).boxed()
+            (any_object(1), any::<PCIDomain>(), any::<u8>()).boxed()
         } else {
             prop::sample::select(bridge_coverages)
                 .prop_flat_map(|bridge_coverage| {
                     let obj = prop_oneof![
-                        3 => Just(bridge_coverage.bridge),
-                        2 => any_object()
+                        4 => Just(bridge_coverage.bridge),
+                        1 => any_object(1)
                     ];
                     let domain = prop_oneof![
-                        3 => Just(bridge_coverage.domain),
-                        2 => any::<PCIDomain>()
+                        4 => Just(bridge_coverage.domain),
+                        1 => any::<PCIDomain>()
                     ];
                     let bus_id = prop_oneof![
-                        3 => bridge_coverage.bus_id_range,
-                        2 => any::<u8>()
+                        4 => bridge_coverage.bus_id_range,
+                        1 => any::<u8>()
                     ];
                     (obj, domain, bus_id)
                 })
@@ -1700,7 +1700,7 @@ pub(crate) mod tests {
         ///
         /// Correct keys are checked in another test.
         #[test]
-        fn info(obj in any_object(), key in any_string()) {
+        fn info(obj in any_object(1), key in any_string()) {
             let result = obj.info(&key);
             let Ok(ckey) = CString::new(key.clone()) else {
                 assert_eq!(result, None);
@@ -1720,7 +1720,7 @@ pub(crate) mod tests {
     proptest! {
         /// Test for [`TopologyObject::first_common_ancestor()`]
         #[test]
-        fn first_common_ancestor(obj in test_object(), other in any_object()) {
+        fn first_common_ancestor(obj in test_object(), other in any_object(1)) {
             // Check result
             let result = obj.first_common_ancestor(other);
 
