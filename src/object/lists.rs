@@ -33,7 +33,7 @@ impl Topology {
     }
 
     /// Like [`Topology::test_objects()`], but for the foreign instance
-    #[cfg(test)]
+    #[cfg(all(test, feature = "hwloc-2_3_0"))]
     pub(crate) fn foreign_objects() -> &'static [&'static TopologyObject] {
         static OBJECTS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
         &OBJECTS.get_or_init(|| Self::foreign_instance().objects().collect())[..]
