@@ -426,7 +426,7 @@ impl TopologyEditor<'_> {
                 Ok(name) => name,
                 Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
             };
-            let name = name.map_or(ptr::null(), |lcs| lcs.borrow());
+            let name = name.as_ref().map_or(ptr::null(), |lcs| lcs.borrow());
             //
             if !kind.is_valid(true) {
                 return Err(AddDistancesError::BadKind(kind.into()).into());
@@ -1834,9 +1834,7 @@ mod tests {
                     if let Some(name) = name.as_deref() {
                         prop_assert!(last_distances.name().is_some());
                         let last_name = last_distances.name().unwrap();
-                        if name.is_ascii() {
-                            prop_assert_eq!(last_name.to_str(), Ok(name))
-                        }
+                        prop_assert_eq!(last_name.to_str(), Ok(name));
                     } else {
                         prop_assert_eq!(last_distances.name(), None);
                     }
