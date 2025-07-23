@@ -796,7 +796,13 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///
     /// The [`Object`](Initiator::Object) initiator type is currently unused
     /// internally by hwloc, but users may for instance use it to provide custom
-    /// information about host memory accesses performed by GPUs.
+    /// information about host memory accesses performed by GPUs. However, as of
+    /// hwloc v2.12.1, it cannot be used because of an hwloc bug that may cause
+    /// memory attributes with object initiators to be corrupted and has no
+    /// obvious workaround. Until [the clean fix for this
+    /// bug](https://github.com/open-mpi/hwloc/pull/725) lands into a stable
+    /// hwloc release, likely v3.0.0, using this initiator type is therefore
+    /// forbidden.
     ///
     /// # Errors
     ///
@@ -814,11 +820,15 @@ impl MemoryAttributeBuilder<'_, '_> {
     ///   that requires them
     /// - [`UnwantedInitiator`] if initiators were specified for an attribute
     ///   that does not requires them
+    /// - [`ObjectInitiator`] if an initiator of the [`Object`] type is
+    ///   specified on an hwloc version that does not properly support these.
     ///
     /// [`ForeignInitiator`]: InitiatorInputError::ForeignInitiator
     /// [`ForeignTarget`]: ValueInputError::ForeignTarget
     /// [`InconsistentDataLen`]: ValueInputError::InconsistentDataLen
     /// [`NeedInitiator`]: InitiatorInputError::NeedInitiator
+    /// [`Object`]: Initiator::Object
+    /// [`ObjectInitiator`]: ValueInputError::ObjectInitiator
     /// [`OverlappingValues`]: ValueInputError::OverlappingValues
     /// [`UnwantedInitiator`]: InitiatorInputError::UnwantedInitiator
     #[doc(alias = "hwloc_memattr_set_value")]
@@ -938,6 +948,19 @@ impl MemoryAttributeBuilder<'_, '_> {
                     InitiatorInputError::UnwantedInitiator(name.into()),
                 )
                 .into());
+            }
+
+            // Object initiators should not be used on hwloc versions prior to
+            // v3 as those have a bug that make them return garbage initiator
+            // pointers when this initiator type is used (see
+            // https://github.com/open-mpi/hwloc/pull/725), resulting in memory
+            // unsafety that this safe binding cannot expose.
+            if cfg!(not(feature = "hwloc-3_0_0"))
+                && initiators
+                    .iter()
+                    .any(|init| matches!(init, Initiator::Object(_)))
+            {
+                return Err(ValueInputError::ObjectInitiator.into());
             }
 
             // There should be as many initiators as there are targets/values
@@ -1060,6 +1083,12 @@ pub enum ValueInputError {
     /// Specified initiators for these attribute values are not valid
     #[error(transparent)]
     BadInitiators(#[from] InitiatorInputError),
+
+    /// Some provided initiator have the `Object` type, which the currently
+    /// enabled set of hwlocs version does not properly support (need hwloc
+    /// v3.0.0 or newer)
+    #[error("some initiators are Objects, but you need to request hwloc v3+ via feature hwloc-3_0_0 for that")]
+    ObjectInitiator,
 
     /// Some provided targets are [`TopologyObject`]s that do not belong to
     /// the topology being modified
@@ -3255,7 +3284,22 @@ mod tests {
                 // that there has to be at least one cpu in the CPUset so we
                 // cannot have more cpuset initiators than we have CPUs.
                 let num_cpus = topology.complete_cpuset().weight().unwrap();
-                (Just(num_initiators), 0..=num_initiators.min(num_cpus))
+                // Until hwloc PR #725, which I hope will be integrated in hwloc
+                // v3.0.0, object initiators were badly handled and should not
+                // be used. So on newer hwloc we're fine...
+                if cfg!(feature = "hwloc-3_0_0") {
+                    (Just(num_initiators), 0..=num_initiators.min(num_cpus)).boxed()
+                } else {
+                    // ...but on older hwloc releases we mostly stick with
+                    // cpuset initiators, as object initiators are treated as
+                    // an error anyway.
+                    let good_initiators = num_initiators.min(num_cpus);
+                    prop_oneof![
+                        4 => (Just(good_initiators), Just(good_initiators)),
+                        1 => (Just(num_initiators), 0..=num_initiators.min(num_cpus))
+                    ]
+                    .boxed()
+                }
             })
             .prop_flat_map(move |(num_initiators, num_initiator_sets)| {
                 // Pick initiator cpusets, starting from a full list of CPUs
@@ -3408,97 +3452,161 @@ mod tests {
             name in any_string(),
             building_blocks in attribute_building_blocks(),
         ) {
-            let initial_topology = Topology::test_instance();
-            let mut topology = initial_topology.clone();
-
-            // Predict value setup errors
-            let overlapping_values = has_duplicates(&building_blocks);
-            let (inconsistent_data_len, foreign_initiator) =
-                if let Some(initiators) = &building_blocks.initiators {
-                    (
-                        initiators.len() != building_blocks.targets_and_values.len(),
-                        initiators.iter().any(|initiator| match initiator {
-                            Initiator::CpuSet(set) => {
-                                set.is_empty()
-                                || !initial_topology.complete_cpuset().includes(set.as_ref())
-                            }
-                            Initiator::Object(obj) => !initial_topology.contains(obj),
-                        })
-                    )
-                } else {
-                    (false, false)
-                };
-            let foreign_target = building_blocks.targets_and_values.iter().any(|(target, _value)| {
-                !initial_topology.contains(target)
-            });
-            let need_initiator =
-                building_blocks.flags.contains(MemoryAttributeFlags::NEED_INITIATOR)
-                && building_blocks.initiators.is_none();
-            let unwanted_initiator =
-                !building_blocks.flags.contains(MemoryAttributeFlags::NEED_INITIATOR)
-                && building_blocks.initiators.is_some();
-            let will_error =
-                inconsistent_data_len
-                || overlapping_values
-                || foreign_initiator
-                || foreign_target
-                || need_initiator
-                || unwanted_initiator;
-
-            // Start editing the topology
-            topology.edit(|editor| {
-                // Register the memory attribute
-                let builder = editor.register_memory_attribute(&name, building_blocks.flags);
-                let Some(mut builder) = check_register_errors(&name, building_blocks.flags, builder)? else {
-                    prop_assert_eq!(editor.topology(), initial_topology);
-                    return Ok(());
-                };
-
-                // Back up the topology before value setup
-                let topology_with_empty_attribute = builder.editor.topology().clone();
-
-                // Run the value setup
-                let res = builder.set_values(|final_topology| {
-                    translate_building_blocks(
-                        initial_topology,
-                        building_blocks.initiators.as_deref(),
-                        &building_blocks.targets_and_values,
-                        final_topology
-                    )
-                });
-
-                // Check the result against expectation
-                match res {
-                    Ok(()) => prop_assert!(!will_error),
-                    Err(HybridError::Rust(e)) => {
-                        match e {
-                            ValueInputError::InconsistentDataLen => prop_assert!(inconsistent_data_len),
-                            ValueInputError::OverlappingValues => prop_assert!(overlapping_values),
-                            ValueInputError::BadInitiators(bi) => match bi {
-                                InitiatorInputError::ForeignInitiator(_) => prop_assert!(foreign_initiator),
-                                InitiatorInputError::NeedInitiator(_) => prop_assert!(need_initiator),
-                                InitiatorInputError::UnwantedInitiator(_) => prop_assert!(unwanted_initiator),
-                            }
-                            ValueInputError::ForeignTarget(_) => prop_assert!(foreign_target),
-                        }
-                        prop_assert_eq!(editor.topology(), &topology_with_empty_attribute);
-                        return Ok(());
-                    }
-                    Err(other) => panic!("unexpected error: {other}"),
-                }
-
-                // If control reached this point, the memory attribute should
-                // have been added. Check the new topology state.
-                check_new_topology_attribute(
-                    initial_topology,
-                    &name,
-                    &building_blocks,
-                    editor.topology(),
-                )?;
-
-                Ok(())
-            })?;
+            check_build_any_attribute(name, building_blocks)?;
         }
+    }
+
+    /// Reproducer for the object initiator bug that is fixed by [hwloc PR
+    /// #725](https://github.com/open-mpi/hwloc/pull/725), which I expect to be
+    /// integrated in hwloc v3.0.0.
+    #[test]
+    fn build_any_attribute_hwloc725() {
+        let initial_topology = Topology::test_instance();
+        let name = "test".to_owned();
+        let building_blocks = AttributeBuildingBlocks {
+            flags: MemoryAttributeFlags::HIGHER_IS_BEST | MemoryAttributeFlags::NEED_INITIATOR,
+            initiators: Some(vec![
+                initial_topology
+                    .objects_with_type(ObjectType::PU)
+                    .next()
+                    .unwrap()
+                    .into(),
+                initial_topology
+                    .objects_with_type(ObjectType::PU)
+                    .nth(1)
+                    .unwrap()
+                    .into(),
+            ]),
+            targets_and_values: vec![
+                (
+                    initial_topology
+                        .objects_with_type(ObjectType::NUMANode)
+                        .next()
+                        .unwrap(),
+                    1,
+                ),
+                (
+                    initial_topology
+                        .objects_with_type(ObjectType::NUMANode)
+                        .next()
+                        .unwrap(),
+                    2,
+                ),
+            ],
+        };
+        check_build_any_attribute(name, building_blocks).unwrap();
+    }
+
+    /// Implementation of the `build_any_attribute` proptest
+    fn check_build_any_attribute(
+        name: String,
+        building_blocks: AttributeBuildingBlocks,
+    ) -> Result<(), TestCaseError> {
+        // Set up work topology from reference topology
+        let initial_topology = Topology::test_instance();
+        let mut topology = initial_topology.clone();
+
+        // Predict value setup errors
+        let overlapping_values = has_duplicates(&building_blocks);
+        let (inconsistent_data_len, foreign_initiator, object_initiator) = if let Some(initiators) =
+            &building_blocks.initiators
+        {
+            (
+                initiators.len() != building_blocks.targets_and_values.len(),
+                initiators.iter().any(|initiator| match initiator {
+                    Initiator::CpuSet(set) => {
+                        set.is_empty() || !initial_topology.complete_cpuset().includes(set.as_ref())
+                    }
+                    Initiator::Object(obj) => !initial_topology.contains(obj),
+                }),
+                cfg!(not(feature = "hwloc-3_0_0"))
+                    && initiators
+                        .iter()
+                        .any(|initiator| matches!(initiator, Initiator::Object(_))),
+            )
+        } else {
+            (false, false, false)
+        };
+        let foreign_target = building_blocks
+            .targets_and_values
+            .iter()
+            .any(|(target, _value)| !initial_topology.contains(target));
+        let need_initiator = building_blocks
+            .flags
+            .contains(MemoryAttributeFlags::NEED_INITIATOR)
+            && building_blocks.initiators.is_none();
+        let unwanted_initiator = !building_blocks
+            .flags
+            .contains(MemoryAttributeFlags::NEED_INITIATOR)
+            && building_blocks.initiators.is_some();
+        let will_error = inconsistent_data_len
+            || overlapping_values
+            || foreign_initiator
+            || foreign_target
+            || need_initiator
+            || object_initiator
+            || unwanted_initiator;
+
+        // Start editing the topology
+        topology.edit(|editor| {
+            // Register the memory attribute
+            let builder = editor.register_memory_attribute(&name, building_blocks.flags);
+            let Some(mut builder) = check_register_errors(&name, building_blocks.flags, builder)?
+            else {
+                prop_assert_eq!(editor.topology(), initial_topology);
+                return Ok(());
+            };
+
+            // Back up the topology before value setup
+            let topology_with_empty_attribute = builder.editor.topology().clone();
+
+            // Run the value setup
+            let res = builder.set_values(|final_topology| {
+                translate_building_blocks(
+                    initial_topology,
+                    building_blocks.initiators.as_deref(),
+                    &building_blocks.targets_and_values,
+                    final_topology,
+                )
+            });
+
+            // Check the result against expectation
+            match res {
+                Ok(()) => prop_assert!(!will_error),
+                Err(HybridError::Rust(e)) => {
+                    match e {
+                        ValueInputError::InconsistentDataLen => prop_assert!(inconsistent_data_len),
+                        ValueInputError::OverlappingValues => prop_assert!(overlapping_values),
+                        ValueInputError::BadInitiators(bi) => match bi {
+                            InitiatorInputError::ForeignInitiator(_) => {
+                                prop_assert!(foreign_initiator)
+                            }
+                            InitiatorInputError::NeedInitiator(_) => prop_assert!(need_initiator),
+                            InitiatorInputError::UnwantedInitiator(_) => {
+                                prop_assert!(unwanted_initiator)
+                            }
+                        },
+                        ValueInputError::ObjectInitiator => prop_assert!(object_initiator),
+                        ValueInputError::ForeignTarget(_) => prop_assert!(foreign_target),
+                    }
+                    prop_assert_eq!(editor.topology(), &topology_with_empty_attribute);
+                    return Ok(());
+                }
+                Err(other) => panic!("unexpected error: {other}"),
+            }
+
+            // If control reached this point, the memory attribute should
+            // have been added. Check the new topology state.
+            check_new_topology_attribute(
+                initial_topology,
+                &name,
+                &building_blocks,
+                editor.topology(),
+            )?;
+
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// Truth that [`AttributeBuildingBlocks`] contain duplicate entries
