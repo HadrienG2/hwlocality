@@ -1671,9 +1671,29 @@ mod tests {
     #[cfg(feature = "hwloc-2_5_0")]
     mod hwloc25 {
         use super::*;
-        use crate::strategies::{any_object, any_string};
-        use proptest::sample::SizeRange;
+        use crate::strategies::{any_object, any_size, any_string};
+        use proptest::collection::SizeRange;
         use std::collections::{HashMap, HashSet};
+
+        /// Pick a correct or incorrect distance kind for `add_distances()`
+        fn add_distances_kind() -> impl Strategy<Value = DistancesKind> {
+            prop_oneof![
+                4 => (prop::option::of(any::<bool>()), prop::option::of(any::<bool>())).prop_map(|(source, meaning)| {
+                    let source_flags = source.map_or(DistancesKind::empty(), |source_bool| if source_bool {
+                        DistancesKind::FROM_OS
+                    } else {
+                        DistancesKind::FROM_USER
+                    });
+                    let meaning_flags = meaning.map_or(DistancesKind::empty(), |meaning_bool| if meaning_bool {
+                        DistancesKind::MEANS_LATENCY
+                    } else {
+                        DistancesKind::MEANS_BANDWIDTH
+                    });
+                    source_flags | meaning_flags
+                }),
+                1 => any::<DistancesKind>()
+            ]
+        }
 
         /// Building blocks for a call to `add_distances()`
         fn add_distances_building_blocks() -> impl Strategy<
@@ -1686,9 +1706,10 @@ mod tests {
             ),
         > {
             let name = prop::option::of(any_string());
-            let kind = any::<DistancesKind>();
+            let kind = add_distances_kind();
             let flags = any::<AddDistancesFlags>();
-            let endpoints = prop::collection::vec(any_object(), SizeRange::default());
+            let endpoints =
+                any_size().prop_flat_map(|size| prop::collection::vec(any_object(size), size));
             (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
                 let num_endpoints = endpoints.len();
                 let correct_values_count = prop::collection::vec(

@@ -2144,7 +2144,7 @@ mod tests {
         // Pick a parent for the group object
         let any_parent = prop_oneof! [
             3 => multi_child_parent(),
-            2 => any_object(),
+            2 => any_object(1),
         ];
 
         // Pick a subtype for the group object
@@ -2618,7 +2618,7 @@ mod tests {
         #[test]
         fn insert_misc_object(
             name in any_string(),
-            parent in any_object(),
+            parent in any_object(1),
         ) {
             check_insert_misc_object(Topology::test_instance(), &name, parent)?;
         }
@@ -2627,7 +2627,7 @@ mod tests {
         #[test]
         fn ignored_misc_insertion(
             name in any_string(),
-            parent in any_object(),
+            parent in any_object(1),
         ) {
             static INITIAL_TOPOLOGY: OnceLock<Topology> = OnceLock::new();
             let initial_topology = INITIAL_TOPOLOGY.get_or_init(|| {
@@ -2642,7 +2642,7 @@ mod tests {
         #[test]
         fn duplicate(
             name in any_string(),
-            (parent1, parent2) in (any_object(), any_object()),
+            (parent1, parent2) in (any_object(1), any_object(1)),
         ) {
             let topology = check_insert_misc_object(Topology::test_instance(), &name, parent1)?;
             check_insert_misc_object(&topology, &name, parent2)?;
@@ -2652,7 +2652,7 @@ mod tests {
         #[test]
         fn separate(
             (name1, name2) in (any_string(), any_string()),
-            (parent1, parent2) in (any_object(), any_object()),
+            (parent1, parent2) in (any_object(1), any_object(1)),
         ) {
             let topology = check_insert_misc_object(Topology::test_instance(), &name1, parent1)?;
             check_insert_misc_object(&topology, &name2, parent2)?;
