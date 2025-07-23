@@ -83,6 +83,8 @@ pub(crate) fn enum_repr<Enum: IntoEnumIterator, Repr: Copy + Debug + From<Enum>>
 pub(crate) type EnumRepr<Repr> = Select<Repr>;
 
 /// Generate a collection size
+#[allow(unused)]
+#[cfg(test)]
 pub(crate) fn any_size() -> impl Strategy<Value = usize> {
     let range = SizeRange::default();
     let (start, end) = range.start_end_incl();
