@@ -184,7 +184,7 @@ fn single_threaded_test_impl() -> Result<(), TestCaseError> {
         let max_area_size = 48 * 1024 * 1024;
         let any_len = prop_oneof![
             1 => Just(0usize),
-            2 => 1usize..max_area_size
+            4 => 1usize..max_area_size
         ];
         TestRunner::default().run(&any_len, |len| test_allocate_memory(topology, len))?;
 

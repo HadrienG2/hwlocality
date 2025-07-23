@@ -450,7 +450,7 @@ mod tests {
     proptest! {
         /// Test that [`Topology::objects_closest_to()`] works as expected
         #[test]
-        fn objects_closest_to(obj in any_object()) {
+        fn objects_closest_to(obj in any_object(1)) {
             // Invoke the query
             let topology = Topology::test_instance();
             let result = topology.objects_closest_to(obj);
@@ -817,8 +817,8 @@ mod tests {
                 random_string.clone().boxed()
             } else {
                 prop_oneof![
-                    3 => prop::sample::select(subtypes).prop_map(|s| Some(s.to_owned())),
-                    2 => random_string.clone(),
+                    4 => prop::sample::select(subtypes).prop_map(|s| Some(s.to_owned())),
+                    1 => random_string.clone(),
                 ]
                 .boxed()
             };
@@ -826,8 +826,8 @@ mod tests {
                 random_string.boxed()
             } else {
                 prop_oneof![
-                    3 => prop::sample::select(name_prefixes).prop_map(Some),
-                    2 => random_string,
+                    4 => prop::sample::select(name_prefixes).prop_map(Some),
+                    1 => random_string,
                 ]
                 .boxed()
             };
@@ -838,7 +838,7 @@ mod tests {
             /// Test for [`Topology::object_with_same_locality()`]
             #[test]
             fn object_with_same_locality(
-                src in any_object(),
+                src in any_object(1),
                 ty: ObjectType,
                 (subtype, name_prefix) in subtype_and_name_prefix(),
             ) {
