@@ -91,6 +91,8 @@ hwloc-2_2_0 = ["hwlocality-sys/hwloc-2_2_0", "hwloc-2_1_0"]
 # - Modifying topologies using TopologyEditor. This was actually supported by
 #   previous hwloc versions, but in a manner that violates the Rust aliasing
 #   model so we could not expose it in the Rust bindings.
+# - Cloning topologies, which was not legal under the Rust aliasing model in
+#   previous hwloc versions for similar reasons as topology editing.
 #
 # ...in addition to all features listed above
 hwloc-2_3_0 = ["hwlocality-sys/hwloc-2_3_0", "hwloc-2_2_0"]

@@ -173,6 +173,7 @@ impl Topology {
     /// Like test_instance, but separate instance
     ///
     /// Used to test that operations correctly detect foreign topology objects
+    #[cfg(feature = "hwloc-2_3_0")]
     #[doc(hidden)]
     pub fn foreign_instance() -> &'static Self {
         static INSTANCE: OnceLock<Topology> = OnceLock::new();
@@ -941,13 +942,19 @@ impl Topology {
             .chain(object.ancestors())
             .last()
             .expect("By definition, this iterator always has >= 1 element");
-        std::ptr::eq(expected_root, actual_root)
+        ptr::eq(expected_root, actual_root)
     }
 }
 
+/// Cloning is unfortunately only available on hwloc v2.3.0 and above, because
+/// that's when hwloc introduced the option to manually refresh its internal
+/// caches, which are thread-unsafe and more generally violate Rust's aliasing
+/// rules. These caches are invalidated upon cloning.
+#[cfg(feature = "hwloc-2_3_0")]
 impl Clone for Topology {
     #[doc(alias = "hwloc_topology_dup")]
     fn clone(&self) -> Self {
+        // Create the clone
         let mut clone = ptr::null_mut();
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
@@ -956,8 +963,28 @@ impl Clone for Topology {
             hwlocality_sys::hwloc_topology_dup(&mut clone, self.as_ptr())
         })
         .expect("Duplicating a topology only fail with ENOMEM, which is a panic in Rust");
+        let clone = NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup");
 
-        Self(NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup"))
+        // Topology duplication puts the clone in an un-refreshed state, which
+        // does not play well with Rust's aliasing rules. Therefore we force
+        // an hwloc refresh at this point
+        // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+        //         - hwloc ops are trusted to keep *mut parameters in a
+        //           valid state unless stated otherwise
+        let result = errors::call_hwloc_zero_or_minus1("hwloc_topology_refresh", || unsafe {
+            hwlocality_sys::hwloc_topology_refresh(clone.as_ptr())
+        });
+
+        // Make sure the refresh went well
+        #[cfg(not(tarpaulin_include))]
+        if let Err(e) = result {
+            // If not, dispose of the clone then panic
+            // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
+            //         - Topology will not be usable again after Drop
+            unsafe { hwlocality_sys::hwloc_topology_destroy(clone.as_ptr()) }
+            panic!("ERROR: Failed to refresh topology clone ({e}), so it's stuck in a state that violates Rust aliasing rules...");
+        }
+        Self(clone)
     }
 }
 
@@ -1135,7 +1162,7 @@ unsafe impl Sync for Topology {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ffi::PositiveInt, topology::builder::tests::DataSource};
+    use crate::ffi::PositiveInt;
     use bitflags::Flags;
     use proptest::prelude::*;
     #[allow(unused)]
@@ -1168,8 +1195,10 @@ mod tests {
         fmt::Write, io::Write
     );
     assert_impl_all!(Topology:
-        Clone, Debug, Drop, PartialEq, Pointer, Sized, Sync, Unpin, UnwindSafe
+        Debug, Drop, PartialEq, Pointer, Sized, Sync, Unpin, UnwindSafe
     );
+    #[cfg(feature = "hwloc-2_3_0")]
+    assert_impl_all!(Topology: Clone);
     assert_not_impl_any!(Topology:
         Binary, Copy, Default, Deref, Display, IntoIterator, LowerExp, LowerHex,
         Octal, Read, UpperExp, UpperHex, fmt::Write, io::Write
@@ -1188,8 +1217,10 @@ mod tests {
         assert_eq!(DistributeFlags::default(), DistributeFlags::empty());
     }
 
+    #[cfg(feature = "hwloc-2_3_0")]
     #[test]
     fn clone() -> Result<(), TestCaseError> {
+        use crate::topology::builder::tests::DataSource;
         let topology = Topology::test_instance();
         let clone = topology.clone();
         assert_ne!(format!("{:p}", *topology), format!("{clone:p}"));
@@ -1564,6 +1595,7 @@ mod tests {
     }
 
     /// Pick a random normal object from the foreign test instance
+    #[cfg(feature = "hwloc-2_3_0")]
     fn foreign_normal_object() -> impl Strategy<Value = &'static TopologyObject> {
         static FOREIGNERS: OnceLock<Box<[&'static TopologyObject]>> = OnceLock::new();
         let objects =
@@ -1573,6 +1605,7 @@ mod tests {
 
     /// To the random input provided by `disjoint_roots`, add an extra root from
     /// a different topology, and report at which index it was added
+    #[cfg(feature = "hwloc-2_3_0")]
     fn foreign_roots_and_idx() -> impl Strategy<Value = (Vec<&'static TopologyObject>, usize)> {
         // Pick a set of disjoint roots and a foreign object
         (disjoint_roots(), foreign_normal_object()).prop_flat_map(
@@ -1589,9 +1622,10 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "hwloc-2_3_0")]
     proptest! {
         #[test]
-        fn distribute_items(
+        fn distribute_foreign(
             (foreign_roots, foreign_idx) in foreign_roots_and_idx(),
             max_depth in max_depth(),
             num_items: NonZeroU8,

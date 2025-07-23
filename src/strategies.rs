@@ -101,10 +101,15 @@ pub(crate) type BitmapIndexStrategy = Map<Range<usize>, fn(usize) -> BitmapIndex
 /// sometimes from [`Topology::foreign_instance()`] as well
 #[cfg(test)]
 pub(crate) fn any_object() -> impl Strategy<Value = &'static TopologyObject> {
-    prop_oneof![
-        4 => test_object(),
-        1 => prop::sample::select(Topology::foreign_objects())
-    ]
+    #[cfg(feature = "hwloc-2_3_0")]
+    {
+        prop_oneof![
+            4 => test_object(),
+            1 => prop::sample::select(Topology::foreign_objects())
+        ]
+    }
+    #[cfg(not(feature = "hwloc-2_3_0"))]
+    test_object()
 }
 
 /// Pick a random object, from the test instance only
