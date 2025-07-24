@@ -1704,33 +1704,6 @@ pub enum DistancesTransform {
     /// NVLinkBandwidth matrix.
     #[doc(alias = "HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE")]
     TransitiveSwitchClosure = HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
-
-    /// Unknown [`hwloc_distances_transform_e`] from hwloc
-    #[strum(disabled)]
-    Unknown(UnknownVariant<hwloc_distances_transform_e>) = hwloc_distances_transform_e::MAX,
-}
-//
-#[cfg(feature = "hwloc-2_5_0")]
-impl DistancesTransform {
-    /// Build a `DistancesTransform` from an hwloc-originated [`hwloc_distances_transform_e`]
-    ///
-    /// # Safety
-    ///
-    /// This type normally maintains the invariant that it holds a valid hwloc
-    /// input, and safe code relies on this to treat any C representation of
-    /// this enum as valid to send to hwloc. Therefore, you must enforce that
-    /// either of the following is true:
-    ///
-    /// - `value` is a known hwloc enum variant or was emitted by hwloc as
-    ///   output, and therefore is known/suspected to be a safe hwloc input.
-    /// - The output of `from_hwloc` from a `value` that is _not_ a known-good
-    ///   hwloc input is never sent to any hwloc API, either directly or via a
-    ///   safe `hwlocality` method. This possibility is mainly provided for
-    ///   unit testing code and not meant to be used on a larger scale.
-    #[allow(unused)]
-    pub(crate) unsafe fn from_hwloc(value: hwloc_distances_transform_e) -> Self {
-        Self::from_repr(value).unwrap_or(Self::Unknown(UnknownVariant(value)))
-    }
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
@@ -1746,7 +1719,6 @@ impl From<DistancesTransform> for hwloc_distances_transform_e {
             DistancesTransform::TransitiveSwitchClosure => {
                 HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE
             }
-            DistancesTransform::Unknown(unknown) => unknown.get(),
         }
     }
 }
