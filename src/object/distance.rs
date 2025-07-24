@@ -67,19 +67,15 @@ use thiserror::Error;
 impl Topology {
     /// Retrieve distance matrices from the topology
     ///
-    /// By default, all available distance matrices are returned. Some filtering
-    /// may be applied using the `kind` parameter: if it contains some
+    /// Filtering may be applied using the `kind` parameter: if it contains some
     /// [`DistancesKind`]`::FROM_xyz` options, only distance matrices matching
-    /// one of them is returned. The same applies for `MEANS_xyz` options.
+    /// one of them is returned. The same applies for `MEANS_xyz` options. If
+    /// `kind` is left as `DistancesKind::empty()`, all distances are returned.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
-    pub fn distances(
-        &self,
-        kind: Option<DistancesKind>,
-    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         // SAFETY: - By definition, it's valid to pass hwloc_distances_get
-        //         - Parameters are guaranteed valid per get_distances_with_kind
-        //           contract
+        //         - Parameters are guaranteed valid per get_distances contract
         unsafe {
             self.get_distances(
                 kind,
@@ -103,7 +99,7 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_depth")]
     pub fn distances_at_depth<DepthLike>(
         &self,
-        kind: Option<DistancesKind>,
+        kind: DistancesKind,
         depth: DepthLike,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError>
     where
@@ -113,14 +109,14 @@ impl Topology {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized(
             self_: &Topology,
-            kind: Option<DistancesKind>,
+            kind: DistancesKind,
             depth: Depth,
         ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
             // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
             //           curried away behaves indeed like hwloc_distances_get
             //         - Depth only allows valid depth values to exist
-            //         - Other parameters are guaranteed valid per
-            //           get_distances_with_kind contract
+            //         - Other parameters are guaranteed valid per get_distances
+            //           contract
             unsafe {
                 self_.get_distances(
                     kind,
@@ -154,7 +150,7 @@ impl Topology {
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(
         &self,
-        kind: Option<DistancesKind>,
+        kind: DistancesKind,
         ty: ObjectType,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
         // SAFETY: - hwloc_distances_get_by_type with the type parameter curried
@@ -162,8 +158,8 @@ impl Topology {
         //         - No invalid ObjectType value should be exposed by this
         //           binding (to enable values from newer releases of hwloc, you
         //           must configure the build to require newer hwloc DLLs)
-        //         - Other parameters are guaranteed valid per
-        //           get_distances_with_kind contract
+        //         - Other parameters are guaranteed valid per get_distances
+        //           contract
         unsafe {
             self.get_distances(
                 kind,
@@ -202,7 +198,8 @@ impl Topology {
         // SAFETY: - hwloc_distances_get_by_name with the name parameter curried
         //           away behaves indeed like hwloc_distances_get
         //         - `name` is a valid c string by construction of LibcString
-        //         - Other parameters are guaranteed valid per get_distances contract
+        //         - Other parameters are guaranteed valid per get_distances
+        //           contract
         unsafe {
             self.get_distances_without_kind(
                 "hwloc_distances_get_by_name",
@@ -231,7 +228,7 @@ impl Topology {
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
-        kind: Option<DistancesKind>,
+        kind: DistancesKind,
         getter_name: &'static str,
         mut getter: impl FnMut(
             *const hwloc_topology,
@@ -241,14 +238,14 @@ impl Topology {
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
-        let kind = kind.unwrap_or(DistancesKind::empty());
         // SAFETY: - getter with the kind parameters curried away behaves as
         //           get_distances would expect
         //         - There are no invalid kind values for these search APIs
         //           since the kind flags only serves as a "one of" filter and
         //           DistancesKind exposes no invalid flags through proper
         //           version-gating
-        //         - Other parameters are guaranteed valid per get_distances contract
+        //         - Other parameters are guaranteed valid per
+        //           get_distances_without_kind contract
         unsafe {
             self.get_distances_without_kind(getter_name, |topology, nr, distances, flags| {
                 getter(topology, nr, distances, kind.bits(), flags)
@@ -1587,7 +1584,7 @@ bitflags! {
     /// latencies or bandwidths, if applicable.
     ///
     /// At most one of the "FROM_" and "MEANS_" kinds should be present.
-    #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_kind_e")]
     pub struct DistancesKind: hwloc_distances_kind_e {
         /// These distances were obtained from the operating system or hardware
