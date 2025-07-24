@@ -66,6 +66,10 @@ hwloc-2_0_4 = ["hwlocality-sys/hwloc-2_0_4"]
 # - Support for ObjectType::MemCache, used to model memory-side caches.
 # - Blacklisting some components from being enabled in a topology via
 #   TopologyBuilder::blacklist_component(), for faster topology loading.
+# - Querying support for disallowed resource enumeration via
+#   DiscoverySupport::disallowed_(pu|numa)
+# - Distance names and associated queries
+# - Distances between objects of different types
 #
 # ...in addition to all features listed above
 hwloc-2_1_0 = ["hwlocality-sys/hwloc-2_1_0", "hwloc-2_0_4"]
@@ -90,7 +94,9 @@ hwloc-2_2_0 = ["hwlocality-sys/hwloc-2_2_0", "hwloc-2_1_0"]
 #   new BuildFlags::IMPORT_SUPPORT flag.
 # - Modifying topologies using TopologyEditor. This was actually supported by
 #   previous hwloc versions, but in a manner that violates the Rust aliasing
-#   model so we could not expose it in the Rust bindings.
+#   model (or at least does so unless we are ready to accept a massive
+#   degradation in hwlocality ergonomics) so we could not expose it in the Rust
+#   bindings.
 # - Cloning topologies, which was not legal under the Rust aliasing model in
 #   previous hwloc versions for similar reasons as topology editing.
 #
@@ -132,7 +138,7 @@ hwloc-2_8_0 = ["hwlocality-sys/hwloc-2_8_0", "hwloc-2_5_0"]
 # Require at least hwloc v2.10.0
 #
 # This is a maintenance release which does not affect the external hwlocality
-# API, but cleans up hwlocality internals.
+# API, but allows hwlocality to have a cleaner/more robust implementation.
 #
 # ...in addition to all features listed above
 hwloc-2_10_0 = ["hwlocality-sys/hwloc-2_10_0", "hwloc-2_8_0"]
