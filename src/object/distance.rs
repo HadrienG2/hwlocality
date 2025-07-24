@@ -1520,8 +1520,6 @@ pub struct ObjectPairDistances {
 //
 impl Debug for Distances<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use fmt::Write;
-
         let mut debug = f.debug_struct("Distances");
         #[cfg(feature = "hwloc-2_1_0")]
         debug.field("name", &self.name());
@@ -1529,18 +1527,18 @@ impl Debug for Distances<'_> {
             .field("kind", &self.kind())
             .field("objects", &self.objects().collect::<Vec<_>>());
 
-        let mut distances_display = String::new();
-        let mut last_row = usize::MAX;
+        let mut distance_table = Vec::new();
+        let mut current_row = 0;
+        let mut row_values = Vec::new();
         for ((row, _col), distance) in self.enumerate_distances() {
-            if row == last_row {
-                distances_display.push('\t');
-            } else {
-                distances_display.push_str("\n\t");
-                last_row = row;
+            if row != current_row {
+                distance_table.push(std::mem::take(&mut row_values));
+                current_row = row;
             }
-            write!(distances_display, "{distance}").expect("Writes to a String shouldn't fail");
+            row_values.push(distance);
         }
-        debug.field("distances", &distances_display).finish()
+        distance_table.push(row_values);
+        debug.field("distances", &distance_table).finish()
     }
 }
 //
