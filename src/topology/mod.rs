@@ -949,7 +949,7 @@ impl Topology {
 /// Cloning is unfortunately only available on hwloc v2.3.0 and above, because
 /// that's when hwloc introduced the option to manually refresh its internal
 /// caches, which are thread-unsafe and more generally violate Rust's aliasing
-/// rules. These caches are invalidated upon cloning.
+/// rules, and these caches are unfortunately invalidated upon cloning...
 #[cfg(feature = "hwloc-2_3_0")]
 impl Clone for Topology {
     #[doc(alias = "hwloc_topology_dup")]
