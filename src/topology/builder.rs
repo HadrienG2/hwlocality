@@ -1242,7 +1242,7 @@ pub(crate) mod tests {
             if build_flags.contains(BuildFlags::IGNORE_DISTANCES) {
                 prop_assert_eq!(
                     topology
-                        .distances(None)
+                        .distances(Default::default())
                         .map(|distances| distances.is_empty()),
                     Ok(true)
                 );

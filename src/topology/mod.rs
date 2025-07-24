@@ -1033,7 +1033,7 @@ impl Debug for Topology {
             .field("allowed_nodeset", &self.allowed_nodeset());
 
         // Object distances
-        debug.field("distances", &self.distances(None));
+        debug.field("distances", &self.distances(Default::default()));
 
         // Memory attributes
         #[cfg(feature = "hwloc-2_3_0")]
@@ -1104,7 +1104,10 @@ impl PartialEq for Topology {
         }
 
         // Check that object distances are the same
-        let same_distances = match (self.distances(None), other.distances(None)) {
+        let same_distances = match (
+            self.distances(Default::default()),
+            other.distances(Default::default()),
+        ) {
             (Ok(distances1), Ok(distances2)) => {
                 distances1.len() == distances2.len()
                     && distances1
