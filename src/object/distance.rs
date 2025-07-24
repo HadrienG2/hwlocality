@@ -1034,26 +1034,28 @@ impl<'topology> Distances<'topology> {
         }
     }
 
-    /// Find the row/column index of an object in the distance matrix
+    /// Find the row/column indices of an object in the distance matrix
     ///
-    /// This will return `None` if called with an object that does not belong
-    /// to the active topology.
+    /// This will return an empty iterator if called with an object that does
+    /// not belong to the active topology.
     ///
-    /// If an object appears multiple times in the distance matrix (which is
-    /// allowed by hwloc and used to model multiple network links), the index of
-    /// the first occurence will be returned.
+    /// An object is allowed to appear multiple times in the distance matrix in
+    /// order to model multiple network links between the same objects.
     ///
-    /// Beware that calling this in a loop will result in a lot of duplicate
-    /// work. It is a good idea to instead build a cache of indices for the
-    /// objects that you are interested in, or to use the
-    /// [`object_distances()`] iterator if your algorithm allows for it.
+    /// Beware that calling this in a loop for each object you are interested in
+    /// will result in a lot of duplicate work. It is better to instead build a
+    /// cache of indices for the objects that you are interested in, or to use
+    /// the [`object_distances()`] iterator if your algorithm allows for it.
     ///
     /// [`object_distances()`]: Distances::object_distances()
     #[doc(alias = "hwloc_distances_obj_index")]
-    pub fn object_idx(&self, obj: &TopologyObject) -> Option<usize> {
+    pub fn object_indices<'result>(
+        &'result self,
+        obj: &'result TopologyObject,
+    ) -> impl DoubleEndedIterator<Item = usize> + Clone + FusedIterator + 'result {
         self.objects()
             .enumerate()
-            .find_map(|(idx, candidate)| std::ptr::eq(candidate?, obj).then_some(idx))
+            .filter_map(move |(idx, candidate)| std::ptr::eq(candidate?, obj).then_some(idx))
     }
 
     /// Access the raw array of object pointers
@@ -1284,13 +1286,14 @@ impl<'topology> Distances<'topology> {
             })
     }
 
-    /// Distance between a pair of objects
+    /// Distances between a pair of objects
     ///
-    /// Will return the distance from the first to the second input object and
-    /// the distance from the second to the first input object, if known.
+    /// For each occurence of the first and second object in the distance
+    /// matrix, this will yield the distance from this occurence of the first
+    /// object to that occurence of the second object and back.
     ///
-    /// Will return `None` if one of the objects doesn't belong to the host
-    /// topology.
+    /// No distance will be yielded if one of the input objects doesn't belong
+    /// to the host topology.
     ///
     /// This is a rather expensive operation. If you find yourself needing to
     /// do it in a loop, consider rearchitecturing your workflow around object
@@ -1298,22 +1301,33 @@ impl<'topology> Distances<'topology> {
     ///
     /// [`object_distances()`]: Distances::object_distances()
     #[doc(alias = "hwloc_distances_obj_pair_values")]
-    pub fn object_pair_distance(
-        &self,
-        (obj1, obj2): (&TopologyObject, &TopologyObject),
-    ) -> Option<(u64, u64)> {
-        let idx1 = self.object_idx(obj1)?;
-        let idx2 = self.object_idx(obj2)?;
+    pub fn object_pair_distances<'result>(
+        &'result self,
+        (obj1, obj2): (&'result TopologyObject, &'result TopologyObject),
+    ) -> impl DoubleEndedIterator<Item = ObjectPairDistances> + Clone + FusedIterator + 'result
+    {
         let num_objects = self.num_objects();
         let distances = self.distances();
-        // SAFETY: Will produce indices smaller than the square of the number of
-        //         objects in the distances matrix, which is the number of
-        //         distances in the matrix
-        unsafe {
-            let dist1to2 = *distances.get_unchecked(idx1 * num_objects + idx2);
-            let dist2to1 = *distances.get_unchecked(idx2 * num_objects + idx1);
-            Some((dist1to2, dist2to1))
-        }
+        self.object_indices(obj1).flat_map(move |index1| {
+            // Ideally this would be computed once and the output would be
+            // stored in a Vec and reused, but alas that would create a
+            // self-referential iterator, which is currently unsupported.
+            self.object_indices(obj2).map(move |index2| {
+                // SAFETY: Will produce indices smaller than the square of the number of
+                //         objects in the distances matrix, which is the number of
+                //         distances in the matrix
+                unsafe {
+                    let distance12 = *distances.get_unchecked(index1 * num_objects + index2);
+                    let distance21 = *distances.get_unchecked(index2 * num_objects + index1);
+                    ObjectPairDistances {
+                        index1,
+                        index2,
+                        distance12,
+                        distance21,
+                    }
+                }
+            })
+        })
     }
 
     /// Checked distance matrix indexing
@@ -1409,6 +1423,27 @@ impl<'topology> Distances<'topology> {
             other => HybridError::Hwloc(other),
         })
     }
+}
+//
+/// Distance information yielded by the output iterator of
+/// [`Distances::object_pair_distances()`]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct ObjectPairDistances {
+    /// Index of the selected occurence of the first object specified as a
+    /// parameter to `object_pair_distances()`
+    pub index1: usize,
+
+    /// Index of the selected occurence of the second object specified as a
+    /// parameter to `object_pair_distances()`
+    pub index2: usize,
+
+    /// Distance from the occurence of the first object designated by `index1`
+    /// to that of the second object designated by `index2`.
+    pub distance12: u64,
+
+    /// Distance from the occurence of the second object designated by `index2`
+    /// to that of the first object designated by `index1`.
+    pub distance21: u64,
 }
 //
 impl Debug for Distances<'_> {
