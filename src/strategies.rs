@@ -117,8 +117,10 @@ pub(crate) fn any_object(
 ) -> impl Strategy<Value = &'static TopologyObject> {
     #[cfg(feature = "hwloc-2_3_0")]
     {
+        let good_odds = u32::try_from(3 + num_objects)
+            .expect("Should be fine for all num_objects used in actual testing code");
         prop_oneof![
-            (3 + num_objects) as u32 => test_object(),
+            good_odds => test_object(),
             1 => prop::sample::select(Topology::foreign_objects())
         ]
     }
