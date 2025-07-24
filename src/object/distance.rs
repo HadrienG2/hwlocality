@@ -1108,7 +1108,7 @@ impl<'topology> Distances<'topology> {
     /// Replace the object at index `idx` with another
     ///
     /// If the new object is unrelated to the original one, you may want to
-    /// adjust the distance matrix after doing this, which you can using one
+    /// adjust the distance matrix after doing this, which you can do using one
     /// of the [`distances_mut()`], [`enumerate_distances_mut()`] and
     /// [`object_distances_mut()`] methods.
     ///
@@ -1132,7 +1132,8 @@ impl<'topology> Distances<'topology> {
         Ok(())
     }
 
-    /// Replace all objects using the provided (index, object) -> object mapping
+    /// Replace all objects using the provided `(index, current object) -> new
+    /// object` mapping
     ///
     /// This is more efficient than calling [`Distances::replace_object()`] in
     /// a loop and allows you to know what object you are replacing.
