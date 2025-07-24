@@ -1207,7 +1207,7 @@ impl<'topology> Distances<'topology> {
         unsafe { std::slice::from_raw_parts_mut(self.inner_mut().values, self.num_distances()) }
     }
 
-    /// Iteration over ((sender index, receiver index), distance) tuples
+    /// Iteration over `((sender index, receiver index), distance)` tuples
     ///
     /// See also [`Distances::distances()`].
     pub fn enumerate_distances(
@@ -1225,7 +1225,7 @@ impl<'topology> Distances<'topology> {
             .map(move |(idx, distance)| ((idx / num_objects, idx % num_objects), distance))
     }
 
-    /// Iteration over ((sender index, receiver index), &mut distance) tuples
+    /// Iteration over `((sender index, receiver index), &mut distance)` tuples
     ///
     /// See also [`Distances::distances()`].
     ///
@@ -1243,7 +1243,7 @@ impl<'topology> Distances<'topology> {
             .map(move |(idx, distance)| ((idx / num_objects, idx % num_objects), distance))
     }
 
-    /// Iteration over ((sender, receiver), distance) tuples
+    /// Iteration over `((sender, receiver), distance)` tuples
     ///
     /// See also [`Distances::distances()`].
     pub fn object_distances(
@@ -1255,7 +1255,7 @@ impl<'topology> Distances<'topology> {
             .zip(self.distances().iter().copied())
     }
 
-    /// Iteration over ((sender, receiver), &mut distance) tuples
+    /// Iteration over `((sender, receiver), &mut distance)` tuples
     ///
     /// See also [`Distances::distances()`].
     pub fn object_distances_mut(
