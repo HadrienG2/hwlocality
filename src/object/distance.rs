@@ -18,10 +18,8 @@
 use crate::object::depth::NormalDepth;
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
-#[cfg(feature = "hwloc-2_5_0")]
-use crate::{errors::FlagsError, ffi::unknown::UnknownVariant};
 use crate::{
-    errors::{self, ForeignObjectError, RawHwlocError},
+    errors::{self, FlagsError, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
     object::{depth::Depth, types::ObjectType, TopologyObject, TopologyObjectID},
     topology::Topology,
@@ -975,6 +973,65 @@ impl<'topology> Distances<'topology> {
         result
     }
 
+    /// Change the distance matrix kind
+    ///
+    #[cfg_attr(
+        feature = "hwloc-2_1_0",
+        doc = "You should not attempt to set or clear the"
+    )]
+    #[cfg_attr(
+        feature = "hwloc-2_1_0",
+        doc = "`DistancesKind::HETEROGENEOUS_TYPES` flag, it will be set or cleared"
+    )]
+    #[cfg_attr(feature = "hwloc-2_1_0", doc = "automatically.")]
+    ///
+    /// # Errors
+    ///
+    /// It is illegal to attempt to set both `FROM_` or `MEANS_` kind flags at
+    /// the same time. However clearing them is fine.
+    #[allow(unused_mut)]
+    pub fn set_kind(&mut self, mut kind: DistancesKind) -> Result<(), FlagsError<DistancesKind>> {
+        if !kind.is_valid(true) {
+            return Err(kind.into());
+        }
+        #[cfg(feature = "hwloc-2_1_0")]
+        {
+            kind |= self.kind() & DistancesKind::HETEROGENEOUS_TYPES;
+        }
+        // SAFETY: objs and values array are not touched
+        unsafe {
+            self.inner_mut().kind = kind.bits();
+        }
+        Ok(())
+    }
+
+    /// Make sure the `HETEROGENEOUS_TYPES` flag is set according to the current
+    /// set of objects covered by the distance matrix.
+    #[cfg(feature = "hwloc-2_1_0")]
+    fn update_heterogeneous_flag(&mut self) {
+        let mut ty_so_far = None;
+        let mut inner = self.inner;
+        for ty in self.objects().flatten().map(TopologyObject::object_type) {
+            if let Some(ty_so_far) = ty_so_far {
+                if ty != ty_so_far {
+                    // SAFETY: It is safe to change the kind as the
+                    //         self.objects() iterator never accesses it.
+                    unsafe {
+                        inner.as_mut().kind |= HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
+                    }
+                    return;
+                }
+            } else {
+                ty_so_far = Some(ty);
+            }
+        }
+        // SAFETY: It is safe to change the kind as the
+        //         self.objects() iterator never accesses it.
+        unsafe {
+            inner.as_mut().kind &= !HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
+        }
+    }
+
     /// Number of objects described by the distance matrix
     ///
     /// # Safety
@@ -1129,6 +1186,8 @@ impl<'topology> Distances<'topology> {
         // SAFETY: Overwriting with a valid topology object pointer from
         //         topology, as checked by obj_to_checked_ptr
         unsafe { self.objects_mut()[idx] = Self::obj_to_checked_ptr(topology, new_object)? };
+        #[cfg(feature = "hwloc-2_1_0")]
+        self.update_heterogeneous_flag();
         Ok(())
     }
 
@@ -1159,6 +1218,8 @@ impl<'topology> Distances<'topology> {
             //         topology, as checked by obj_to_checked_ptr
             *obj = Self::obj_to_checked_ptr(topology, new_obj)?;
         }
+        #[cfg(feature = "hwloc-2_1_0")]
+        self.update_heterogeneous_flag();
         Ok(())
     }
 
@@ -1425,7 +1486,10 @@ impl<'topology> Distances<'topology> {
                 ..
             } if transform == DistancesTransform::RemoveNone => HybridError::Rust(TransformError),
             other => HybridError::Hwloc(other),
-        })
+        })?;
+        #[cfg(feature = "hwloc-2_1_0")]
+        self.update_heterogeneous_flag();
+        Ok(())
     }
 }
 //
