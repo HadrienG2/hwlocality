@@ -18,16 +18,13 @@
 use crate::object::depth::NormalDepth;
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
+#[cfg(feature = "hwloc-2_1_0")]
+use crate::{errors::NulError, ffi::string::LibcString};
 use crate::{
-    errors::{self, FlagsError, ForeignObjectError, RawHwlocError},
+    errors::{self, FlagsError, ForeignObjectError, HybridError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
     object::{depth::Depth, types::ObjectType, TopologyObject, TopologyObjectID},
     topology::Topology,
-};
-#[cfg(feature = "hwloc-2_1_0")]
-use crate::{
-    errors::{HybridError, NulError},
-    ffi::string::LibcString,
 };
 use bitflags::bitflags;
 #[cfg(feature = "hwloc-2_1_0")]
@@ -71,9 +68,17 @@ impl Topology {
     /// [`DistancesKind`]`::FROM_xyz` options, only distance matrices matching
     /// one of them is returned. The same applies for `MEANS_xyz` options. If
     /// `kind` is left as `DistancesKind::empty()`, all distances are returned.
+    ///
+    /// # Errors
+    ///
+    /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
+    /// `MEANS_xyz` options.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
-    pub fn distances(&self, kind: DistancesKind) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    pub fn distances(
+        &self,
+        kind: DistancesKind,
+    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>> {
         // SAFETY: - By definition, it's valid to pass hwloc_distances_get
         //         - Parameters are guaranteed valid per get_distances contract
         unsafe {
@@ -94,6 +99,11 @@ impl Topology {
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
+    /// # Errors
+    ///
+    /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
+    /// `MEANS_xyz` options.
+    ///
     /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_depth")]
@@ -101,7 +111,7 @@ impl Topology {
         &self,
         kind: DistancesKind,
         depth: DepthLike,
-    ) -> Result<Vec<Distances<'_>>, RawHwlocError>
+    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>>
     where
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
@@ -111,7 +121,7 @@ impl Topology {
             self_: &Topology,
             kind: DistancesKind,
             depth: Depth,
-        ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+        ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>> {
             // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
             //           curried away behaves indeed like hwloc_distances_get
             //         - Depth only allows valid depth values to exist
@@ -145,6 +155,11 @@ impl Topology {
     ///
     /// Identical to [`distances()`] with the additional `ty` filter.
     ///
+    /// # Errors
+    ///
+    /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
+    /// `MEANS_xyz` options.
+    ///
     /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_type")]
@@ -152,7 +167,7 @@ impl Topology {
         &self,
         kind: DistancesKind,
         ty: ObjectType,
-    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>> {
         // SAFETY: - hwloc_distances_get_by_type with the type parameter curried
         //           away behaves indeed like hwloc_distances_get
         //         - No invalid ObjectType value should be exposed by this
@@ -225,6 +240,11 @@ impl Topology {
     ///   semantics
     /// - This API is guaranteed to be passed valid (Topology, distances buffer
     ///   length, distance out-buffer pointer, kind, flags) tuples
+    ///
+    /// # Errors
+    ///
+    /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
+    /// `MEANS_xyz` options.
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
@@ -237,7 +257,10 @@ impl Topology {
             hwloc_distances_kind_e,
             c_ulong,
         ) -> c_int,
-    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>> {
+        if !kind.is_valid(false) {
+            return Err(FlagsError::from(kind).into());
+        }
         // SAFETY: - getter with the kind parameters curried away behaves as
         //           get_distances would expect
         //         - There are no invalid kind values for these search APIs
@@ -250,6 +273,7 @@ impl Topology {
             self.get_distances_without_kind(getter_name, |topology, nr, distances, flags| {
                 getter(topology, nr, distances, kind.bits(), flags)
             })
+            .map_err(HybridError::Hwloc)
         }
     }
 
