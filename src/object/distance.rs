@@ -1036,11 +1036,11 @@ impl<'topology> Distances<'topology> {
 
     /// Find the row/column indices of an object in the distance matrix
     ///
-    /// This will return an empty iterator if called with an object that does
-    /// not belong to the active topology.
-    ///
     /// An object is allowed to appear multiple times in the distance matrix in
     /// order to model multiple network links between the same objects.
+    ///
+    /// This will return an empty iterator if `obj` does not belong to the
+    /// active topology or doesn't have distances associated with it.
     ///
     /// Beware that calling this in a loop for each object you are interested in
     /// will result in a lot of duplicate work. It is better to instead build a
@@ -1292,8 +1292,11 @@ impl<'topology> Distances<'topology> {
     /// matrix, this will yield the distance from this occurence of the first
     /// object to that occurence of the second object and back.
     ///
-    /// No distance will be yielded if one of the input objects doesn't belong
-    /// to the host topology.
+    /// An object is allowed to appear multiple times in the distance matrix in
+    /// order to model multiple network links between the same objects.
+    ///
+    /// This will yield an empty iterator if one of the input objects doesn't
+    /// belong to the host topology or doesn't have distances associated with it.
     ///
     /// This is a rather expensive operation. If you find yourself needing to
     /// do it in a loop, consider rearchitecturing your workflow around object
