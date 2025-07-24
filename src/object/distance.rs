@@ -421,7 +421,7 @@ impl TopologyEditor<'_> {
                 Ok(name) => name,
                 Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
             };
-            let name = name.as_ref().map_or(ptr::null(), |lcs| lcs.borrow());
+            let name = name.as_ref().map_or(ptr::null(), LibcString::borrow);
             //
             if !kind.is_valid(true) {
                 return Err(AddDistancesError::BadKind(kind.into()).into());
@@ -938,7 +938,7 @@ impl<'topology> Distances<'topology> {
     /// Description of what a distances structure contains
     ///
     /// For instance "NUMALatency" for hardware-provided NUMA distances (ACPI
-    /// SLIT), or None if unknown.
+    /// SLIT), or `None` if unknown.
     #[cfg(feature = "hwloc-2_1_0")]
     #[doc(alias = "hwloc_distances_get_name")]
     pub fn name(&self) -> Option<&std::ffi::CStr> {
