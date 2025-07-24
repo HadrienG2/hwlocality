@@ -1757,18 +1757,251 @@ pub struct TransformError;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ParameterError;
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
+    use std::collections::{HashMap, HashSet};
 
-    // TODO: Since there are no built-in distances on many machines, the test
-    //       will usually depend on adding distances through topology editing to
-    //       do anything useful. But I should still test the built-in distances,
-    //       if any. It should be possible to handle this by having a common
-    //       callback for testing distances, which is called both by the
-    //       topology editing test and the test for the default distances in
-    //       the topology.
+    /// Check all distance matrices in a topology
+    fn check_topology_distances(topology: &Topology) -> Result<(), TestCaseError> {
+        // Enumerate and check all distances
+        for mut distances in topology.distances(DistancesKind::empty())? {
+            check_distances(&mut distances)?;
+        }
+        // TODO: proptests for all filtered queries
+        Ok(())
+    }
 
+    /// Test properties that any distance matrix should follow
+    fn check_distances(distances: &mut Distances<'_>) -> Result<(), TestCaseError> {
+        // Distance names should be valid Unicode on well-behaved systems, and
+        // is guaranteed to be for distances that we add ourselves.
+        #[cfg(feature = "hwloc-2_1_0")]
+        prop_assert!(distances.name().is_none_or(|cstr| cstr.to_str().is_ok()));
+
+        // Possible kinds are governed by some rules
+        let kind = distances.kind();
+        prop_assert!(!kind.contains(DistancesKind::FROM_OS | DistancesKind::FROM_USER));
+        prop_assert!(!kind.contains(DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH));
+        #[cfg(feature = "hwloc-2_1_0")]
+        {
+            let distinct_types = distances
+                .objects()
+                .flatten()
+                .map(TopologyObject::object_type)
+                .collect::<HashSet<_>>();
+            prop_assert_eq!(
+                kind.contains(DistancesKind::HETEROGENEOUS_TYPES),
+                distinct_types.len() > 1
+            );
+        }
+
+        // TODO: Add a proptest for set_kind()
+
+        // num_objects is just a more efficient way to query objects.count()
+        prop_assert_eq!(distances.num_objects(), distances.objects().count());
+
+        // object_indices() is just a convenience around objects() queries
+        let mut objects_to_indices = HashMap::new();
+        for (idx, obj) in distances.objects().flatten().enumerate() {
+            objects_to_indices
+                .entry(obj.global_persistent_index())
+                .or_insert_with(|| (obj, HashSet::new()))
+                .1
+                .insert(idx);
+        }
+        for (obj, expected_indices) in objects_to_indices.into_values() {
+            let actual_indices = distances.object_indices(obj).collect::<HashSet<_>>();
+            prop_assert_eq!(actual_indices, expected_indices);
+        }
+        // TODO: Add proptest that calls object_indices for arbitrary objects,
+        //       integrating the above to get higher odds of hitting a correct
+        //       object + know how to interprete the result?
+        // TODO: Add proptests for replace_object() and replace_all_objects()
+
+        // Distance count should match object count
+        prop_assert_eq!(distances.distances().len(), distances.num_objects().pow(2));
+        let distances_from_mut = distances.distances_mut().to_owned();
+        prop_assert!(distances.distances().iter().eq(&distances_from_mut));
+
+        // Check index generation from enumerate_distances
+        let num_objects = distances.num_objects();
+        let expected_enum_distances = distances
+            .distances()
+            .iter()
+            .enumerate()
+            .map(|(idx, &dist)| ((idx / num_objects, idx % num_objects), dist));
+        prop_assert!(distances.enumerate_distances().eq(expected_enum_distances));
+        let enumerate_from_mut = distances
+            .enumerate_distances_mut()
+            .map(|(indices, dist)| (indices, *dist))
+            .collect::<Vec<_>>();
+        prop_assert!(distances.enumerate_distances().eq(enumerate_from_mut));
+
+        // Check index-to-object translation from object_distances
+        let expected_obj_distances = distances.enumerate_distances().map(|((idx1, idx2), dist)| {
+            let obj = |idx| distances.objects().nth(idx).unwrap();
+            ((obj(idx1), obj(idx2)), dist)
+        });
+        fn option_to_ptr(opt: Option<&TopologyObject>) -> *const TopologyObject {
+            opt.map_or(ptr::null(), |obj_ref| obj_ref)
+        }
+        fn obj_to_ptr<'a>(
+            iter: impl Iterator<
+                    Item = (
+                        (Option<&'a TopologyObject>, Option<&'a TopologyObject>),
+                        u64,
+                    ),
+                > + 'a,
+        ) -> impl Iterator<Item = ((*const TopologyObject, *const TopologyObject), u64)> + 'a
+        {
+            iter.map(move |((obj1, obj2), value)| {
+                ((option_to_ptr(obj1), option_to_ptr(obj2)), value)
+            })
+        }
+        prop_assert!(
+            obj_to_ptr(distances.object_distances()).eq(obj_to_ptr(expected_obj_distances))
+        );
+        #[allow(clippy::needless_collect)]
+        let object_distances_from_mut = distances
+            .object_distances_mut()
+            .map(|((obj1, obj2), dist)| ((option_to_ptr(obj1), option_to_ptr(obj2)), *dist))
+            .collect::<Vec<_>>();
+        prop_assert!(object_distances_from_mut
+            .into_iter()
+            .eq(obj_to_ptr(distances.object_distances())));
+
+        // TODO: Add proptest for object_pair_distances()
+        // TODO: Add proptest for transform() on v2.5+
+
+        // Test indexing against enumerate_distances
+        for ((idx1, idx2), dist) in distances.enumerate_distances() {
+            prop_assert_eq!(distances[(idx1, idx2)], dist);
+        }
+
+        // Test that debug doesn't crash
+        let _debug = format!("{distances:?}");
+        Ok(())
+    }
+
+    /// Check all distance matrices from the default topology
+    ///
+    /// Note that a hwloc will not expose any distance matrix on a typical
+    /// developer workstation, as those are normally reserved for communication
+    /// between sockets, NUMA nodes, GPUs, etc. For good test coverage on such
+    /// systems, you will therefore need to enable at least the `hwloc-2_5_0`
+    /// feature, which lets us add arbitrary distance matrices to the topology.
+    #[test]
+    fn default_distances() {
+        check_topology_distances(Topology::test_instance()).unwrap();
+    }
+
+    /// Pick a valid distance kind for a certain application
+    ///
+    /// Set `WRITING` to `true` when creating or modifying distances, set it
+    /// to `false` when querying distances.
+    #[allow(unused)]
+    fn valid_distances_kind<const WRITING: bool>() -> impl Strategy<Value = DistancesKind> {
+        (
+            prop::array::uniform2(prop::option::of(any::<bool>())),
+            any::<bool>(),
+        )
+            .prop_map(|([source, meaning], heterogeneous)| {
+                let source_flags = source.map_or(DistancesKind::empty(), |source_bool| {
+                    if source_bool {
+                        DistancesKind::FROM_OS
+                    } else {
+                        DistancesKind::FROM_USER
+                    }
+                });
+                let meaning_flags = meaning.map_or(DistancesKind::empty(), |meaning_bool| {
+                    if meaning_bool {
+                        DistancesKind::MEANS_LATENCY
+                    } else {
+                        DistancesKind::MEANS_BANDWIDTH
+                    }
+                });
+                #[allow(unused_mut)]
+                let mut heterogeneous_flags = DistancesKind::empty();
+                #[cfg(feature = "hwloc-2_1_0")]
+                {
+                    if !WRITING && heterogeneous {
+                        heterogeneous_flags |= DistancesKind::HETEROGENEOUS_TYPES;
+                    }
+                }
+                source_flags | meaning_flags | heterogeneous_flags
+            })
+    }
+    //
+    /// Pick a distance kind that is likely to be correct, but may be wrong
+    fn distances_kind<const WRITING: bool>() -> impl Strategy<Value = DistancesKind> {
+        prop_oneof![
+            4 => valid_distances_kind::<WRITING>(),
+            1 => any::<DistancesKind>()
+        ]
+    }
+    //
+    /// Specialization of [`distances_kind()`] for operations that query the
+    /// distance matrices, but do not modify them.
+    fn distances_kind_query() -> impl Strategy<Value = DistancesKind> {
+        distances_kind::<false>()
+    }
+    //
+    /// Specialization of [`distances_kind()`] for operations that create or
+    /// modify distance matrices.
+    #[cfg(feature = "hwloc-2_5_0")]
+    fn distances_kind_edit() -> impl Strategy<Value = DistancesKind> {
+        distances_kind::<true>()
+    }
+
+    /// Check filtering of distances by kind
+    fn check_distances_by_kind(
+        topology: &Topology,
+        kind: DistancesKind,
+    ) -> Result<(), TestCaseError> {
+        // Predict filtering validity
+        let kind_valid = kind.is_valid(false);
+
+        // Perform filtering, check errors
+        let filtered = match topology.distances(kind) {
+            Ok(filtered) => {
+                prop_assert!(kind_valid);
+                filtered
+            }
+            Err(HybridError::Rust(ParameterError(k))) => {
+                prop_assert!(!kind_valid);
+                prop_assert_eq!(k, kind);
+                return Ok(());
+            }
+            Err(HybridError::Hwloc(h)) => unreachable!("Unexpected hwloc error {h}"),
+        };
+
+        // Check result
+        let expected = topology
+            .distances(Default::default())?
+            .into_iter()
+            .filter(|dist| dist.kind().contains(kind))
+            .collect::<Vec<_>>();
+        prop_assert_eq!(filtered.len(), expected.len());
+        prop_assert!(filtered
+            .into_iter()
+            .zip(&expected)
+            .all(|(dist1, dist2)| dist1.eq_modulo_topology(dist2)));
+        Ok(())
+    }
+
+    proptest! {
+        /// Check filtering of distances on default topology
+        #[test]
+        fn default_kind_filter(kind in distances_kind_query()) {
+            check_distances_by_kind(Topology::test_instance(), kind)?;
+            // TODO: Add proptest strategy for topology with distances and run
+            //       this test on it too.
+        }
+    }
+
+    /// Features that require hwloc v2.5 (i.e. adding distances between objects)
     #[cfg(feature = "hwloc-2_5_0")]
     mod hwloc25 {
         use super::*;
@@ -1776,27 +2009,28 @@ mod tests {
         use proptest::collection::SizeRange;
         use std::collections::{HashMap, HashSet};
 
-        /// Pick a correct or incorrect distance kind for `add_distances()`
-        fn add_distances_kind() -> impl Strategy<Value = DistancesKind> {
-            prop_oneof![
-                4 => (prop::option::of(any::<bool>()), prop::option::of(any::<bool>())).prop_map(|(source, meaning)| {
-                    let source_flags = source.map_or(DistancesKind::empty(), |source_bool| if source_bool {
-                        DistancesKind::FROM_OS
-                    } else {
-                        DistancesKind::FROM_USER
-                    });
-                    let meaning_flags = meaning.map_or(DistancesKind::empty(), |meaning_bool| if meaning_bool {
-                        DistancesKind::MEANS_LATENCY
-                    } else {
-                        DistancesKind::MEANS_BANDWIDTH
-                    });
-                    source_flags | meaning_flags
-                }),
-                1 => any::<DistancesKind>()
-            ]
+        /// Always-valid building blocks for a call to `add_distances()`
+        fn valid_add_distances_building_blocks() -> impl Strategy<
+            Value = (
+                Option<String>,
+                DistancesKind,
+                AddDistancesFlags,
+                Vec<&'static TopologyObject>,
+                Vec<u64>,
+            ),
+        > {
+            // TODO: Finish, then use a bulk version of this to implement a
+            //       generator of topologies with distances, which in turn will
+            //       be used by many proptests.
+            //       First of all, need a valid c string generator, to be
+            //       extracted from the Arbitrary of LibcString to the toplevel
+            //       strategies module...
+            todo!();
+            // FIXME: Only here to make type inference converge
+            add_distances_building_blocks()
         }
 
-        /// Building blocks for a call to `add_distances()`
+        /// Likely-valid building blocks for a call to `add_distances()`
         fn add_distances_building_blocks() -> impl Strategy<
             Value = (
                 Option<String>,
@@ -1807,7 +2041,7 @@ mod tests {
             ),
         > {
             let name = prop::option::of(any_string());
-            let kind = add_distances_kind();
+            let kind = distances_kind_edit();
             let flags = any::<AddDistancesFlags>();
             let endpoints =
                 any_size().prop_flat_map(|size| prop::collection::vec(any_object(size), size));
@@ -1941,15 +2175,16 @@ mod tests {
                     //
                     // First, we should see one more distance matrix
                     let topology = editor.topology();
-                    let initial_distances = initial_topology.distances(None).unwrap();
-                    let distances = topology.distances(None).unwrap();
+                    let initial_distances = initial_topology.distances(DistancesKind::empty()).unwrap();
+                    let mut distances = topology.distances(DistancesKind::empty()).unwrap();
                     prop_assert_eq!(distances.len(), initial_distances.len() + 1);
 
                     // The first distances should be the same as before, the last
                     // one should be newly added.
-                    let (last_distances, first_distances) = distances.split_last().unwrap();
+                    let last_distances = distances.pop().unwrap();
+                    let first_distances = distances;
                     for (initial, current) in initial_distances.iter().zip(first_distances) {
-                        prop_assert!(initial.eq_modulo_topology(current));
+                        prop_assert!(initial.eq_modulo_topology(&current));
                     }
 
                     // hwloc does not preserve Unicode names well
@@ -1984,16 +2219,12 @@ mod tests {
                     // Distance values should match
                     prop_assert_eq!(last_distances.distances(), values);
 
-                    // TODO: Have a generic distances test that will be called
-                    //       to test all other Distances operations, starting
-                    //       with object_idx(). This will be called for all
-                    //       distances in the topology by the following test.
+                    // Distance matrix should otherwise be valid
+                    let mut last_distances = last_distances;
+                    check_distances(&mut last_distances)?;
 
-                    // TODO: Check the distances of the new topology like we
-                    //       would check the reference topology (new topology
-                    //       test to be added, run on test_instance()).
-
-                    Ok(())
+                    // Topology distances should generally be valid
+                    check_topology_distances(topology)
                 })?;
             }
         }
