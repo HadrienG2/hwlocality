@@ -802,8 +802,15 @@ impl TopologyEditor<'_> {
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the [`kind()`] attribute.
 ///
-/// Resizing a distance matrix is not allowed, however users may freely change
-/// their kind and contents.
+/// The ownership/lifetime semantics of this object is subtle:
+///
+/// - Its internal allocations are managed by an hwloc topology, and it contains
+///   references to objects from a topology. As a result, its lifetime is tied
+///   to that of a topology; the number of objects cannot grow (only shrink),
+///   and there is no easy way to clone `Distances`...
+/// - ...but the inner objects and values are not themselves part of the "home"
+///   topology, and can therefore they can be modified independently. Which is
+///   why you only need an `&Topology` to retrieve modifiable distance matrices.
 ///
 #[cfg_attr(
     feature = "hwloc-2_5_0",
@@ -815,7 +822,7 @@ impl TopologyEditor<'_> {
 )]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
-    doc = "between them and replace NUMA nodes in the objs array with the corresponding"
+    doc = "between them and replace NUMA nodes in the objects array with the corresponding"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "Packages.")]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
@@ -824,8 +831,6 @@ impl TopologyEditor<'_> {
     doc = "See also [`Distances::transform()`] for applying some"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
-///
-/// You cannot create an owned object of this type, it belongs to the topology.
 ///
 /// [`kind()`]: Self::kind()
 //
@@ -842,6 +847,8 @@ impl TopologyEditor<'_> {
 // - objs array should contain nbobj hwloc_obj pointers, each of which should
 //   point to a valid object belonging to "topology" or be null
 // - values array should contain nbobj*nbobj values
+// - The objs and values pointers should not be replaced (but contents can be
+//   freely modified)
 #[doc(alias = "hwloc_distances_s")]
 pub struct Distances<'topology> {
     /// Pointer to a valid [`hwloc_distances_s`] struct that originates from
