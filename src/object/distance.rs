@@ -1206,12 +1206,12 @@ impl<'topology> Distances<'topology> {
     /// [`ForeignObjectError`] if any of the [`TopologyObject`]s returned by
     /// `mapping` does not belong to the same [`Topology`] as this distances
     /// matrix.
-    pub fn replace_objects(
+    pub fn replace_all_objects(
         &mut self,
         mut mapping: impl FnMut(usize, Option<&TopologyObject>) -> Option<&'topology TopologyObject>,
     ) -> Result<(), ForeignObjectError> {
         let topology = self.topology;
-        // SAFETY: Overwriting these with a valid topology object pointers from topology
+        // SAFETY: Overwriting these with valid object pointers from topology
         for (idx, obj) in unsafe { self.objects_mut().iter_mut().enumerate() } {
             // SAFETY: inner is assumed valid as a type invariant, thus inner
             //         obj pointers are assumed to be valid and bound to the
@@ -1450,7 +1450,7 @@ impl<'topology> Distances<'topology> {
     /// distances.
     ///
     /// Objects may also be directly replaced in place using
-    /// [`Distances::replace_objects()`]. One may use e.g.
+    /// [`Distances::replace_all_objects()`]. One may use e.g.
     /// [`Topology::object_with_same_locality()`] to easily convert between
     /// similar objects of different types.
     ///
