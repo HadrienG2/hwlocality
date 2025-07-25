@@ -32,6 +32,14 @@ pub(crate) fn any_string() -> AnyString {
 /// Strategy emitted by [`any_string()`]
 pub(crate) type AnyString = RegexGeneratorStrategy<String>;
 
+/// String generator that only produces strings that don't include the NUL char
+pub(crate) fn any_c_string() -> AnyCString {
+    prop::string::string_regex("[^\0]*").expect("this is a valid regex")
+}
+
+/// Strategy emitted by [`any_c_string()`]
+pub(crate) type AnyCString = RegexGeneratorStrategy<String>;
+
 /// Generate an hwloc boolean with reasonable valid state probability
 pub(crate) fn hwloc_bool() -> HwlocBool {
     prop_oneof![
