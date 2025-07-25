@@ -2043,6 +2043,8 @@ mod tests {
         use super::*;
         use crate::strategies::{any_c_string, any_object, any_size, any_string, test_object};
         use proptest::collection::SizeRange;
+        #[allow(unused)]
+        use similar_asserts::assert_eq;
         use std::collections::{HashMap, HashSet};
 
         /// Maximum number of distance matrices from [`topology_with_distance()`]
@@ -2096,6 +2098,11 @@ mod tests {
             let kind = valid_distances_kind(DistancesKindUsage::AddEdit);
             let flags = any::<AddDistancesFlags>();
             // FIXME: Use isqrt() after bumping MSRV to 1.84+
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
             let max_endpoints = (SizeRange::default().end_incl() as f64).sqrt() as usize;
             let num_endpoints = 2..=max_endpoints.min(c_uint::MAX as usize);
             let endpoints = prop::collection::vec(test_object(), num_endpoints);
@@ -2123,6 +2130,11 @@ mod tests {
                 // If so, fix up diagonal values
                 let num_values = values.len();
                 // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
                 let num_endpoints = (num_values as f64).sqrt() as usize;
                 assert_eq!(num_values % num_endpoints, 0);
                 for (endpoint_idx, values_from_endpoint) in
@@ -2180,6 +2192,11 @@ mod tests {
             let flags = any::<AddDistancesFlags>();
             let endpoints = any_size().prop_flat_map(|size| {
                 // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
                 prop::collection::vec(any_object(size), (size as f64).sqrt() as usize)
             });
             (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
