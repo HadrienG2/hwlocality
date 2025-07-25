@@ -2095,7 +2095,8 @@ mod tests {
             let name = prop::option::of(any_c_string());
             let kind = valid_distances_kind(DistancesKindUsage::AddEdit);
             let flags = any::<AddDistancesFlags>();
-            let max_endpoints = SizeRange::default().end_incl().isqrt();
+            // FIXME: Use isqrt() after bumping MSRV to 1.84+
+            let max_endpoints = (SizeRange::default().end_incl() as f64).sqrt() as usize;
             let num_endpoints = 2..=max_endpoints.min(c_uint::MAX as usize);
             let endpoints = prop::collection::vec(test_object(), num_endpoints);
             (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
@@ -2121,7 +2122,8 @@ mod tests {
             {
                 // If so, fix up diagonal values
                 let num_values = values.len();
-                let num_endpoints = num_values.isqrt();
+                // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                let num_endpoints = (num_values as f64).sqrt() as usize;
                 assert!(num_values.is_multiple_of(num_endpoints));
                 for (endpoint_idx, values_from_endpoint) in
                     values.chunks_mut(num_endpoints).enumerate()
@@ -2176,8 +2178,10 @@ mod tests {
             let name = prop::option::of(any_string());
             let kind = distances_kind(DistancesKindUsage::AddEdit);
             let flags = any::<AddDistancesFlags>();
-            let endpoints = any_size()
-                .prop_flat_map(|size| prop::collection::vec(any_object(size), size.isqrt()));
+            let endpoints = any_size().prop_flat_map(|size| {
+                // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                prop::collection::vec(any_object(size), (size as f64).sqrt() as usize)
+            });
             (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
                 let num_endpoints = endpoints.len();
                 let correct_values_count =
