@@ -2048,7 +2048,7 @@ mod tests {
         /// Maximum number of distance matrices from [`topology_with_distance()`]
         ///
         /// Can be tuned higher at the expense of slower tests
-        const MAX_DISTANCE_MATRICES: usize = 5;
+        const MAX_DISTANCE_MATRICES: usize = 10;
         //
         /// Topology test instance variation with some distances added
         fn topology_with_distances() -> impl Strategy<Value = Topology> {
