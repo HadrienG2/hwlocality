@@ -71,7 +71,7 @@ impl Topology {
     #[cfg_attr(feature = "hwloc-2_1_0", doc = "")]
     #[cfg_attr(
         feature = "hwloc-2_1_0",
-        doc = "[`HETEROGENEOUS_TYPES`] cannot be used as a filter here."
+        doc = "[`HETEROGENEOUS_TYPES`](DistancesKind::HETEROGENEOUS_TYPES) cannot be used as a filter here."
     )]
     ///
     ///
