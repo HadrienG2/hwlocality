@@ -1808,7 +1808,6 @@ mod tests {
         for mut distances in topology.distances(DistancesKind::empty())? {
             check_distances(&mut distances)?;
         }
-        // TODO: proptests for all filtered queries
         Ok(())
     }
 
@@ -2029,20 +2028,57 @@ mod tests {
         #[test]
         fn default_kind_filter(kind in distances_kind(DistancesKindUsage::Query)) {
             check_distances_by_kind(Topology::test_instance(), kind)?;
-            // TODO: Add proptest strategy for topology with distances and run
-            //       this test on it too.
         }
+
+        // TODO: Proptests for all filtered queries, to be duplicated below
     }
 
     /// Features that require hwloc v2.5 (i.e. adding distances between objects)
     #[cfg(feature = "hwloc-2_5_0")]
     mod hwloc25 {
         use super::*;
-        use crate::strategies::{any_object, any_size, any_string};
+        use crate::strategies::{any_c_string, any_object, any_size, any_string, test_object};
         use proptest::collection::SizeRange;
         use std::collections::{HashMap, HashSet};
 
+        /// Maximum number of distance matrices from [`topology_with_distance()`]
+        ///
+        /// Can be tuned higher at the expense of slower tests
+        const MAX_DISTANCE_MATRICES: usize = 5;
+        //
+        /// Topology test instance variation with some distances added
+        fn topology_with_distances() -> impl Strategy<Value = Topology> {
+            prop::collection::vec(
+                valid_add_distances_building_blocks(),
+                0..=MAX_DISTANCE_MATRICES,
+            )
+            .prop_map(|building_blocks_vec| {
+                let mut topology = Topology::test_instance().clone();
+                topology.edit(move |editor| {
+                    for (name, kind, flags, endpoints, values) in building_blocks_vec {
+                        editor
+                            .add_distances(name.as_deref(), kind, flags, |topology| {
+                                let id_to_object = topology
+                                    .objects()
+                                    .map(|obj| (obj.global_persistent_index(), obj))
+                                    .collect::<HashMap<_, _>>();
+                                let endpoints = endpoints
+                                    .iter()
+                                    .map(|obj| id_to_object[&obj.global_persistent_index()])
+                                    .collect::<Vec<_>>();
+                                (endpoints, values)
+                            })
+                            .unwrap();
+                    }
+                });
+                topology
+            })
+        }
+        //
         /// Always-valid building blocks for a call to `add_distances()`
+        ///
+        /// Generated endpoints come from `Topology::test_instance()` and must
+        /// be fixed up for the actual target topology.
         fn valid_add_distances_building_blocks() -> impl Strategy<
             Value = (
                 Option<String>,
@@ -2052,18 +2088,78 @@ mod tests {
                 Vec<u64>,
             ),
         > {
-            // TODO: Finish, then use a bulk version of this to implement a
-            //       generator of topologies with distances, which in turn will
-            //       be used by many proptests.
-            //       First of all, need a valid c string generator, to be
-            //       extracted from the Arbitrary of LibcString to the toplevel
-            //       strategies module...
-            todo!();
-            // FIXME: Only here to make type inference converge
-            add_distances_building_blocks()
+            let name = prop::option::of(any_c_string());
+            let kind = valid_distances_kind(DistancesKindUsage::AddEdit);
+            let flags = any::<AddDistancesFlags>();
+            let max_endpoints = SizeRange::default().end_incl().isqrt();
+            let num_endpoints = 2..=max_endpoints.min(c_uint::MAX as usize);
+            let endpoints = prop::collection::vec(test_object(), num_endpoints);
+            (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
+                let num_endpoints = endpoints.len();
+                let values = prop::collection::vec(any::<u64>(), num_endpoints.pow(2)).prop_map(
+                    move |mut values| {
+                        fixup_values(kind, &mut values);
+                        values
+                    },
+                );
+                (Just(name), Just(kind), Just(flags), Just(endpoints), values)
+            })
+        }
+        //
+        /// Fix up random distance values to match the `MEANS_xyz` expectations
+        /// about diagonal values being smaller/bigger.
+        ///
+        /// Assumes that the value matrix is otherwise valid (number of values
+        /// is the square of the number of endpoints)
+        fn fixup_values(kind: DistancesKind, values: &mut [u64]) {
+            if !values.is_empty()
+                && kind.intersects(DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH)
+            {
+                // If so, fix up diagonal values
+                let num_values = values.len();
+                let num_endpoints = num_values.isqrt();
+                assert!(num_values.is_multiple_of(num_endpoints));
+                for (endpoint_idx, values_from_endpoint) in
+                    values.chunks_mut(num_endpoints).enumerate()
+                {
+                    let diagonal_value = if kind.contains(DistancesKind::MEANS_LATENCY) {
+                        *values_from_endpoint.iter().min().unwrap()
+                    } else {
+                        assert!(kind.contains(DistancesKind::MEANS_BANDWIDTH));
+                        *values_from_endpoint.iter().max().unwrap()
+                    };
+                    let diagonal_value_idx = values_from_endpoint
+                        .iter()
+                        .position(|&v| v == diagonal_value)
+                        .unwrap();
+                    values_from_endpoint.swap(endpoint_idx, diagonal_value_idx);
+                }
+            }
+        }
+
+        proptest! {
+            /// Check that random topology from topology_with_distances() makes sense
+            #[test]
+            fn check_random_distances(topology in topology_with_distances()) {
+                check_topology_distances(&topology)?;
+            }
+
+            /// Check distance filtering by kind on random topology
+            #[test]
+            fn kind_filter(
+                topology in topology_with_distances(),
+                kind in distances_kind(DistancesKindUsage::Query)
+            ) {
+                check_distances_by_kind(&topology, kind)?;
+            }
+
+            // TODO: Run same tests on initial topology above
         }
 
         /// Likely-valid building blocks for a call to `add_distances()`
+        ///
+        /// Generated endpoints come from `Topology::test_instance()`, if valid,
+        /// and must be fixed up for the actual target topology.
         fn add_distances_building_blocks() -> impl Strategy<
             Value = (
                 Option<String>,
@@ -2074,42 +2170,27 @@ mod tests {
             ),
         > {
             let name = prop::option::of(any_string());
-            let kind = distances_kind_edit();
+            let kind = distances_kind(DistancesKindUsage::AddEdit);
             let flags = any::<AddDistancesFlags>();
-            let endpoints =
-                any_size().prop_flat_map(|size| prop::collection::vec(any_object(size), size));
+            let endpoints = any_size()
+                .prop_flat_map(|size| prop::collection::vec(any_object(size), size.isqrt()));
             (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
                 let num_endpoints = endpoints.len();
-                let correct_values_count = prop::collection::vec(
-                    any::<u64>(),
-                    num_endpoints.pow(2),
-                );
+                let correct_values_count =
+                    prop::collection::vec(any::<u64>(), num_endpoints.pow(2));
                 let values = prop_oneof![
                     // Correct number of values
-                    4 => correct_values_count.prop_flat_map(move |mut values| {
-                        // Do we have a flag with diagonal value expectations?
-                        if !values.is_empty() && kind.intersects(DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH) {
-                            prop_oneof![
-                                // Correct diagonal values
-                                4 => {
-                                    for (endpoint_idx, values_from_endpoint) in values.chunks_mut(num_endpoints).enumerate() {
-                                        let diagonal_value = if kind.contains(DistancesKind::MEANS_LATENCY) {
-                                            *values_from_endpoint.iter().min().unwrap()
-                                        } else {
-                                            assert!(kind.contains(DistancesKind::MEANS_BANDWIDTH));
-                                            *values_from_endpoint.iter().max().unwrap()
-                                        };
-                                        let diagonal_value_idx = values_from_endpoint.iter().position(|&v| v == diagonal_value).unwrap();
-                                        values_from_endpoint.swap(endpoint_idx, diagonal_value_idx);
-                                    }
-                                    Just(values.clone())
-                                },
-                                // Likely-incorrect diagonal values
-                                1 => Just(values)
-                            ].boxed()
-                        } else {
-                            Just(values).boxed()
-                        }
+                    4 => correct_values_count.prop_flat_map(move |values| {
+                        prop_oneof![
+                            // Correct diagonal values
+                            4 => {
+                                let mut values = values.clone();
+                                fixup_values(kind, &mut values);
+                                Just(values)
+                            },
+                            // Likely-incorrect diagonal values
+                            1 => Just(values)
+                        ]
                     }),
                     // Likely-incorrect number of values
                     1 => prop::collection::vec(any::<u64>(), SizeRange::default()),
@@ -2121,9 +2202,12 @@ mod tests {
         proptest! {
             /// Test [`TopologyEditor::add_distances()`]
             #[test]
-            fn add_distances((name, kind, flags, endpoints, values) in add_distances_building_blocks()) {
+            fn add_distances(
+                initial_topology in topology_with_distances(),
+                (name, kind, flags, endpoints, values) in add_distances_building_blocks(),
+            ) {
                 // Access the reference topology
-                let initial_topology = Topology::test_instance();
+                let test_topology = Topology::test_instance();
 
                 // Predict errors
                 let name_contains_nul =
@@ -2134,7 +2218,7 @@ mod tests {
                     || kind.contains(Kind::FROM_OS | Kind::FROM_USER)
                     || kind.contains(Kind::MEANS_LATENCY | Kind::MEANS_BANDWIDTH);
                 let bad_endpoint_count = endpoints.len() < 2 || endpoints.len() > c_uint::MAX as usize;
-                let foreign_endpoint = endpoints.iter().any(|obj| !initial_topology.contains(obj));
+                let foreign_endpoint = endpoints.iter().any(|obj| !test_topology.contains(obj));
                 let inconsistent_len = values.len() != endpoints.len().pow(2);
                 let inconsistent_diagonal = {
                     let preconditions = !bad_endpoint_count && !inconsistent_len;
@@ -2175,7 +2259,7 @@ mod tests {
                         let endpoints = endpoints
                             .iter()
                             .map(|obj| {
-                                if initial_topology.contains(obj) {
+                                if test_topology.contains(obj) {
                                     id_to_object[&obj.global_persistent_index()]
                                 } else {
                                     obj
@@ -2197,7 +2281,7 @@ mod tests {
                                 AddDistancesError::InconsistentDiagonal(_) => prop_assert!(inconsistent_diagonal),
                                 AddDistancesError::InconsistentLen => prop_assert!(inconsistent_len),
                             }
-                            prop_assert_eq!(editor.topology(), initial_topology);
+                            prop_assert_eq!(editor.topology(), &initial_topology);
                             return Ok(());
                         },
                         Err(HybridError::Hwloc(h)) => unreachable!("unexpected hwloc error {h:?}"),
