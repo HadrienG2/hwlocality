@@ -1820,7 +1820,7 @@ mod tests {
         // Distance names should be valid Unicode on well-behaved systems, and
         // is guaranteed to be for distances that we add ourselves.
         #[cfg(feature = "hwloc-2_1_0")]
-        prop_assert!(distances.name().is_none_or(|cstr| cstr.to_str().is_ok()));
+        prop_assert!(distances.name().map_or(true, |cstr| cstr.to_str().is_ok()));
 
         // Possible kinds are governed by some rules
         let kind = distances.kind();
@@ -2124,7 +2124,7 @@ mod tests {
                 let num_values = values.len();
                 // FIXME: Use isqrt() after bumping MSRV to 1.84+
                 let num_endpoints = (num_values as f64).sqrt() as usize;
-                assert!(num_values.is_multiple_of(num_endpoints));
+                assert_eq!(num_values % num_endpoints, 0);
                 for (endpoint_idx, values_from_endpoint) in
                     values.chunks_mut(num_endpoints).enumerate()
                 {
