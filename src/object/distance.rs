@@ -69,10 +69,17 @@ impl Topology {
     /// one of them is returned. The same applies for `MEANS_xyz` options. If
     /// `kind` is left as `DistancesKind::empty()`, all distances are returned.
     ///
+    #[cfg_attr(
+        feature = "hwloc-2_1_0",
+        doc = "[`HETEROGENEOUS_TYPES`] should not be used here as it is ignored by"
+    )]
+    #[cfg_attr(feature = "hwloc-2_1_0", doc = "hwloc.")]
+    ///
+    ///
     /// # Errors
     ///
-    /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
-    /// `MEANS_xyz` options.
+    /// [`FlagsError`] if the specified `kind` contains an invalid pattern, such
+    /// as multiple `FROM_xyz` or `MEANS_xyz` options.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get")]
     pub fn distances(
@@ -243,8 +250,8 @@ impl Topology {
     ///
     /// # Errors
     ///
-    /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
-    /// `MEANS_xyz` options.
+    /// [`FlagsError`] if the specified `kind` contains an invalid pattern, such
+    /// as multiple `FROM_xyz` or `MEANS_xyz` options.
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances(
         &self,
@@ -258,7 +265,7 @@ impl Topology {
             c_ulong,
         ) -> c_int,
     ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>> {
-        if !kind.is_valid(false) {
+        if !kind.is_valid(DistancesKindUsage::Query) {
             return Err(FlagsError::from(kind).into());
         }
         // SAFETY: - getter with the kind parameters curried away behaves as
@@ -447,7 +454,7 @@ impl TopologyEditor<'_> {
             };
             let name = name.as_ref().map_or(ptr::null(), LibcString::borrow);
             //
-            if !kind.is_valid(true) {
+            if !kind.is_valid(DistancesKindUsage::AddEdit) {
                 return Err(AddDistancesError::BadKind(kind.into()).into());
             }
             //
@@ -995,7 +1002,7 @@ impl<'topology> Distances<'topology> {
         // SAFETY: No invalid mutation of inner state occurs
         let result = DistancesKind::from_bits_retain(unsafe { self.inner().kind });
         assert!(
-            result.is_valid(false),
+            result.is_valid(DistancesKindUsage::FromHwloc),
             "hwloc should not emit invalid kinds"
         );
         result
@@ -1019,7 +1026,7 @@ impl<'topology> Distances<'topology> {
     /// the same time. However clearing them is fine.
     #[allow(unused_mut)]
     pub fn set_kind(&mut self, mut kind: DistancesKind) -> Result<(), FlagsError<DistancesKind>> {
-        if !kind.is_valid(true) {
+        if !kind.is_valid(DistancesKindUsage::AddEdit) {
             return Err(kind.into());
         }
         #[cfg(feature = "hwloc-2_1_0")]
@@ -1649,24 +1656,56 @@ bitflags! {
         #[cfg(feature = "hwloc-2_1_0")]
         #[doc(alias = "HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES")]
         const HETEROGENEOUS_TYPES = HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
+        //
+        // TODO: Adjust is_valid when adding new kinds
     }
 }
 //
 impl DistancesKind {
     /// Truth that this kind is in a valid state
-    #[allow(unused_mut, clippy::let_and_return, unused_variables)]
-    pub(crate) fn is_valid(self, writing: bool) -> bool {
-        let mut result = !((self.contains(Self::FROM_OS) && self.contains(Self::FROM_USER))
-            || (self.contains(Self::MEANS_LATENCY) && self.contains(Self::MEANS_BANDWIDTH)));
-
-        #[cfg(feature = "hwloc-2_1_0")]
+    fn is_valid(self, #[allow(unused)] usage: DistancesKindUsage) -> bool {
+        // FROM and MEANS kinds are mutually exclusive
+        if self.contains(Self::FROM_OS | Self::FROM_USER)
+            || self.contains(Self::MEANS_LATENCY | Self::MEANS_BANDWIDTH)
         {
-            result &= !(writing && self.contains(Self::HETEROGENEOUS_TYPES));
+            return false;
         }
 
-        result
+        // What about HETEROGENEOUS_TYPES, if supported?
+        #[cfg(feature = "hwloc-2_1_0")]
+        {
+            match usage {
+                // It's normal for hwloc to return it
+                DistancesKindUsage::FromHwloc => {},
+
+                // It shouldn't be used in queries because it's ignored...
+                DistancesKindUsage::Query
+                // ...and it shouldn't be used when adding or modifying
+                // distances because it's added and removed automatically
+                | DistancesKindUsage::AddEdit => {
+                    if self.contains(Self::HETEROGENEOUS_TYPES) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }
+//
+/// Context in which a [`DistancesKind`] can be used
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DistancesKindUsage {
+    /// Translation of raw hwloc flags
+    FromHwloc,
+
+    /// Input to a query that selects distances matrices that have certain kinds
+    Query,
+
+    /// Input to an operation that creates or modifies a topology
+    AddEdit,
+}
+// TODO: DistancesKindUsage enum with Query/Write/FromHwloc variants
 //
 #[cfg(any(test, feature = "proptest"))]
 crate::impl_arbitrary_for_bitflags!(DistancesKind, hwloc_distances_kind_e);
@@ -1902,12 +1941,12 @@ mod tests {
     /// Set `WRITING` to `true` when creating or modifying distances, set it
     /// to `false` when querying distances.
     #[allow(unused)]
-    fn valid_distances_kind<const WRITING: bool>() -> impl Strategy<Value = DistancesKind> {
+    fn valid_distances_kind(usage: DistancesKindUsage) -> impl Strategy<Value = DistancesKind> {
         (
             prop::array::uniform2(prop::option::of(any::<bool>())),
             any::<bool>(),
         )
-            .prop_map(|([source, meaning], heterogeneous)| {
+            .prop_map(move |([source, meaning], heterogeneous)| {
                 let source_flags = source.map_or(DistancesKind::empty(), |source_bool| {
                     if source_bool {
                         DistancesKind::FROM_OS
@@ -1926,33 +1965,27 @@ mod tests {
                 let mut heterogeneous_flags = DistancesKind::empty();
                 #[cfg(feature = "hwloc-2_1_0")]
                 {
-                    if !WRITING && heterogeneous {
-                        heterogeneous_flags |= DistancesKind::HETEROGENEOUS_TYPES;
+                    match usage {
+                        DistancesKindUsage::FromHwloc => {
+                            unreachable!("Not used as input to hwloc APIs")
+                        }
+                        // HETEROGENEOUS_TYPES cannot be used for querying (it's
+                        // ignored) or for add/edit (it's auto-filled)
+                        DistancesKindUsage::Query | DistancesKindUsage::AddEdit => {}
                     }
+                    // TODO: Set heterogeneous_flags according to heterogeneous
+                    //       boolean if any situation allows it
                 }
                 source_flags | meaning_flags | heterogeneous_flags
             })
     }
     //
     /// Pick a distance kind that is likely to be correct, but may be wrong
-    fn distances_kind<const WRITING: bool>() -> impl Strategy<Value = DistancesKind> {
+    fn distances_kind(usage: DistancesKindUsage) -> impl Strategy<Value = DistancesKind> {
         prop_oneof![
-            4 => valid_distances_kind::<WRITING>(),
+            4 => valid_distances_kind(usage),
             1 => any::<DistancesKind>()
         ]
-    }
-    //
-    /// Specialization of [`distances_kind()`] for operations that query the
-    /// distance matrices, but do not modify them.
-    fn distances_kind_query() -> impl Strategy<Value = DistancesKind> {
-        distances_kind::<false>()
-    }
-    //
-    /// Specialization of [`distances_kind()`] for operations that create or
-    /// modify distance matrices.
-    #[cfg(feature = "hwloc-2_5_0")]
-    fn distances_kind_edit() -> impl Strategy<Value = DistancesKind> {
-        distances_kind::<true>()
     }
 
     /// Check filtering of distances by kind
@@ -1961,7 +1994,7 @@ mod tests {
         kind: DistancesKind,
     ) -> Result<(), TestCaseError> {
         // Predict filtering validity
-        let kind_valid = kind.is_valid(false);
+        let kind_valid = kind.is_valid(DistancesKindUsage::Query);
 
         // Perform filtering, check errors
         let filtered = match topology.distances(kind) {
@@ -1992,9 +2025,9 @@ mod tests {
     }
 
     proptest! {
-        /// Check filtering of distances on default topology
+        /// Check distance filtering by kind on default topology
         #[test]
-        fn default_kind_filter(kind in distances_kind_query()) {
+        fn default_kind_filter(kind in distances_kind(DistancesKindUsage::Query)) {
             check_distances_by_kind(Topology::test_instance(), kind)?;
             // TODO: Add proptest strategy for topology with distances and run
             //       this test on it too.
