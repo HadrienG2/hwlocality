@@ -2,6 +2,8 @@
 
 use crate::errors::NulError;
 #[cfg(any(test, feature = "proptest"))]
+use crate::strategies::{any_c_string, AnyCString};
+#[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
 #[allow(unused)]
 #[cfg(test)]
@@ -128,25 +130,10 @@ impl LibcString {
 #[cfg(any(test, feature = "proptest"))]
 impl Arbitrary for LibcString {
     type Parameters = ();
-    type Strategy = prop::strategy::Perturb<
-        crate::strategies::AnyString,
-        fn(String, prop::test_runner::TestRng) -> Self,
-    >;
+    type Strategy = prop::strategy::Map<AnyCString, fn(String) -> Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        crate::strategies::any_string().prop_perturb(|s, mut rng| {
-            let s = s
-                .chars()
-                .map(|c| {
-                    if c == '\0' {
-                        char::from(rng.random_range(1..=127))
-                    } else {
-                        c
-                    }
-                })
-                .collect::<String>();
-            Self::new(s).expect("input was sanitized above, can't fail")
-        })
+        any_c_string().prop_map(|s| Self::new(s).expect("input was sanitized above, can't fail"))
     }
 }
 
