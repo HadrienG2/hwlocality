@@ -68,12 +68,11 @@ impl Topology {
     /// [`DistancesKind`]`::FROM_xyz` options, only distance matrices matching
     /// one of them is returned. The same applies for `MEANS_xyz` options. If
     /// `kind` is left as `DistancesKind::empty()`, all distances are returned.
-    ///
+    #[cfg_attr(feature = "hwloc-2_1_0", doc = "")]
     #[cfg_attr(
         feature = "hwloc-2_1_0",
-        doc = "[`HETEROGENEOUS_TYPES`] should not be used here as it is ignored by"
+        doc = "[`HETEROGENEOUS_TYPES`] cannot be used as a filter here."
     )]
-    #[cfg_attr(feature = "hwloc-2_1_0", doc = "hwloc.")]
     ///
     ///
     /// # Errors
@@ -99,12 +98,17 @@ impl Topology {
         }
     }
 
-    /// Retrieve distance matrices for objects at a specific depth in the
-    /// topology (if any)
+    /// Retrieve distance matrices that only contain objects at a specific depth
+    /// in the topology
     ///
     /// Identical to [`distances()`] with the additional `depth` filter.
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
+    ///
+    /// As of hwloc v2.12.1, querying at the depth of
+    /// [`Group`](ObjectType::Group) objects is unfortunately not yet supported
+    /// by hwloc and will error out. If this ever becomes supported on the
+    /// hwloc side, however, `hwlocality` will immediately support it.
     ///
     /// # Errors
     ///
@@ -158,7 +162,7 @@ impl Topology {
             .map_or_else(|_| Ok(Vec::new()), |depth| polymorphized(self, kind, depth))
     }
 
-    /// Retrieve distance matrices for object with a specific type
+    /// Retrieve distance matrices that only contain objects with type `ty`
     ///
     /// Identical to [`distances()`] with the additional `ty` filter.
     ///
