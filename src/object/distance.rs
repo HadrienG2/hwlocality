@@ -2144,7 +2144,7 @@ mod tests {
         proptest! {
             /// Check that random topology from topology_with_distances() makes sense
             #[test]
-            fn check_random_distances(topology in topology_with_distances()) {
+            fn distances(topology in topology_with_distances()) {
                 check_topology_distances(&topology)?;
             }
 
