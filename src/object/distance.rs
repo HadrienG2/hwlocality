@@ -36,11 +36,12 @@ use hwlocality_sys::{
 };
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
-    hwloc_distances_add_flag_e, hwloc_distances_transform_e, HWLOC_DISTANCES_ADD_FLAG_GROUP,
-    HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE, HWLOC_DISTANCES_TRANSFORM_LINKS,
+    hwloc_distances_add_flag_e, hwloc_distances_transform_e, HWLOC_DISTANCES_TRANSFORM_LINKS,
     HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
     HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
 };
+#[cfg(feature = "hwloc-3_0_0")]
+use hwlocality_sys::{HWLOC_DISTANCES_ADD_FLAG_GROUP, HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -595,6 +596,10 @@ bitflags! {
         ///
         /// Grouping is only performed when the distances structure contains
         /// latencies, and when all objects are of the same type.
+        ///
+        /// Disabled for older versions of hwloc as a workaround for [upstream
+        /// bug #728](https://github.com/open-mpi/hwloc/issues/728).
+        #[cfg(feature = "hwloc-3_0_0")]
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP")]
         const GROUP = HWLOC_DISTANCES_ADD_FLAG_GROUP;
 
@@ -603,6 +608,10 @@ bitflags! {
         /// accuracy may be modified through the HWLOC_GROUPING_ACCURACY
         /// environment variable (see [Environment
         /// Variables](https://hwloc.readthedocs.io/en/stable/envvar.html)).
+        ///
+        /// Disabled for older versions of hwloc as a workaround for [upstream
+        /// bug #728](https://github.com/open-mpi/hwloc/issues/728).
+        #[cfg(feature = "hwloc-3_0_0")]
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]
         const GROUP_INACCURATE = HWLOC_DISTANCES_ADD_FLAG_GROUP | HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE;
     }
