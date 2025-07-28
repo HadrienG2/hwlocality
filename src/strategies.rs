@@ -25,11 +25,13 @@ use std::{
 use strum::IntoEnumIterator;
 
 /// String generator that's actually exhaustive, unlike proptest's default
+#[cfg(test)]
 pub(crate) fn any_string() -> AnyString {
     prop::string::string_regex(".*").expect("this is a valid regex")
 }
 
 /// Strategy emitted by [`any_string()`]
+#[cfg(test)]
 pub(crate) type AnyString = RegexGeneratorStrategy<String>;
 
 /// String generator that only produces strings that don't include the NUL char
