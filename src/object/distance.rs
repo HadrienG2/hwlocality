@@ -2133,7 +2133,7 @@ mod tests {
             /// In this situation, bad building blocks reduce the odds of
             /// successful topology building, and thus the efficiency of the
             /// subsequent tests.
-            fn valid() -> impl Strategy<Value = AddDistancesBuildingBlocks> {
+            fn valid() -> impl Strategy<Value = Self> {
                 let name = prop::option::of(any_c_string());
                 let kind = valid_distances_kind(DistancesKindUsage::AddEdit);
                 let flags = any::<AddDistancesFlags>();
@@ -2170,7 +2170,7 @@ mod tests {
             /// Use this strategy when exercising the `add_distances()` method
             /// in isolation. In this situation, all aspects of the method
             /// should be stressed, including error handling.
-            fn any() -> impl Strategy<Value = AddDistancesBuildingBlocks> {
+            fn any() -> impl Strategy<Value = Self> {
                 let name = prop::option::of(any_string());
                 let kind = distances_kind(DistancesKindUsage::AddEdit);
                 let flags = any::<AddDistancesFlags>();
@@ -2205,7 +2205,7 @@ mod tests {
                         1 => prop::collection::vec(any::<u64>(), SizeRange::default()),
                     ];
                     (Just(name), Just(kind), Just(flags), Just(endpoints), values).prop_map(
-                        |(name, kind, flags, endpoints, values)| AddDistancesBuildingBlocks {
+                        |(name, kind, flags, endpoints, values)| Self {
                             name,
                             kind,
                             flags,
