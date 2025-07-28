@@ -1809,7 +1809,7 @@ pub struct TransformError;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::ParameterError;
+    use crate::{errors::ParameterError, object::hierarchy::tests::any_hwloc_depth};
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
@@ -1819,13 +1819,13 @@ mod tests {
     fn check_topology_distances(topology: &Topology) -> Result<(), TestCaseError> {
         // Enumerate and check all distances
         for mut distances in topology.distances(DistancesKind::empty())? {
-            check_distances(&mut distances)?;
+            check_distances_matrix(&mut distances)?;
         }
         Ok(())
     }
 
     /// Test properties that any distance matrix should follow
-    fn check_distances(distances: &mut Distances<'_>) -> Result<(), TestCaseError> {
+    fn check_distances_matrix(distances: &mut Distances<'_>) -> Result<(), TestCaseError> {
         // Distance names should be valid Unicode on well-behaved systems, and
         // is guaranteed to be for distances that we add ourselves.
         #[cfg(feature = "hwloc-2_1_0")]
@@ -2000,16 +2000,19 @@ mod tests {
         ]
     }
 
-    /// Check filtering of distances by kind
-    fn check_distances_by_kind(
+    /// Check a distance matrix query
+    fn check_distances_query_with_kind(
         topology: &Topology,
         kind: DistancesKind,
+        query: impl Fn(&Topology) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>>,
+        extra_filter: impl Fn(&Distances<'_>) -> bool,
+        allow_hwloc_error: bool,
     ) -> Result<(), TestCaseError> {
         // Predict filtering validity
         let kind_valid = kind.is_valid(DistancesKindUsage::Query);
 
         // Perform filtering, check errors
-        let filtered = match topology.distances(kind) {
+        let filtered = match query(topology) {
             Ok(filtered) => {
                 prop_assert!(kind_valid);
                 filtered
@@ -2019,14 +2022,17 @@ mod tests {
                 prop_assert_eq!(k, kind);
                 return Ok(());
             }
-            Err(HybridError::Hwloc(h)) => unreachable!("Unexpected hwloc error {h}"),
+            Err(HybridError::Hwloc(h)) => {
+                prop_assert!(allow_hwloc_error, "Unexpected hwloc error {h}");
+                return Ok(());
+            }
         };
 
         // Check result
         let expected = topology
             .distances(Default::default())?
             .into_iter()
-            .filter(|dist| dist.kind().contains(kind))
+            .filter(|dist| dist.kind().contains(kind) && extra_filter(dist))
             .collect::<Vec<_>>();
         prop_assert_eq!(filtered.len(), expected.len());
         prop_assert!(filtered
@@ -2035,12 +2041,79 @@ mod tests {
             .all(|(dist1, dist2)| dist1.eq_modulo_topology(dist2)));
         Ok(())
     }
+    //
+    /// Test the `distances()` query on some topology
+    fn check_distances(topology: &Topology, kind: DistancesKind) -> Result<(), TestCaseError> {
+        check_distances_query_with_kind(
+            topology,
+            kind,
+            |topology| topology.distances(kind),
+            |_distance| true,
+            false,
+        )
+    }
+    //
+    /// Test the `distances_at_depth()` query on some topology
+    fn check_distances_at_depth(
+        topology: &Topology,
+        kind: DistancesKind,
+        depth: Depth,
+    ) -> Result<(), TestCaseError> {
+        check_distances_query_with_kind(
+            topology,
+            kind,
+            |topology| topology.distances_at_depth(kind, depth),
+            |distance| {
+                distance
+                    .objects()
+                    .all(|obj| obj.map_or(true, |obj| obj.depth() == depth))
+            },
+            topology.type_at_depth(depth) == Some(ObjectType::Group),
+        )
+    }
+    //
+    /// Test the `distances_with_type()` query on some topology
+    fn check_distances_with_type(
+        topology: &Topology,
+        kind: DistancesKind,
+        ty: ObjectType,
+    ) -> Result<(), TestCaseError> {
+        check_distances_query_with_kind(
+            topology,
+            kind,
+            |topology| topology.distances_with_type(kind, ty),
+            |distance| {
+                distance
+                    .objects()
+                    .all(|obj| obj.map_or(true, |obj| obj.object_type() == ty))
+            },
+            false,
+        )
+    }
 
     proptest! {
         /// Check distance filtering by kind on default topology
         #[test]
-        fn default_kind_filter(kind in distances_kind(DistancesKindUsage::Query)) {
-            check_distances_by_kind(Topology::test_instance(), kind)?;
+        fn distances(kind in distances_kind(DistancesKindUsage::Query)) {
+            check_distances(Topology::test_instance(), kind)?;
+        }
+
+        /// Check distance filtering by kind and depth on default topology
+        #[test]
+        fn distances_at_depth(
+            kind in distances_kind(DistancesKindUsage::Query),
+            depth in any_hwloc_depth(),
+        ) {
+            check_distances_at_depth(Topology::test_instance(), kind, depth)?;
+        }
+
+        /// Check distance filtering by kind and type on default topology
+        #[test]
+        fn distances_with_type(
+            kind in distances_kind(DistancesKindUsage::Query),
+            ty in any::<ObjectType>(),
+        ) {
+            check_distances_with_type(Topology::test_instance(), kind, ty)?;
         }
 
         // TODO: Proptests for all filtered queries, to be duplicated below
@@ -2279,11 +2352,31 @@ mod tests {
 
             /// Check distance filtering by kind on random topology
             #[test]
-            fn kind_filter(
+            fn distances(
                 topology in topology_with_distances(),
                 kind in distances_kind(DistancesKindUsage::Query)
             ) {
-                check_distances_by_kind(&topology, kind)?;
+                check_distances(&topology, kind)?;
+            }
+
+            /// Check distance filtering by kind and depth on random topology
+            #[test]
+            fn distances_at_depth(
+                topology in topology_with_distances(),
+                kind in distances_kind(DistancesKindUsage::Query),
+                depth in any_hwloc_depth()
+            ) {
+                check_distances_at_depth(&topology, kind, depth)?;
+            }
+
+            /// Check distance filtering by kind and type on random topology
+            #[test]
+            fn distances_with_type(
+                topology in topology_with_distances(),
+                kind in distances_kind(DistancesKindUsage::Query),
+                ty in any::<ObjectType>(),
+            ) {
+                check_distances_with_type(&topology, kind, ty)?;
             }
 
             // TODO: Run same tests on initial topology above
@@ -2433,7 +2526,7 @@ mod tests {
 
                     // Distance matrix should otherwise be valid
                     let mut last_distances = last_distances;
-                    check_distances(&mut last_distances)?;
+                    check_distances_matrix(&mut last_distances)?;
 
                     // Topology distances should generally be valid
                     check_topology_distances(topology)
