@@ -247,17 +247,19 @@ impl<'topology> TopologyEditor<'topology> {
             let erased_set = set.as_bitmap_ref();
             let (affected, other) = match OwnedSet::BITMAP_KIND {
                 BitmapKind::CpuSet => {
-                    let topology_set = topology.cpuset();
+                    let topology_set = topology.allowed_cpuset();
                     let topology_set: &Bitmap = topology_set.as_ref();
                     let cpuset = CpuSet::from(erased_set & topology_set);
-                    let nodeset = NodeSet::from_cpuset(topology, &cpuset);
+                    let nodeset =
+                        NodeSet::from_cpuset(topology, &cpuset) & topology.allowed_nodeset();
                     (Bitmap::from(cpuset), Bitmap::from(nodeset))
                 }
                 BitmapKind::NodeSet => {
-                    let topology_set = topology.nodeset();
+                    let topology_set = topology.allowed_nodeset();
                     let topology_set: &Bitmap = topology_set.as_ref();
                     let nodeset = NodeSet::from(erased_set & topology_set);
-                    let cpuset = CpuSet::from_nodeset(topology, &nodeset);
+                    let cpuset =
+                        CpuSet::from_nodeset(topology, &nodeset) & topology.allowed_cpuset();
                     (Bitmap::from(nodeset), Bitmap::from(cpuset))
                 }
             };
@@ -1829,12 +1831,12 @@ mod tests {
         fn from_topology<RestrictedSet: SpecializedBitmap>(topology: &Topology) -> Self {
             match RestrictedSet::BITMAP_KIND {
                 BitmapKind::CpuSet => Self {
-                    target: Self::ref_to_bitmap(topology.cpuset()),
-                    other: Self::ref_to_bitmap(topology.nodeset()),
+                    target: Self::ref_to_bitmap(topology.allowed_cpuset()),
+                    other: Self::ref_to_bitmap(topology.allowed_nodeset()),
                 },
                 BitmapKind::NodeSet => Self {
-                    target: Self::ref_to_bitmap(topology.nodeset()),
-                    other: Self::ref_to_bitmap(topology.cpuset()),
+                    target: Self::ref_to_bitmap(topology.allowed_nodeset()),
+                    other: Self::ref_to_bitmap(topology.allowed_cpuset()),
                 },
             }
         }
@@ -1861,16 +1863,17 @@ mod tests {
         ) -> Self {
             let restrict_set: Bitmap = restrict_set.clone().into();
             let predicted_target = &self.target & restrict_set;
-            let predicted_other = match RestrictedSet::BITMAP_KIND {
-                BitmapKind::CpuSet => {
-                    let predicted_target = CpuSet::from(predicted_target.clone());
-                    Bitmap::from(NodeSet::from_cpuset(initial_topology, &predicted_target))
-                }
-                BitmapKind::NodeSet => {
-                    let predicted_target = NodeSet::from(predicted_target.clone());
-                    Bitmap::from(CpuSet::from_nodeset(initial_topology, &predicted_target))
-                }
-            };
+            let predicted_other = &self.other
+                & match RestrictedSet::BITMAP_KIND {
+                    BitmapKind::CpuSet => {
+                        let predicted_target = CpuSet::from(predicted_target.clone());
+                        Bitmap::from(NodeSet::from_cpuset(initial_topology, &predicted_target))
+                    }
+                    BitmapKind::NodeSet => {
+                        let predicted_target = NodeSet::from(predicted_target.clone());
+                        Bitmap::from(CpuSet::from_nodeset(initial_topology, &predicted_target))
+                    }
+                };
             Self {
                 target: predicted_target,
                 other: predicted_other,
