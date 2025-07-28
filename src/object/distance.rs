@@ -2051,73 +2051,163 @@ mod tests {
         ///
         /// Can be tuned higher at the expense of slower tests
         const MAX_DISTANCE_MATRICES: usize = 10;
-        //
+
         /// Topology test instance variation with some distances added
         fn topology_with_distances() -> impl Strategy<Value = Topology> {
+            topology_with_distances_inputs().prop_map(make_topology_with_distances)
+        }
+
+        /// Building blocks for repeated calls to
+        /// [`add_distances()`](TopologyEditor::add_distances)
+        ///
+        /// Used when building a topology with some pre-filled distances
+        fn topology_with_distances_inputs() -> impl Strategy<Value = Vec<AddDistancesBuildingBlocks>>
+        {
             prop::collection::vec(
-                valid_add_distances_building_blocks(),
+                AddDistancesBuildingBlocks::valid(),
                 0..=MAX_DISTANCE_MATRICES,
             )
-            .prop_map(|building_blocks_vec| {
-                let mut topology = Topology::test_instance().clone();
-                topology.edit(move |editor| {
-                    for (name, kind, flags, endpoints, values) in building_blocks_vec {
-                        editor
-                            .add_distances(name.as_deref(), kind, flags, |topology| {
-                                let id_to_object = topology
-                                    .objects()
-                                    .map(|obj| (obj.global_persistent_index(), obj))
-                                    .collect::<HashMap<_, _>>();
-                                let endpoints = endpoints
-                                    .iter()
-                                    .map(|obj| id_to_object[&obj.global_persistent_index()])
-                                    .collect::<Vec<_>>();
-                                (endpoints, values)
-                            })
-                            .unwrap();
-                    }
-                });
-                topology
-            })
         }
-        //
-        /// Always-valid building blocks for a call to `add_distances()`
+
+        /// Process for turning the output of
+        /// [`topology_with_distances_inputs()`] into a topology
+        fn make_topology_with_distances(inputs: Vec<AddDistancesBuildingBlocks>) -> Topology {
+            let mut topology = Topology::test_instance().clone();
+            topology.edit(move |editor| {
+                for building_blocks in inputs {
+                    let AddDistancesBuildingBlocks {
+                        name,
+                        kind,
+                        flags,
+                        endpoints,
+                        values,
+                    } = building_blocks;
+                    editor
+                        .add_distances(name.as_deref(), kind, flags, |topology| {
+                            let id_to_object = topology
+                                .objects()
+                                .map(|obj| (obj.global_persistent_index(), obj))
+                                .collect::<HashMap<_, _>>();
+                            let endpoints = endpoints
+                                .iter()
+                                .map(|obj| id_to_object[&obj.global_persistent_index()])
+                                .collect::<Vec<_>>();
+                            (endpoints, values)
+                        })
+                        .unwrap();
+                }
+            });
+            topology
+        }
+
+        /// Building blocks for a single call to `add_distances()`
         ///
         /// Generated endpoints come from `Topology::test_instance()` and must
         /// be fixed up for the actual target topology.
-        fn valid_add_distances_building_blocks() -> impl Strategy<
-            Value = (
-                Option<String>,
-                DistancesKind,
-                AddDistancesFlags,
-                Vec<&'static TopologyObject>,
-                Vec<u64>,
-            ),
-        > {
-            let name = prop::option::of(any_c_string());
-            let kind = valid_distances_kind(DistancesKindUsage::AddEdit);
-            let flags = any::<AddDistancesFlags>();
-            // FIXME: Use isqrt() after bumping MSRV to 1.84+
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                clippy::cast_precision_loss
-            )]
-            let max_endpoints = (SizeRange::default().end_incl() as f64).sqrt() as usize;
-            let num_endpoints = 2..=max_endpoints.min(c_uint::MAX as usize);
-            let endpoints = prop::collection::vec(test_object(), num_endpoints);
-            (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
-                let num_endpoints = endpoints.len();
-                let values = prop::collection::vec(any::<u64>(), num_endpoints.pow(2)).prop_map(
-                    move |mut values| {
-                        fixup_values(kind, &mut values);
-                        values
-                    },
-                );
-                (Just(name), Just(kind), Just(flags), Just(endpoints), values)
-            })
+        #[derive(Clone, Debug)]
+        struct AddDistancesBuildingBlocks {
+            name: Option<String>,
+            kind: DistancesKind,
+            flags: AddDistancesFlags,
+            endpoints: Vec<&'static TopologyObject>,
+            values: Vec<u64>,
         }
         //
+        impl AddDistancesBuildingBlocks {
+            /// Always-valid building blocks
+            ///
+            /// Use this strategy when you are not exercising the
+            /// `add_distances()` method in isolation, but rather want to build
+            /// a topology with some distances inserted ahead of time for the
+            /// purpose of exercising distances functionality later on.
+            ///
+            /// In this situation, bad building blocks reduce the odds of
+            /// successful topology building, and thus the efficiency of the
+            /// subsequent tests.
+            fn valid() -> impl Strategy<Value = AddDistancesBuildingBlocks> {
+                let name = prop::option::of(any_c_string());
+                let kind = valid_distances_kind(DistancesKindUsage::AddEdit);
+                let flags = any::<AddDistancesFlags>();
+                // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
+                let max_endpoints = (SizeRange::default().end_incl() as f64).sqrt() as usize;
+                let num_endpoints = 2..=max_endpoints.min(c_uint::MAX as usize);
+                let endpoints = prop::collection::vec(test_object(), num_endpoints);
+                (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
+                    let num_endpoints = endpoints.len();
+                    let values = prop::collection::vec(any::<u64>(), num_endpoints.pow(2))
+                        .prop_map(move |mut values| {
+                            fixup_values(kind, &mut values);
+                            values
+                        });
+                    (Just(name), Just(kind), Just(flags), Just(endpoints), values).prop_map(
+                        |(name, kind, flags, endpoints, values)| Self {
+                            name,
+                            kind,
+                            flags,
+                            endpoints,
+                            values,
+                        },
+                    )
+                })
+            }
+
+            /// Likely-valid building blocks
+            ///
+            /// Use this strategy when exercising the `add_distances()` method
+            /// in isolation. In this situation, all aspects of the method
+            /// should be stressed, including error handling.
+            fn any() -> impl Strategy<Value = AddDistancesBuildingBlocks> {
+                let name = prop::option::of(any_string());
+                let kind = distances_kind(DistancesKindUsage::AddEdit);
+                let flags = any::<AddDistancesFlags>();
+                let endpoints = any_size().prop_flat_map(|size| {
+                    // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        clippy::cast_precision_loss
+                    )]
+                    prop::collection::vec(any_object(size), (size as f64).sqrt() as usize)
+                });
+                (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
+                    let num_endpoints = endpoints.len();
+                    let correct_values_count =
+                        prop::collection::vec(any::<u64>(), num_endpoints.pow(2));
+                    let values = prop_oneof![
+                        // Correct number of values
+                        4 => correct_values_count.prop_flat_map(move |values| {
+                            prop_oneof![
+                                // Correct diagonal values
+                                4 => {
+                                    let mut values = values.clone();
+                                    fixup_values(kind, &mut values);
+                                    Just(values)
+                                },
+                                // Likely-incorrect diagonal values
+                                1 => Just(values)
+                            ]
+                        }),
+                        // Likely-incorrect number of values
+                        1 => prop::collection::vec(any::<u64>(), SizeRange::default()),
+                    ];
+                    (Just(name), Just(kind), Just(flags), Just(endpoints), values).prop_map(
+                        |(name, kind, flags, endpoints, values)| AddDistancesBuildingBlocks {
+                            name,
+                            kind,
+                            flags,
+                            endpoints,
+                            values,
+                        },
+                    )
+                })
+            }
+        }
+
         /// Fix up random distance values to match the `MEANS_xyz` expectations
         /// about diagonal values being smaller/bigger.
         ///
@@ -2156,9 +2246,25 @@ mod tests {
         }
 
         proptest! {
-            /// Check that random topology from topology_with_distances() makes sense
+            /// Check the process of building a topology with pre-filled
+            /// distance matrices from building blocks
+            ///
+            /// This process can fail if
+            /// [`add_distances()`](TopologyEditor::add_distances) has a bug,
+            /// and having one proptest where the failure occurs inside of the
+            /// proptest body makes it possible to use normal proptest failure
+            /// analysis like `PROPTEST_FORK`.
+            ///
+            /// Of course, any other test that uses
+            /// [`topology_with_distances()`] will also fail in this case,
+            /// during test case generation (which results in much less ideal
+            /// failure modes like the test brutally segfaulting without any
+            /// failure reduction). These failures should be filtered out using
+            /// cargo test's regex filter until the
+            /// [`make_topology_with_distances()`] failure is fixed.
             #[test]
-            fn distances(topology in topology_with_distances()) {
+            fn test_topology_with_distances(inputs in topology_with_distances_inputs()) {
+                let topology = make_topology_with_distances(inputs);
                 check_topology_distances(&topology)?;
             }
 
@@ -2172,67 +2278,22 @@ mod tests {
             }
 
             // TODO: Run same tests on initial topology above
-        }
 
-        /// Likely-valid building blocks for a call to `add_distances()`
-        ///
-        /// Generated endpoints come from `Topology::test_instance()`, if valid,
-        /// and must be fixed up for the actual target topology.
-        fn add_distances_building_blocks() -> impl Strategy<
-            Value = (
-                Option<String>,
-                DistancesKind,
-                AddDistancesFlags,
-                Vec<&'static TopologyObject>,
-                Vec<u64>,
-            ),
-        > {
-            let name = prop::option::of(any_string());
-            let kind = distances_kind(DistancesKindUsage::AddEdit);
-            let flags = any::<AddDistancesFlags>();
-            let endpoints = any_size().prop_flat_map(|size| {
-                // FIXME: Use isqrt() after bumping MSRV to 1.84+
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    clippy::cast_precision_loss
-                )]
-                prop::collection::vec(any_object(size), (size as f64).sqrt() as usize)
-            });
-            (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
-                let num_endpoints = endpoints.len();
-                let correct_values_count =
-                    prop::collection::vec(any::<u64>(), num_endpoints.pow(2));
-                let values = prop_oneof![
-                    // Correct number of values
-                    4 => correct_values_count.prop_flat_map(move |values| {
-                        prop_oneof![
-                            // Correct diagonal values
-                            4 => {
-                                let mut values = values.clone();
-                                fixup_values(kind, &mut values);
-                                Just(values)
-                            },
-                            // Likely-incorrect diagonal values
-                            1 => Just(values)
-                        ]
-                    }),
-                    // Likely-incorrect number of values
-                    1 => prop::collection::vec(any::<u64>(), SizeRange::default()),
-                ];
-                (Just(name), Just(kind), Just(flags), Just(endpoints), values)
-            })
-        }
-        //
-        proptest! {
             /// Test [`TopologyEditor::add_distances()`]
             #[test]
             fn add_distances(
                 initial_topology in topology_with_distances(),
-                (name, kind, flags, endpoints, values) in add_distances_building_blocks(),
+                building_blocks in AddDistancesBuildingBlocks::any(),
             ) {
-                // Access the reference topology
+                // Access the reference topology and unpack building blocks
                 let test_topology = Topology::test_instance();
+                let AddDistancesBuildingBlocks {
+                    name,
+                    kind,
+                    flags,
+                    endpoints,
+                    values,
+                } = building_blocks;
 
                 // Predict errors
                 let name_contains_nul =
