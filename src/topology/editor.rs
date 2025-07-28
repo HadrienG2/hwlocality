@@ -756,7 +756,7 @@ bitflags! {
         // `REMOVE_CPULESS` or `REMOVE_MEMLESS` as appropriate.
         #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_CPULESS")]
         #[doc(alias = "HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS")]
-        const REMOVE_EMPTIED = hwloc_restrict_flags_e::MAX;
+        const REMOVE_EMPTIED = hwloc_restrict_flags_e::MAX & !(hwloc_restrict_flags_e::MAX >> 1);
 
         /// Remove all objects that became CPU-less
         //

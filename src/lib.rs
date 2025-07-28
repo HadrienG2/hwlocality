@@ -377,7 +377,7 @@ macro_rules! impl_arbitrary_for_bitflags {
                 use proptest::prelude::*;
                 let all_flags = Self::all().iter().collect::<Vec<_>>();
                 let num_flags = all_flags.len();
-                prop::sample::subsequence(all_flags, 0..num_flags)
+                prop::sample::subsequence(all_flags, 0..=num_flags)
                     .prop_map(|flags| flags.into_iter().collect::<Self>())
             }
         }
