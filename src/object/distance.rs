@@ -850,19 +850,23 @@ impl TopologyEditor<'_> {
 /// The matrix may also contain bandwidths between random sets of objects,
 /// possibly provided by the user, as specified in the [`kind()`] attribute.
 ///
-/// The ownership/lifetime semantics of this object is subtle:
+/// The ownership/lifetime semantics of this object are rather subtle:
 ///
 /// - Its internal allocations are managed by an hwloc topology, and it contains
 ///   references to objects from a topology. As a result, its lifetime is tied
-///   to that of a topology; the number of objects cannot grow (only shrink),
+///   to that of a topology, the number of objects cannot grow (only shrink),
 ///   and there is no easy way to clone `Distances`...
-/// - ...but the inner objects and values are not themselves part of the "home"
-///   topology, and can therefore they can be modified independently. Which is
-///   why you only need an `&Topology` to retrieve modifiable distance matrices.
-///
+/// - ...but inner objects and values are not themselves part of the "home"
+///   topology, and can therefore be modified without affecting it. Which is why
+///   you only need an `&Topology` to retrieve modifiable distance matrices.
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
-    doc = "For instance, on hwloc 2.5+, if there is a single NUMA node per Package,"
+    doc = "Let's give an example of a possible distances matrix modification."
+)]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "On hwloc 2.5+, if there is a single NUMA node per Package,"
 )]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
@@ -870,15 +874,16 @@ impl TopologyEditor<'_> {
 )]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
-    doc = "between them and replace NUMA nodes in the objects array with the corresponding"
+    doc = "between them and replace NUMA nodes in the objects array with the"
 )]
-#[cfg_attr(feature = "hwloc-2_5_0", doc = "Packages.")]
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "corresponding Packages.")]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
     doc = "See also [`Distances::transform()`] for applying some"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
+///
 ///
 /// [`kind()`]: Self::kind()
 //
