@@ -105,7 +105,6 @@ impl Arbitrary for BridgeAttributes {
         ) -> Self,
     >;
 
-    #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         let bridge_type = crate::strategies::enum_repr::<BridgeType, hwloc_obj_bridge_type_t>();
         (
@@ -218,7 +217,6 @@ impl Arbitrary for DownstreamPCIAttributes {
         fn((PCIDomain, [u8; 2])) -> Self,
     >;
 
-    #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         <(PCIDomain, [u8; 2])>::arbitrary_with(args).prop_map(
             |(domain, [secondary_bus, subordinate_bus])| {

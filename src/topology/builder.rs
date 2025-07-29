@@ -898,8 +898,8 @@ bitflags! {
 //
 impl BuildFlags {
     /// Truth that these flags are in a valid state
-    #[allow(unused_mut)]
     pub(crate) fn is_valid(self) -> bool {
+        #[allow(unused_mut)]
         let mut need_this_system = Self::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM;
         #[cfg(feature = "hwloc-2_5_0")]
         {
@@ -1319,9 +1319,9 @@ pub(crate) mod tests {
     }
 
     /// [`BuildFlags`] that are guaranteed to be valid
-    #[allow(unused_mut)]
     fn valid_build_flags() -> impl Strategy<Value = BuildFlags> {
         any::<BuildFlags>().prop_map(|mut flags| {
+            #[allow(unused_mut)]
             let mut need_this_system = BuildFlags::GET_ALLOWED_RESOURCES_FROM_THIS_SYSTEM;
             #[cfg(feature = "hwloc-2_5_0")]
             {
