@@ -134,6 +134,11 @@ impl Topology {
             kind: DistancesKind,
             depth: Depth,
         ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>> {
+            // There cannot be any object at a depth below the topology depth
+            if matches!(depth, Depth::Normal(depth) if depth >= self_.depth()) {
+                return Ok(Vec::new());
+            }
+
             // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
             //           curried away behaves indeed like hwloc_distances_get
             //         - Depth only allows valid depth values to exist
@@ -2000,13 +2005,14 @@ mod tests {
         ]
     }
 
-    /// Check a distance matrix query
+    /// Check a distance matrix query that has a kind filter
     fn check_distances_query_with_kind(
         topology: &Topology,
         kind: DistancesKind,
         query: impl Fn(&Topology) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistancesKind>>>,
         extra_filter: impl Fn(&Distances<'_>) -> bool,
         allow_hwloc_error: bool,
+        allow_empty_return_with_bad_kind: bool,
     ) -> Result<(), TestCaseError> {
         // Predict filtering validity
         let kind_valid = kind.is_valid(DistancesKindUsage::Query);
@@ -2014,7 +2020,9 @@ mod tests {
         // Perform filtering, check errors
         let filtered = match query(topology) {
             Ok(filtered) => {
-                prop_assert!(kind_valid);
+                prop_assert!(
+                    kind_valid || (filtered.is_empty() && allow_empty_return_with_bad_kind)
+                );
                 filtered
             }
             Err(HybridError::Rust(ParameterError(k))) => {
@@ -2050,6 +2058,7 @@ mod tests {
             |topology| topology.distances(kind),
             |_distance| true,
             false,
+            false,
         )
     }
     //
@@ -2069,6 +2078,7 @@ mod tests {
                     .all(|obj| obj.map_or(true, |obj| obj.depth() == depth))
             },
             topology.type_at_depth(depth) == Some(ObjectType::Group),
+            matches!(depth, Depth::Normal(depth) if depth >= topology.depth()),
         )
     }
     //
@@ -2087,6 +2097,7 @@ mod tests {
                     .objects()
                     .all(|obj| obj.map_or(true, |obj| obj.object_type() == ty))
             },
+            false,
             false,
         )
     }
