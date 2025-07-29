@@ -1041,8 +1041,10 @@ impl<'topology> Distances<'topology> {
     ///
     /// It is illegal to attempt to set both `FROM_` or `MEANS_` kind flags at
     /// the same time. However clearing them is fine.
-    #[allow(unused_mut)]
-    pub fn set_kind(&mut self, mut kind: DistancesKind) -> Result<(), FlagsError<DistancesKind>> {
+    pub fn set_kind(
+        &mut self,
+        #[allow(unused_mut)] mut kind: DistancesKind,
+    ) -> Result<(), FlagsError<DistancesKind>> {
         if !kind.is_valid(DistancesKindUsage::AddEdit) {
             return Err(kind.into());
         }
@@ -1956,7 +1958,6 @@ mod tests {
     ///
     /// Set `WRITING` to `true` when creating or modifying distances, set it
     /// to `false` when querying distances.
-    #[allow(unused)]
     fn valid_distances_kind(usage: DistancesKindUsage) -> impl Strategy<Value = DistancesKind> {
         (
             prop::array::uniform2(prop::option::of(any::<bool>())),
@@ -2176,7 +2177,7 @@ mod tests {
             }
         }
     }
-    #[cfg(feature = "hwloc-2_1_0")]
+    #[cfg(feature = "hwloc-2_5_0")]
     use hwloc21::check_distances_with_name;
 
     /// Features that require hwloc v2.5 (i.e. adding distances between objects)

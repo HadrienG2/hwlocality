@@ -98,7 +98,6 @@ impl Arbitrary for GroupAttributes {
         fn(([c_uint; 3], std::ffi::c_uchar)) -> Self,
     >;
 
-    #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         let depth_kind_subkind = <[c_uint; 3] as Arbitrary>::arbitrary_with(args);
         let dont_merge = crate::strategies::hwloc_bool();

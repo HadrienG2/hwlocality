@@ -122,7 +122,6 @@ impl Arbitrary for PCIDeviceAttributes {
         fn(((PCIDomain, [u8; 4], [u16; 5]), f32)) -> Self,
     >;
 
-    #[allow(unused)]
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         (
             <(PCIDomain, [u8; 4], [u16; 5])>::arbitrary_with(args),

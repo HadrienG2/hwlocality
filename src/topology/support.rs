@@ -206,8 +206,7 @@ impl Arbitrary for DiscoverySupport {
     type Strategy =
         prop::strategy::Map<[crate::strategies::HwlocBool; 6], fn([c_uchar; 6]) -> Self>;
 
-    #[allow(unused)]
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         let b = crate::strategies::hwloc_bool();
         [b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b].prop_map(
             |([pu, numa, numa_memory, disallowed_pu, disallowed_numa, cpukind_efficiency])| {
@@ -335,8 +334,7 @@ impl Arbitrary for CpuBindingSupport {
     type Strategy =
         prop::strategy::Map<[crate::strategies::HwlocBool; 11], fn([c_uchar; 11]) -> Self>;
 
-    #[allow(unused)]
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         let b = crate::strategies::hwloc_bool();
         [
             b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
@@ -522,8 +520,7 @@ impl Arbitrary for MemoryBindingSupport {
     type Strategy =
         prop::strategy::Map<[crate::strategies::HwlocBool; 16], fn([c_uchar; 16]) -> Self>;
 
-    #[allow(unused)]
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         std::array::from_fn(|_| crate::strategies::hwloc_bool()).prop_map(
             |([
                 set_thisproc_membind,
@@ -621,8 +618,7 @@ impl Arbitrary for MiscSupport {
     type Parameters = ();
     type Strategy = prop::strategy::Map<crate::strategies::HwlocBool, fn(c_uchar) -> Self>;
 
-    #[allow(unused)]
-    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         crate::strategies::hwloc_bool()
             .prop_map(|(imported_support)| Self(hwloc_topology_misc_support { imported_support }))
     }
