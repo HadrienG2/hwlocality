@@ -2125,9 +2125,59 @@ mod tests {
         ) {
             check_distances_with_type(Topology::test_instance(), kind, ty)?;
         }
-
-        // TODO: Proptests for all filtered queries, to be duplicated below
     }
+
+    /// Features that require hwloc v2.1 (i.e. naming distance matrices)
+    #[cfg(feature = "hwloc-2_1_0")]
+    mod hwloc21 {
+        use super::*;
+        use crate::strategies::any_string;
+
+        /// Check querying distances by name
+        pub(super) fn check_distances_with_name(
+            topology: &Topology,
+            name: String,
+        ) -> Result<(), TestCaseError> {
+            // Predict filtering validity
+            let name_valid = name.chars().all(|c| c != '\0');
+
+            // Perform filtering, check errors
+            let filtered = match topology.distances_with_name(&name) {
+                Ok(filtered) => {
+                    prop_assert!(name_valid);
+                    filtered
+                }
+                Err(HybridError::Rust(NulError)) => {
+                    prop_assert!(!name_valid);
+                    return Ok(());
+                }
+                Err(HybridError::Hwloc(h)) => unreachable!("Unexpected hwloc error {h}"),
+            };
+
+            // Check result
+            let expected = topology
+                .distances(Default::default())?
+                .into_iter()
+                .filter(|dist| matches!(dist.name(), Some(dname) if dname.to_str() == Ok(&name)))
+                .collect::<Vec<_>>();
+            prop_assert_eq!(filtered.len(), expected.len());
+            prop_assert!(filtered
+                .into_iter()
+                .zip(&expected)
+                .all(|(dist1, dist2)| dist1.eq_modulo_topology(dist2)));
+            Ok(())
+        }
+
+        proptest! {
+            /// Check distance filtering by name on default topology
+            #[test]
+            fn distances_with_name(name in any_string()) {
+                check_distances_with_name(Topology::test_instance(), name)?;
+            }
+        }
+    }
+    #[cfg(feature = "hwloc-2_1_0")]
+    use hwloc21::check_distances_with_name;
 
     /// Features that require hwloc v2.5 (i.e. adding distances between objects)
     #[cfg(feature = "hwloc-2_5_0")]
@@ -2387,6 +2437,15 @@ mod tests {
                 ty in any::<ObjectType>(),
             ) {
                 check_distances_with_type(&topology, kind, ty)?;
+            }
+
+            /// Check distance filtering by name on random topology
+            #[test]
+            fn distances_with_name(
+                topology in topology_with_distances(),
+                name in any_string()
+            ) {
+                check_distances_with_name(&topology, name)?;
             }
 
             // TODO: Run same tests on initial topology above
