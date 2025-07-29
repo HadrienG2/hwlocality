@@ -1958,6 +1958,7 @@ mod tests {
     ///
     /// Set `WRITING` to `true` when creating or modifying distances, set it
     /// to `false` when querying distances.
+    #[allow(unused)]
     fn valid_distances_kind(usage: DistancesKindUsage) -> impl Strategy<Value = DistancesKind> {
         (
             prop::array::uniform2(prop::option::of(any::<bool>())),

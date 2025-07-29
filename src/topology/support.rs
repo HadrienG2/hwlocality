@@ -206,6 +206,7 @@ impl Arbitrary for DiscoverySupport {
     type Strategy =
         prop::strategy::Map<[crate::strategies::HwlocBool; 6], fn([c_uchar; 6]) -> Self>;
 
+    #[allow(unused)]
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         let b = crate::strategies::hwloc_bool();
         [b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b].prop_map(
@@ -340,7 +341,7 @@ impl Arbitrary for CpuBindingSupport {
             b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
             b.clone(), b.clone(), b.clone(), b.clone(), b
         ].prop_map(
-            |([
+            |[
                 set_thisproc_cpubind,
                 get_thisproc_cpubind,
                 set_proc_cpubind,
@@ -352,7 +353,7 @@ impl Arbitrary for CpuBindingSupport {
                 get_thisproc_last_cpu_location,
                 get_proc_last_cpu_location,
                 get_thisthread_last_cpu_location
-            ])| {
+            ]| {
                 Self(hwloc_topology_cpubind_support {
                     set_thisproc_cpubind,
                     get_thisproc_cpubind,
@@ -520,9 +521,10 @@ impl Arbitrary for MemoryBindingSupport {
     type Strategy =
         prop::strategy::Map<[crate::strategies::HwlocBool; 16], fn([c_uchar; 16]) -> Self>;
 
+    #[allow(unused)]
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         std::array::from_fn(|_| crate::strategies::hwloc_bool()).prop_map(
-            |([
+            |[
                 set_thisproc_membind,
                 get_thisproc_membind,
                 set_proc_membind,
@@ -539,7 +541,7 @@ impl Arbitrary for MemoryBindingSupport {
                 migrate_membind,
                 get_area_memlocation,
                 weighted_interleave_membind,
-            ])| {
+            ]| {
                 Self(hwloc_topology_membind_support {
                     set_thisproc_membind,
                     get_thisproc_membind,
