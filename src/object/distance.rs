@@ -2172,8 +2172,7 @@ mod tests {
             }
 
             // Check result
-            let expected = topology
-                .distances(Default::default())?
+            let expected = distances
                 .into_iter()
                 .filter(|dist| matches!(dist.name(), Some(dname) if dname.to_str() == Ok(&name)))
                 .collect::<Vec<_>>();
