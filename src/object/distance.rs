@@ -2161,18 +2161,20 @@ mod tests {
                 Err(HybridError::Hwloc(h)) => unreachable!("Unexpected hwloc error {h}"),
             };
 
-            // FIXME: Work around upstream issue
-            //        https://github.com/open-mpi/hwloc/issues/730 until the
-            //        proper fix is clarified.
+            // Work around upstream issue
+            // https://github.com/open-mpi/hwloc/issues/730 for older hwloc
+            // releases where get_by_name() is buggy.
             let distances = topology.distances(Default::default())?;
-            if distances.iter().any(|dist| {
-                !dist
-                    .kind()
-                    .intersects(DistancesKind::FROM_OS | DistancesKind::FROM_USER)
-                    || !dist
+            if cfg!(not(feature = "hwloc-3_0_0"))
+                && distances.iter().any(|dist| {
+                    !dist
                         .kind()
-                        .intersects(DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH)
-            }) {
+                        .intersects(DistancesKind::FROM_OS | DistancesKind::FROM_USER)
+                        || !dist.kind().intersects(
+                            DistancesKind::MEANS_LATENCY | DistancesKind::MEANS_BANDWIDTH,
+                        )
+                })
+            {
                 return Ok(());
             }
 
