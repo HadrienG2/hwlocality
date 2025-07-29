@@ -622,7 +622,7 @@ impl Arbitrary for MiscSupport {
 
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         crate::strategies::hwloc_bool()
-            .prop_map(|(imported_support)| Self(hwloc_topology_misc_support { imported_support }))
+            .prop_map(|imported_support| Self(hwloc_topology_misc_support { imported_support }))
     }
 }
 //
