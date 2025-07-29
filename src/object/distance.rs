@@ -639,7 +639,6 @@ pub enum AddDistancesError {
     /// not be set by you (it will be automatically set by hwloc through
     /// scanning of the provided object list), or it contains several of the
     /// "FROM_" and "MEANS_" kinds, which are mutually exclusive.
-    #[cfg(feature = "hwloc-2_1_0")]
     #[error(transparent)]
     BadKind(#[from] FlagsError<DistancesKind>),
 
