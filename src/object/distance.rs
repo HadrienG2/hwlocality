@@ -2563,7 +2563,7 @@ mod tests {
                         prop_assert!(initial.eq_modulo_topology(&current));
                     }
 
-                    // hwloc does not preserve Unicode names well
+                    // If a name was specified, hwloc should preserve it
                     if let Some(name) = name.as_deref() {
                         prop_assert!(last_distances.name().is_some());
                         let last_name = last_distances.name().unwrap();
