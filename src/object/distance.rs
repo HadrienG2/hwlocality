@@ -2136,6 +2136,62 @@ mod tests {
         }
     }
 
+    // TODO: Proptests of &self distance matrix methods that don't require use
+    //       of a DistanceMatrixPicker, see TODOs above + add copies to hwloc25.
+
+    /// Distance matrix picker
+    ///
+    /// A picker is designed to operate on a certain topology and provides a
+    /// `pick()` method that can be targeted as many times as needed on the same
+    /// (unmodified) topology, consistently returning the same distance matrix.
+    ///
+    /// Use cases include working around lack of a `Clone` implementation for
+    /// `DistanceMatrix` when testing editing functions, as well as testing of
+    /// [`TopologyEditor::remove_distance_matrix()`].
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct DistanceMatrixPicker(usize);
+    //
+    impl DistanceMatrixPicker {
+        /// Generate random distance matrix pickers for a certain topology
+        ///
+        /// Given a topology that contains at least one distance matrix, this
+        /// returns a proptest strategy for generating distance pickers that
+        /// consistently return one of these distance matrices.
+        ///
+        /// If the topology contains no distance matrix, `None` will be returned
+        /// instead, as no picker can be provided.
+        fn any(topology: &Topology) -> Option<impl Strategy<Value = Self>> {
+            // Get distances, return None if they are none
+            let distances = topology.distances(Default::default()).unwrap();
+            if distances.is_empty() {
+                return None;
+            }
+
+            // Otherwise, pick a distance matrix...
+            let picker = (0..distances.len()).prop_map(Self);
+            Some(picker)
+        }
+
+        // Pick the desired distance matrix
+        fn pick<'topology>(&self, topology: &'topology Topology) -> DistanceMatrix<'topology> {
+            // TODO: Consider optimizing this to query a more minimal set of
+            //       distances at some point. This requires the optimized
+            //       equivalent of calling all applicable matrix getters for
+            //       each matrix to figure out which getter provides the most
+            //       minimal set of cousins. Likely `distances_with_name()`, so
+            //       it should probably be tried first.
+            topology
+                .distances(Default::default())
+                .unwrap()
+                .into_iter()
+                .nth(self.0)
+                .unwrap()
+        }
+    }
+
+    // TODO: Proptests of &mut DistanceMatrix functions that do require use of
+    //       DistanceMatrixPicker, see TODOs above + add copies to hwloc25.
+
     /// Features that require hwloc v2.1 (i.e. naming distance matrices)
     #[cfg(feature = "hwloc-2_1_0")]
     mod hwloc21 {
@@ -2223,6 +2279,8 @@ mod tests {
             let mut topology = Topology::test_instance().clone();
             check_remove_all_distances(&mut topology).unwrap();
         }
+
+        // TODO: Check other removal methods + add copies to hwloc25
     }
     #[cfg(feature = "hwloc-2_5_0")]
     use hwloc23::check_remove_all_distances;
@@ -2495,13 +2553,13 @@ mod tests {
                 check_distances_with_name(&topology, name)?;
             }
 
-        /// Check removing all distances on random topology
-        #[test]
-        fn remove_all_distances(
-            mut topology in topology_with_distances(),
-        ) {
-            check_remove_all_distances(&mut topology)?;
-        }
+            /// Check removing all distances on random topology
+            #[test]
+            fn remove_all_distances(
+                mut topology in topology_with_distances(),
+            ) {
+                check_remove_all_distances(&mut topology)?;
+            }
 
             // TODO: Run same tests on initial topology above
         }
