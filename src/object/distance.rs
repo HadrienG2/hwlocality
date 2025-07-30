@@ -2207,7 +2207,10 @@ mod tests {
     #[cfg(feature = "hwloc-2_5_0")]
     mod hwloc25 {
         use super::*;
-        use crate::strategies::{any_c_string, any_object, any_size, any_string, test_object};
+        use crate::{
+            errors::{NulError, ParameterError},
+            strategies::{any_c_string, any_object, any_size, any_string, test_object},
+        };
         use proptest::collection::SizeRange;
         #[allow(unused)]
         use similar_asserts::assert_eq;
@@ -2469,6 +2472,41 @@ mod tests {
             }
 
             // TODO: Run same tests on initial topology above
+        }
+
+        /// Test conversion of bad distance kinds to [`AddDistanceMatrixError`]
+        #[test]
+        fn kind_to_add_error() {
+            for bad_kind in [
+                DistanceKind::FROM_OS | DistanceKind::FROM_USER,
+                DistanceKind::MEANS_LATENCY | DistanceKind::MEANS_BANDWIDTH,
+                DistanceKind::HETEROGENEOUS_TYPES,
+            ] {
+                assert_eq!(
+                    AddDistanceMatrixError::from(bad_kind),
+                    AddDistanceMatrixError::BadKind(ParameterError(bad_kind)),
+                );
+            }
+        }
+
+        /// Test conversion of [`NulError`] to [`AddDistanceMatrixError`]
+        #[test]
+        fn nul_to_add_error() {
+            assert_eq!(
+                AddDistanceMatrixError::from(NulError),
+                AddDistanceMatrixError::NameContainsNul,
+            );
+        }
+
+        proptest! {
+            /// Test conversion of foreign object to [`AddDistanceMatrixError`]
+            #[test]
+            fn foreign_to_add_error(foreign in prop::sample::select(Topology::foreign_objects())) {
+                assert_eq!(
+                    AddDistanceMatrixError::from(foreign),
+                    AddDistanceMatrixError::ForeignEndpoint(ForeignObjectError::from(foreign)),
+                );
+            }
 
             /// Test [`TopologyEditor::add_distance_matrix()`]
             #[test]
