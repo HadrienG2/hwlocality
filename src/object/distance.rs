@@ -109,9 +109,10 @@ impl Topology {
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
-    /// As of hwloc v2.12.1, querying at the depth of
-    /// [`Group`](ObjectType::Group) objects is unfortunately not yet supported
-    /// by hwloc and may error out.
+    /// As of hwloc v2.12.1, querying distances at the depth of
+    /// [`Group`](ObjectType::Group) objects is unfortunately not fully
+    /// supported by hwloc. It may error out if such objects exist at multiple
+    /// depths in the topology.
     ///
     /// # Errors
     ///
@@ -771,7 +772,8 @@ impl TopologyEditor<'_> {
     ///
     /// As of hwloc v2.12.1, removing distances at the depth of
     /// [`Group`](ObjectType::Group) objects is unfortunately not fully
-    /// supported by hwloc and may error out.
+    /// supported by hwloc. It may error out if such objects exist at multiple
+    /// depths in the topology.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_depth")]
     pub fn remove_distances_at_depth<DepthLike>(
@@ -815,7 +817,8 @@ impl TopologyEditor<'_> {
     ///
     /// As of hwloc v2.12.1, removing distances between
     /// [`Group`](ObjectType::Group) objects is unfortunately not fully
-    /// supported by hwloc and may error out.
+    /// supported by hwloc. It may error out if such objects exist at multiple
+    /// depths in the topology.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_type")]
     pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawHwlocError> {
