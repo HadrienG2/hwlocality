@@ -1095,7 +1095,6 @@ impl<'topology> DistanceMatrix<'topology> {
     /// Output can be trusted by unsafe code to be the actual number of elements
     /// in the target allocation, and this number can be trusted to fit within
     /// Rust's limit of `isize::MAX` slice length limit.
-    #[doc(alias = "hwloc_distances_s::nbobjs")]
     fn num_objects(&self) -> usize {
         // SAFETY: No invalid mutation of inner state occurs
         int::expect_usize(unsafe { self.inner().nbobj })
@@ -1125,6 +1124,7 @@ impl<'topology> DistanceMatrix<'topology> {
     ///
     /// These objects are not in any particular order, see methods below for
     /// easy ways to find objects and corresponding distance values.
+    #[doc(alias = "hwloc_distances_s::nbobjs")]
     #[doc(alias = "hwloc_distances_s::objs")]
     pub fn objects(
         &self,

@@ -10,7 +10,7 @@ fn main() -> eyre::Result<()> {
     match topology.depth_for_type(ObjectType::Package) {
         Ok(depth) => println!(
             "*** Found {} package(s) at depth {depth}",
-            topology.num_objects_at_depth(depth)
+            topology.objects_at_depth(depth).count()
         ),
         Err(TypeToDepthError::Nonexistent) => println!("*** No package object found"),
         Err(TypeToDepthError::Multiple) => println!("*** Package objects exist at multiple depths"),

@@ -33,8 +33,7 @@ impl Topology {
     /// One reason why this function can fail is if the topology does not match
     /// the current system (e.g. loaded from another machine through XML).
     #[allow(clippy::missing_errors_doc)]
-    #[doc(alias = "hwloc_windows_get_nr_processor_groups")]
-    pub fn num_processor_groups(&self) -> Result<NonZeroUsize, RawHwlocError> {
+    fn num_processor_groups(&self) -> Result<NonZeroUsize, RawHwlocError> {
         let count =
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
@@ -54,6 +53,7 @@ impl Topology {
     /// One reason why this function can fail is if the topology does not match
     /// the current system (e.g. loaded from another machine through XML).
     #[allow(clippy::missing_errors_doc)]
+    #[doc(alias = "hwloc_windows_get_nr_processor_groups")]
     #[doc(alias = "hwloc_windows_get_processor_group_cpuset")]
     pub fn processor_groups(
         &self,

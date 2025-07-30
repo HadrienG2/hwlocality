@@ -413,22 +413,7 @@ impl Topology {
     /// Number of objects at the given `depth`
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let topology = hwlocality::Topology::test_instance();
-    /// #
-    /// let num_roots = topology.num_objects_at_depth(0);
-    /// assert_eq!(num_roots, 1);
-    ///
-    /// let num_root_children = topology.num_objects_at_depth(1);
-    /// assert!(num_root_children > 0);
-    /// #
-    /// # Ok::<(), eyre::Report>(())
-    /// ```
-    #[doc(alias = "hwloc_get_nbobjs_by_depth")]
-    pub fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
+    fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
     where
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
@@ -480,6 +465,7 @@ impl Topology {
     /// #
     /// # Ok::<(), eyre::Report>(())
     /// ```
+    #[doc(alias = "hwloc_get_nbobjs_by_depth")]
     #[doc(alias = "hwloc_get_obj_by_depth")]
     #[doc(alias = "hwloc_get_next_obj_by_depth")]
     pub fn objects_at_depth<DepthLike>(
@@ -594,8 +580,8 @@ impl Topology {
     /// #
     /// # Ok::<(), eyre::Report>(())
     /// ```
-    #[doc(alias = "hwloc_get_obj_by_type")]
     #[doc(alias = "hwloc_get_nbobjs_by_type")]
+    #[doc(alias = "hwloc_get_obj_by_type")]
     #[doc(alias = "hwloc_get_next_obj_by_type")]
     pub fn objects_with_type(
         &self,
