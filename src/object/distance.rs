@@ -1,4 +1,4 @@
-//! Object distances
+//! Object distance matrices
 //!
 //! Modern computer components are not usually connected via all-to-all
 //! networks. Instead, more scalable network topologies like rings or meshes
@@ -68,7 +68,8 @@ impl Topology {
     /// Filtering may be applied using the `kind` parameter: if it contains some
     /// [`DistanceKind`]`::FROM_xyz` options, only distance matrices matching
     /// one of them is returned. The same applies for `MEANS_xyz` options. If
-    /// `kind` is left as `DistanceKind::empty()`, all distances are returned.
+    /// `kind` is left as `DistanceKind::empty()`, all distance matrices are
+    /// returned.
     #[cfg_attr(feature = "hwloc-2_1_0", doc = "")]
     #[cfg_attr(
         feature = "hwloc-2_1_0",
@@ -85,9 +86,10 @@ impl Topology {
     pub fn distances(
         &self,
         kind: DistanceKind,
-    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistanceKind>>> {
+    ) -> Result<Vec<DistanceMatrix<'_>>, HybridError<FlagsError<DistanceKind>>> {
         // SAFETY: - By definition, it's valid to pass hwloc_distances_get
-        //         - Parameters are guaranteed valid per get_distances contract
+        //         - Parameters are guaranteed valid per get_distances
+        //           contract
         unsafe {
             self.get_distances(
                 kind,
@@ -102,28 +104,26 @@ impl Topology {
     /// Retrieve distance matrices that only contain objects at a specific depth
     /// in the topology
     ///
-    /// Identical to [`distances()`] with the additional `depth` filter.
+    /// Similar to [`distances()`](Topology::distances()) with an additional
+    /// `depth` filter.
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
     /// As of hwloc v2.12.1, querying at the depth of
     /// [`Group`](ObjectType::Group) objects is unfortunately not yet supported
-    /// by hwloc and will error out. If this ever becomes supported on the
-    /// hwloc side, however, `hwlocality` will immediately support it.
+    /// by hwloc and may error out.
     ///
     /// # Errors
     ///
     /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
     /// `MEANS_xyz` options.
-    ///
-    /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_depth")]
     pub fn distances_at_depth<DepthLike>(
         &self,
         kind: DistanceKind,
         depth: DepthLike,
-    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistanceKind>>>
+    ) -> Result<Vec<DistanceMatrix<'_>>, HybridError<FlagsError<DistanceKind>>>
     where
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
@@ -133,7 +133,7 @@ impl Topology {
             self_: &Topology,
             kind: DistanceKind,
             depth: Depth,
-        ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistanceKind>>> {
+        ) -> Result<Vec<DistanceMatrix<'_>>, HybridError<FlagsError<DistanceKind>>> {
             // There cannot be any object at a depth below the topology depth
             if matches!(depth, Depth::Normal(depth) if depth >= self_.depth()) {
                 return Ok(Vec::new());
@@ -142,8 +142,8 @@ impl Topology {
             // SAFETY: - hwloc_distances_get_by_depth with the depth parameter
             //           curried away behaves indeed like hwloc_distances_get
             //         - Depth only allows valid depth values to exist
-            //         - Other parameters are guaranteed valid per get_distances
-            //           contract
+            //         - Other parameters are guaranteed valid per
+            //           get_distances contract
             unsafe {
                 self_.get_distances(
                     kind,
@@ -170,28 +170,27 @@ impl Topology {
 
     /// Retrieve distance matrices that only contain objects with type `ty`
     ///
-    /// Identical to [`distances()`] with the additional `ty` filter.
+    /// Similar to [`distances()`](Topology::distances()) with an additional
+    /// type filter.
     ///
     /// # Errors
     ///
     /// [`FlagsError`] if the specified `kind` contains multiple `FROM_xyz` or
     /// `MEANS_xyz` options.
-    ///
-    /// [`distances()`]: Topology::distances()
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_get_by_type")]
     pub fn distances_with_type(
         &self,
         kind: DistanceKind,
         ty: ObjectType,
-    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistanceKind>>> {
+    ) -> Result<Vec<DistanceMatrix<'_>>, HybridError<FlagsError<DistanceKind>>> {
         // SAFETY: - hwloc_distances_get_by_type with the type parameter curried
         //           away behaves indeed like hwloc_distances_get
         //         - No invalid ObjectType value should be exposed by this
         //           binding (to enable values from newer releases of hwloc, you
         //           must configure the build to require newer hwloc DLLs)
-        //         - Other parameters are guaranteed valid per get_distances
-        //           contract
+        //         - Other parameters are guaranteed valid per
+        //           get_distances contract
         unsafe {
             self.get_distances(
                 kind,
@@ -210,12 +209,13 @@ impl Topology {
         }
     }
 
-    /// Retrieve a distance matrix with the given name
+    /// Retrieve distance matrices with the given name
     ///
-    /// Usually only one distances matrix may match a given name.
+    /// Usually only one distance matrix will match a given name.
     ///
-    /// Names of distances matrices currently created by hwloc may be found
-    /// [in the hwloc documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
+    /// Names of distance matrices currently created by hwloc may be found [in
+    /// the hwloc
+    /// documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
     ///
     /// # Errors
     ///
@@ -225,13 +225,13 @@ impl Topology {
     pub fn distances_with_name(
         &self,
         name: &str,
-    ) -> Result<Vec<Distances<'_>>, HybridError<NulError>> {
+    ) -> Result<Vec<DistanceMatrix<'_>>, HybridError<NulError>> {
         let name = LibcString::new(name)?;
         // SAFETY: - hwloc_distances_get_by_name with the name parameter curried
         //           away behaves indeed like hwloc_distances_get
         //         - `name` is a valid c string by construction of LibcString
-        //         - Other parameters are guaranteed valid per get_distances
-        //           contract
+        //         - Other parameters are guaranteed valid per
+        //           get_distances_without_kind contract
         unsafe {
             self.get_distances_without_kind(
                 "hwloc_distances_get_by_name",
@@ -274,7 +274,7 @@ impl Topology {
             hwloc_distances_kind_e,
             c_ulong,
         ) -> c_int,
-    ) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistanceKind>>> {
+    ) -> Result<Vec<DistanceMatrix<'_>>, HybridError<FlagsError<DistanceKind>>> {
         if !kind.is_valid(DistanceKindUsage::Query) {
             return Err(FlagsError::from(kind).into());
         }
@@ -298,7 +298,8 @@ impl Topology {
     /// parameter
     ///
     /// Takes care of all parameters except for `kind`, which is not universal
-    /// to these APIs and taken care of by [`get_distances()`]. So the last
+    /// to these APIs and taken care of by
+    /// [`get_distances()`](Self::get_distances()). So the last
     /// `c_ulong` here is the flags parameter.
     ///
     /// # Safety
@@ -307,8 +308,6 @@ impl Topology {
     ///   semantics, save for the absence of a kind parameter
     /// - This API is guaranteed to be passed valid (Topology, distances buffer
     ///   length, distance out-buffer pointer, flags) tuples
-    ///
-    /// [`get_distances()`]: Self::get_distances()
     #[allow(clippy::missing_errors_doc)]
     unsafe fn get_distances_without_kind(
         &self,
@@ -319,7 +318,7 @@ impl Topology {
             *mut *mut hwloc_distances_s,
             c_ulong,
         ) -> c_int,
-    ) -> Result<Vec<Distances<'_>>, RawHwlocError> {
+    ) -> Result<Vec<DistanceMatrix<'_>>, RawHwlocError> {
         /// Polymorphized version of this function (avoids generics code bloat)
         fn polymorphized<'self_>(
             self_: &'self_ Topology,
@@ -330,7 +329,7 @@ impl Topology {
                 *mut *mut hwloc_distances_s,
                 c_ulong,
             ) -> c_int,
-        ) -> Result<Vec<Distances<'self_>>, RawHwlocError> {
+        ) -> Result<Vec<DistanceMatrix<'self_>>, RawHwlocError> {
             // Prepare to call hwloc
             let mut nr = 0;
             let mut call_ffi = |nr_mut, distances_out| {
@@ -365,7 +364,7 @@ impl Topology {
                 .into_iter()
                 // SAFETY: If hwloc distance queries succeed, they are trusted
                 //         to emit valid distances pointers
-                .map(|raw| unsafe { Distances::wrap(self_, raw) })
+                .map(|raw| unsafe { DistanceMatrix::wrap(self_, raw) })
                 .collect())
         }
         polymorphized(self, getter_name, &mut getter)
@@ -379,7 +378,7 @@ impl Topology {
 // Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__add.html
 #[cfg(feature = "hwloc-2_5_0")]
 impl TopologyEditor<'_> {
-    /// Create a new object distances matrix
+    /// Create a new object distance matrix
     ///
     /// `name` is optional and can be used to clarify what the distances mean.
     ///
@@ -389,10 +388,10 @@ impl TopologyEditor<'_> {
     /// `flags` can be used to request the grouping of existing objects based on
     /// distance.
     ///
-    /// The `collect_objects_and_distances` callback should query the topology
-    /// to collect references to the objects of interest, and produce the
-    /// corresponding distance matrix. If there are N output objects, then there
-    /// should be N.pow(2) output distances.
+    /// The `collect_endpoints_and_values` callback should query the topology to
+    /// collect references to the objects of interest, and produce the
+    /// corresponding distance values. If there are N endpoint objects, then
+    /// there should be N.pow(2) distance values.
     ///
     /// It is legal for some topology objects to appear multiple times as
     /// endpoints of the distance matrix. This is how one can describe the
@@ -420,29 +419,29 @@ impl TopologyEditor<'_> {
     /// - [`InconsistentDiagonal`] if a `MEANS_` kind is specified and the
     ///   diagonal values are not consistent with it (minimal for
     ///   [`MEANS_LATENCY`], maximal for [`MEANS_BANDWIDTH`])
-    /// - [`InconsistentLen`] if the number of distances returned by the
+    /// - [`InconsistentLen`] if the number of distance values returned by the
     ///   callback is not compatible with the number of objects (it should be
     ///   the square of it)
     ///
-    /// [`BadEndpointCount`]: AddDistancesError::BadEndpointCount
-    /// [`BadKind`]: AddDistancesError::BadKind
-    /// [`ForeignEndpoint`]: AddDistancesError::ForeignEndpoint
+    /// [`BadEndpointCount`]: AddDistanceMatrixError::BadEndpointCount
+    /// [`BadKind`]: AddDistanceMatrixError::BadKind
+    /// [`ForeignEndpoint`]: AddDistanceMatrixError::ForeignEndpoint
     /// [`HETEROGENEOUS_TYPES`]: DistanceKind::HETEROGENEOUS_TYPES
-    /// [`InconsistentDiagonal`]: AddDistancesError::InconsistentDiagonal
-    /// [`InconsistentLen`]: AddDistancesError::InconsistentLen
+    /// [`InconsistentDiagonal`]: AddDistanceMatrixError::InconsistentDiagonal
+    /// [`InconsistentLen`]: AddDistanceMatrixError::InconsistentLen
     /// [`MEANS_BANDWIDTH`]: DistanceKind::MEANS_BANDWIDTH
     /// [`MEANS_LATENCY`]: DistanceKind::MEANS_LATENCY
-    /// [`NameContainsNul`]: AddDistancesError::NameContainsNul
+    /// [`NameContainsNul`]: AddDistanceMatrixError::NameContainsNul
     #[doc(alias = "hwloc_distances_add_create")]
     #[doc(alias = "hwloc_distances_add_values")]
     #[doc(alias = "hwloc_distances_add_commit")]
-    pub fn add_distances(
+    pub fn add_distance_matrix(
         &mut self,
         name: Option<&str>,
         kind: DistanceKind,
-        flags: AddDistancesFlags,
-        collect_objects_and_distances: impl FnOnce(&Topology) -> (Vec<&TopologyObject>, Vec<u64>),
-    ) -> Result<(), HybridError<AddDistancesError>> {
+        flags: AddDistanceMatrixFlags,
+        collect_endpoints_and_values: impl FnOnce(&Topology) -> (Vec<&TopologyObject>, Vec<u64>),
+    ) -> Result<(), HybridError<AddDistanceMatrixError>> {
         /// Polymorphized subset of this function (avoids generics code bloat)
         ///
         /// # Safety
@@ -453,58 +452,58 @@ impl TopologyEditor<'_> {
             self_: &mut TopologyEditor<'_>,
             name: Option<&str>,
             kind: DistanceKind,
-            flags: AddDistancesFlags,
-            object_ptrs: &[*const hwloc_obj],
-            distances: Vec<u64>,
-        ) -> Result<(), HybridError<AddDistancesError>> {
+            flags: AddDistanceMatrixFlags,
+            objs: &[*const hwloc_obj],
+            values: Vec<u64>,
+        ) -> Result<(), HybridError<AddDistanceMatrixError>> {
             // Prepare arguments for C consumption and validate them
             let name = match name.map(LibcString::new).transpose() {
                 Ok(name) => name,
-                Err(NulError) => return Err(AddDistancesError::NameContainsNul.into()),
+                Err(NulError) => return Err(AddDistanceMatrixError::NameContainsNul.into()),
             };
             let name = name.as_ref().map_or(ptr::null(), LibcString::borrow);
             //
             if !kind.is_valid(DistanceKindUsage::AddEdit) {
-                return Err(AddDistancesError::BadKind(kind.into()).into());
+                return Err(AddDistanceMatrixError::BadKind(kind.into()).into());
             }
             //
             let create_add_flags = 0;
             let commit_flags = flags.bits();
             //
-            if object_ptrs.len() < 2 {
-                return Err(AddDistancesError::BadEndpointCount(object_ptrs.len()).into());
+            if objs.len() < 2 {
+                return Err(AddDistanceMatrixError::BadEndpointCount(objs.len()).into());
             }
-            let Ok(nbobjs) = c_uint::try_from(object_ptrs.len()) else {
-                return Err(AddDistancesError::BadEndpointCount(object_ptrs.len()).into());
+            let Ok(nbobjs) = c_uint::try_from(objs.len()) else {
+                return Err(AddDistanceMatrixError::BadEndpointCount(objs.len()).into());
             };
-            let expected_distances_len = object_ptrs.len().pow(2);
-            if distances.len() != expected_distances_len {
-                return Err(AddDistancesError::InconsistentLen.into());
+            let expected_values_len = objs.len().pow(2);
+            if values.len() != expected_values_len {
+                return Err(AddDistanceMatrixError::InconsistentLen.into());
             }
             //
             type ExtremalValue = for<'a> fn(std::slice::Iter<'a, u64>) -> Option<&'a u64>;
             let check_value_kind_consistency =
                 |means_kind: DistanceKind, diagonal_value: ExtremalValue| {
                     if kind.contains(means_kind) {
-                        for (origin_idx, distances) in
-                            distances.chunks(object_ptrs.len()).enumerate()
-                        {
-                            let expected = *diagonal_value(distances.iter())
+                        for (origin_idx, values) in values.chunks(objs.len()).enumerate() {
+                            let expected = *diagonal_value(values.iter())
                                 .expect("There are distance values if control reaches this point");
-                            if distances[origin_idx] != expected {
-                                return Err(AddDistancesError::InconsistentDiagonal(kind).into());
+                            if values[origin_idx] != expected {
+                                return Err(
+                                    AddDistanceMatrixError::InconsistentDiagonal(kind).into()
+                                );
                             }
                         }
                     }
-                    Ok::<_, HybridError<AddDistancesError>>(())
+                    Ok::<_, HybridError<AddDistanceMatrixError>>(())
                 };
             check_value_kind_consistency(DistanceKind::MEANS_LATENCY, |iter| iter.min())?;
             check_value_kind_consistency(DistanceKind::MEANS_BANDWIDTH, |iter| iter.max())?;
             //
             let kind = kind.bits();
-            let values = distances.as_ptr();
+            let values = values.as_ptr();
 
-            // Create new empty distances structure
+            // Create a new empty distances structure
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - name is trusted to be a valid C string (type invariant)
             //         - hwloc ops are trusted not to modify *const parameters
@@ -522,7 +521,7 @@ impl TopologyEditor<'_> {
             })
             .map_err(HybridError::Hwloc)?;
 
-            // Add objects to the distance structure
+            // Add objects to the distances structure
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - handle comes from a successful hwloc_distances_add_create run
             //         - hwloc ops are trusted not to modify *const parameters
@@ -538,7 +537,7 @@ impl TopologyEditor<'_> {
                     self_.topology_mut_ptr(),
                     handle.as_ptr(),
                     nbobjs,
-                    object_ptrs.as_ptr(),
+                    objs.as_ptr(),
                     values,
                     create_add_flags,
                 )
@@ -565,13 +564,13 @@ impl TopologyEditor<'_> {
         // Run user callback, validate results, and translate them into
         // something that hwloc and the borrow checker will accept
         let topology = self.topology();
-        let (objects, distances) = collect_objects_and_distances(topology);
-        for obj in objects.iter().copied() {
+        let (endpoints, values) = collect_endpoints_and_values(topology);
+        for obj in endpoints.iter().copied() {
             if !topology.contains(obj) {
-                return Err(AddDistancesError::ForeignEndpoint(obj.into()).into());
+                return Err(AddDistanceMatrixError::ForeignEndpoint(obj.into()).into());
             }
         }
-        let object_ptrs =
+        let endpoint_ptrs =
             // SAFETY: - TopologyObject is a repr(transparent) newtype of
             //           hwloc_obj so &TopologyObject matches *const hwloc_obj
             //           in layout and semantics.
@@ -580,26 +579,26 @@ impl TopologyEditor<'_> {
             //           the former, it is right for the latter too.
             unsafe {
                 std::slice::from_raw_parts(
-                    objects.as_ptr().cast::<*const hwloc_obj>(),
-                    objects.len()
+                    endpoints.as_ptr().cast::<*const hwloc_obj>(),
+                    endpoints.len()
                 )
             };
 
         // Call the polymorphized version of this function
-        // SAFETY: objects do belong to this topology
-        unsafe { polymorphized(self, name, kind, flags, object_ptrs, distances) }
+        // SAFETY: endpoints do belong to this topology
+        unsafe { polymorphized(self, name, kind, flags, endpoint_ptrs, values) }
     }
 }
 
 #[cfg(feature = "hwloc-2_5_0")]
 bitflags! {
-    /// Flags to be given to [`TopologyEditor::add_distances()`]
+    /// Flags to be given to [`TopologyEditor::add_distance_matrix()`]
     #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
     #[doc(alias = "hwloc_distances_add_flag_e")]
-    pub struct AddDistancesFlags: hwloc_distances_add_flag_e {
+    pub struct AddDistanceMatrixFlags: hwloc_distances_add_flag_e {
         /// Try to group objects based on the newly provided distance information
         ///
-        /// Grouping is only performed when the distances structure contains
+        /// Grouping is only performed when the distance matrix contains
         /// latencies, and when all objects are of the same type.
         ///
         /// Disabled for older versions of hwloc as a workaround for [upstream
@@ -623,14 +622,14 @@ bitflags! {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-crate::impl_arbitrary_for_bitflags!(AddDistancesFlags, hwloc_distances_add_flag_e);
+crate::impl_arbitrary_for_bitflags!(AddDistanceMatrixFlags, hwloc_distances_add_flag_e);
 
 /// Failed to add a new distance matrix to the topology
 #[cfg(feature = "hwloc-2_5_0")]
 #[derive(Clone, Debug, Eq, Error, Hash, PartialEq)]
-pub enum AddDistancesError {
+pub enum AddDistanceMatrixError {
     /// Provided `name` contains NUL chars
-    #[error("distances name can't contain NUL chars")]
+    #[error("distance matrix name can't contain NUL chars")]
     NameContainsNul,
 
     /// Provided `kind` is invalid
@@ -644,7 +643,7 @@ pub enum AddDistancesError {
 
     /// Provided callback returned too many or too few objects
     ///
-    /// hwloc only supports distances matrices involving 2 to [`c_uint::MAX`]
+    /// hwloc only supports distance matrices involving 2 to [`c_uint::MAX`]
     /// objects.
     #[error("can't add distances between {0} objects")]
     BadEndpointCount(usize),
@@ -667,30 +666,30 @@ pub enum AddDistancesError {
     #[error("diagonal distance values are not compatible with kind {0:?}")]
     InconsistentDiagonal(DistanceKind),
 
-    /// Provided callback returned incompatible objects and distances arrays
+    /// Provided callback returned incompatible endpoint and value arrays
     ///
-    /// If we denote N the length of the objects array, the distances array
-    /// should contain N.pow(2) elements.
-    #[error("number of specified objects and distances isn't consistent")]
+    /// If we denote `N` the length of the endpoint array, the value array
+    /// should contain `N.pow(2)` elements.
+    #[error("number of specified endpoints and values isn't consistent")]
     InconsistentLen,
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-impl From<DistanceKind> for AddDistancesError {
+impl From<DistanceKind> for AddDistanceMatrixError {
     fn from(value: DistanceKind) -> Self {
         Self::BadKind(value.into())
     }
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-impl From<NulError> for AddDistancesError {
+impl From<NulError> for AddDistanceMatrixError {
     fn from(_: NulError) -> Self {
         Self::NameContainsNul
     }
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-impl<'topology> From<&'topology TopologyObject> for AddDistancesError {
+impl<'topology> From<&'topology TopologyObject> for AddDistanceMatrixError {
     fn from(object: &'topology TopologyObject) -> Self {
         Self::ForeignEndpoint(object.into())
     }
@@ -703,21 +702,21 @@ impl<'topology> From<&'topology TopologyObject> for AddDistancesError {
 // Upstream docs: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__remove.html
 #[cfg(feature = "hwloc-2_3_0")]
 impl TopologyEditor<'_> {
-    /// Remove a single distances matrix from the topology
+    /// Remove a single distance matrix from the topology
     ///
-    /// The distances matrix to be removed can be selected using the
-    /// `find_distances` callback.
+    /// The distance matrix to be removed can be selected using the
+    /// `find_matrix` callback.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_release_remove")]
-    pub fn remove_distances(
+    pub fn remove_distance_matrix(
         &mut self,
-        find_distances: impl FnOnce(&Topology) -> Distances<'_>,
+        find_matrix: impl FnOnce(&Topology) -> DistanceMatrix<'_>,
     ) -> Result<(), RawHwlocError> {
         /// Polymorphized subset of this function (avoids generics code bloat)
         ///
         /// # Safety
         ///
-        /// `distances` must point to a valid set of distances from this
+        /// `distance` must point to a valid distance matrix from this
         /// topology, with no residual high-level wrapper remaining
         unsafe fn polymorphized(
             self_: &mut TopologyEditor<'_>,
@@ -736,25 +735,25 @@ impl TopologyEditor<'_> {
         }
 
         // Run user callback and call polymorphized subset with result
-        let distances = find_distances(self.topology()).into_inner();
+        let distances = find_matrix(self.topology()).into_inner();
         // SAFETY: distances is indeed a valid distances pointer with no
         //         remaining high level wrapper to bother us, since the
-        //         Distances struct that we just discarded with into_inner
+        //         DistanceMatrix struct that we just discarded with into_inner
         //         assumed full ownership.
         unsafe { polymorphized(self, distances) }
     }
 
     /// Remove all distance matrices from a topology
     ///
-    /// If these distances were used to group objects, these additional Group
-    /// objects are not removed from the topology.
+    /// If these distances were used to group objects, the associated
+    /// [`Group`](ObjectType::Group) objects are not removed from the topology.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove")]
     pub fn remove_all_distances(&mut self) -> Result<(), RawHwlocError> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-        //         - Distances lifetime is bound by the host topology, so this
-        //           will invalidate all Distances struct in existence and thus
-        //           use-after-free cannot happen
+        //         - DistanceMatrix lifetime is bound by the host topology, so
+        //           this will invalidate all DistanceMatrix struct in existence
+        //           and thus use-after-free cannot happen
         errors::call_hwloc_zero_or_minus1("hwloc_distances_remove", || unsafe {
             hwlocality_sys::hwloc_distances_remove(self.topology_mut_ptr())
         })
@@ -763,12 +762,16 @@ impl TopologyEditor<'_> {
     /// Remove distance matrices for objects at a specific depth in the topology
     /// (if any)
     ///
-    /// Identical to [`remove_all_distances()`], but only applies to one level
-    /// of the topology.
+    /// Similar to
+    /// [`remove_all_distances()`](TopologyEditor::remove_all_distances()), but
+    /// only applies to distance matrices where all endpoint objects reside at
+    /// the specified depth.
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
     ///
-    /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
+    /// As of hwloc v2.12.1, removing distances at the depth of
+    /// [`Group`](ObjectType::Group) objects is unfortunately not fully
+    /// supported by hwloc and may error out.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_depth")]
     pub fn remove_distances_at_depth<DepthLike>(
@@ -785,9 +788,9 @@ impl TopologyEditor<'_> {
             depth: Depth,
         ) -> Result<(), RawHwlocError> {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
-            //         - Distances lifetime is bound by the host topology, so this
-            //           will invalidate all Distances struct in existence and thus
-            //           use-after-free cannot happen
+            //         - DistanceMatrix lifetime is bound by the host topology,
+            //           so this will invalidate all DistanceMatrix struct in
+            //           existence and thus use-after-free cannot happen
             //         - hwloc should be able to handle any valid depth value
             errors::call_hwloc_zero_or_minus1("hwloc_distances_remove_by_depth", || unsafe {
                 hwlocality_sys::hwloc_distances_remove_by_depth(
@@ -805,10 +808,14 @@ impl TopologyEditor<'_> {
 
     /// Remove distance matrices for objects of a specific type in the topology
     ///
-    /// Identical to [`remove_all_distances()`], but only applies to one level
-    /// of the topology.
+    /// Similar to
+    /// [`remove_all_distances()`](TopologyEditor::remove_all_distances()), but
+    /// only applies to distance matrices where all endpoint objects have the
+    /// specified type.
     ///
-    /// [`remove_all_distances()`]: [`TopologyEditor::remove_all_distances()`]
+    /// As of hwloc v2.12.1, removing distances between
+    /// [`Group`](ObjectType::Group) objects is unfortunately not fully
+    /// supported by hwloc and may error out.
     #[allow(clippy::missing_errors_doc)]
     #[doc(alias = "hwloc_distances_remove_by_type")]
     pub fn remove_distances_with_type(&mut self, ty: ObjectType) -> Result<(), RawHwlocError> {
@@ -835,34 +842,26 @@ impl TopologyEditor<'_> {
 
 /// Matrix of distances between a set of objects
 ///
-/// This matrix often contains latencies between NUMA nodes (as reported in the
-/// System Locality Distance Information Table (SLIT) in the ACPI
-/// specification), which may or may not be physically accurate. It corresponds
-/// to the latency for accessing the memory of one node from a core in another
-/// node. The corresponding kind is [`DistanceKind::FROM_OS`] |
-/// [`DistanceKind::FROM_USER`]. The name of this distances structure is
-/// "NUMALatency".
-///
-/// The names and semantics of other distances matrices currently created by
+/// The names and semantics of distance matrices currently created by
 /// hwloc may be found [in the hwloc
 /// documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
 ///
-/// The matrix may also contain bandwidths between random sets of objects,
-/// possibly provided by the user, as specified in the [`kind()`] attribute.
+/// More matrices may be added using the
+/// [`TopologyEditor::add_distance_matrix()`] API.
 ///
-/// The ownership/lifetime semantics of this object are rather subtle:
+/// The ownership/lifetime semantics of this object are subtle:
 ///
 /// - Its internal allocations are managed by an hwloc topology, and it contains
 ///   references to objects from a topology. As a result, its lifetime is tied
-///   to that of a topology, the number of objects cannot grow (only shrink),
-///   and there is no easy way to clone `Distances`...
+///   to that of a topology, the number of objects cannot grow, and there is no
+///   easy way to clone a `DistanceMatrix`...
 /// - ...but inner objects and values are not themselves part of the "home"
 ///   topology, and can therefore be modified without affecting it. Which is why
 ///   you only need an `&Topology` to retrieve modifiable distance matrices.
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
-    doc = "Let's give an example of a possible distances matrix modification."
+    doc = "Let's give an example of a possible distance matrix modification."
 )]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
@@ -880,13 +879,11 @@ impl TopologyEditor<'_> {
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
 #[cfg_attr(
     feature = "hwloc-2_5_0",
-    doc = "See also [`Distances::transform()`] for applying some"
+    doc = "See also [`DistanceMatrix::transform()`] for applying some"
 )]
 #[cfg_attr(feature = "hwloc-2_5_0", doc = "transformations to the structure.")]
 ///
 ///
-/// [`kind()`]: Self::kind()
-//
 // --- Implementation details
 //
 // Upstream inspiration: https://hwloc.readthedocs.io/en/stable/group__hwlocality__distances__consult.html
@@ -903,7 +900,7 @@ impl TopologyEditor<'_> {
 // - The objs and values pointers should not be replaced (but contents can be
 //   freely modified)
 #[doc(alias = "hwloc_distances_s")]
-pub struct Distances<'topology> {
+pub struct DistanceMatrix<'topology> {
     /// Pointer to a valid [`hwloc_distances_s`] struct that originates from
     /// `topology`
     ///
@@ -921,7 +918,7 @@ pub struct Distances<'topology> {
     topology: &'topology Topology,
 }
 //
-impl<'topology> Distances<'topology> {
+impl<'topology> DistanceMatrix<'topology> {
     /// Wrap a distance matrix from hwloc
     ///
     /// # Safety
@@ -954,7 +951,7 @@ impl<'topology> Distances<'topology> {
         Self { inner, topology }
     }
 
-    /// Access the inner `hwloc_distances_s` (& version)
+    /// Access the inner `hwloc_distances_s` (`&` version)
     ///
     /// # Safety
     ///
@@ -968,7 +965,7 @@ impl<'topology> Distances<'topology> {
         unsafe { self.inner.as_ref() }
     }
 
-    /// Get the inner `hwloc_distances_s` (&mut version)
+    /// Get the inner `hwloc_distances_s` (`&mut` version)
     ///
     /// # Safety
     ///
@@ -995,7 +992,7 @@ impl<'topology> Distances<'topology> {
         inner
     }
 
-    /// Description of what a distances structure contains
+    /// Description of this distance matrix
     ///
     /// For instance "NUMALatency" for hardware-provided NUMA distances (ACPI
     /// SLIT), or `None` if unknown.
@@ -1099,7 +1096,7 @@ impl<'topology> Distances<'topology> {
     /// in the target allocation, and this number can be trusted to fit within
     /// Rust's limit of `isize::MAX` slice length limit.
     #[doc(alias = "hwloc_distances_s::nbobjs")]
-    pub fn num_objects(&self) -> usize {
+    fn num_objects(&self) -> usize {
         // SAFETY: No invalid mutation of inner state occurs
         int::expect_usize(unsafe { self.inner().nbobj })
     }
@@ -1161,9 +1158,8 @@ impl<'topology> Distances<'topology> {
     /// Beware that calling this in a loop for each object you are interested in
     /// will result in a lot of duplicate work. It is better to instead build a
     /// cache of indices for the objects that you are interested in, or to use
-    /// the [`object_distances()`] iterator if your algorithm allows for it.
-    ///
-    /// [`object_distances()`]: Distances::object_distances()
+    /// the [`object_distances()`](DistanceMatrix::object_distances()) iterator
+    /// if your algorithm allows for it.
     #[doc(alias = "hwloc_distances_obj_index")]
     pub fn object_indices<'result>(
         &'result self,
@@ -1231,11 +1227,11 @@ impl<'topology> Distances<'topology> {
     /// # Errors
     ///
     /// [`ForeignObjectError`] if `new_object` does not belong to the same
-    /// [`Topology`] as this distances matrix.
+    /// [`Topology`] as this distance matrix.
     ///
-    /// [`distances_mut()`]: Distances::distances_mut()
-    /// [`enumerate_distances_mut()`]: Distances::enumerate_distances_mut()
-    /// [`object_distances_mut()`]: Distances::object_distances_mut()
+    /// [`distances_mut()`]: DistanceMatrix::distances_mut()
+    /// [`enumerate_distances_mut()`]: DistanceMatrix::enumerate_distances_mut()
+    /// [`object_distances_mut()`]: DistanceMatrix::object_distances_mut()
     pub fn replace_object(
         &mut self,
         idx: usize,
@@ -1253,13 +1249,14 @@ impl<'topology> Distances<'topology> {
     /// Replace all objects using the provided `(index, current object) -> new
     /// object` mapping
     ///
-    /// This is more efficient than calling [`Distances::replace_object()`] in
-    /// a loop and allows you to know what object you are replacing.
+    /// This is more efficient than calling
+    /// [`replace_object()`](DistanceMatrix::replace_object()) in a loop and
+    /// allows you to know what object you are replacing.
     ///
     /// # Errors
     ///
     /// [`ForeignObjectError`] if any of the [`TopologyObject`]s returned by
-    /// `mapping` does not belong to the same [`Topology`] as this distances
+    /// `mapping` does not belong to the same [`Topology`] as this distance
     /// matrix.
     pub fn replace_all_objects(
         &mut self,
@@ -1300,10 +1297,10 @@ impl<'topology> Distances<'topology> {
     /// objects. Then the distance from the second object to the first object
     /// will be reported, and so on.
     ///
-    /// The meaning of the distance value depends on [`Distances::kind()`].
+    /// The meaning of the distance value depends on [`DistanceMatrix::kind()`].
     ///
     /// If you do not know the indices of the objects that you are looking for,
-    /// you may want to use [`Distances::object_distances()`] instead.
+    /// you may want to use [`DistanceMatrix::object_distances()`] instead.
     #[doc(alias = "hwloc_distances_s::values")]
     pub fn distances(&self) -> &[u64] {
         // SAFETY: - inner is assumed valid as a type invariant, thus values &
@@ -1318,7 +1315,7 @@ impl<'topology> Distances<'topology> {
 
     /// Distances in sender-major order (mutable access)
     ///
-    /// See also [`Distances::distances()`].
+    /// See also [`distances()`](DistanceMatrix::distances()).
     pub fn distances_mut(&mut self) -> &mut [u64] {
         // SAFETY: - inner is assumed valid as a type invariant, thus values &
         //           num_distances() are trusted to be consistent. values is
@@ -1332,7 +1329,7 @@ impl<'topology> Distances<'topology> {
 
     /// Iteration over `((sender index, receiver index), distance)` tuples
     ///
-    /// See also [`Distances::distances()`].
+    /// See also [`distances()`](DistanceMatrix::distances()).
     pub fn enumerate_distances(
         &self,
     ) -> impl DoubleEndedIterator<Item = ((usize, usize), u64)>
@@ -1350,7 +1347,7 @@ impl<'topology> Distances<'topology> {
 
     /// Iteration over `((sender index, receiver index), &mut distance)` tuples
     ///
-    /// See also [`Distances::distances()`].
+    /// See also [`distances()`](DistanceMatrix::distances()).
     ///
     /// # Safety
     ///
@@ -1368,7 +1365,7 @@ impl<'topology> Distances<'topology> {
 
     /// Iteration over `((sender, receiver), distance)` tuples
     ///
-    /// See also [`Distances::distances()`].
+    /// See also [`distances()`](DistanceMatrix::distances()).
     pub fn object_distances(
         &self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), u64)> + Clone
@@ -1380,7 +1377,7 @@ impl<'topology> Distances<'topology> {
 
     /// Iteration over `((sender, receiver), &mut distance)` tuples
     ///
-    /// See also [`Distances::distances()`].
+    /// See also [`distances()`](DistanceMatrix::distances()).
     pub fn object_distances_mut(
         &mut self,
     ) -> impl FusedIterator<Item = ((Option<&TopologyObject>, Option<&TopologyObject>), &mut u64)>
@@ -1421,9 +1418,7 @@ impl<'topology> Distances<'topology> {
     ///
     /// This is a rather expensive operation. If you find yourself needing to
     /// do it in a loop, consider rearchitecturing your workflow around object
-    /// indices or [`object_distances()`].
-    ///
-    /// [`object_distances()`]: Distances::object_distances()
+    /// indices or [`object_distances()`](DistanceMatrix::object_distances()).
     #[doc(alias = "hwloc_distances_obj_pair_values")]
     pub fn object_pair_distances<'result>(
         &'result self,
@@ -1461,8 +1456,8 @@ impl<'topology> Distances<'topology> {
         sender * self.num_objects() + receiver
     }
 
-    /// Truth that this set of distances is the same as another set of
-    /// distances, assuming both dumps originate from related topologies.
+    /// Truth that this distance matrix is the same as another distance matrix,
+    /// assuming both dumps originate from related topologies.
     ///
     /// By related, we mean that `other` should either originate from the same
     /// [`Topology`] as `self`, or from a (possibly modified) clone of that
@@ -1481,9 +1476,9 @@ impl<'topology> Distances<'topology> {
         }
         /// Translate the objects iterator into a GP index iterator
         fn object_indices<'out>(
-            distances: &'out Distances<'out>,
+            matrix: &'out DistanceMatrix<'out>,
         ) -> impl Iterator<Item = Option<TopologyObjectID>> + 'out {
-            distances
+            matrix
                 .objects()
                 .map(|obj| obj.map(TopologyObject::global_persistent_index))
         }
@@ -1495,30 +1490,30 @@ impl<'topology> Distances<'topology> {
 
     /// Apply a transformation to this distance matrix
     ///
-    /// This modifies the local copy of the distances structures but does not
-    /// modify the distances information stored inside the topology (retrieved
-    /// by another call to [`Topology::distances()`] or exported to XML).
+    /// This modifies the local copy of the distance matrix but does not modify
+    /// the distance information stored inside the topology (retrieved by
+    /// another call to [`Topology::distances()`] or exported to XML).
     ///
-    /// To do so, one should add a new distances structure with same name, kind,
-    /// objects and values (see [`TopologyEditor::add_distances()`]) and then
-    /// remove this old one using one of the `TopologyEditor` APIs for removing
-    /// distances.
+    /// To do so, one should add a new distance matrix with same name, kind,
+    /// objects and values (see [`TopologyEditor::add_distance_matrix()`]) and
+    /// then remove this old one using one of the `TopologyEditor` APIs for
+    /// removing distance matrices.
     ///
     /// Objects may also be directly replaced in place using
-    /// [`Distances::replace_all_objects()`]. One may use e.g.
-    /// [`Topology::object_with_same_locality()`] to easily convert between
-    /// similar objects of different types.
+    /// [`replace_all_objects()`](DistanceMatrix::replace_all_objects()). One
+    /// may use e.g. [`Topology::object_with_same_locality()`] to easily convert
+    /// between similar objects of different types.
     ///
     /// # Errors
     ///
     /// [`TransformError`] if one attempts to use
-    /// [`DistancesTransform::RemoveNone`] to reduce the number of objects to
+    /// [`DistanceTransform::RemoveNone`] to reduce the number of objects to
     /// <2, which is forbidden.
     #[cfg(feature = "hwloc-2_5_0")]
     #[doc(alias = "hwloc_distances_transform")]
     pub fn transform(
         &mut self,
-        transform: DistancesTransform,
+        transform: DistanceTransform,
     ) -> Result<(), HybridError<TransformError>> {
         use errno::Errno;
         use libc::EINVAL;
@@ -1543,7 +1538,7 @@ impl<'topology> Distances<'topology> {
             RawHwlocError {
                 errno: Some(Errno(EINVAL)),
                 ..
-            } if transform == DistancesTransform::RemoveNone => HybridError::Rust(TransformError),
+            } if transform == DistanceTransform::RemoveNone => HybridError::Rust(TransformError),
             other => HybridError::Hwloc(other),
         })?;
         #[cfg(feature = "hwloc-2_1_0")]
@@ -1553,7 +1548,7 @@ impl<'topology> Distances<'topology> {
 }
 //
 /// Distance information yielded by the output iterator of
-/// [`Distances::object_pair_distances()`]
+/// [`DistanceMatrix::object_pair_distances()`]
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct ObjectPairDistances {
     /// Index of the selected occurence of the first object specified as a
@@ -1573,9 +1568,9 @@ pub struct ObjectPairDistances {
     pub distance21: u64,
 }
 //
-impl Debug for Distances<'_> {
+impl Debug for DistanceMatrix<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut debug = f.debug_struct("Distances");
+        let mut debug = f.debug_struct("DistanceMatrix");
         #[cfg(feature = "hwloc-2_1_0")]
         debug.field("name", &self.name());
         debug
@@ -1597,21 +1592,21 @@ impl Debug for Distances<'_> {
     }
 }
 //
-impl Drop for Distances<'_> {
+impl Drop for DistanceMatrix<'_> {
     #[doc(alias = "hwloc_distances_release")]
     fn drop(&mut self) {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - inner pointer validity is assumed as a type invariant
         //         - inner is assumed to belong to topology as a type invariant
         //         - hwloc ops are trusted not to modify *const parameters
-        //         - Distances will not be usable again after Drop
+        //         - DistanceMatrix will not be usable again after Drop
         unsafe {
             hwlocality_sys::hwloc_distances_release(self.topology.as_ptr(), self.inner.as_ptr())
         }
     }
 }
 //
-impl Index<(usize, usize)> for Distances<'_> {
+impl Index<(usize, usize)> for DistanceMatrix<'_> {
     type Output = u64;
 
     fn index(&self, idx: (usize, usize)) -> &u64 {
@@ -1620,7 +1615,7 @@ impl Index<(usize, usize)> for Distances<'_> {
     }
 }
 //
-impl IndexMut<(usize, usize)> for Distances<'_> {
+impl IndexMut<(usize, usize)> for DistanceMatrix<'_> {
     fn index_mut(&mut self, idx: (usize, usize)) -> &mut u64 {
         let idx = self.checked_idx(idx);
         // SAFETY: index validity is checked by checked_idx
@@ -1629,10 +1624,10 @@ impl IndexMut<(usize, usize)> for Distances<'_> {
 }
 //
 // SAFETY: No internal mutability
-unsafe impl Send for Distances<'_> {}
+unsafe impl Send for DistanceMatrix<'_> {}
 //
 // SAFETY: No internal mutability
-unsafe impl Sync for Distances<'_> {}
+unsafe impl Sync for DistanceMatrix<'_> {}
 
 bitflags! {
     /// Kinds of distance matrices
@@ -1741,16 +1736,17 @@ crate::impl_arbitrary_for_bitflags!(DistanceKind, hwloc_distances_kind_e);
 )]
 #[doc(alias = "hwloc_distances_transform_e")]
 #[repr(u32)]
-pub enum DistancesTransform {
+pub enum DistanceTransform {
     /// Remove `None` objects from the distances structure.
     ///
-    /// Every object that was replaced with `None` in [`Distances::objects()`]
-    /// is removed and the matrix is updated accordingly.
+    /// Every object that was replaced with `None` in
+    /// [`DistanceMatrix::objects()`] is removed and the matrix is updated
+    /// accordingly. This is a way to shrink a distance matrix.
     ///
-    /// At least 2 objects must remain, otherwise [`Distances::transform()`]
-    /// will fail.
+    /// At least 2 objects must remain, otherwise
+    /// [`DistanceMatrix::transform()`] will fail.
     ///
-    /// [`Distances::kind()`] will be updated with or without
+    /// [`DistanceMatrix::kind()`] will be updated with or without
     /// [`HETEROGENEOUS_TYPES`] according to the remaining objects.
     ///
     /// [`HETEROGENEOUS_TYPES`]: DistanceKind::HETEROGENEOUS_TYPES
@@ -1794,16 +1790,16 @@ pub enum DistancesTransform {
 }
 //
 #[cfg(feature = "hwloc-2_5_0")]
-crate::impl_arbitrary_for_sequence!(DistancesTransform);
+crate::impl_arbitrary_for_sequence!(DistanceTransform);
 //
 #[cfg(feature = "hwloc-2_5_0")]
-impl From<DistancesTransform> for hwloc_distances_transform_e {
-    fn from(value: DistancesTransform) -> Self {
+impl From<DistanceTransform> for hwloc_distances_transform_e {
+    fn from(value: DistanceTransform) -> Self {
         match value {
-            DistancesTransform::RemoveNone => HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
-            DistancesTransform::BandwidthToLinkCount => HWLOC_DISTANCES_TRANSFORM_LINKS,
-            DistancesTransform::MergeSwitchPorts => HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
-            DistancesTransform::TransitiveSwitchClosure => {
+            DistanceTransform::RemoveNone => HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
+            DistanceTransform::BandwidthToLinkCount => HWLOC_DISTANCES_TRANSFORM_LINKS,
+            DistanceTransform::MergeSwitchPorts => HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
+            DistanceTransform::TransitiveSwitchClosure => {
                 HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE
             }
         }
@@ -1811,10 +1807,10 @@ impl From<DistancesTransform> for hwloc_distances_transform_e {
 }
 
 /// Error returned when attempting to remove all distances using
-/// [`DistancesTransform::RemoveNone`].
+/// [`DistanceTransform::RemoveNone`].
 #[cfg(feature = "hwloc-2_5_0")]
 #[derive(Copy, Clone, Debug, Default, Eq, Error, Hash, PartialEq)]
-#[error("can't empty a distance matrix using DistancesTransform::RemoveNone")]
+#[error("can't empty a distance matrix using DistanceTransform::RemoveNone")]
 pub struct TransformError;
 
 #[cfg(test)]
@@ -1829,26 +1825,26 @@ mod tests {
     /// Check all distance matrices in a topology
     fn check_topology_distances(topology: &Topology) -> Result<(), TestCaseError> {
         // Enumerate and check all distances
-        for mut distances in topology.distances(DistanceKind::empty())? {
-            check_distances_matrix(&mut distances)?;
+        for mut matrix in topology.distances(DistanceKind::empty())? {
+            check_distance_matrix(&mut matrix)?;
         }
         Ok(())
     }
 
     /// Test properties that any distance matrix should follow
-    fn check_distances_matrix(distances: &mut Distances<'_>) -> Result<(), TestCaseError> {
+    fn check_distance_matrix(matrix: &mut DistanceMatrix<'_>) -> Result<(), TestCaseError> {
         // Distance names should be valid Unicode on well-behaved systems, and
-        // is guaranteed to be for distances that we add ourselves.
+        // is guaranteed to be for matrices that we add ourselves.
         #[cfg(feature = "hwloc-2_1_0")]
-        prop_assert!(distances.name().map_or(true, |cstr| cstr.to_str().is_ok()));
+        prop_assert!(matrix.name().map_or(true, |cstr| cstr.to_str().is_ok()));
 
         // Possible kinds are governed by some rules
-        let kind = distances.kind();
+        let kind = matrix.kind();
         prop_assert!(!kind.contains(DistanceKind::FROM_OS | DistanceKind::FROM_USER));
         prop_assert!(!kind.contains(DistanceKind::MEANS_LATENCY | DistanceKind::MEANS_BANDWIDTH));
         #[cfg(feature = "hwloc-2_1_0")]
         {
-            let distinct_types = distances
+            let distinct_types = matrix
                 .objects()
                 .flatten()
                 .map(TopologyObject::object_type)
@@ -1861,12 +1857,9 @@ mod tests {
 
         // TODO: Add a proptest for set_kind()
 
-        // num_objects is just a more efficient way to query objects.count()
-        prop_assert_eq!(distances.num_objects(), distances.objects().count());
-
         // object_indices() is just a convenience around objects() queries
         let mut objects_to_indices = HashMap::new();
-        for (idx, obj) in distances.objects().flatten().enumerate() {
+        for (idx, obj) in matrix.objects().flatten().enumerate() {
             objects_to_indices
                 .entry(obj.global_persistent_index())
                 .or_insert_with(|| (obj, HashSet::new()))
@@ -1874,7 +1867,7 @@ mod tests {
                 .insert(idx);
         }
         for (obj, expected_indices) in objects_to_indices.into_values() {
-            let actual_indices = distances.object_indices(obj).collect::<HashSet<_>>();
+            let actual_indices = matrix.object_indices(obj).collect::<HashSet<_>>();
             prop_assert_eq!(actual_indices, expected_indices);
         }
         // TODO: Add proptest that calls object_indices for arbitrary objects,
@@ -1883,27 +1876,27 @@ mod tests {
         // TODO: Add proptests for replace_object() and replace_all_objects()
 
         // Distance count should match object count
-        prop_assert_eq!(distances.distances().len(), distances.num_objects().pow(2));
-        let distances_from_mut = distances.distances_mut().to_owned();
-        prop_assert!(distances.distances().iter().eq(&distances_from_mut));
+        let num_objects = matrix.num_objects();
+        prop_assert_eq!(matrix.distances().len(), num_objects.pow(2));
+        let distances_from_mut = matrix.distances_mut().to_owned();
+        prop_assert!(matrix.distances().iter().eq(&distances_from_mut));
 
         // Check index generation from enumerate_distances
-        let num_objects = distances.num_objects();
-        let expected_enum_distances = distances
+        let expected_enum_distances = matrix
             .distances()
             .iter()
             .enumerate()
             .map(|(idx, &dist)| ((idx / num_objects, idx % num_objects), dist));
-        prop_assert!(distances.enumerate_distances().eq(expected_enum_distances));
-        let enumerate_from_mut = distances
+        prop_assert!(matrix.enumerate_distances().eq(expected_enum_distances));
+        let enumerate_from_mut = matrix
             .enumerate_distances_mut()
             .map(|(indices, dist)| (indices, *dist))
             .collect::<Vec<_>>();
-        prop_assert!(distances.enumerate_distances().eq(enumerate_from_mut));
+        prop_assert!(matrix.enumerate_distances().eq(enumerate_from_mut));
 
         // Check index-to-object translation from object_distances
-        let expected_obj_distances = distances.enumerate_distances().map(|((idx1, idx2), dist)| {
-            let obj = |idx| distances.objects().nth(idx).unwrap();
+        let expected_obj_distances = matrix.enumerate_distances().map(|((idx1, idx2), dist)| {
+            let obj = |idx| matrix.objects().nth(idx).unwrap();
             ((obj(idx1), obj(idx2)), dist)
         });
         fn option_to_ptr(opt: Option<&TopologyObject>) -> *const TopologyObject {
@@ -1922,28 +1915,26 @@ mod tests {
                 ((option_to_ptr(obj1), option_to_ptr(obj2)), value)
             })
         }
-        prop_assert!(
-            obj_to_ptr(distances.object_distances()).eq(obj_to_ptr(expected_obj_distances))
-        );
+        prop_assert!(obj_to_ptr(matrix.object_distances()).eq(obj_to_ptr(expected_obj_distances)));
         #[allow(clippy::needless_collect)]
-        let object_distances_from_mut = distances
+        let object_distances_from_mut = matrix
             .object_distances_mut()
             .map(|((obj1, obj2), dist)| ((option_to_ptr(obj1), option_to_ptr(obj2)), *dist))
             .collect::<Vec<_>>();
         prop_assert!(object_distances_from_mut
             .into_iter()
-            .eq(obj_to_ptr(distances.object_distances())));
+            .eq(obj_to_ptr(matrix.object_distances())));
 
         // TODO: Add proptest for object_pair_distances()
         // TODO: Add proptest for transform() on v2.5+
 
         // Test indexing against enumerate_distances
-        for ((idx1, idx2), dist) in distances.enumerate_distances() {
-            prop_assert_eq!(distances[(idx1, idx2)], dist);
+        for ((idx1, idx2), dist) in matrix.enumerate_distances() {
+            prop_assert_eq!(matrix[(idx1, idx2)], dist);
         }
 
         // Test that debug doesn't crash
-        let _debug = format!("{distances:?}");
+        let _debug = format!("{matrix:?}");
         Ok(())
     }
 
@@ -1964,7 +1955,7 @@ mod tests {
     /// Set `WRITING` to `true` when creating or modifying distances, set it
     /// to `false` when querying distances.
     #[allow(unused)]
-    fn valid_distances_kind(usage: DistanceKindUsage) -> impl Strategy<Value = DistanceKind> {
+    fn valid_distance_kind(usage: DistanceKindUsage) -> impl Strategy<Value = DistanceKind> {
         (
             prop::array::uniform2(prop::option::of(any::<bool>())),
             any::<bool>(),
@@ -2004,19 +1995,22 @@ mod tests {
     }
     //
     /// Pick a distance kind that is likely to be correct, but may be wrong
-    fn distances_kind(usage: DistanceKindUsage) -> impl Strategy<Value = DistanceKind> {
+    fn distance_kind(usage: DistanceKindUsage) -> impl Strategy<Value = DistanceKind> {
         prop_oneof![
-            4 => valid_distances_kind(usage),
+            4 => valid_distance_kind(usage),
             1 => any::<DistanceKind>()
         ]
     }
 
     /// Check a distance matrix query that has a kind filter
-    fn check_distances_query_with_kind(
+    fn check_matrix_query_with_kind(
         topology: &Topology,
         kind: DistanceKind,
-        query: impl Fn(&Topology) -> Result<Vec<Distances<'_>>, HybridError<FlagsError<DistanceKind>>>,
-        extra_filter: impl Fn(&Distances<'_>) -> bool,
+        query: impl Fn(
+            &Topology,
+        )
+            -> Result<Vec<DistanceMatrix<'_>>, HybridError<FlagsError<DistanceKind>>>,
+        extra_filter: impl Fn(&DistanceMatrix<'_>) -> bool,
         allow_hwloc_error: bool,
         allow_empty_return_with_bad_kind: bool,
     ) -> Result<(), TestCaseError> {
@@ -2058,7 +2052,7 @@ mod tests {
     //
     /// Test the `distances()` query on some topology
     fn check_distances(topology: &Topology, kind: DistanceKind) -> Result<(), TestCaseError> {
-        check_distances_query_with_kind(
+        check_matrix_query_with_kind(
             topology,
             kind,
             |topology| topology.distances(kind),
@@ -2074,7 +2068,7 @@ mod tests {
         kind: DistanceKind,
         depth: Depth,
     ) -> Result<(), TestCaseError> {
-        check_distances_query_with_kind(
+        check_matrix_query_with_kind(
             topology,
             kind,
             |topology| topology.distances_at_depth(kind, depth),
@@ -2094,7 +2088,7 @@ mod tests {
         kind: DistanceKind,
         ty: ObjectType,
     ) -> Result<(), TestCaseError> {
-        check_distances_query_with_kind(
+        check_matrix_query_with_kind(
             topology,
             kind,
             |topology| topology.distances_with_type(kind, ty),
@@ -2111,14 +2105,14 @@ mod tests {
     proptest! {
         /// Check distance filtering by kind on default topology
         #[test]
-        fn distances(kind in distances_kind(DistanceKindUsage::Query)) {
+        fn distances(kind in distance_kind(DistanceKindUsage::Query)) {
             check_distances(Topology::test_instance(), kind)?;
         }
 
         /// Check distance filtering by kind and depth on default topology
         #[test]
         fn distances_at_depth(
-            kind in distances_kind(DistanceKindUsage::Query),
+            kind in distance_kind(DistanceKindUsage::Query),
             depth in any_hwloc_depth(),
         ) {
             check_distances_at_depth(Topology::test_instance(), kind, depth)?;
@@ -2127,7 +2121,7 @@ mod tests {
         /// Check distance filtering by kind and type on default topology
         #[test]
         fn distances_with_type(
-            kind in distances_kind(DistanceKindUsage::Query),
+            kind in distance_kind(DistanceKindUsage::Query),
             ty in any::<ObjectType>(),
         ) {
             check_distances_with_type(Topology::test_instance(), kind, ty)?;
@@ -2164,14 +2158,12 @@ mod tests {
             // Work around upstream issue
             // https://github.com/open-mpi/hwloc/issues/730 for older hwloc
             // releases where get_by_name() is buggy.
-            let distances = topology.distances(Default::default())?;
+            let matrices = topology.distances(Default::default())?;
             if cfg!(not(feature = "hwloc-3_0_0"))
-                && distances.iter().any(|dist| {
-                    !dist
-                        .kind()
-                        .intersects(DistanceKind::FROM_OS | DistanceKind::FROM_USER)
-                        || !dist
-                            .kind()
+                && matrices.iter().any(|matrix| {
+                    let kind = matrix.kind();
+                    !kind.intersects(DistanceKind::FROM_OS | DistanceKind::FROM_USER)
+                        || !kind
                             .intersects(DistanceKind::MEANS_LATENCY | DistanceKind::MEANS_BANDWIDTH)
                 })
             {
@@ -2179,9 +2171,9 @@ mod tests {
             }
 
             // Check result
-            let expected = distances
+            let expected = matrices
                 .into_iter()
-                .filter(|dist| matches!(dist.name(), Some(dname) if dname.to_str() == Ok(&name)))
+                .filter(|matrix| matches!(matrix.name(), Some(matname) if matname.to_str() == Ok(&name)))
                 .collect::<Vec<_>>();
             prop_assert_eq!(filtered.len(), expected.len());
             prop_assert!(filtered
@@ -2223,24 +2215,20 @@ mod tests {
         }
 
         /// Building blocks for repeated calls to
-        /// [`add_distances()`](TopologyEditor::add_distances)
+        /// [`add_distance_matrix()`](TopologyEditor::add_distance_matrix)
         ///
         /// Used when building a topology with some pre-filled distances
-        fn topology_with_distances_inputs() -> impl Strategy<Value = Vec<AddDistancesBuildingBlocks>>
-        {
-            prop::collection::vec(
-                AddDistancesBuildingBlocks::valid(),
-                0..=MAX_DISTANCE_MATRICES,
-            )
+        fn topology_with_distances_inputs() -> impl Strategy<Value = Vec<MatrixBuildingBlocks>> {
+            prop::collection::vec(MatrixBuildingBlocks::valid(), 0..=MAX_DISTANCE_MATRICES)
         }
 
         /// Process for turning the output of
         /// [`topology_with_distances_inputs()`] into a topology
-        fn make_topology_with_distances(inputs: Vec<AddDistancesBuildingBlocks>) -> Topology {
+        fn make_topology_with_distances(inputs: Vec<MatrixBuildingBlocks>) -> Topology {
             let mut topology = Topology::test_instance().clone();
             topology.edit(move |editor| {
                 for building_blocks in inputs {
-                    let AddDistancesBuildingBlocks {
+                    let MatrixBuildingBlocks {
                         name,
                         kind,
                         flags,
@@ -2248,7 +2236,7 @@ mod tests {
                         values,
                     } = building_blocks;
                     editor
-                        .add_distances(name.as_deref(), kind, flags, |topology| {
+                        .add_distance_matrix(name.as_deref(), kind, flags, |topology| {
                             let id_to_object = topology
                                 .objects()
                                 .map(|obj| (obj.global_persistent_index(), obj))
@@ -2265,24 +2253,24 @@ mod tests {
             topology
         }
 
-        /// Building blocks for a single call to `add_distances()`
+        /// Building blocks for a single call to `add_distance_matrix()`
         ///
         /// Generated endpoints come from `Topology::test_instance()` and must
         /// be fixed up for the actual target topology.
         #[derive(Clone, Debug)]
-        struct AddDistancesBuildingBlocks {
+        struct MatrixBuildingBlocks {
             name: Option<String>,
             kind: DistanceKind,
-            flags: AddDistancesFlags,
+            flags: AddDistanceMatrixFlags,
             endpoints: Vec<&'static TopologyObject>,
             values: Vec<u64>,
         }
         //
-        impl AddDistancesBuildingBlocks {
+        impl MatrixBuildingBlocks {
             /// Always-valid building blocks
             ///
             /// Use this strategy when you are not exercising the
-            /// `add_distances()` method in isolation, but rather want to build
+            /// `add_distance_matrix()` method in isolation, but rather want to build
             /// a topology with some distances inserted ahead of time for the
             /// purpose of exercising distances functionality later on.
             ///
@@ -2291,8 +2279,8 @@ mod tests {
             /// subsequent tests.
             fn valid() -> impl Strategy<Value = Self> {
                 let name = prop::option::of(any_c_string());
-                let kind = valid_distances_kind(DistanceKindUsage::AddEdit);
-                let flags = any::<AddDistancesFlags>();
+                let kind = valid_distance_kind(DistanceKindUsage::AddEdit);
+                let flags = any::<AddDistanceMatrixFlags>();
                 // FIXME: Use isqrt() after bumping MSRV to 1.84+
                 #[allow(
                     clippy::cast_possible_truncation,
@@ -2323,13 +2311,13 @@ mod tests {
 
             /// Likely-valid building blocks
             ///
-            /// Use this strategy when exercising the `add_distances()` method
+            /// Use this strategy when exercising the `add_distance_matrix()` method
             /// in isolation. In this situation, all aspects of the method
             /// should be stressed, including error handling.
             fn any() -> impl Strategy<Value = Self> {
                 let name = prop::option::of(any_string());
-                let kind = distances_kind(DistanceKindUsage::AddEdit);
-                let flags = any::<AddDistancesFlags>();
+                let kind = distance_kind(DistanceKindUsage::AddEdit);
+                let flags = any::<AddDistanceMatrixFlags>();
                 let endpoints = any_size().prop_flat_map(|size| {
                     // FIXME: Use isqrt() after bumping MSRV to 1.84+
                     #[allow(
@@ -2415,10 +2403,10 @@ mod tests {
             /// distance matrices from building blocks
             ///
             /// This process can fail if
-            /// [`add_distances()`](TopologyEditor::add_distances) has a bug,
-            /// and having one proptest where the failure occurs inside of the
-            /// proptest body makes it possible to use normal proptest failure
-            /// analysis like `PROPTEST_FORK`.
+            /// [`add_distance_matrix()`](TopologyEditor::add_distance_matrix)
+            /// has a bug, and having one proptest where the failure occurs
+            /// inside of the proptest body makes it possible to use normal
+            /// proptest failure analysis like `PROPTEST_FORK`.
             ///
             /// Of course, any other test that uses
             /// [`topology_with_distances()`] will also fail in this case,
@@ -2437,7 +2425,7 @@ mod tests {
             #[test]
             fn distances(
                 topology in topology_with_distances(),
-                kind in distances_kind(DistanceKindUsage::Query)
+                kind in distance_kind(DistanceKindUsage::Query)
             ) {
                 check_distances(&topology, kind)?;
             }
@@ -2446,7 +2434,7 @@ mod tests {
             #[test]
             fn distances_at_depth(
                 topology in topology_with_distances(),
-                kind in distances_kind(DistanceKindUsage::Query),
+                kind in distance_kind(DistanceKindUsage::Query),
                 depth in any_hwloc_depth()
             ) {
                 check_distances_at_depth(&topology, kind, depth)?;
@@ -2456,7 +2444,7 @@ mod tests {
             #[test]
             fn distances_with_type(
                 topology in topology_with_distances(),
-                kind in distances_kind(DistanceKindUsage::Query),
+                kind in distance_kind(DistanceKindUsage::Query),
                 ty in any::<ObjectType>(),
             ) {
                 check_distances_with_type(&topology, kind, ty)?;
@@ -2473,15 +2461,15 @@ mod tests {
 
             // TODO: Run same tests on initial topology above
 
-            /// Test [`TopologyEditor::add_distances()`]
+            /// Test [`TopologyEditor::add_distance_matrix()`]
             #[test]
-            fn add_distances(
+            fn add_distance_matrix(
                 initial_topology in topology_with_distances(),
-                building_blocks in AddDistancesBuildingBlocks::any(),
+                building_blocks in MatrixBuildingBlocks::any(),
             ) {
                 // Access the reference topology and unpack building blocks
                 let test_topology = Topology::test_instance();
-                let AddDistancesBuildingBlocks {
+                let MatrixBuildingBlocks {
                     name,
                     kind,
                     flags,
@@ -2531,7 +2519,7 @@ mod tests {
                 // Now try adding the distances
                 let mut topology = initial_topology.clone();
                 topology.edit(|editor| {
-                    let res = editor.add_distances(name.as_deref(), kind, flags, |topology| {
+                    let res = editor.add_distance_matrix(name.as_deref(), kind, flags, |topology| {
                         let id_to_object = topology
                             .objects()
                             .map(|obj| (obj.global_persistent_index(), obj))
@@ -2554,12 +2542,12 @@ mod tests {
                         Ok(()) => prop_assert!(!expecting_error),
                         Err(HybridError::Rust(r)) => {
                             match r {
-                                AddDistancesError::NameContainsNul => prop_assert!(name_contains_nul),
-                                AddDistancesError::BadKind(_) => prop_assert!(bad_kind),
-                                AddDistancesError::BadEndpointCount(_) => prop_assert!(bad_endpoint_count),
-                                AddDistancesError::ForeignEndpoint(_) => prop_assert!(foreign_endpoint),
-                                AddDistancesError::InconsistentDiagonal(_) => prop_assert!(inconsistent_diagonal),
-                                AddDistancesError::InconsistentLen => prop_assert!(inconsistent_len),
+                                AddDistanceMatrixError::NameContainsNul => prop_assert!(name_contains_nul),
+                                AddDistanceMatrixError::BadKind(_) => prop_assert!(bad_kind),
+                                AddDistanceMatrixError::BadEndpointCount(_) => prop_assert!(bad_endpoint_count),
+                                AddDistanceMatrixError::ForeignEndpoint(_) => prop_assert!(foreign_endpoint),
+                                AddDistanceMatrixError::InconsistentDiagonal(_) => prop_assert!(inconsistent_diagonal),
+                                AddDistanceMatrixError::InconsistentLen => prop_assert!(inconsistent_len),
                             }
                             prop_assert_eq!(editor.topology(), &initial_topology);
                             return Ok(());
@@ -2572,25 +2560,25 @@ mod tests {
                     //
                     // First, we should see one more distance matrix
                     let topology = editor.topology();
-                    let initial_distances = initial_topology.distances(DistanceKind::empty()).unwrap();
-                    let mut distances = topology.distances(DistanceKind::empty()).unwrap();
-                    prop_assert_eq!(distances.len(), initial_distances.len() + 1);
+                    let initial_matrices = initial_topology.distances(DistanceKind::empty()).unwrap();
+                    let mut matrices = topology.distances(DistanceKind::empty()).unwrap();
+                    prop_assert_eq!(matrices.len(), initial_matrices.len() + 1);
 
                     // The first distances should be the same as before, the last
                     // one should be newly added.
-                    let last_distances = distances.pop().unwrap();
-                    let first_distances = distances;
-                    for (initial, current) in initial_distances.iter().zip(first_distances) {
+                    let last_matrix = matrices.pop().unwrap();
+                    let first_matrices = matrices;
+                    for (initial, current) in initial_matrices.iter().zip(first_matrices) {
                         prop_assert!(initial.eq_modulo_topology(&current));
                     }
 
                     // If a name was specified, hwloc should preserve it
                     if let Some(name) = name.as_deref() {
-                        prop_assert!(last_distances.name().is_some());
-                        let last_name = last_distances.name().unwrap();
+                        prop_assert!(last_matrix.name().is_some());
+                        let last_name = last_matrix.name().unwrap();
                         prop_assert_eq!(last_name.to_str(), Ok(name));
                     } else {
-                        prop_assert_eq!(last_distances.name(), None);
+                        prop_assert_eq!(last_matrix.name(), None);
                     }
 
                     // HETEROGENEOUS_TYPES is automatically added
@@ -2598,27 +2586,27 @@ mod tests {
                     if endpoints.iter().map(|obj| obj.object_type()).collect::<HashSet<_>>().len() != 1 {
                         expected_kind |= DistanceKind::HETEROGENEOUS_TYPES;
                     }
-                    prop_assert_eq!(last_distances.kind(), expected_kind);
+                    prop_assert_eq!(last_matrix.kind(), expected_kind);
 
                     // Number and IDs of endpoint objects should match
                     prop_assert_eq!(
-                        last_distances.num_objects(),
+                        last_matrix.num_objects(),
                         endpoints.len(),
                     );
-                    prop_assert!(last_distances.objects().all(|opt| opt.is_some()));
+                    prop_assert!(last_matrix.objects().all(|opt| opt.is_some()));
                     prop_assert!(
-                        last_distances
+                        last_matrix
                             .objects()
                             .map(|obj_opt| obj_opt.unwrap().global_persistent_index())
                             .eq(endpoints.iter().copied().map(TopologyObject::global_persistent_index))
                     );
 
                     // Distance values should match
-                    prop_assert_eq!(last_distances.distances(), values);
+                    prop_assert_eq!(last_matrix.distances(), values);
 
                     // Distance matrix should otherwise be valid
-                    let mut last_distances = last_distances;
-                    check_distances_matrix(&mut last_distances)?;
+                    let mut last_matrix = last_matrix;
+                    check_distance_matrix(&mut last_matrix)?;
 
                     // Topology distances should generally be valid
                     check_topology_distances(topology)
