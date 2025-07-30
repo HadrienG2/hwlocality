@@ -1284,7 +1284,7 @@ pub(crate) mod tests {
             1
         };
         let topology = Topology::test_instance();
-        let cousins_len = topology.num_objects_at_depth(obj.depth());
+        let cousins_len = topology.objects_at_depth(obj.depth()).count();
 
         if let Some(prev_cousin) = obj.prev_cousin() {
             check_cousin(obj, prev_cousin)?;

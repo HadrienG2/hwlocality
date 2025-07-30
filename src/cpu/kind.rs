@@ -41,15 +41,15 @@ use thiserror::Error;
 /// features or frequencies. This API exposes identical PUs in sets called CPU
 /// kinds. Each PU of the topology may only be in a single kind.
 ///
-/// The number of kinds may be obtained with [`num_cpu_kinds()`]. If the
-/// platform is homogeneous, there may be a single kind with all PUs. If the
-/// platform or operating system does not expose any information about CPU
-/// cores, there may be no kind at all.
-///
-/// Information about CPU kinds can also be enumerated using [`cpu_kinds()`].
+/// Information about CPU kinds can be enumerated using [`cpu_kinds()`].
 /// For each CPU kind, an abstracted efficiency value is provided, along with
 /// [info attributes](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_cpukinds)
 /// such as "CoreType" or "FrequencyMaxMHz".
+///
+/// If the platform is homogeneous, there will be a single kind with all PUs. If
+/// the platform or operating system does not expose any information about CPU
+/// cores, there may be no kind at all. The latter case is reported as a
+/// [`NoData`] error to avoid misinterpretation.
 ///
 /// A higher efficiency value means greater intrinsic performance (and possibly
 /// less performance/power efficiency). Kinds with lower efficiency values are
@@ -80,7 +80,6 @@ use thiserror::Error;
 ///
 /// [`cpu_kind_from_set()`]: Topology::cpu_kind_from_set()
 /// [`cpu_kinds()`]: Topology::cpu_kinds()
-/// [`num_cpu_kinds()`]: Topology::num_cpu_kinds()
 //
 // --- Implementation details ---
 //
@@ -91,8 +90,7 @@ impl Topology {
     /// # Errors
     ///
     /// - [`NoData`] if no information about CPU kinds was found
-    #[doc(alias = "hwloc_cpukinds_get_nr")]
-    pub fn num_cpu_kinds(&self) -> Result<NonZeroUsize, NoData> {
+    fn num_cpu_kinds(&self) -> Result<NonZeroUsize, NoData> {
         // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
         //         - hwloc ops are trusted not to modify *const parameters
         //         - Per documentation, flags should be zero
@@ -117,6 +115,7 @@ impl Topology {
     /// # Errors
     ///
     /// - [`NoData`] if no information about CPU kinds was found
+    #[doc(alias = "hwloc_cpukinds_get_nr")]
     #[doc(alias = "hwloc_cpukinds_get_info")]
     pub fn cpu_kinds(
         &self,

@@ -1248,7 +1248,7 @@ pub(crate) mod tests {
                 );
             }
             if build_flags.contains(BuildFlags::IGNORE_CPU_KINDS) && cfg!(not(windows)) {
-                prop_assert_eq!(topology.num_cpu_kinds(), Err(NoData));
+                prop_assert_eq!(topology.cpu_kinds().map(Iterator::count), Err(NoData));
             }
         }
 
