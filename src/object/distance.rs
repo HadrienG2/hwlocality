@@ -1733,7 +1733,6 @@ enum DistanceKindUsage {
     /// Input to an operation that creates or modifies a topology
     AddEdit,
 }
-// TODO: DistanceKindUsage enum with Query/Write/FromHwloc variants
 //
 #[cfg(any(test, feature = "proptest"))]
 crate::impl_arbitrary_for_bitflags!(DistanceKind, hwloc_distances_kind_e);
@@ -2203,6 +2202,31 @@ mod tests {
     #[cfg(feature = "hwloc-2_5_0")]
     use hwloc21::check_distances_with_name;
 
+    /// Features that require hwloc v2.3 (i.e. editing topologies)
+    #[cfg(feature = "hwloc-2_3_0")]
+    mod hwloc23 {
+        use super::*;
+
+        /// Check that removing all distance matrices work
+        pub(super) fn check_remove_all_distances(
+            topology: &mut Topology,
+        ) -> Result<(), TestCaseError> {
+            #[allow(clippy::redundant_closure_for_method_calls)]
+            topology.edit(|editor| editor.remove_all_distances())?;
+            prop_assert!(topology.distances(Default::default())?.is_empty());
+            Ok(())
+        }
+
+        /// Check removing all distances on default topology
+        #[test]
+        fn remove_all_distances() {
+            let mut topology = Topology::test_instance().clone();
+            check_remove_all_distances(&mut topology).unwrap();
+        }
+    }
+    #[cfg(feature = "hwloc-2_5_0")]
+    use hwloc23::check_remove_all_distances;
+
     /// Features that require hwloc v2.5 (i.e. adding distances between objects)
     #[cfg(feature = "hwloc-2_5_0")]
     mod hwloc25 {
@@ -2437,7 +2461,7 @@ mod tests {
             #[test]
             fn distances(
                 topology in topology_with_distances(),
-                kind in distance_kind(DistanceKindUsage::Query)
+                kind in distance_kind(DistanceKindUsage::Query),
             ) {
                 check_distances(&topology, kind)?;
             }
@@ -2447,7 +2471,7 @@ mod tests {
             fn distances_at_depth(
                 topology in topology_with_distances(),
                 kind in distance_kind(DistanceKindUsage::Query),
-                depth in any_hwloc_depth()
+                depth in any_hwloc_depth(),
             ) {
                 check_distances_at_depth(&topology, kind, depth)?;
             }
@@ -2466,10 +2490,18 @@ mod tests {
             #[test]
             fn distances_with_name(
                 topology in topology_with_distances(),
-                name in any_string()
+                name in any_string(),
             ) {
                 check_distances_with_name(&topology, name)?;
             }
+
+        /// Check removing all distances on random topology
+        #[test]
+        fn remove_all_distances(
+            mut topology in topology_with_distances(),
+        ) {
+            check_remove_all_distances(&mut topology)?;
+        }
 
             // TODO: Run same tests on initial topology above
         }
