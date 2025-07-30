@@ -953,7 +953,7 @@ impl<'topology> DistanceMatrix<'topology> {
         int::assert_slice_len::<*const TopologyObject>(num_objects);
         int::assert_slice_len::<u64>(
             num_objects
-                .checked_add(num_objects)
+                .checked_mul(num_objects)
                 .expect("distance count should fit usize"),
         );
         // SAFETY: inner is assumed to originate from topology per precondition
