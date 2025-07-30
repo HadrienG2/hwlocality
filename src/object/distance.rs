@@ -848,9 +848,15 @@ impl TopologyEditor<'_> {
 /// The names and semantics of distance matrices currently created by
 /// hwloc may be found [in the hwloc
 /// documentation](https://hwloc.readthedocs.io/en/stable/topoattrs.html#topoattrs_distances).
-///
-/// More matrices may be added using the
-/// [`TopologyEditor::add_distance_matrix()`] API.
+#[cfg_attr(feature = "hwloc-2_5_0", doc = "")]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "More matrices may be added by the user using the"
+)]
+#[cfg_attr(
+    feature = "hwloc-2_5_0",
+    doc = "[`TopologyEditor::add_distance_matrix()`] API."
+)]
 ///
 /// The ownership/lifetime semantics of this object are subtle:
 ///
