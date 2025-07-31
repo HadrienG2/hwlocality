@@ -1828,7 +1828,10 @@ mod tests {
     use proptest::prelude::*;
     #[allow(unused)]
     use similar_asserts::assert_eq;
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        error::Error,
+    };
 
     /// Check all distance matrices in a topology
     fn check_topology_distances(topology: &Topology) -> Result<(), TestCaseError> {
@@ -2149,7 +2152,18 @@ mod tests {
     /// `DistanceMatrix` when testing editing functions, as well as testing of
     /// [`TopologyEditor::remove_distance_matrix()`].
     #[derive(Clone, Debug, Eq, PartialEq)]
-    struct DistanceMatrixPicker(usize);
+    struct DistanceMatrixPicker {
+        /// Index of the selected matrix within the output of the un-filtered
+        /// `topology.distances(Default::default())` list.
+        global_idx: usize,
+
+        /// Strategy used to retrieve the matrix whenever needed, fetching as
+        /// few other distance matrices as possible.
+        strategy: PickStrategy,
+
+        /// Index of the selected matrix within the reduced list from `strategy`
+        local_idx: usize,
+    }
     //
     impl DistanceMatrixPicker {
         /// Generate random distance matrix pickers for a certain topology
@@ -2159,7 +2173,7 @@ mod tests {
         /// consistently return one of these distance matrices.
         ///
         /// If the topology contains no distance matrix, `None` will be returned
-        /// instead, as no picker can be provided.
+        /// instead, as matrix can be picked so no picker can be returned.
         fn any(topology: &Topology) -> Option<impl Strategy<Value = Self>> {
             // Get distances, return None if they are none
             let distances = topology.distances(Default::default()).unwrap();
@@ -2167,26 +2181,105 @@ mod tests {
                 return None;
             }
 
-            // Otherwise, pick a distance matrix...
-            let picker = (0..distances.len()).prop_map(Self);
+            // For each distance matrix, determine the optimal strategy for
+            // retrieving it from the topology
+            let num_distances = distances.len();
+            let strategy_and_local_idx = distances
+                .into_iter()
+                .enumerate()
+                .map(|(global_idx, matrix)| {
+                    // Common logic for finding the index of a matrix in the
+                    // output of a certain topology query
+                    fn find_local_idx(
+                        matrix: &DistanceMatrix<'_>,
+                        query_output: Result<Vec<DistanceMatrix<'_>>, impl Error>,
+                    ) -> usize {
+                        query_output
+                            .expect("Query by known matrix characteristic should succeed")
+                            .into_iter()
+                            .position(|candidate| candidate.eq_modulo_topology(matrix))
+                            .expect("Matrix should be present in query output")
+                    }
+                    let from_filter = DistanceKind::FROM_OS | DistanceKind::FROM_USER;
+                    let means_filter = DistanceKind::MEANS_LATENCY | DistanceKind::MEANS_BANDWIDTH;
+
+                    // Does the matrix have a Rust-intelligible name?
+                    #[cfg(feature = "hwloc-2_1_0")]
+                    if let Some(name) = matrix.name() {
+                        if let Ok(name) = name.to_str() {
+                            // Does this hwloc version support querying it by name?
+                            if cfg!(feature = "hwloc-3_0_0")
+                                || (matrix.kind().intersects(from_filter)
+                                    && matrix.kind().intersects(means_filter))
+                            {
+                                // If so, querying by name will likely be most
+                                // efficient (normally only yields a single result)
+                                let local_idx =
+                                    find_local_idx(&matrix, topology.distances_with_name(name));
+                                return (
+                                    global_idx,
+                                    (PickStrategy::ByName(name.to_owned()), local_idx),
+                                );
+                            }
+                        }
+                    }
+
+                    // If the matrix does not have a usable name, or if names
+                    // are not supported, query by kind instead.
+                    let kind_filter = matrix.kind() & (from_filter | means_filter);
+                    let local_idx = find_local_idx(&matrix, topology.distances(kind_filter));
+                    (global_idx, (PickStrategy::ByKind(kind_filter), local_idx))
+                })
+                .collect::<HashMap<_, _>>();
+
+            // From this info, we can trivially build a matrix-picking strategy
+            let picker = (0..num_distances).prop_map(move |global_idx| {
+                let (strategy, local_idx) = strategy_and_local_idx[&global_idx].clone();
+                Self {
+                    global_idx,
+                    strategy,
+                    local_idx,
+                }
+            });
             Some(picker)
         }
 
         // Pick the desired distance matrix
         fn pick<'topology>(&self, topology: &'topology Topology) -> DistanceMatrix<'topology> {
-            // TODO: Consider optimizing this to query a more minimal set of
-            //       distances at some point. This requires the optimized
-            //       equivalent of calling all applicable matrix getters for
-            //       each matrix to figure out which getter provides the most
-            //       minimal set of cousins. Likely `distances_with_name()`, so
-            //       it should probably be tried first.
-            topology
-                .distances(Default::default())
-                .unwrap()
-                .into_iter()
-                .nth(self.0)
-                .unwrap()
+            match &self.strategy {
+                #[cfg(feature = "hwloc-2_1_0")]
+                PickStrategy::ByName(name) => topology
+                    .distances_with_name(name)
+                    .expect("Query should succeed on same topology")
+                    .into_iter()
+                    .nth(self.local_idx),
+                PickStrategy::ByKind(kind) => topology
+                    .distances(*kind)
+                    .expect("Query should succeed on same topology")
+                    .into_iter()
+                    .nth(self.local_idx),
+            }
+            .expect("Local index should exist on same topology")
         }
+    }
+    //
+    /// Strategy for extracting the distance matrix from the topology
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum PickStrategy {
+        /// Start from the name-filtered distance list
+        ///
+        /// Normally there is only one matrix with a given name, so this is the
+        /// preferred option for all matrices that have names.
+        #[cfg(feature = "hwloc-2_1_0")]
+        ByName(String),
+
+        /// Start from the kind-filtered distance list
+        ///
+        /// All distance matrices have kinds, so this option is always
+        /// applicable. But it may be inefficient when there are lots of other
+        /// distance matrices with the same kind. The worst case being matrices
+        /// with no `FROM` and `MEANS` kind, where the query returns everything.
+        ByKind(DistanceKind),
     }
 
     // TODO: Proptests of &mut DistanceMatrix functions that do require use of
