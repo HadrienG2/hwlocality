@@ -2198,6 +2198,30 @@ mod tests {
         use super::*;
         use crate::strategies::any_string;
 
+        /// Generate a string that has a good chance of being a matrix name,
+        /// but may not be one
+        pub(super) fn matrix_name(topology: &Topology) -> impl Strategy<Value = String> {
+            let matrix_names = topology
+                .distances(Default::default())
+                .unwrap()
+                .into_iter()
+                .filter_map(|matrix| {
+                    let name = matrix.name()?;
+                    let name = name.to_str().ok()?;
+                    Some(name.to_owned())
+                })
+                .collect::<Vec<_>>();
+            if matrix_names.is_empty() {
+                any_string().boxed()
+            } else {
+                prop_oneof![
+                    3 => prop::sample::select(matrix_names),
+                    2 => any_string(),
+                ]
+                .boxed()
+            }
+        }
+
         /// Check querying distances by name
         pub(super) fn check_distances_with_name(
             topology: &Topology,
@@ -2250,13 +2274,13 @@ mod tests {
         proptest! {
             /// Check distance filtering by name on default topology
             #[test]
-            fn distances_with_name(name in any_string()) {
+            fn distances_with_name(name in matrix_name(Topology::test_instance())) {
                 check_distances_with_name(Topology::test_instance(), name)?;
             }
         }
     }
     #[cfg(feature = "hwloc-2_5_0")]
-    use hwloc21::check_distances_with_name;
+    use hwloc21::{check_distances_with_name, matrix_name};
 
     /// Features that require hwloc v2.3 (i.e. editing topologies)
     #[cfg(feature = "hwloc-2_3_0")]
@@ -2547,8 +2571,11 @@ mod tests {
             /// Check distance filtering by name on random topology
             #[test]
             fn distances_with_name(
-                topology in topology_with_distances(),
-                name in any_string(),
+                (topology, name) in topology_with_distances()
+                    .prop_flat_map(|topology| {
+                        let name = matrix_name(&topology);
+                        (Just(topology), name)
+                    })
             ) {
                 check_distances_with_name(&topology, name)?;
             }
