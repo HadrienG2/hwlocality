@@ -2497,6 +2497,46 @@ mod tests {
             topology
         }
 
+        /// Minimal number of endpoints that `add_distance_matrix()` will accept
+        const MIN_ENDPOINTS: usize = 2;
+
+        /// Maximum number of endpoints that should be generated
+        fn max_endpoints() -> usize {
+            // FIXME: Use isqrt() after bumping MSRV to 1.84+
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
+            let proptest_max = (SizeRange::default().end_incl() as f64).sqrt() as usize;
+            let hwloc_max = c_int::MAX as usize;
+            proptest_max.min(hwloc_max)
+        }
+
+        /// Strategy for generating a set of endpoints to feed
+        /// `add_distance_matrix()`, with homogeneous depth/types.
+        ///
+        /// This configuration should be favored in test inputs because it is
+        /// what actual hwloc matrices most often look like and thus gets
+        /// special treatment in the hwloc API via
+        /// `DistanceKind::HETEROGENEOUS_TYPES` and by-depth/type queries.
+        ///
+        /// Generated endpoints come from `Topology::test_instance()` and must
+        /// be fixed up for the actual target topology.
+        fn homogeneous_valid_endpoints() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
+            let topology = Topology::test_instance();
+            let depths_with_enough_endpoints = topology
+                .possible_depths()
+                .filter(|depth| topology.num_objects_at_depth(*depth) >= MIN_ENDPOINTS)
+                .collect::<Vec<_>>();
+            prop::sample::select(depths_with_enough_endpoints).prop_flat_map(move |depth| {
+                let possible_endpoints = topology.objects_at_depth(depth).collect::<Vec<_>>();
+                let max_endpoints = max_endpoints().min(possible_endpoints.len());
+                prop::sample::subsequence(possible_endpoints, MIN_ENDPOINTS..max_endpoints)
+                    .prop_shuffle()
+            })
+        }
+
         /// Building blocks for a single call to `add_distance_matrix()`
         ///
         /// Generated endpoints come from `Topology::test_instance()` and must
@@ -2525,15 +2565,10 @@ mod tests {
                 let name = prop::option::of(any_c_string());
                 let kind = valid_distance_kind(DistanceKindUsage::AddEdit);
                 let flags = any::<AddDistanceMatrixFlags>();
-                // FIXME: Use isqrt() after bumping MSRV to 1.84+
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    clippy::cast_precision_loss
-                )]
-                let max_endpoints = (SizeRange::default().end_incl() as f64).sqrt() as usize;
-                let num_endpoints = 2..=max_endpoints.min(c_uint::MAX as usize);
-                let endpoints = prop::collection::vec(test_object(), num_endpoints);
+                let endpoints = prop_oneof![
+                    3 => homogeneous_valid_endpoints(),
+                    2 => prop::collection::vec(test_object(), 2..=max_endpoints()),
+                ];
                 (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
                     let num_endpoints = endpoints.len();
                     let values = prop::collection::vec(any::<u64>(), num_endpoints.pow(2))
@@ -2562,15 +2597,18 @@ mod tests {
                 let name = prop::option::of(any_string());
                 let kind = distance_kind(DistanceKindUsage::AddEdit);
                 let flags = any::<AddDistanceMatrixFlags>();
-                let endpoints = any_size().prop_flat_map(|size| {
-                    // FIXME: Use isqrt() after bumping MSRV to 1.84+
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        clippy::cast_precision_loss
-                    )]
-                    prop::collection::vec(any_object(size), (size as f64).sqrt() as usize)
-                });
+                let endpoints = prop_oneof![
+                    2 => homogeneous_valid_endpoints(),
+                    3 => any_size().prop_flat_map(|size| {
+                        // FIXME: Use isqrt() after bumping MSRV to 1.84+
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            clippy::cast_sign_loss,
+                            clippy::cast_precision_loss
+                        )]
+                        prop::collection::vec(any_object(size), (size as f64).sqrt() as usize)
+                    }),
+                ];
                 (name, kind, flags, endpoints).prop_flat_map(|(name, kind, flags, endpoints)| {
                     let num_endpoints = endpoints.len();
                     let correct_values_count =
