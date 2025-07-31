@@ -474,6 +474,7 @@ impl TopologyEditor<'_> {
             if objs.len() < 2 {
                 return Err(AddDistanceMatrixError::BadEndpointCount(objs.len()).into());
             }
+            #[cfg(not(tarpaulin_include))]
             let Ok(nbobjs) = c_uint::try_from(objs.len()) else {
                 return Err(AddDistanceMatrixError::BadEndpointCount(objs.len()).into());
             };
@@ -1709,6 +1710,7 @@ impl DistanceKind {
         {
             match usage {
                 // It's normal for hwloc to return it
+                #[cfg(not(tarpaulin_include))]
                 DistanceKindUsage::FromHwloc => {},
 
                 // It shouldn't be used in queries because it's ignored...
