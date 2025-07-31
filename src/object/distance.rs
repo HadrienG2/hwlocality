@@ -2147,7 +2147,7 @@ mod tests {
     }
 
     // TODO: Proptests of &self distance matrix methods that don't require use
-    //       of a DistanceMatrixPicker, see TODOs above + add copies to hwloc25.
+    //       of a MatrixPicker, see TODOs above + add copies to hwloc25.
 
     /// Distance matrix picker
     ///
@@ -2159,7 +2159,7 @@ mod tests {
     /// `DistanceMatrix` when testing editing functions, as well as testing of
     /// [`TopologyEditor::remove_distance_matrix()`].
     #[derive(Clone, Debug, Eq, PartialEq)]
-    struct DistanceMatrixPicker {
+    struct MatrixPicker {
         /// Index of the selected matrix within the output of the un-filtered
         /// `topology.distances(Default::default())` list.
         global_idx: usize,
@@ -2172,7 +2172,7 @@ mod tests {
         local_idx: usize,
     }
     //
-    impl DistanceMatrixPicker {
+    impl MatrixPicker {
         /// Generate random distance matrix pickers for a certain topology
         ///
         /// Given a topology that contains at least one distance matrix, this
@@ -2292,7 +2292,7 @@ mod tests {
     /// Check an operation that edits a distance matrix
     fn check_matrix_edit(
         topology: &Topology,
-        picker: DistanceMatrixPicker,
+        picker: MatrixPicker,
         edit: impl FnOnce(&mut DistanceMatrix<'_>) -> Result<bool, TestCaseError>,
         check_diff: impl FnOnce(&DistanceMatrix<'_>, &DistanceMatrix<'_>) -> Result<(), TestCaseError>,
     ) -> Result<(), TestCaseError> {
@@ -2328,7 +2328,7 @@ mod tests {
     /// Check setting a distance matrix's kind
     fn check_matrix_set_kind(
         topology: &Topology,
-        picker: DistanceMatrixPicker,
+        picker: MatrixPicker,
         kind: DistanceKind,
     ) -> Result<(), TestCaseError> {
         check_matrix_edit(
@@ -2368,7 +2368,7 @@ mod tests {
     #[test]
     fn matrix_set_kind() {
         let topology = Topology::test_instance();
-        let Some(any_picker) = DistanceMatrixPicker::any(topology) else {
+        let Some(any_picker) = MatrixPicker::any(topology) else {
             return;
         };
         proptest!(|(picker in any_picker, kind in distance_kind(DistanceKindUsage::AddEdit))| {
@@ -2377,7 +2377,7 @@ mod tests {
     }
 
     // TODO: Proptests of &mut DistanceMatrix functions that do require use of
-    //       DistanceMatrixPicker, see TODOs above + add copies to hwloc25.
+    //       MatrixPicker, see TODOs above + add copies to hwloc25.
 
     /// Features that require hwloc v2.1 (i.e. naming distance matrices)
     #[cfg(feature = "hwloc-2_1_0")]
@@ -2526,7 +2526,7 @@ mod tests {
         /// Check that removing a single distance matrices works
         pub(super) fn check_remove_distance_matrix(
             topology: &mut Topology,
-            picker: DistanceMatrixPicker,
+            picker: MatrixPicker,
         ) -> Result<(), TestCaseError> {
             check_remove_matrices(
                 topology,
@@ -2540,7 +2540,7 @@ mod tests {
         #[test]
         fn remove_distance_matrix() {
             let topology = Topology::test_instance();
-            let Some(any_picker) = DistanceMatrixPicker::any(topology) else {
+            let Some(any_picker) = MatrixPicker::any(topology) else {
                 return;
             };
             proptest!(|(picker in any_picker)| {
@@ -2861,9 +2861,9 @@ mod tests {
 
         /// Set up a topology with distance matrices and prepare to pick a
         /// specific distance matrix within it
-        fn topology_and_picker() -> impl Strategy<Value = (Topology, DistanceMatrixPicker)> {
+        fn topology_and_picker() -> impl Strategy<Value = (Topology, MatrixPicker)> {
             topology_with_distances().prop_flat_map(|topology| {
-                let picker = DistanceMatrixPicker::any(&topology).expect(
+                let picker = MatrixPicker::any(&topology).expect(
                     "topology_with_distances() always produces \
                     a topology that has distances in it",
                 );
