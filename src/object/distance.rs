@@ -1871,8 +1871,6 @@ mod tests {
             );
         }
 
-        // TODO: Add a proptest for set_kind()
-
         // object_indices() is just a convenience around objects() queries
         let mut objects_to_indices = HashMap::new();
         for (idx, obj) in matrix.objects().flatten().enumerate() {
@@ -2291,6 +2289,93 @@ mod tests {
         ByKind(DistanceKind),
     }
 
+    /// Check an operation that edits a distance matrix
+    fn check_matrix_edit(
+        topology: &Topology,
+        picker: DistanceMatrixPicker,
+        edit: impl FnOnce(&mut DistanceMatrix<'_>) -> Result<bool, TestCaseError>,
+        check_diff: impl FnOnce(&DistanceMatrix<'_>, &DistanceMatrix<'_>) -> Result<(), TestCaseError>,
+    ) -> Result<(), TestCaseError> {
+        let original = picker.pick(topology);
+        let mut modified = picker.pick(topology);
+        let edit_successful = edit(&mut modified)?;
+        if edit_successful {
+            check_diff(&modified, &original)?;
+        } else {
+            prop_assert!(modified.eq_modulo_topology(&original));
+        }
+        Ok(())
+    }
+
+    /// Check that a distance matrix contains the very same objects as another
+    ///
+    /// This is the expected outcome for distance matrix edits that don't touch
+    /// the inner object set.
+    fn check_same_objects(
+        m1: &DistanceMatrix<'_>,
+        m2: &DistanceMatrix<'_>,
+    ) -> Result<(), TestCaseError> {
+        prop_assert_eq!(m1.num_objects(), m2.num_objects());
+        let same_objects = m1.objects().zip(m2.objects()).all(|tuple| match tuple {
+            (Some(obj1), Some(obj2)) => std::ptr::eq(obj1, obj2),
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+        });
+        prop_assert!(same_objects);
+        Ok(())
+    }
+
+    /// Check setting a distance matrix's kind
+    fn check_matrix_set_kind(
+        topology: &Topology,
+        picker: DistanceMatrixPicker,
+        kind: DistanceKind,
+    ) -> Result<(), TestCaseError> {
+        check_matrix_edit(
+            topology,
+            picker,
+            |modified| {
+                let is_valid_kind = kind.is_valid(DistanceKindUsage::AddEdit);
+                match modified.set_kind(kind) {
+                    Ok(()) => prop_assert!(is_valid_kind),
+                    Err(ParameterError(k)) => {
+                        prop_assert!(!is_valid_kind);
+                        prop_assert_eq!(k, kind);
+                    }
+                }
+                Ok(is_valid_kind)
+            },
+            |modified, original| {
+                #[cfg(feature = "hwloc-2_1_0")]
+                prop_assert_eq!(modified.name(), original.name());
+
+                #[allow(unused_mut)]
+                let mut expected_kind = kind;
+                #[cfg(feature = "hwloc-2_1_0")]
+                {
+                    expected_kind |= original.kind() & DistanceKind::HETEROGENEOUS_TYPES;
+                }
+                prop_assert_eq!(modified.kind(), expected_kind);
+
+                check_same_objects(modified, original)?;
+                prop_assert_eq!(modified.distances(), original.distances());
+                Ok(())
+            },
+        )
+    }
+    //
+    /// Test setting a distance matrix's kind in the default topology
+    #[test]
+    fn matrix_set_kind() {
+        let topology = Topology::test_instance();
+        let Some(any_picker) = DistanceMatrixPicker::any(topology) else {
+            return;
+        };
+        proptest!(|(picker in any_picker, kind in distance_kind(DistanceKindUsage::AddEdit))| {
+            check_matrix_set_kind(topology, picker, kind)?;
+        })
+    }
+
     // TODO: Proptests of &mut DistanceMatrix functions that do require use of
     //       DistanceMatrixPicker, see TODOs above + add copies to hwloc25.
 
@@ -2387,9 +2472,8 @@ mod tests {
     /// Features that require hwloc v2.3 (i.e. editing topologies)
     #[cfg(feature = "hwloc-2_3_0")]
     mod hwloc23 {
-        use std::panic::UnwindSafe;
-
         use super::*;
+        use std::panic::UnwindSafe;
 
         /// Check that removing all distance matrices work
         pub(super) fn check_remove_all_distances(
@@ -2455,11 +2539,12 @@ mod tests {
         /// Test removing a distance matrix from the default topology
         #[test]
         fn remove_distance_matrix() {
-            let Some(any_picker) = DistanceMatrixPicker::any(Topology::test_instance()) else {
+            let topology = Topology::test_instance();
+            let Some(any_picker) = DistanceMatrixPicker::any(topology) else {
                 return;
             };
             proptest!(|(picker in any_picker)| {
-                let mut topology = Topology::test_instance().clone();
+                let mut topology = topology.clone();
                 check_remove_distance_matrix(&mut topology, picker)?;
             })
         }
@@ -2774,6 +2859,18 @@ mod tests {
             }
         }
 
+        /// Set up a topology with distance matrices and prepare to pick a
+        /// specific distance matrix within it
+        fn topology_and_picker() -> impl Strategy<Value = (Topology, DistanceMatrixPicker)> {
+            topology_with_distances().prop_flat_map(|topology| {
+                let picker = DistanceMatrixPicker::any(&topology).expect(
+                    "topology_with_distances() always produces \
+                    a topology that has distances in it",
+                );
+                (Just(topology), picker)
+            })
+        }
+
         proptest! {
             /// Test the process of building a topology with pre-filled
             /// distance matrices from building blocks
@@ -2838,6 +2935,15 @@ mod tests {
                 check_distances_with_name(&topology, name)?;
             }
 
+            /// Test setting a distance matrix's kind in a random topology
+            #[test]
+            fn matrix_set_kind(
+                (topology, picker) in topology_and_picker(),
+                kind in distance_kind(DistanceKindUsage::AddEdit),
+            ) {
+                check_matrix_set_kind(&topology, picker, kind)?;
+            }
+
             /// Test removing all distances from a random topology
             #[test]
             fn remove_all_distances(
@@ -2849,14 +2955,7 @@ mod tests {
             /// Test removing a distance matrix from a random topology
             #[test]
             fn remove_distance_matrix(
-                (mut topology, picker) in topology_with_distances()
-                    .prop_flat_map(|topology| {
-                        let picker = DistanceMatrixPicker::any(&topology).expect(
-                            "topology_with_distances() always produces a \
-                            topology that has distances in it"
-                        );
-                        (Just(topology), picker)
-                    })
+                (mut topology, picker) in topology_and_picker(),
             ) {
                 check_remove_distance_matrix(&mut topology, picker)?;
             }
