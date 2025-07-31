@@ -2297,7 +2297,7 @@ mod tests {
             Ok(())
         }
 
-        /// Check removing all distances on default topology
+        /// Check removing all distances from the default topology
         #[test]
         fn remove_all_distances() {
             let mut topology = Topology::test_instance().clone();
@@ -2580,7 +2580,7 @@ mod tests {
                 check_distances_with_name(&topology, name)?;
             }
 
-            /// Check removing all distances on random topology
+            /// Check removing all distances from a random topology
             #[test]
             fn remove_all_distances(
                 mut topology in topology_with_distances(),
