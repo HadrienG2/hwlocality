@@ -1949,7 +1949,7 @@ mod tests {
         Ok(())
     }
 
-    /// Check all distance matrices from the default topology
+    /// Test all distance matrices from the default topology
     ///
     /// Note that a hwloc will not expose any distance matrix on a typical
     /// developer workstation, as those are normally reserved for communication
@@ -2114,13 +2114,13 @@ mod tests {
     }
 
     proptest! {
-        /// Check distance filtering by kind on default topology
+        /// Test distance filtering by kind on default topology
         #[test]
         fn distances(kind in distance_kind(DistanceKindUsage::Query)) {
             check_distances(Topology::test_instance(), kind)?;
         }
 
-        /// Check distance filtering by kind and depth on default topology
+        /// Test distance filtering by kind and depth on default topology
         #[test]
         fn distances_at_depth(
             kind in distance_kind(DistanceKindUsage::Query),
@@ -2129,7 +2129,7 @@ mod tests {
             check_distances_at_depth(Topology::test_instance(), kind, depth)?;
         }
 
-        /// Check distance filtering by kind and type on default topology
+        /// Test distance filtering by kind and type on default topology
         #[test]
         fn distances_with_type(
             kind in distance_kind(DistanceKindUsage::Query),
@@ -2365,7 +2365,7 @@ mod tests {
         }
 
         proptest! {
-            /// Check distance filtering by name on default topology
+            /// Test distance filtering by name on default topology
             #[test]
             fn distances_with_name(name in matrix_name(Topology::test_instance())) {
                 check_distances_with_name(Topology::test_instance(), name)?;
@@ -2390,7 +2390,7 @@ mod tests {
             Ok(())
         }
 
-        /// Check removing all distances from the default topology
+        /// Test removing all distances from the default topology
         #[test]
         fn remove_all_distances() {
             let mut topology = Topology::test_instance().clone();
@@ -2418,7 +2418,7 @@ mod tests {
             Ok(())
         }
         //
-        /// Check removing a distance matrix from the default topology
+        /// Test removing a distance matrix from the default topology
         #[test]
         fn remove_distance_matrix() {
             let Some(any_picker) = DistanceMatrixPicker::any(Topology::test_instance()) else {
@@ -2681,7 +2681,7 @@ mod tests {
         }
 
         proptest! {
-            /// Check the process of building a topology with pre-filled
+            /// Test the process of building a topology with pre-filled
             /// distance matrices from building blocks
             ///
             /// This process can fail if
@@ -2703,7 +2703,7 @@ mod tests {
                 check_topology_distances(&topology)?;
             }
 
-            /// Check distance filtering by kind on random topology
+            /// Test distance filtering by kind on random topology
             #[test]
             fn distances(
                 topology in topology_with_distances(),
@@ -2712,7 +2712,7 @@ mod tests {
                 check_distances(&topology, kind)?;
             }
 
-            /// Check distance filtering by kind and depth on random topology
+            /// Test distance filtering by kind and depth on random topology
             #[test]
             fn distances_at_depth(
                 topology in topology_with_distances(),
@@ -2722,7 +2722,7 @@ mod tests {
                 check_distances_at_depth(&topology, kind, depth)?;
             }
 
-            /// Check distance filtering by kind and type on random topology
+            /// Test distance filtering by kind and type on random topology
             #[test]
             fn distances_with_type(
                 topology in topology_with_distances(),
@@ -2732,7 +2732,7 @@ mod tests {
                 check_distances_with_type(&topology, kind, ty)?;
             }
 
-            /// Check distance filtering by name on random topology
+            /// Test distance filtering by name on random topology
             #[test]
             fn distances_with_name(
                 (topology, name) in topology_with_distances()
@@ -2744,7 +2744,7 @@ mod tests {
                 check_distances_with_name(&topology, name)?;
             }
 
-            /// Check removing all distances from a random topology
+            /// Test removing all distances from a random topology
             #[test]
             fn remove_all_distances(
                 mut topology in topology_with_distances(),
@@ -2752,7 +2752,7 @@ mod tests {
                 check_remove_all_distances(&mut topology)?;
             }
 
-            /// Check removing a distance matrix from a random topology
+            /// Test removing a distance matrix from a random topology
             #[test]
             fn remove_distance_matrix(
                 (mut topology, picker) in topology_with_distances()
