@@ -445,7 +445,7 @@ impl Topology {
     /// Number of objects at the given `depth`
     ///
     /// `depth` can be a [`Depth`], a [`NormalDepth`] or an [`usize`].
-    fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
+    pub(crate) fn num_objects_at_depth<DepthLike>(&self, depth: DepthLike) -> usize
     where
         DepthLike: TryInto<Depth>,
         <DepthLike as TryInto<Depth>>::Error: Debug,
