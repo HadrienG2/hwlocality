@@ -2397,10 +2397,43 @@ mod tests {
             check_remove_all_distances(&mut topology).unwrap();
         }
 
-        // TODO: Check other removal methods + add copies to hwloc25
+        /// Check that removing a single distance matrices works
+        pub(super) fn check_remove_distance_matrix(
+            topology: &mut Topology,
+            picker: DistanceMatrixPicker,
+        ) -> Result<(), TestCaseError> {
+            let initial_topology = topology.clone();
+            let mut expected_matrices = initial_topology.distances(Default::default())?;
+            expected_matrices.remove(picker.global_idx);
+
+            topology
+                .edit(|editor| editor.remove_distance_matrix(|topology| picker.pick(topology)))?;
+            let actual_matrices = topology.distances(Default::default())?;
+
+            prop_assert_eq!(actual_matrices.len(), expected_matrices.len());
+            prop_assert!(actual_matrices
+                .into_iter()
+                .zip(expected_matrices)
+                .all(|(actual, expected)| actual.eq_modulo_topology(&expected)));
+            Ok(())
+        }
+        //
+        /// Check removing a distance matrix from the default topology
+        #[test]
+        fn remove_distance_matrix() {
+            let Some(any_picker) = DistanceMatrixPicker::any(Topology::test_instance()) else {
+                return;
+            };
+            proptest!(|(picker in any_picker)| {
+                let mut topology = Topology::test_instance().clone();
+                check_remove_distance_matrix(&mut topology, picker)?;
+            })
+        }
+
+        // TODO: Check other removal methods + add copies to hwloc25 module
     }
     #[cfg(feature = "hwloc-2_5_0")]
-    use hwloc23::check_remove_all_distances;
+    use hwloc23::{check_remove_all_distances, check_remove_distance_matrix};
 
     /// Features that require hwloc v2.5 (i.e. adding distances between objects)
     #[cfg(feature = "hwloc-2_5_0")]
@@ -2679,6 +2712,21 @@ mod tests {
                 mut topology in topology_with_distances(),
             ) {
                 check_remove_all_distances(&mut topology)?;
+            }
+
+            /// Check removing a distance matrix from a random topology
+            #[test]
+            fn remove_distance_matrix(
+                (mut topology, picker) in topology_with_distances()
+                    .prop_flat_map(|topology| {
+                        let picker = DistanceMatrixPicker::any(&topology).expect(
+                            "topology_with_distances() always produces a \
+                            topology that has distances in it"
+                        );
+                        (Just(topology), picker)
+                    })
+            ) {
+                check_remove_distance_matrix(&mut topology, picker)?;
             }
 
             // TODO: Run same tests on initial topology above
