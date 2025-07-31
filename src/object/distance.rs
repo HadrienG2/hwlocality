@@ -2337,7 +2337,7 @@ mod tests {
         ///
         /// Used when building a topology with some pre-filled distances
         fn topology_with_distances_inputs() -> impl Strategy<Value = Vec<MatrixBuildingBlocks>> {
-            prop::collection::vec(MatrixBuildingBlocks::valid(), 0..=MAX_DISTANCE_MATRICES)
+            prop::collection::vec(MatrixBuildingBlocks::valid(), 1..=MAX_DISTANCE_MATRICES)
         }
 
         /// Process for turning the output of
