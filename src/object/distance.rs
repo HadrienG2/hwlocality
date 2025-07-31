@@ -2711,7 +2711,7 @@ mod tests {
             prop::sample::select(depths_with_enough_endpoints).prop_flat_map(move |depth| {
                 let possible_endpoints = topology.objects_at_depth(depth).collect::<Vec<_>>();
                 let max_endpoints = max_endpoints().min(possible_endpoints.len());
-                prop::sample::subsequence(possible_endpoints, MIN_ENDPOINTS..max_endpoints)
+                prop::sample::subsequence(possible_endpoints, MIN_ENDPOINTS..=max_endpoints)
                     .prop_shuffle()
             })
         }
