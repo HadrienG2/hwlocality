@@ -1634,10 +1634,7 @@ impl From<NulError> for InsertMiscError {
 mod tests {
     use super::*;
     use crate::{
-        object::{
-            depth::{Depth, NormalDepth},
-            TopologyObjectID,
-        },
+        object::{depth::Depth, TopologyObjectID},
         strategies::{any_object, any_string, topology_related_set},
     };
     use proptest::prelude::*;
@@ -2181,7 +2178,8 @@ mod tests {
     fn multi_child_parent() -> impl Strategy<Value = &'static TopologyObject> {
         let topology = Topology::test_instance();
 
-        let good_parents_by_depth = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+        let good_parents_by_depth = topology
+            .normal_depths()
             .filter_map(|depth| {
                 let good_parents = topology
                     .objects_at_depth(depth)

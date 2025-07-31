@@ -14,7 +14,7 @@
 //! The module itself only hosts type definitions that are related to this
 //! functionality.
 
-#[cfg(any(doc, feature = "hwloc-2_3_0"))]
+#[cfg(doc)]
 use crate::object::depth::NormalDepth;
 #[cfg(feature = "hwloc-2_3_0")]
 use crate::topology::editor::TopologyEditor;
@@ -826,8 +826,8 @@ impl TopologyEditor<'_> {
         if let Ok(depth) = topology.depth_for_type(ty) {
             self.remove_distances_at_depth(depth)?;
         } else {
-            let depths = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
-                .map(Depth::from)
+            let depths = topology
+                .possible_depths()
                 .filter(|&depth| {
                     let depth_ty = topology
                         .type_at_depth(depth)

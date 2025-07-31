@@ -552,7 +552,7 @@ mod tests {
             // increasing depth, noting which objects match...
             let mut remaining_set = set;
             let mut expected = HashSet::new();
-            'depths: for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()) {
+            'depths: for depth in topology.normal_depths() {
                 for obj in topology.objects_at_depth(depth) {
                     if obj.is_inside_cpuset(&remaining_set) {
                         prop_assert!(expected.insert(obj.global_persistent_index()));
@@ -652,7 +652,7 @@ mod tests {
         mut type_filter: impl FnMut(ObjectType) -> bool,
     ) -> Option<&'static TopologyObject> {
         let topology = Topology::test_instance();
-        'depths: for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).rev() {
+        'depths: for depth in topology.normal_depths().rev() {
             if !type_filter(topology.type_at_depth(depth).unwrap()) {
                 continue 'depths;
             }

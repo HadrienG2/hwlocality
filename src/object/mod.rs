@@ -1422,7 +1422,7 @@ pub(crate) mod tests {
         // reach a parent, we know that we can trust the is_symmetric_subtree of
         // its direct (and transitive) normal children.
         let topology = Topology::test_instance();
-        for depth in NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).rev() {
+        for depth in topology.normal_depths().rev() {
             'objs: for obj in topology.objects_at_depth(depth) {
                 // An object is a symmetric subtree if it has no children...
                 let Some(first_child) = obj.normal_children().next() else {
