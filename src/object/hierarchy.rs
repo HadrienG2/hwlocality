@@ -60,6 +60,36 @@ impl Topology {
         .expect("Got unexpected depth from hwloc_topology_get_depth")
     }
 
+    /// Enumerate all depths where normal objects appear in the topology
+    pub(crate) fn normal_depths(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = NormalDepth> + Clone + ExactSizeIterator + FusedIterator
+    {
+        NormalDepth::iter_range(NormalDepth::MIN, self.depth())
+    }
+
+    /// Enumerate all depths where objects _may_ appear in the topology
+    ///
+    /// This includes not just normal depths, but also the depth of memory, I/O
+    /// and misc objects. There may be no objects at some of these depths see
+    /// [`populated_depths()`](Self::populated_depths()) for the depths that
+    /// actually have objects in them.
+    pub(crate) fn possible_depths(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = Depth> + Clone + FusedIterator {
+        self.normal_depths()
+            .map(Depth::from)
+            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
+    }
+
+    /// Enumerate all depths where objects _actually_ appear in the topology
+    pub(crate) fn populated_depths(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = Depth> + Clone + FusedIterator + '_ {
+        self.possible_depths()
+            .filter(move |depth| self.num_objects_at_depth(*depth) != 0)
+    }
+
     /// Depth of normal parents where memory objects are attached
     ///
     /// # Errors
@@ -194,7 +224,8 @@ impl Topology {
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(TypeToDepthError::Nonexistent) => {
-                let first_depth_above = NormalDepth::iter_range(NormalDepth::ZERO, self.depth())
+                let first_depth_above = self
+                    .normal_depths()
                     // Can't use binary search due to group objects
                     .rfind(|&depth| {
                         self.type_at_depth(depth)
@@ -259,7 +290,8 @@ impl Topology {
         match self.depth_for_type(object_type) {
             Ok(d) => Ok(d),
             Err(TypeToDepthError::Nonexistent) => {
-                let first_depth_below = NormalDepth::iter_range(NormalDepth::ZERO, self.depth())
+                let first_depth_below = self
+                    .normal_depths()
                     // Can't use binary search due to group objects
                     .find(|&depth| {
                         self.type_at_depth(depth)
@@ -323,7 +355,7 @@ impl Topology {
     ) -> Result<Depth, TypeToDepthError> {
         // Otherwise, need to actually look it up
         let mut result = Err(TypeToDepthError::Nonexistent);
-        for depth in NormalDepth::iter_range(NormalDepth::MIN, self.depth()) {
+        for depth in self.normal_depths() {
             // Cache level and type are homogeneous across a depth level so we
             // only need to look at one object
             let obj = self
@@ -589,15 +621,12 @@ impl Topology {
     ) -> impl DoubleEndedIterator<Item = &TopologyObject> + Clone + ExactSizeIterator + FusedIterator
     {
         let type_depth = self.depth_for_type(object_type);
-        let depth_iter = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
-            .map(Depth::from)
-            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
-            .filter(move |&depth| {
-                type_depth.map_or_else(
-                    |_| self.type_at_depth(depth).expect("Depth should exist") == object_type,
-                    |type_depth| depth == type_depth,
-                )
-            });
+        let depth_iter = self.possible_depths().filter(move |&depth| {
+            type_depth.map_or_else(
+                |_| self.type_at_depth(depth).expect("Depth should exist") == object_type,
+                |type_depth| depth == type_depth,
+            )
+        });
         let size = depth_iter
             .clone()
             .map(move |depth| self.num_objects_at_depth(depth))
@@ -756,14 +785,14 @@ pub(crate) mod tests {
     fn memory_parents_depth() {
         let topology = Topology::test_instance();
 
-        let depths_with_memory_parents =
-            NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
-                .filter(|&depth| {
-                    topology
-                        .objects_at_depth(depth)
-                        .any(|obj| obj.memory_arity() > 0)
-                })
-                .collect::<Vec<_>>();
+        let depths_with_memory_parents = topology
+            .normal_depths()
+            .filter(|&depth| {
+                topology
+                    .objects_at_depth(depth)
+                    .any(|obj| obj.memory_arity() > 0)
+            })
+            .collect::<Vec<_>>();
 
         match topology.memory_parents_depth() {
             Ok(memory_parents_depth) => {
@@ -774,19 +803,11 @@ pub(crate) mod tests {
         }
     }
 
-    /// List of valid depths in the topology
-    fn valid_depths() -> impl Iterator<Item = Depth> {
-        let topology = Topology::test_instance();
-        NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
-            .map(Depth::from)
-            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
-    }
-
     /// Check the mapping from types to depths
     fn type_to_depths() -> HashMap<ObjectType, Vec<Depth>> {
         let topology = Topology::test_instance();
         let mut result = HashMap::<ObjectType, Vec<Depth>>::new();
-        for depth in valid_depths() {
+        for depth in topology.possible_depths() {
             let ty = topology.type_at_depth(depth).unwrap();
             result.entry(ty).or_default().push(depth);
         }
@@ -833,7 +854,8 @@ pub(crate) mod tests {
 
         // Enumerate present types in depth order, use that to check that
         // depth_or_(above|below) works for nonexistent types.
-        let normal_types_by_depth = NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+        let normal_types_by_depth = topology
+            .normal_depths()
             .map(|depth| topology.type_at_depth(depth).unwrap())
             .collect::<Vec<_>>();
         let above_below = absent_normal_types
@@ -888,7 +910,7 @@ pub(crate) mod tests {
         assert_eq!(root.nodeset(), Some(topology.nodeset()));
         assert_eq!(root.complete_nodeset(), Some(topology.complete_nodeset()));
 
-        for depth in valid_depths() {
+        for depth in topology.possible_depths() {
             assert!(root.ancestor_at_depth(depth).is_none());
         }
 
@@ -1014,7 +1036,8 @@ pub(crate) mod tests {
         static KINDS: OnceLock<Box<[CacheKind]>> = OnceLock::new();
         &KINDS.get_or_init(|| {
             let topology = Topology::test_instance();
-            NormalDepth::iter_range(NormalDepth::MIN, topology.depth())
+            topology
+                .normal_depths()
                 .filter_map(|depth| {
                     let obj = topology.objects_at_depth(depth).next()?;
                     let Some(ObjectAttributes::Cache(attr)) = obj.attributes() else {
@@ -1120,9 +1143,11 @@ pub(crate) mod tests {
 
     /// Depths that are mostly valid, but may be invalid too
     pub(crate) fn any_hwloc_depth() -> impl Strategy<Value = Depth> {
-        let valid_depths = valid_depths().collect::<Vec<_>>();
+        let possible_depths = Topology::test_instance()
+            .possible_depths()
+            .collect::<Vec<_>>();
         prop_oneof![
-            4 => prop::sample::select(valid_depths),
+            4 => prop::sample::select(possible_depths),
             1 => any::<Depth>()
         ]
     }
@@ -1130,8 +1155,7 @@ pub(crate) mod tests {
     /// Like `any_depth()` but restricted to normal depths
     pub(crate) fn any_normal_depth() -> impl Strategy<Value = NormalDepth> {
         let topology = Topology::test_instance();
-        let normal_depths =
-            NormalDepth::iter_range(NormalDepth::MIN, topology.depth()).collect::<Vec<_>>();
+        let normal_depths = topology.normal_depths().collect::<Vec<_>>();
         prop_oneof![
             4 => prop::sample::select(normal_depths),
             1 => any::<NormalDepth>()

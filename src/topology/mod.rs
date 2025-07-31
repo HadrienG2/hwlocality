@@ -24,11 +24,7 @@ use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::transparent::AsNewtype,
     memory::nodeset::NodeSet,
-    object::{
-        depth::{Depth, NormalDepth},
-        types::ObjectType,
-        TopologyObject,
-    },
+    object::{depth::NormalDepth, types::ObjectType, TopologyObject},
 };
 use bitflags::bitflags;
 use errno::Errno;
@@ -1010,12 +1006,11 @@ impl Debug for Topology {
         debug.field("type_filter", &type_filters);
 
         // TopologyObject hierarchy
-        let objects_per_depth = NormalDepth::iter_range(NormalDepth::MIN, self.depth())
-            .map(Depth::from)
-            .chain(Depth::VIRTUAL_DEPTHS.iter().copied())
-            .filter_map(|depth| {
+        let objects_per_depth = self
+            .populated_depths()
+            .map(|depth| {
                 let objs = self.objects_at_depth(depth).collect::<Vec<_>>();
-                (!objs.is_empty()).then_some((format!("{depth}"), objs))
+                (format!("{depth}"), objs)
             })
             .collect::<Vec<_>>();
         debug
@@ -1165,7 +1160,7 @@ unsafe impl Sync for Topology {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi::PositiveInt;
+    use crate::{ffi::PositiveInt, object::hierarchy::tests::any_normal_depth};
     use bitflags::Flags;
     use proptest::prelude::*;
     #[allow(unused)]
@@ -1246,21 +1241,10 @@ mod tests {
         println!("{topology:#?}");
     }
 
-    /// Bias the `max_depth` input to `distribute_items` tests so that
-    /// interesting depth values below the maximum possible depth are sampled
-    /// often enough
-    fn max_depth() -> impl Strategy<Value = NormalDepth> {
-        prop_oneof![
-            4 => (0..usize::from(Topology::test_instance().depth()))
-                    .prop_map(|us| NormalDepth::try_from(us).unwrap()),
-            1 => any::<NormalDepth>()
-        ]
-    }
-
     proptest! {
         // Check that absence of roots to distribute too is reported correctly
         #[test]
-        fn distribute_nowhere(num_items: NonZeroU8, max_depth in max_depth(), flags: DistributeFlags) {
+        fn distribute_nowhere(num_items: NonZeroU8, max_depth in any_normal_depth(), flags: DistributeFlags) {
             let num_items = usize::from(num_items.get());
             prop_assert_eq!(
                 Topology::test_instance().distribute_items(&[], num_items, max_depth, flags),
@@ -1377,7 +1361,7 @@ mod tests {
         #[test]
         fn distribute_nothing(
             disjoint_roots in disjoint_roots(),
-            max_depth in max_depth(),
+            max_depth in any_normal_depth(),
             flags: DistributeFlags,
         ) {
             prop_assert_eq!(
@@ -1422,7 +1406,7 @@ mod tests {
         #[test]
         fn distribute_correct(
             disjoint_roots in disjoint_roots(),
-            max_depth in max_depth(),
+            max_depth in any_normal_depth(),
             num_items: NonZeroU8,
             flags: DistributeFlags,
         ) {
@@ -1585,7 +1569,7 @@ mod tests {
         #[test]
         fn distribute_overlapping(
             overlapping_roots in overlapping_roots(),
-            max_depth in max_depth(),
+            max_depth in any_normal_depth(),
             num_items: NonZeroU8,
             flags: DistributeFlags,
         ) {
@@ -1630,7 +1614,7 @@ mod tests {
         #[test]
         fn distribute_foreign(
             (foreign_roots, foreign_idx) in foreign_roots_and_idx(),
-            max_depth in max_depth(),
+            max_depth in any_normal_depth(),
             num_items: NonZeroU8,
             flags: DistributeFlags,
         ) {

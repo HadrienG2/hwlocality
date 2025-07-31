@@ -1,9 +1,6 @@
 //! Full lists of objects contained within the topology
 
-use super::{
-    depth::{Depth, NormalDepth},
-    TopologyObject,
-};
+use super::{depth::Depth, TopologyObject};
 use crate::topology::Topology;
 #[allow(unused)]
 #[cfg(test)]
@@ -42,7 +39,7 @@ impl Topology {
     /// Full list of objects contains in the normal hierarchy of the topology,
     /// ordered by increasing depth
     pub fn normal_objects(&self) -> impl FusedIterator<Item = &TopologyObject> + Clone {
-        NormalDepth::iter_range(NormalDepth::MIN, self.depth())
+        self.normal_depths()
             .flat_map(|depth| self.objects_at_depth(depth))
     }
 
