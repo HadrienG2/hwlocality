@@ -789,6 +789,11 @@ impl TopologyEditor<'_> {
             self_: &mut TopologyEditor<'_>,
             depth: Depth,
         ) -> Result<(), RawHwlocError> {
+            // There cannot be any object at a depth below the topology depth
+            if matches!(depth, Depth::Normal(depth) if depth >= self_.topology().depth()) {
+                return Ok(());
+            }
+
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - DistanceMatrix lifetime is bound by the host topology,
             //           so this will invalidate all DistanceMatrix struct in
@@ -2084,9 +2089,11 @@ mod tests {
             kind,
             |topology| topology.distances_at_depth(kind, depth),
             |distance| {
-                distance
-                    .objects()
-                    .all(|obj| obj.map_or(true, |obj| obj.depth() == depth))
+                distance.objects().all(|obj| {
+                    obj.expect("No NULL allowed in topology-attached matrices")
+                        .depth()
+                        == depth
+                })
             },
             topology.type_at_depth(depth) == Some(ObjectType::Group),
             matches!(depth, Depth::Normal(depth) if depth >= topology.depth()),
@@ -2104,9 +2111,11 @@ mod tests {
             kind,
             |topology| topology.distances_with_type(kind, ty),
             |distance| {
-                distance
-                    .objects()
-                    .all(|obj| obj.map_or(true, |obj| obj.object_type() == ty))
+                distance.objects().all(|obj| {
+                    obj.expect("No NULL allowed in topology-attached matrices")
+                        .object_type()
+                        == ty
+                })
             },
             false,
             false,
@@ -2378,6 +2387,8 @@ mod tests {
     /// Features that require hwloc v2.3 (i.e. editing topologies)
     #[cfg(feature = "hwloc-2_3_0")]
     mod hwloc23 {
+        use std::panic::UnwindSafe;
+
         use super::*;
 
         /// Check that removing all distance matrices work
@@ -2397,25 +2408,48 @@ mod tests {
             check_remove_all_distances(&mut topology).unwrap();
         }
 
-        /// Check that removing a single distance matrices works
-        pub(super) fn check_remove_distance_matrix(
+        /// Generic check for all tests that remove a subset of distance
+        /// matrices
+        fn check_remove_matrices(
             topology: &mut Topology,
-            picker: DistanceMatrixPicker,
+            select_removed: impl Fn(usize, &DistanceMatrix<'_>) -> bool,
+            perform_removal: impl FnOnce(&mut TopologyEditor<'_>) -> Result<(), RawHwlocError>
+                + UnwindSafe,
+            allow_error: bool,
         ) -> Result<(), TestCaseError> {
             let initial_topology = topology.clone();
-            let mut expected_matrices = initial_topology.distances(Default::default())?;
-            expected_matrices.remove(picker.global_idx);
 
-            topology
-                .edit(|editor| editor.remove_distance_matrix(|topology| picker.pick(topology)))?;
+            if let Err(e) = topology.edit(perform_removal) {
+                prop_assert!(allow_error, "encountered unexpected hwloc error {e}");
+                return Ok(());
+            }
             let actual_matrices = topology.distances(Default::default())?;
 
+            let expected_matrices = initial_topology
+                .distances(Default::default())?
+                .into_iter()
+                .enumerate()
+                .filter_map(|(idx, matrix)| (!select_removed(idx, &matrix)).then_some(matrix))
+                .collect::<Vec<_>>();
             prop_assert_eq!(actual_matrices.len(), expected_matrices.len());
             prop_assert!(actual_matrices
                 .into_iter()
                 .zip(expected_matrices)
                 .all(|(actual, expected)| actual.eq_modulo_topology(&expected)));
             Ok(())
+        }
+
+        /// Check that removing a single distance matrices works
+        pub(super) fn check_remove_distance_matrix(
+            topology: &mut Topology,
+            picker: DistanceMatrixPicker,
+        ) -> Result<(), TestCaseError> {
+            check_remove_matrices(
+                topology,
+                |idx, _matrix| idx == picker.global_idx,
+                |editor| editor.remove_distance_matrix(|topology| picker.pick(topology)),
+                false,
+            )
         }
         //
         /// Test removing a distance matrix from the default topology
@@ -2430,10 +2464,70 @@ mod tests {
             })
         }
 
+        /// Check that removing distances at a certain depth works
+        pub(super) fn check_remove_distances_at_depth(
+            topology: &mut Topology,
+            depth: Depth,
+        ) -> Result<(), TestCaseError> {
+            check_remove_matrices(
+                topology,
+                |_idx, matrix| {
+                    matrix.objects().all(|obj| {
+                        obj.expect("No NULL allowed in topology-attached matrices")
+                            .depth()
+                            == depth
+                    })
+                },
+                |editor| editor.remove_distances_at_depth(depth),
+                topology.type_at_depth(depth) == Some(ObjectType::Group),
+            )
+        }
+        //
+        proptest! {
+            /// Test removing distances at a certain depth from the default topology
+            #[test]
+            fn remove_distances_at_depth(depth in any_hwloc_depth()) {
+                let mut topology = Topology::test_instance().clone();
+                check_remove_distances_at_depth(&mut topology, depth)?;
+            }
+        }
+
+        /// Check that removing distances with a certain object type works
+        pub(super) fn check_remove_distances_with_type(
+            topology: &mut Topology,
+            ty: ObjectType,
+        ) -> Result<(), TestCaseError> {
+            check_remove_matrices(
+                topology,
+                |_idx, matrix| {
+                    matrix.objects().all(|obj| {
+                        obj.expect("No NULL allowed in topology-attached matrices")
+                            .object_type()
+                            == ty
+                    })
+                },
+                |editor| editor.remove_distances_with_type(ty),
+                ty == ObjectType::Group,
+            )
+        }
+        //
+        proptest! {
+            /// Test removing distances with a certain object type
+            /// from the default topology
+            #[test]
+            fn remove_distances_with_type(ty in any::<ObjectType>()) {
+                let mut topology = Topology::test_instance().clone();
+                check_remove_distances_with_type(&mut topology, ty)?;
+            }
+        }
+
         // TODO: Check other removal methods + add copies to hwloc25 module
     }
     #[cfg(feature = "hwloc-2_5_0")]
-    use hwloc23::{check_remove_all_distances, check_remove_distance_matrix};
+    use hwloc23::{
+        check_remove_all_distances, check_remove_distance_matrix, check_remove_distances_at_depth,
+        check_remove_distances_with_type,
+    };
 
     /// Features that require hwloc v2.5 (i.e. adding distances between objects)
     #[cfg(feature = "hwloc-2_5_0")]
@@ -2767,7 +2861,24 @@ mod tests {
                 check_remove_distance_matrix(&mut topology, picker)?;
             }
 
-            // TODO: Run same tests on initial topology above
+            /// Test removing distances at a certain depth from a random topology
+            #[test]
+            fn remove_distances_at_depth(
+                mut topology in topology_with_distances(),
+                depth in any_hwloc_depth(),
+            ) {
+                check_remove_distances_at_depth(&mut topology, depth)?;
+            }
+
+            /// Test removing distances with a certain object type
+            /// from the default topology
+            #[test]
+            fn remove_distances_with_type(
+                mut topology in topology_with_distances(),
+                ty in any::<ObjectType>()
+            ) {
+                check_remove_distances_with_type(&mut topology, ty)?;
+            }
         }
 
         /// Test conversion of bad distance kinds to [`AddDistanceMatrixError`]
