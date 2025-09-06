@@ -123,7 +123,6 @@
     clippy::str_to_string,
     clippy::string_add,
     clippy::string_lit_as_bytes,
-    clippy::string_to_string,
     clippy::suboptimal_flops,
     clippy::suspicious_operation_groupings,
     clippy::tests_outside_test_module,
