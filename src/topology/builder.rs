@@ -1168,9 +1168,6 @@ pub(crate) mod tests {
         UpperExp, UpperHex, fmt::Write, io::Write
     );
 
-    // NOTE: While this doesn't match the documentation of hwloc v2.9 at the
-    //       time of writing, an hwloc maintainer confirmed it's correct:
-    //       https://github.com/open-mpi/hwloc/issues/622#issuecomment-1753130738
     #[allow(clippy::unnecessary_wraps)]
     fn default_type_filter(object_type: ObjectType) -> Result<TypeFilter, TestCaseError> {
         let res = match object_type {
