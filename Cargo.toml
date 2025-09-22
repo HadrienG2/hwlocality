@@ -11,7 +11,7 @@ keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
 categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memory-management", "os"]
 
 [workspace.dependencies]
-proptest = { version = "1.7", default-features = false, features = ["std"] }
+proptest = { version = "1.8", default-features = false, features = ["std"] }
 libc = "0.2"
 static_assertions = "1.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
