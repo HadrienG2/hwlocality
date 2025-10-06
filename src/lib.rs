@@ -337,7 +337,7 @@ mod sealed {
 /// Import of [`Sealed`] that only this crate can use
 pub(crate) use sealed::Sealed;
 
-/// Implement [`proptest::Arbitrary`] for a C-like enum that implements
+/// Implement `proptest::Arbitrary` for a C-like enum that implements
 /// [`strum::EnumCount`] and [`strum::EnumIter`].
 #[doc(hidden)]
 #[macro_export]
@@ -362,7 +362,7 @@ macro_rules! impl_arbitrary_for_sequence {
     };
 }
 
-/// Implement [`proptest::Arbitrary`] for bitflags
+/// Implement `proptest::Arbitrary` for bitflags
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_arbitrary_for_bitflags {
