@@ -66,7 +66,6 @@
     clippy::doc_markdown,
     //
     clippy::empty_drop,
-    clippy::empty_enum,
     clippy::empty_structs_with_brackets,
     clippy::enum_glob_use,
     clippy::equatable_if_let,
