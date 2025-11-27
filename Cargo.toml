@@ -235,6 +235,7 @@ strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0"
 
 # Used for optional proptest feature
+# TODO: Update to sysinfo 0.37+ once we bump MSRV to 1.88+
 proptest = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
