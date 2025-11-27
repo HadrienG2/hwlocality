@@ -303,9 +303,6 @@ jobs:
           # FIXME: Only vendored builds are tested on Arm Windows for now,
           #        because our Windows CI currently relies on pre-built DLLs
           #        from open-mpi and those don't exist for Arm yet.
-          #
-          #        This can be fixed after the long-planned move to vcpkg for
-          #        pkgconf/hwloc installations.
           - os: windows-11-arm
             rust: stable
             features: vendored
@@ -610,9 +607,6 @@ jobs:
           # FIXME: Only vendored builds are tested on Arm Windows for now,
           #        because our Windows CI currently relies on pre-built DLLs
           #        from open-mpi and those don't exist for Arm yet.
-          #
-          #        This can be fixed after the long-planned move to vcpkg for
-          #        pkgconf/hwloc installations.
           - os: windows-11-arm
             rust: nightly
             features: vendored
