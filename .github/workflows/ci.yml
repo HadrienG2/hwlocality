@@ -103,7 +103,6 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - windows-latest
         features:
           - '""'
           - 'hwloc-2_0_4'
@@ -120,6 +119,17 @@ jobs:
           # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
+        # On Windows, it is easy to install the latest hwloc version (just grab
+        # the DLL from the open-mpi website) so testing feature flags for
+        # intermediate hwloc versions is not super relevant. We therefore save
+        # CI resources by not doing that.
+        include:
+          - os: windows-latest
+            features: '""'
+          - os: windows-latest
+            features: hwloc-latest
+          - os: windows-latest
+            features: hwloc-latest,vendored
 
     env:
       JOB_FLAGS: '--workspace --features=${{ matrix.features }}'
@@ -173,7 +183,6 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - windows-latest
         features:
           - '""'
           - 'hwloc-2_0_4'
@@ -190,6 +199,14 @@ jobs:
           # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
+        # See "lints" matrix comment re version flags on Windows
+        include:
+          - os: windows-latest
+            features: '""'
+          - os: windows-latest
+            features: hwloc-latest
+          - os: windows-latest
+            features: hwloc-latest,vendored
 
     steps:
       - name: Checkout sources
@@ -241,8 +258,6 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
-          - windows-latest
         rust:
           - stable
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
@@ -264,6 +279,36 @@ jobs:
           # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
+        # See "lints" matrix comment re version flags on Windows, same comment
+        # applies to macos + usage of non-latest Rust versions.
+        include:
+          - os: macos-latest
+            rust: stable
+            features: '""'
+          - os: macos-latest
+            rust: stable
+            features: hwloc-latest
+          - os: macos-latest
+            rust: stable
+            features: hwloc-latest,vendored
+          - os: windows-latest
+            rust: stable
+            features: '""'
+          - os: windows-latest
+            rust: stable
+            features: hwloc-latest
+          - os: windows-latest
+            rust: stable
+            features: hwloc-latest,vendored
+          - os: windows-11-arm
+            rust: stable
+            features: '""'
+          - os: windows-11-arm
+            rust: stable
+            features: hwloc-latest
+          - os: windows-11-arm
+            rust: stable
+            features: hwloc-latest,vendored
 
     env:
       FEATURES_FLAG: '--features=${{ matrix.features }}'
@@ -335,6 +380,7 @@ jobs:
           - ubuntu-latest
           - macos-latest
           - windows-latest
+          - windows-11-arm
         rust:
           - stable
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
@@ -514,8 +560,6 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
-          - windows-latest
         rust:
           - beta
           - nightly
@@ -538,6 +582,38 @@ jobs:
           # Remember to also update other matrices
           - 'hwloc-latest,vendored'
           - 'hwloc-latest,proptest'
+        # See "lints" matrix comment re version flags on Windows, same comment
+        # applies to macos. beta testing is mostly redundant with nightly
+        # testing and only added for peace of mind, so we can probably do
+        # without it on Windows as well.
+        include:
+          - os: macos-latest
+            rust: nightly
+            features: '""'
+          - os: macos-latest
+            rust: nightly
+            features: hwloc-latest
+          - os: macos-latest
+            rust: nightly
+            features: hwloc-latest,vendored
+          - os: windows-latest
+            rust: nightly
+            features: '""'
+          - os: windows-latest
+            rust: nightly
+            features: hwloc-latest
+          - os: windows-latest
+            rust: nightly
+            features: hwloc-latest,vendored
+          - os: windows-11-arm
+            rust: nightly
+            features: '""'
+          - os: windows-11-arm
+            rust: nightly
+            features: hwloc-latest
+          - os: windows-11-arm
+            rust: nightly
+            features: hwloc-latest,vendored
 
     env:
       FEATURES_FLAG: '--features=${{ matrix.features }}'
