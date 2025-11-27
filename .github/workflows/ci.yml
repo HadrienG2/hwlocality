@@ -300,12 +300,15 @@ jobs:
           - os: windows-latest
             rust: stable
             features: hwloc-latest,vendored
+          # FIXME: Only vendored builds are tested on Arm Windows for now,
+          #        because our Windows CI currently relies on pre-built DLLs
+          #        from open-mpi and those don't exist for Arm yet.
+          #
+          #        This can be fixed after the long-planned move to vcpkg for
+          #        pkgconf/hwloc installations.
           - os: windows-11-arm
             rust: stable
-            features: '""'
-          - os: windows-11-arm
-            rust: stable
-            features: hwloc-latest
+            features: vendored
           - os: windows-11-arm
             rust: stable
             features: hwloc-latest,vendored
@@ -380,7 +383,6 @@ jobs:
           - ubuntu-latest
           - macos-latest
           - windows-latest
-          - windows-11-arm
         rust:
           - stable
           - ${{ needs.matrix_vars.outputs.MINIMAL_RUST }}
@@ -605,12 +607,15 @@ jobs:
           - os: windows-latest
             rust: nightly
             features: hwloc-latest,vendored
+          # FIXME: Only vendored builds are tested on Arm Windows for now,
+          #        because our Windows CI currently relies on pre-built DLLs
+          #        from open-mpi and those don't exist for Arm yet.
+          #
+          #        This can be fixed after the long-planned move to vcpkg for
+          #        pkgconf/hwloc installations.
           - os: windows-11-arm
             rust: nightly
-            features: '""'
-          - os: windows-11-arm
-            rust: nightly
-            features: hwloc-latest
+            features: vendored
           - os: windows-11-arm
             rust: nightly
             features: hwloc-latest,vendored

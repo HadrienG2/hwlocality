@@ -52,7 +52,8 @@ runs:
           Expand-Archive -Path coreinfo.zip -DestinationPath "${env:USERPROFILE}/coreinfo"
 
           # Download/unpack pkgconfiglite as a windows pkgconfig impl
-          # FIXME: Working around broken sourceforge downloads with a savage mirror
+          # FIXME: Working around broken sourceforge downloads with an
+          #        improvised download mirror
           $client.DownloadFile(
             "https://github.com/HadrienG2/hwlocality/files/11331438/pkg-config-lite-0.28-1_bin-win32.zip",
             "pkg-config.zip"
@@ -61,6 +62,9 @@ runs:
           mv "pkg-config-lite-0.28-1" "${env:USERPROFILE}/pkgconfig"
 
           # Download/unpack hwloc binary release
+          # FIXME: This does not currently work for Windows on Arm as there are
+          #        no official binary releases for Arm. Can work around this +
+          #        the pkg-config issue by switching to vcpkg.
           $client.DownloadFile(
             "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-win64-build-${{ inputs.hwloc-version }}.zip",
             "hwloc.zip"
