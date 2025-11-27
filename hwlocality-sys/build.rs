@@ -22,7 +22,7 @@ fn main() {
 /// Configure the hwloc dependency
 fn setup_hwloc() {
     // Determine the minimal supported hwloc version with current features
-    let required_version = if cfg!(feature = "hwloc-2_12_1") {
+    let min_required_version = if cfg!(feature = "hwloc-2_12_1") {
         "2.12.1"
     } else if cfg!(feature = "hwloc-2_12_0") {
         "2.12.0"
@@ -50,29 +50,29 @@ fn setup_hwloc() {
 
     // If asked to build hwloc ourselves, do so
     #[cfg(feature = "vendored")]
-    setup_vendored_hwloc(required_version);
+    setup_vendored_hwloc(min_required_version);
 
     // If asked to use system hwloc, configure it using pkg-config
     #[cfg(not(feature = "vendored"))]
-    find_hwloc(Some(required_version));
+    find_hwloc(Some(min_required_version));
 }
 
 /// Use pkg-config to locate and use a certain hwloc release
-fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
+fn find_hwloc(min_required_version: Option<&str>) -> pkg_config::Library {
     // Initialize pkg-config
     let mut config = pkg_config::Config::new();
 
     // Specify the required version range if instructed to do so
-    if let Some(required_version) = required_version {
-        let first_unsupported_version = match required_version
+    if let Some(min_required_version) = min_required_version {
+        let first_unsupported_version = match min_required_version
             .split('.')
             .next()
-            .expect("No major version in required_version")
+            .expect("No major version in min_required_version")
         {
             "2" => "3.0.0",
             other => panic!("Please add support for hwloc v{other}.x"),
         };
-        config.range_version(required_version..first_unsupported_version);
+        config.range_version(min_required_version..first_unsupported_version);
     }
 
     // Run pkg-config
@@ -100,12 +100,12 @@ fn find_hwloc(required_version: Option<&str>) -> pkg_config::Library {
 
 /// Install hwloc ourselves
 #[cfg(feature = "vendored")]
-fn setup_vendored_hwloc(required_version: &str) {
+fn setup_vendored_hwloc(min_required_version: &str) {
     // Determine which version to fetch and where to fetch it
-    let (source_version, sha3_digest) = match required_version
+    let (source_version, sha3_digest) = match min_required_version
         .split('.')
         .next()
-        .expect("No major version in required_version")
+        .expect("No major version in min_required_version")
     {
         "2" => (
             "2.12.2",
