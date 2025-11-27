@@ -26,25 +26,34 @@ runs:
         path: ~/hwloc
         key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
 
-    - name: Install coreinfo and pkgconfiglite (Windows)
+    - name: Install pkgconfiglite (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
-      run: choco install coreinfo pkgconfiglite
+      run: choco install pkgconfiglite
 
-    - name: Cache hwloc (Windows)
+    - name: Cache coreinfo and hwloc (Windows)
       if: runner.os == 'Windows'
       id: cache-deps-win
       uses: actions/cache@v4
       with:
         path: |
+          ~/coreinfo
           ~/hwloc
         key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
 
-    - name: Install hwloc (Windows)
+    - name: Install coreinfo and hwloc (Windows)
       if: runner.os == 'Windows' && steps.cache-deps-win.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
           $client = new-object System.Net.WebClient
+
+          # Download/unpack sysinternals coreinfo, for system config probing
+          $client.DownloadFile(
+            "https://download.sysinternals.com/files/Coreinfo.zip",
+            "coreinfo.zip"
+          )
+          mkdir "${env:USERPROFILE}/coreinfo"
+          Expand-Archive -Path coreinfo.zip -DestinationPath "${env:USERPROFILE}/coreinfo"
 
           # Download/unpack hwloc binary release
           #
@@ -117,5 +126,6 @@ runs:
       shell: pwsh
       run: |
           $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
+          printf "%s\n" "${env:USERPROFILE}/coreinfo" >> ${env:GITHUB_PATH}
           printf "%s\n%s\n" "$HWLOC_PREFIX/bin" "$HWLOC_PREFIX/lib" >> ${env:GITHUB_PATH}
           printf "%s\n" "PKG_CONFIG_PATH=$HWLOC_PREFIX/lib/pkgconfig;${env:PKG_CONFIG_PATH}" >> ${env:GITHUB_ENV}
