@@ -26,7 +26,12 @@ runs:
         path: ~/hwloc
         key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
 
-    - name: Cache all dependencies (Windows)
+    - name: Install pkgconfiglite (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: choco install pkgconfiglite
+
+    - name: Cache coreinfo and hwloc (Windows)
       if: runner.os == 'Windows'
       id: cache-deps-win
       uses: actions/cache@v4
@@ -34,10 +39,9 @@ runs:
         path: |
           ~/coreinfo
           ~/hwloc
-          ~/pkgconfig
-        key: ${{ runner.os }}-deps-pkgconfig0.28-1-hwloc${{ inputs.hwloc-version }}
+        key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
 
-    - name: Install dependencies (Windows)
+    - name: Install coreinfo and hwloc (Windows)
       if: runner.os == 'Windows' && steps.cache-deps-win.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
@@ -51,16 +55,13 @@ runs:
           mkdir "${env:USERPROFILE}/coreinfo"
           Expand-Archive -Path coreinfo.zip -DestinationPath "${env:USERPROFILE}/coreinfo"
 
-          # Download/unpack pkgconfiglite as a windows pkgconfig impl
-          # FIXME: Working around broken sourceforge downloads with a savage mirror
-          $client.DownloadFile(
-            "https://github.com/HadrienG2/hwlocality/files/11331438/pkg-config-lite-0.28-1_bin-win32.zip",
-            "pkg-config.zip"
-          )
-          Expand-Archive -Path pkg-config.zip -DestinationPath .
-          mv "pkg-config-lite-0.28-1" "${env:USERPROFILE}/pkgconfig"
-
           # Download/unpack hwloc binary release
+          #
+          # FIXME: This does not currently work for Windows on Arm as there are
+          #        no official binary releases for Arm. And we cannot work
+          #        around this by using vcpkg as initially hoped because we need
+          #        recent hwloc releases so the vcpkg upgrade cycle is too slow
+          #        for our needs.
           $client.DownloadFile(
             "https://download.open-mpi.org/release/hwloc/v${{ inputs.hwloc-version-short }}/hwloc-win64-build-${{ inputs.hwloc-version }}.zip",
             "hwloc.zip"
@@ -126,6 +127,5 @@ runs:
       run: |
           $HWLOC_PREFIX = "${env:USERPROFILE}/hwloc"
           printf "%s\n" "${env:USERPROFILE}/coreinfo" >> ${env:GITHUB_PATH}
-          printf "%s\n" "${env:USERPROFILE}/pkgconfig/bin" >> ${env:GITHUB_PATH}
           printf "%s\n%s\n" "$HWLOC_PREFIX/bin" "$HWLOC_PREFIX/lib" >> ${env:GITHUB_PATH}
           printf "%s\n" "PKG_CONFIG_PATH=$HWLOC_PREFIX/lib/pkgconfig;${env:PKG_CONFIG_PATH}" >> ${env:GITHUB_ENV}
