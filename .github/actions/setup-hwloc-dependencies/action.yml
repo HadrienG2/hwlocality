@@ -21,7 +21,7 @@ runs:
     - name: Cache hwloc install (Unices)
       if: runner.os != 'Windows'
       id: cache-deps-unix
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/hwloc
         key: ${{ runner.os }}-deps-hwloc${{ inputs.hwloc-version }}
@@ -34,7 +34,7 @@ runs:
     - name: Cache coreinfo and hwloc (Windows)
       if: runner.os == 'Windows'
       id: cache-deps-win
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/coreinfo
