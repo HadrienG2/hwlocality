@@ -235,7 +235,6 @@ strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0"
 
 # Used for optional proptest feature
-# TODO: Update to sysinfo 0.37+ once we bump MSRV to 1.88+
 proptest = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -256,6 +255,7 @@ proptest.workspace = true
 static_assertions.workspace = true
 
 # Used in examples to portably query the OS process list
+# TODO: Update to sysinfo 0.37+ once we bump MSRV to 1.88+
 sysinfo = { version = "0.36", default-features = false, features = ["system"] }
 
 # Used to test file I/O
