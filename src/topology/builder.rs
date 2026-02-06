@@ -94,7 +94,7 @@ impl TopologyBuilder {
         let mut topology: *mut hwloc_topology = std::ptr::null_mut();
         // SAFETY: topology is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_zero_or_minus1("hwloc_topology_init", || unsafe {
-            hwlocality_sys::hwloc_topology_init(&mut topology)
+            hwlocality_sys::hwloc_topology_init(&raw mut topology)
         })
         .expect("Failed to allocate topology");
         Self(NonNull::new(topology).expect("Got null pointer from hwloc_topology_init"))
@@ -698,7 +698,7 @@ impl TopologyBuilder {
         //           valid hwloc_obj_type_t values for current hwloc
         //         - filter is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_zero_or_minus1("hwloc_topology_get_type_filter", || unsafe {
-            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
+            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &raw mut filter)
         })?;
         // SAFETY: filter comes from hwloc_get_type_filter, which didn't fail,
         //         so it should be a type filter value that hwloc accepts to

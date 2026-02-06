@@ -996,7 +996,7 @@ impl TopologyObject {
         //         - LibcStrings are valid C strings by construction, and not
         //           used after the end of their lifetimes
         errors::call_hwloc_zero_or_minus1("hwloc_obj_add_info", || unsafe {
-            hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
+            hwlocality_sys::hwloc_obj_add_info(&raw mut self.0, name.borrow(), value.borrow())
         })
         .map_err(HybridError::Hwloc)
     }
@@ -1012,7 +1012,7 @@ impl TopologyObject {
         //         - separators are valid C strings
         let (type_chars, attr_chars) = unsafe {
             let type_chars = ffi::call_snprintf(|buf, len| {
-                hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &self.0, verbose.into())
+                hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &raw const self.0, verbose.into())
             });
 
             let separator = if f.alternate() {
@@ -1025,7 +1025,7 @@ impl TopologyObject {
                 hwlocality_sys::hwloc_obj_attr_snprintf(
                     buf,
                     len,
-                    &self.0,
+                    &raw const self.0,
                     separator,
                     verbose.into(),
                 )

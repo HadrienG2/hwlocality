@@ -237,15 +237,15 @@ pub(super) mod tests {
         #[test]
         fn unary_pci(pcidev_attr: PCIDeviceAttributes) {
             check_any_pci(&pcidev_attr)?;
-            let mut raw = hwloc_obj_attr_u {
+            let mut raw_attr = hwloc_obj_attr_u {
                 pcidev: pcidev_attr.0,
             };
-            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            let ptr = &raw mut raw_attr;
             // SAFETY: Type is consistent with union variant, data is valid
             unsafe {
                 prop_assert!(matches!(
                     ObjectAttributes::new(ObjectType::PCIDevice, &ptr),
-                    Some(ObjectAttributes::PCIDevice(attr)) if std::ptr::eq(attr.as_inner(), &raw.pcidev)
+                    Some(ObjectAttributes::PCIDevice(attr)) if std::ptr::eq(attr.as_inner(), &raw const raw_attr.pcidev)
                 ));
             }
         }

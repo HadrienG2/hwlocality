@@ -393,7 +393,7 @@ impl Topology {
         //           valid hwloc_obj_type_t values for current hwloc
         //         - filter is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_zero_or_minus1("hwloc_topology_get_type_filter", || unsafe {
-            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &mut filter)
+            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &raw mut filter)
         })?;
         // SAFETY: Filter is from a successful hwloc API call, so it should be
         //         a valid hwloc type filter that can be fed back to hwloc.
@@ -960,7 +960,7 @@ impl Clone for Topology {
         //         - hwloc ops are trusted not to modify *const parameters
         //         - clone is an out-parameter, it can have any initial value
         errors::call_hwloc_zero_or_minus1("hwloc_topology_dup", || unsafe {
-            hwlocality_sys::hwloc_topology_dup(&mut clone, self.as_ptr())
+            hwlocality_sys::hwloc_topology_dup(&raw mut clone, self.as_ptr())
         })
         .expect("Duplicating a topology only fail with ENOMEM, which is a panic in Rust");
         let clone = NonNull::new(clone).expect("Got null pointer from hwloc_topology_dup");

@@ -350,7 +350,7 @@ impl Topology {
         let ptr = unsafe {
             hwlocality_sys::hwloc_get_obj_with_same_locality(
                 self.as_ptr(),
-                &src.0,
+                &raw const src.0,
                 ty.into(),
                 borrow_pchar(&subtype),
                 borrow_pchar(&name_prefix),

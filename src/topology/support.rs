@@ -742,11 +742,11 @@ mod tests {
             #[cfg(feature = "hwloc-2_3_0")]
             let (discovery, cpubind, membind, misc) = components;
             let random_support = FeatureSupport(hwloc_topology_support {
-                discovery: &discovery.0,
-                cpubind: &cpubind.0,
-                membind: &membind.0,
+                discovery: &raw const discovery.0,
+                cpubind: &raw const cpubind.0,
+                membind: &raw const membind.0,
                 #[cfg(feature = "hwloc-2_3_0")]
-                misc: &misc.0,
+                misc: &raw const misc.0,
             });
             check_any_support(&random_support)?;
         }

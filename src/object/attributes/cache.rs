@@ -270,15 +270,15 @@ pub(super) mod tests {
         #[test]
         fn unary_cache(ty in cpu_cache_type(), cache_attr: CacheAttributes) {
             check_any_cache(&cache_attr)?;
-            let mut raw = hwloc_obj_attr_u {
+            let mut raw_attr = hwloc_obj_attr_u {
                 cache: cache_attr.0,
             };
-            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            let ptr = &raw mut raw_attr;
             // SAFETY: Type is consistent with union variant, data is valid
             unsafe {
                 prop_assert!(matches!(
                     ObjectAttributes::new(ty, &ptr),
-                    Some(ObjectAttributes::Cache(attr)) if std::ptr::eq(attr.as_inner(), &raw.cache)
+                    Some(ObjectAttributes::Cache(attr)) if std::ptr::eq(attr.as_inner(), &raw const raw_attr.cache)
                 ));
             }
         }
