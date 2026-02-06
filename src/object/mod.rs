@@ -47,7 +47,7 @@ use hwlocality_sys::{hwloc_obj, HWLOC_UNKNOWN_INDEX};
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
-    ffi::{c_char, CStr},
+    ffi::CStr,
     fmt::{self, Debug, Display},
     iter::FusedIterator,
     ops::Deref,
@@ -1016,17 +1016,16 @@ impl TopologyObject {
             });
 
             let separator = if f.alternate() {
-                b",\n  \0".as_ptr()
+                c",\n  "
             } else {
-                b", \0".as_ptr()
-            }
-            .cast::<c_char>();
+                c", "
+            };
             let attr_chars = ffi::call_snprintf(|buf, len| {
                 hwlocality_sys::hwloc_obj_attr_snprintf(
                     buf,
                     len,
                     &raw const self.0,
-                    separator,
+                    separator.as_ptr(),
                     verbose.into(),
                 )
             });

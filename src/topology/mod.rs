@@ -1322,7 +1322,7 @@ mod tests {
                     // duplicating each child once per underlying PU...
                     let degenerate_children = root
                         .normal_children()
-                        .flat_map(|child| std::iter::repeat(child).take(normal_weight(child)))
+                        .flat_map(|child| std::iter::repeat_n(child, normal_weight(child)))
                         .collect::<Vec<_>>();
                     debug_assert_eq!(degenerate_children.len(), normal_weight(root));
 

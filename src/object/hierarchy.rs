@@ -1110,7 +1110,7 @@ pub(crate) mod tests {
                 .iter()
                 .filter(|kind| {
                     let level_ok = kind.level == cache_level;
-                    let type_ok = cache_type.map_or(true, |ty| {
+                    let type_ok = cache_type.is_none_or(|ty| {
                         kind.ty == ty || kind.ty == CacheType::Unified
                     });
                     level_ok && type_ok
