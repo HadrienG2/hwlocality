@@ -255,7 +255,7 @@ static_assertions.workspace = true
 
 # Used in examples to portably query the OS process list
 # TODO: Update to sysinfo 0.37+ once we bump MSRV to 1.88+
-sysinfo = { version = "0.36", default-features = false, features = ["system"] }
+sysinfo = { version = "<0.37", default-features = false, features = ["system"] }
 
 # Used to test file I/O
 tempfile = "3.20"
