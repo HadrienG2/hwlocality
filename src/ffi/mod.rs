@@ -165,24 +165,24 @@ mod tests {
 
         let mut x = 42;
         {
-            let p: *const u32 = &x;
+            let p = &raw const x;
             // SAFETY: Valid because the &x that p is from was valid
             let r = unsafe { deref_ptr(&p).unwrap() };
-            assert!(ptr::eq(r, &x));
+            assert!(ptr::eq(r, &raw const x));
         }
         {
-            let p_mut: *mut u32 = &mut x;
+            let p_mut = &raw mut x;
             // SAFETY: Valid because the &mut x that p is from was valid and the
             //         original &mut reference has gone out of scope
             let r = unsafe { deref_ptr_mut(&p_mut).unwrap() };
-            assert!(ptr::eq(r, &x));
+            assert!(ptr::eq(r, &raw const x));
         }
         {
-            let mut p_mut: *mut u32 = &mut x;
+            let mut p_mut = &raw mut x;
             // SAFETY: Valid because the &mut x that p is from was valid and the
             //         original &mut reference has gone out of scope
             let r = unsafe { deref_mut_ptr(&mut p_mut).unwrap() };
-            assert!(ptr::eq(r, &x));
+            assert!(ptr::eq(r, &raw const x));
         }
     }
 

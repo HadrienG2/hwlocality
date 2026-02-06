@@ -320,15 +320,15 @@ pub(super) mod tests {
         #[test]
         fn unary_bridge(bridge_attr: BridgeAttributes) {
             check_any_bridge(&bridge_attr)?;
-            let mut raw = hwloc_obj_attr_u {
+            let mut raw_attr = hwloc_obj_attr_u {
                 bridge: bridge_attr.0,
             };
-            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            let ptr = &raw mut raw_attr;
             // SAFETY: Type is consistent with union variant, data is valid
             unsafe {
                 prop_assert!(matches!(
                     ObjectAttributes::new(ObjectType::Bridge, &ptr),
-                    Some(ObjectAttributes::Bridge(attr)) if std::ptr::eq(attr.as_inner(), &raw.bridge)
+                    Some(ObjectAttributes::Bridge(attr)) if std::ptr::eq(attr.as_inner(), &raw const raw_attr.bridge)
                 ));
             }
         }
@@ -410,8 +410,11 @@ pub(super) mod tests {
             Some(UpstreamAttributes::PCI(pci)) => {
                 prop_assert_eq!(upstream_type, BridgeType::PCI);
                 let actual_ptr: *const hwloc_pcidev_attr_s = pci.as_inner();
-                // SAFETY: We must assume correct union tagging here
-                let expected_ptr: *const hwloc_pcidev_attr_s = unsafe { &attr.0.upstream.pci };
+                // SAFETY: This unsafe block will be removed on next MSRV bump
+                //         as this pattern is not considered unsafe anymore,
+                //         though it was considered unsafe by Rust 1.84.
+                #[allow(unused_unsafe)]
+                let expected_ptr = unsafe { &raw const attr.0.upstream.pci };
                 prop_assert_eq!(actual_ptr, expected_ptr);
                 check_any_pci(pci)?;
             }
@@ -433,9 +436,11 @@ pub(super) mod tests {
                 match attr.downstream_attributes() {
                     Some(DownstreamAttributes::PCI(downstream)) => {
                         let actual_ptr: *const RawDownstreamPCIAttributes = downstream.as_inner();
-                        let expected_ptr: *const RawDownstreamPCIAttributes =
-                            // SAFETY: We must assume correct union tagging here
-                            unsafe { &attr.0.downstream.pci };
+                        // SAFETY: This unsafe block will be removed on next MSRV bump
+                        //         as this pattern is not considered unsafe anymore,
+                        //         though it was considered unsafe by Rust 1.84.
+                        #[allow(unused_unsafe)]
+                        let expected_ptr = unsafe { &raw const attr.0.downstream.pci };
                         prop_assert_eq!(actual_ptr, expected_ptr);
                         check_any_downstream_pci(downstream)?;
                         format!(

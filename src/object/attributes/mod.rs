@@ -144,10 +144,10 @@ mod tests {
 
             // ...and types that have no attributes are safe as well
             let check_nonexistent = || {
-                let mut raw = hwloc_obj_attr_u {
+                let mut raw_attr = hwloc_obj_attr_u {
                     osdev: osdev_attr.0,
                 };
-                let ptr: *mut hwloc_obj_attr_u = &mut raw;
+                let ptr = &raw mut raw_attr;
                 // SAFETY: Types with associated attributes have all been
                 //         covered above, so None is the only outcome and union
                 //         variant doesn't matter.

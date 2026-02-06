@@ -255,13 +255,13 @@ pub(super) mod tests {
             prop_assert_eq!(numa_attr.local_memory(), NonZeroU64::new(local_memory));
             check_any_numa(&numa_attr)?;
 
-            let mut raw = hwloc_obj_attr_u { numa: numa_attr.0 };
-            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            let mut raw_attr = hwloc_obj_attr_u { numa: numa_attr.0 };
+            let ptr = &raw mut raw_attr;
             // SAFETY: Type is consistent with union variant, data is valid
             unsafe {
                 prop_assert!(matches!(
                     ObjectAttributes::new(ObjectType::NUMANode, &ptr),
-                    Some(ObjectAttributes::NUMANode(attr)) if std::ptr::eq(attr.as_inner(), &raw.numa)
+                    Some(ObjectAttributes::NUMANode(attr)) if std::ptr::eq(attr.as_inner(), &raw const raw_attr.numa)
                 ));
             }
         }

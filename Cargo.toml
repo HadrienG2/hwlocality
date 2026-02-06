@@ -4,15 +4,14 @@ members = ["hwlocality-sys"]
 [workspace.package]
 authors = ["Hadrien G. <knights_of_ni@gmx.com>", "Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.84.0"
 repository = "https://github.com/HadrienG2/hwlocality"
 license = "MIT"
 keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
 categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memory-management", "os"]
 
 [workspace.dependencies]
-# TODO: Update to proptest 1.9+ once we bump MSRV to 1.82+
-proptest = { version = "<1.9", default-features = false, features = ["std"] }
+proptest = { version = "1.10", default-features = false, features = ["std"] }
 libc = "0.2"
 static_assertions = "1.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
@@ -256,7 +255,7 @@ static_assertions.workspace = true
 
 # Used in examples to portably query the OS process list
 # TODO: Update to sysinfo 0.37+ once we bump MSRV to 1.88+
-sysinfo = { version = "0.36", default-features = false, features = ["system"] }
+sysinfo = { version = "<0.37", default-features = false, features = ["system"] }
 
 # Used to test file I/O
 tempfile = "3.20"

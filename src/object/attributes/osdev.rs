@@ -97,15 +97,15 @@ pub(super) mod tests {
         #[test]
         fn unary_osdev(osdev_attr: OSDeviceAttributes) {
             check_any_osdev(&osdev_attr)?;
-            let mut raw = hwloc_obj_attr_u {
+            let mut raw_attr = hwloc_obj_attr_u {
                 osdev: osdev_attr.0,
             };
-            let ptr: *mut hwloc_obj_attr_u = &mut raw;
+            let ptr = &raw mut raw_attr;
             // SAFETY: Type is consistent with union variant, data is valid
             unsafe {
                 prop_assert!(matches!(
                     ObjectAttributes::new(ObjectType::OSDevice, &ptr),
-                    Some(ObjectAttributes::OSDevice(attr)) if std::ptr::eq(attr.as_inner(), &raw.osdev)
+                    Some(ObjectAttributes::OSDevice(attr)) if std::ptr::eq(attr.as_inner(), &raw const raw_attr.osdev)
                 ));
             }
         }
