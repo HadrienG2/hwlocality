@@ -698,7 +698,11 @@ impl TopologyBuilder {
         //           valid hwloc_obj_type_t values for current hwloc
         //         - filter is an out-parameter, initial value shouldn't matter
         errors::call_hwloc_zero_or_minus1("hwloc_topology_get_type_filter", || unsafe {
-            hwlocality_sys::hwloc_topology_get_type_filter(self.as_ptr(), ty.into(), &raw mut filter)
+            hwlocality_sys::hwloc_topology_get_type_filter(
+                self.as_ptr(),
+                ty.into(),
+                &raw mut filter,
+            )
         })?;
         // SAFETY: filter comes from hwloc_get_type_filter, which didn't fail,
         //         so it should be a type filter value that hwloc accepts to

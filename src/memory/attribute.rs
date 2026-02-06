@@ -1775,7 +1775,11 @@ impl<'topology> MemoryAttribute<'topology> {
         // SAFETY: 1 elements + throw-away buffers is the correct way to request
         //         the buffer size to be allocated from hwloc
         let mut nr = 1;
-        let res = call_ffi(&raw mut nr, [placeholder].as_mut_ptr(), [u64::MAX].as_mut_ptr());
+        let res = call_ffi(
+            &raw mut nr,
+            [placeholder].as_mut_ptr(),
+            [u64::MAX].as_mut_ptr(),
+        );
         let len = int::expect_usize(nr);
         let mut endpoints = vec![placeholder; len];
 

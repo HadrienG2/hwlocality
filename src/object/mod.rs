@@ -1015,11 +1015,7 @@ impl TopologyObject {
                 hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &raw const self.0, verbose.into())
             });
 
-            let separator = if f.alternate() {
-                c",\n  "
-            } else {
-                c", "
-            };
+            let separator = if f.alternate() { c",\n  " } else { c", " };
             let attr_chars = ffi::call_snprintf(|buf, len| {
                 hwlocality_sys::hwloc_obj_attr_snprintf(
                     buf,
