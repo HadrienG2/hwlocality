@@ -47,7 +47,7 @@ use hwlocality_sys::{hwloc_obj, HWLOC_UNKNOWN_INDEX};
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
-    ffi::{c_char, CStr},
+    ffi::CStr,
     fmt::{self, Debug, Display},
     iter::FusedIterator,
     ops::Deref,
@@ -996,7 +996,7 @@ impl TopologyObject {
         //         - LibcStrings are valid C strings by construction, and not
         //           used after the end of their lifetimes
         errors::call_hwloc_zero_or_minus1("hwloc_obj_add_info", || unsafe {
-            hwlocality_sys::hwloc_obj_add_info(&mut self.0, name.borrow(), value.borrow())
+            hwlocality_sys::hwloc_obj_add_info(&raw mut self.0, name.borrow(), value.borrow())
         })
         .map_err(HybridError::Hwloc)
     }
@@ -1012,21 +1012,16 @@ impl TopologyObject {
         //         - separators are valid C strings
         let (type_chars, attr_chars) = unsafe {
             let type_chars = ffi::call_snprintf(|buf, len| {
-                hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &self.0, verbose.into())
+                hwlocality_sys::hwloc_obj_type_snprintf(buf, len, &raw const self.0, verbose.into())
             });
 
-            let separator = if f.alternate() {
-                b",\n  \0".as_ptr()
-            } else {
-                b", \0".as_ptr()
-            }
-            .cast::<c_char>();
+            let separator = if f.alternate() { c",\n  " } else { c", " };
             let attr_chars = ffi::call_snprintf(|buf, len| {
                 hwlocality_sys::hwloc_obj_attr_snprintf(
                     buf,
                     len,
-                    &self.0,
-                    separator,
+                    &raw const self.0,
+                    separator.as_ptr(),
                     verbose.into(),
                 )
             });

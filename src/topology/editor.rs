@@ -943,7 +943,7 @@ pub enum GroupChildFilter<
     /// Memory children will then be automatically added in order to produce a
     /// group member set that follows the consistency rules.
     ///
-    /// Due to a limitation of the Rust compiler, as of Rust 1.75 this type
+    /// Due to a limitation of the Rust compiler, as of Rust 1.93 this type
     /// constructor mistakenly requires you to specify a `MemoryFilter` type
     /// parameter. You can work around this by using the [`Self::normal()`]
     /// constructor instead.
@@ -955,7 +955,7 @@ pub enum GroupChildFilter<
     /// children instead of normal children, and it is normal children that get
     /// automatically added to follow the consistency rules.
     ///
-    /// Due to a limitation of the Rust compiler, as of Rust 1.75 this type
+    /// Due to a limitation of the Rust compiler, as of Rust 1.93 this type
     /// constructor mistakenly requires you to specify a `NormalFilter` type
     /// parameter. You can work around this by using the [`Self::memory()`]
     /// constructor instead.

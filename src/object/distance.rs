@@ -313,7 +313,7 @@ impl Topology {
             // Allocate array of distances pointers
             // SAFETY: 0 elements + null buffer pointers is the correct way to
             //         request the buffer size to be allocated from hwloc
-            call_ffi(&mut nr, ptr::null_mut())?;
+            call_ffi(&raw mut nr, ptr::null_mut())?;
             let mut distances_ptrs = vec![ptr::null_mut(); int::expect_usize(nr)];
 
             // Let hwloc fill the distances array
@@ -321,7 +321,7 @@ impl Topology {
             // SAFETY: - distances_ptrs is indeed an array of nr elements
             //         - Input array contents don't matter as this is an
             //           out-parameter
-            call_ffi(&mut nr, distances_ptrs.as_mut_ptr())?;
+            call_ffi(&raw mut nr, distances_ptrs.as_mut_ptr())?;
             assert_eq!(nr, old_nr, "Inconsistent distances count from hwloc");
 
             // Wrap them into a safe interface

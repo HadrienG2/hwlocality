@@ -1139,7 +1139,7 @@ impl Topology {
             ffi(
                 self.as_ptr(),
                 set.as_mut_ptr(),
-                &mut raw_policy,
+                &raw mut raw_policy,
                 flags.bits(),
             )
         })

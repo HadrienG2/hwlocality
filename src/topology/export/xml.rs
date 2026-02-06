@@ -111,8 +111,8 @@ impl Topology {
         errors::call_hwloc_zero_or_minus1("hwloc_topology_export_xmlbuffer", || unsafe {
             hwlocality_sys::hwloc_topology_export_xmlbuffer(
                 self.as_ptr(),
-                &mut xmlbuffer,
-                &mut buflen,
+                &raw mut xmlbuffer,
+                &raw mut buflen,
                 flags.bits(),
             )
         })?;

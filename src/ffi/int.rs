@@ -2848,7 +2848,7 @@ impl Rem<usize> for PositiveInt {
     type Output = Self;
 
     fn rem(self, rhs: usize) -> Self {
-        Self::try_from(rhs).map(|rhs| self % rhs).unwrap_or(self)
+        Self::try_from(rhs).map_or(self, |rhs| self % rhs)
     }
 }
 

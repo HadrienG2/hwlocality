@@ -230,14 +230,14 @@ impl Topology {
             // SAFETY: A null output is allowed, and 0 elements is the correct way
             //         to model it in the "nr" parameter. This will set nr to the
             //         actual buffer size we need to allocate.
-            call_ffi(&mut nr, ptr::null_mut())?;
+            call_ffi(&raw mut nr, ptr::null_mut())?;
             let len = int::expect_usize(nr);
 
             // Allocate storage and fill node list
             let mut out = vec![ptr::null(); len];
             let old_nr = nr;
             // SAFETY: out is a valid buffer of size len, which is just nr as usize
-            call_ffi(&mut nr, out.as_mut_ptr())?;
+            call_ffi(&raw mut nr, out.as_mut_ptr())?;
             assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
 
             // Translate node pointers into node references
@@ -685,7 +685,7 @@ impl<'topology> TopologyEditor<'topology> {
                 self.topology_mut_ptr(),
                 libc_name.borrow(),
                 flags.bits(),
-                &mut id,
+                &raw mut id,
             )
         });
         let handle_ebusy = || Err(RegisterError::NameTaken(name.into()));
@@ -1206,7 +1206,7 @@ impl<'topology> MemoryAttribute<'topology> {
             //           an invalid ID is fine and will just lead to EINVAL
             //         - flags is an out parameter, its initial value doesn't matter
             let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
-                hwlocality_sys::hwloc_memattr_get_flags(topology.as_ptr(), id, &mut flags)
+                hwlocality_sys::hwloc_memattr_get_flags(topology.as_ptr(), id, &raw mut flags)
             });
             match res {
                 Ok(()) => Some(
@@ -1253,7 +1253,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - id is assumed to be valid (type invariant)
         //         - name is an out parameter, its initial value doesn't matter
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_name", || unsafe {
-            hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &mut name)
+            hwlocality_sys::hwloc_memattr_get_name(self.topology.as_ptr(), self.id, &raw mut name)
         });
         #[cfg(not(tarpaulin_include))]
         let handle_einval =
@@ -1322,7 +1322,7 @@ impl<'topology> MemoryAttribute<'topology> {
         //         - id is assumed to be valid (type invariant)
         //         - flags is an out parameter, its initial value doesn't matter
         let res = errors::call_hwloc_zero_or_minus1("hwloc_memattr_get_flags", || unsafe {
-            hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &mut flags)
+            hwlocality_sys::hwloc_memattr_get_flags(self.topology.as_ptr(), self.id, &raw mut flags)
         });
         #[cfg(not(tarpaulin_include))]
         let handle_einval =
@@ -1431,7 +1431,7 @@ impl<'topology> MemoryAttribute<'topology> {
                 target_node.as_inner(),
                 initiator_ptr,
                 0,
-                &mut value,
+                &raw mut value,
             )
         });
         match res {
@@ -1508,7 +1508,7 @@ impl<'topology> MemoryAttribute<'topology> {
                         attribute,
                         initiator_ptr,
                         flags,
-                        &mut best_target,
+                        &raw mut best_target,
                         value,
                     )
                 },
@@ -1560,7 +1560,7 @@ impl<'topology> MemoryAttribute<'topology> {
                         attribute,
                         target.as_inner(),
                         flags,
-                        &mut best_initiator,
+                        &raw mut best_initiator,
                         value,
                     )
                 },
@@ -1775,7 +1775,11 @@ impl<'topology> MemoryAttribute<'topology> {
         // SAFETY: 1 elements + throw-away buffers is the correct way to request
         //         the buffer size to be allocated from hwloc
         let mut nr = 1;
-        let res = call_ffi(&mut nr, [placeholder].as_mut_ptr(), [u64::MAX].as_mut_ptr());
+        let res = call_ffi(
+            &raw mut nr,
+            [placeholder].as_mut_ptr(),
+            [u64::MAX].as_mut_ptr(),
+        );
         let len = int::expect_usize(nr);
         let mut endpoints = vec![placeholder; len];
 
@@ -1814,13 +1818,13 @@ impl<'topology> MemoryAttribute<'topology> {
             let mut values = vec![u64::MAX; len];
             // SAFETY: - endpoints and values are indeed arrays of nr = len elements
             //         - Input array contents don't matter as this is an out-parameter
-            call_ffi(&mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
+            call_ffi(&raw mut nr, endpoints.as_mut_ptr(), values.as_mut_ptr())?;
             values
         } else {
             // SAFETY: - endpoints is indeed an array of nr = len elements,
             //           values can be null to indicate lack of interest
             //         - Input array contents don't matter as this is an out-parameter
-            call_ffi(&mut nr, endpoints.as_mut_ptr(), ptr::null_mut())?;
+            call_ffi(&raw mut nr, endpoints.as_mut_ptr(), ptr::null_mut())?;
             Vec::new()
         };
         assert_eq!(old_nr, nr, "Inconsistent node count from hwloc");
@@ -1899,7 +1903,7 @@ impl<'topology> MemoryAttribute<'topology> {
             //         - id is trusted to be valid (type invariant)
             //         - flags must be 0 for all of these queries
             //         - value is an out-parameter, input value doesn't matter
-            query(self.topology.as_ptr(), self.id, 0, &mut value)
+            query(self.topology.as_ptr(), self.id, 0, &raw mut value)
         });
         process_result(api, value, result)
     }

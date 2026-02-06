@@ -157,9 +157,9 @@ impl Topology {
                 self.as_ptr(),
                 kind_index,
                 cpuset.as_mut_ptr(),
-                &mut efficiency,
-                &mut nr_infos,
-                &mut infos,
+                &raw mut efficiency,
+                &raw mut nr_infos,
+                &raw mut infos,
                 0,
             )
         })
