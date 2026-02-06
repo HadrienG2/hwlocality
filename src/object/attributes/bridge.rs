@@ -410,7 +410,11 @@ pub(super) mod tests {
             Some(UpstreamAttributes::PCI(pci)) => {
                 prop_assert_eq!(upstream_type, BridgeType::PCI);
                 let actual_ptr: *const hwloc_pcidev_attr_s = pci.as_inner();
-                let expected_ptr = &raw const attr.0.upstream.pci;
+                // SAFETY: This unsafe block will be removed on next MSRV bump
+                //         as this pattern is not considered unsafe anymore,
+                //         though it was considered unsafe by Rust 1.84.
+                #[allow(unused_unsafe)]
+                let expected_ptr = unsafe { &raw const attr.0.upstream.pci };
                 prop_assert_eq!(actual_ptr, expected_ptr);
                 check_any_pci(pci)?;
             }
@@ -427,13 +431,16 @@ pub(super) mod tests {
         prop_assert_eq!(attr.downstream_type(), downstream_type);
         let downstream_type_dbg = format!("downstream_type: {downstream_type:?}");
         let downstream_dbg = match downstream_type {
-            BridgeType::PCI =>
-            {
+            BridgeType::PCI => {
                 #[allow(clippy::single_match_else)]
                 match attr.downstream_attributes() {
                     Some(DownstreamAttributes::PCI(downstream)) => {
                         let actual_ptr: *const RawDownstreamPCIAttributes = downstream.as_inner();
-                        let expected_ptr = &raw const attr.0.downstream.pci;
+                        // SAFETY: This unsafe block will be removed on next MSRV bump
+                        //         as this pattern is not considered unsafe anymore,
+                        //         though it was considered unsafe by Rust 1.84.
+                        #[allow(unused_unsafe)]
+                        let expected_ptr = unsafe { &raw const attr.0.downstream.pci };
                         prop_assert_eq!(actual_ptr, expected_ptr);
                         check_any_downstream_pci(downstream)?;
                         format!(
