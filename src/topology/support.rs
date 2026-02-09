@@ -990,10 +990,13 @@ mod tests {
         assert_eq!(
             discovery_raw,
             hwloc_topology_discovery_support {
-                #[cfg(all(feature = "hwloc-2_4_0", target_os = "linux"))]
                 // Support for cpukind_efficiency varies from one Linux distro
                 // to another, so can't test its value in CI...
+                #[cfg(all(feature = "hwloc-2_4_0", target_os = "linux"))]
                 cpukind_efficiency: discovery_raw.cpukind_efficiency,
+                // Ditto for numa_memory on macos...
+                #[cfg(target_os = "macos")]
+                numa_memory: discovery_raw.numa_memory,
                 ..discovery
             }
         );
