@@ -559,10 +559,10 @@ impl TopologyBuilder {
             (ObjectType::Group, TypeFilter::KeepAll) => {
                 return Err(TypeFilterError::CantKeepGroup.into())
             }
-            (ObjectType::Machine | ObjectType::PU | ObjectType::NUMANode, _) => {
-                if filter != TypeFilter::KeepAll {
-                    return Err(TypeFilterError::CantIgnore(ty).into());
-                }
+            (ObjectType::Machine | ObjectType::PU | ObjectType::NUMANode, _)
+                if filter != TypeFilter::KeepAll =>
+            {
+                return Err(TypeFilterError::CantIgnore(ty).into())
             }
             (_, TypeFilter::KeepStructure) if ty.is_io() || ty == ObjectType::Misc => {
                 return Err(TypeFilterError::StructureIrrelevant.into())
