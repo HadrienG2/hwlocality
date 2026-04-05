@@ -3,15 +3,15 @@ members = ["hwlocality-sys"]
 
 [workspace.package]
 authors = ["Hadrien G. <knights_of_ni@gmx.com>", "Joseph Hirschfeld <j@ibj.io>", "Michael Nitschinger <michael@nitschinger.at>"]
-edition = "2021"
-rust-version = "1.84.0"
+edition = "2024"
+rust-version = "1.85.0"
 repository = "https://github.com/HadrienG2/hwlocality"
 license = "MIT"
 keywords = ["hwloc", "locality", "cache", "numa", "hardware"]
 categories = ["concurrency", "external-ffi-bindings", "hardware-support", "memory-management", "os"]
 
 [workspace.dependencies]
-proptest = { version = "1.10", default-features = false, features = ["std"] }
+proptest = { version = "1.11", default-features = false, features = ["std"] }
 libc = "0.2"
 static_assertions = "1.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
@@ -36,7 +36,7 @@ overflow-checks = false
 
 [package]
 name = "hwlocality"
-version = "1.0.0-alpha.11"
+version = "1.0.0-alpha.12"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -245,7 +245,7 @@ windows-sys.workspace = true
 eyre = "0.6"
 
 # Used to ease debugging of string tests
-similar-asserts = "1.7"
+similar-asserts = "2.0"
 
 # Used for random testing
 proptest.workspace = true

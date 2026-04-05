@@ -1,8 +1,8 @@
 //! Full lists of objects contained within the topology
 
 use super::{
-    depth::{Depth, NormalDepth},
     TopologyObject,
+    depth::{Depth, NormalDepth},
 };
 use crate::topology::Topology;
 #[allow(unused)]
@@ -116,15 +116,19 @@ pub(crate) mod tests {
         let keys = object_ids_from_set(&objects);
 
         let normal_objects = checked_object_set(topology.normal_objects());
-        assert!(normal_objects
-            .values()
-            .all(|obj| obj.object_type().is_normal()));
+        assert!(
+            normal_objects
+                .values()
+                .all(|obj| obj.object_type().is_normal())
+        );
         let normal_keys = object_ids_from_set(&normal_objects);
 
         let virtual_objects = checked_object_set(topology.virtual_objects());
-        assert!(virtual_objects
-            .values()
-            .all(|obj| !obj.object_type().is_normal()));
+        assert!(
+            virtual_objects
+                .values()
+                .all(|obj| !obj.object_type().is_normal())
+        );
         let virtual_keys = object_ids_from_set(&virtual_objects);
 
         assert_eq!(keys, &normal_keys | &virtual_keys);
@@ -132,9 +136,11 @@ pub(crate) mod tests {
         assert_eq!(virtual_keys, &keys - &normal_keys);
 
         let memory_objects = checked_object_set(topology.memory_objects());
-        assert!(memory_objects
-            .values()
-            .all(|obj| obj.object_type().is_memory()));
+        assert!(
+            memory_objects
+                .values()
+                .all(|obj| obj.object_type().is_memory())
+        );
         let memory_keys = object_ids_from_set(&memory_objects);
 
         let io_objects = checked_object_set(topology.io_objects());
@@ -142,9 +148,11 @@ pub(crate) mod tests {
         let io_keys = object_ids_from_set(&io_objects);
 
         let misc_objects = checked_object_set(topology.objects_with_type(ObjectType::Misc));
-        assert!(misc_objects
-            .values()
-            .all(|obj| obj.object_type() == ObjectType::Misc));
+        assert!(
+            misc_objects
+                .values()
+                .all(|obj| obj.object_type() == ObjectType::Misc)
+        );
         let misc_keys = object_ids_from_set(&misc_objects);
 
         assert_eq!(virtual_keys, &(&memory_keys | &io_keys) | &misc_keys);

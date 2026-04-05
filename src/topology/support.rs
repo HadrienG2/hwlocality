@@ -9,7 +9,7 @@
 // - Struct: https://hwloc.readthedocs.io/en/stable/structhwloc__topology__support.html
 
 #[cfg(doc)]
-use super::{builder::BuildFlags, Topology};
+use super::{Topology, builder::BuildFlags};
 use crate::ffi::{
     self,
     transparent::{AsNewtype, TransparentNewtype},
@@ -210,7 +210,14 @@ impl Arbitrary for DiscoverySupport {
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         let b = crate::strategies::hwloc_bool();
         [b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b].prop_map(
-            |([pu, numa, numa_memory, disallowed_pu, disallowed_numa, cpukind_efficiency])| {
+            |([
+                pu,
+                numa,
+                numa_memory,
+                disallowed_pu,
+                disallowed_numa,
+                cpukind_efficiency,
+            ])| {
                 Self(hwloc_topology_discovery_support {
                     pu,
                     numa,
@@ -339,9 +346,19 @@ impl Arbitrary for CpuBindingSupport {
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
         let b = crate::strategies::hwloc_bool();
         [
-            b.clone(), b.clone(), b.clone(), b.clone(), b.clone(), b.clone(),
-            b.clone(), b.clone(), b.clone(), b.clone(), b
-        ].prop_map(
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b.clone(),
+            b,
+        ]
+        .prop_map(
             |([
                 set_thisproc_cpubind,
                 get_thisproc_cpubind,
@@ -353,7 +370,7 @@ impl Arbitrary for CpuBindingSupport {
                 get_thread_cpubind,
                 get_thisproc_last_cpu_location,
                 get_proc_last_cpu_location,
-                get_thisthread_last_cpu_location
+                get_thisthread_last_cpu_location,
             ])| {
                 Self(hwloc_topology_cpubind_support {
                     set_thisproc_cpubind,
@@ -712,8 +729,8 @@ mod tests {
     );
 
     #[cfg(not(feature = "hwloc-2_3_0"))]
-    fn support_components(
-    ) -> impl Strategy<Value = (DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)> {
+    fn support_components()
+    -> impl Strategy<Value = (DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)> {
         any::<(DiscoverySupport, CpuBindingSupport, MemoryBindingSupport)>()
     }
 

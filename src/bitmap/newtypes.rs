@@ -2,7 +2,7 @@
 
 #[cfg(doc)]
 use super::BitmapRef;
-use super::{hwloc_bitmap_s, Bitmap, BitmapIndex};
+use super::{Bitmap, BitmapIndex, hwloc_bitmap_s};
 use crate::Sealed;
 #[cfg(doc)]
 use crate::{cpu::cpuset::CpuSet, memory::nodeset::NodeSet};

@@ -1,7 +1,7 @@
 use eyre::eyre;
 use hwlocality::{
-    object::{attributes::ObjectAttributes, types::ObjectType},
     Topology,
+    object::{attributes::ObjectAttributes, types::ObjectType},
 };
 
 /// Compute the amount of cache that the first logical processor

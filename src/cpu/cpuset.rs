@@ -14,9 +14,9 @@ use crate::{
     impl_bitmap_newtype,
     memory::nodeset::NodeSet,
     object::{
+        TopologyObject,
         depth::{Depth, NormalDepth},
         types::ObjectType,
-        TopologyObject,
     },
     topology::Topology,
 };

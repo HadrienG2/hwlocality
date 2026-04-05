@@ -12,7 +12,7 @@
 use crate::{
     cpu::cpuset::CpuSet,
     memory::nodeset::NodeSet,
-    object::{depth::Depth, TopologyObject},
+    object::{TopologyObject, depth::Depth},
     topology::{
         builder::{TopologyBuilder, TypeFilter},
         support::DiscoverySupport,
@@ -23,15 +23,15 @@ use derive_more::Display;
 #[cfg(feature = "hwloc-3_0_0")]
 use hwlocality_sys::HWLOC_OBJ_OSDEV_MEMORY;
 use hwlocality_sys::{
-    hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t, hwloc_obj_type_t,
     HWLOC_OBJ_BRIDGE, HWLOC_OBJ_BRIDGE_HOST, HWLOC_OBJ_BRIDGE_PCI, HWLOC_OBJ_CACHE_DATA,
     HWLOC_OBJ_CACHE_INSTRUCTION, HWLOC_OBJ_CACHE_UNIFIED, HWLOC_OBJ_CORE, HWLOC_OBJ_GROUP,
     HWLOC_OBJ_L1CACHE, HWLOC_OBJ_L1ICACHE, HWLOC_OBJ_L2CACHE, HWLOC_OBJ_L2ICACHE,
     HWLOC_OBJ_L3CACHE, HWLOC_OBJ_L3ICACHE, HWLOC_OBJ_L4CACHE, HWLOC_OBJ_L5CACHE, HWLOC_OBJ_MACHINE,
-    HWLOC_OBJ_MISC, HWLOC_OBJ_NUMANODE, HWLOC_OBJ_OSDEV_COPROC, HWLOC_OBJ_OSDEV_DMA,
-    HWLOC_OBJ_OSDEV_GPU, HWLOC_OBJ_OSDEV_NETWORK, HWLOC_OBJ_OSDEV_OPENFABRICS,
-    HWLOC_OBJ_OSDEV_STORAGE, HWLOC_OBJ_OS_DEVICE, HWLOC_OBJ_PACKAGE, HWLOC_OBJ_PCI_DEVICE,
-    HWLOC_OBJ_PU, HWLOC_TYPE_UNORDERED,
+    HWLOC_OBJ_MISC, HWLOC_OBJ_NUMANODE, HWLOC_OBJ_OS_DEVICE, HWLOC_OBJ_OSDEV_COPROC,
+    HWLOC_OBJ_OSDEV_DMA, HWLOC_OBJ_OSDEV_GPU, HWLOC_OBJ_OSDEV_NETWORK, HWLOC_OBJ_OSDEV_OPENFABRICS,
+    HWLOC_OBJ_OSDEV_STORAGE, HWLOC_OBJ_PACKAGE, HWLOC_OBJ_PCI_DEVICE, HWLOC_OBJ_PU,
+    HWLOC_TYPE_UNORDERED, hwloc_obj_bridge_type_t, hwloc_obj_cache_type_t, hwloc_obj_osdev_type_t,
+    hwloc_obj_type_t,
 };
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::{HWLOC_OBJ_DIE, HWLOC_OBJ_MEMCACHE};

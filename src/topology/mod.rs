@@ -25,16 +25,16 @@ use crate::{
     ffi::transparent::AsNewtype,
     memory::nodeset::NodeSet,
     object::{
+        TopologyObject,
         depth::{Depth, NormalDepth},
         types::ObjectType,
-        TopologyObject,
     },
 };
 use bitflags::bitflags;
 use errno::Errno;
 use hwlocality_sys::{
-    hwloc_bitmap_s, hwloc_distrib_flags_e, hwloc_topology, hwloc_type_filter_e,
-    HWLOC_DISTRIB_FLAG_REVERSE,
+    HWLOC_DISTRIB_FLAG_REVERSE, hwloc_bitmap_s, hwloc_distrib_flags_e, hwloc_topology,
+    hwloc_type_filter_e,
 };
 use libc::EINVAL;
 #[allow(unused)]
@@ -986,7 +986,9 @@ impl Clone for Topology {
             // SAFETY: - Topology is trusted to contain a valid ptr (type invariant)
             //         - Topology will not be usable again after Drop
             unsafe { hwlocality_sys::hwloc_topology_destroy(clone.as_ptr()) }
-            panic!("ERROR: Failed to refresh topology clone ({e}), so it's stuck in a state that violates Rust aliasing rules...");
+            panic!(
+                "ERROR: Failed to refresh topology clone ({e}), so it's stuck in a state that violates Rust aliasing rules..."
+            );
         }
         Self(clone)
     }

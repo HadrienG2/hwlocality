@@ -1,8 +1,8 @@
 use eyre::eyre;
 use hwlocality::{
-    cpu::binding::CpuBindingFlags,
-    object::{types::ObjectType, TopologyObject},
     Topology,
+    cpu::binding::CpuBindingFlags,
+    object::{TopologyObject, types::ObjectType},
 };
 
 /// Bind to the CPU last core of the machine.

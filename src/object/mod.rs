@@ -26,7 +26,7 @@ use self::{
     types::ObjectType,
 };
 #[cfg(doc)]
-use crate::topology::{builder::BuildFlags, support::DiscoverySupport, Topology};
+use crate::topology::{Topology, builder::BuildFlags, support::DiscoverySupport};
 use crate::{
     bitmap::BitmapRef,
     cpu::cpuset::CpuSet,
@@ -42,7 +42,7 @@ use crate::{
     errors::{self, HybridError, NulError},
     ffi::string::LibcString,
 };
-use hwlocality_sys::{hwloc_obj, HWLOC_UNKNOWN_INDEX};
+use hwlocality_sys::{HWLOC_UNKNOWN_INDEX, hwloc_obj};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
@@ -1223,14 +1223,18 @@ pub(crate) mod tests {
             prop_assert!(parent.object_type().has_sets());
             prop_assert!(parent.cpuset().unwrap().includes(obj.cpuset().unwrap()));
             prop_assert!(parent.nodeset().unwrap().includes(obj.nodeset().unwrap()));
-            prop_assert!(parent
-                .complete_cpuset()
-                .unwrap()
-                .includes(obj.complete_cpuset().unwrap()));
-            prop_assert!(parent
-                .complete_nodeset()
-                .unwrap()
-                .includes(obj.complete_nodeset().unwrap()));
+            prop_assert!(
+                parent
+                    .complete_cpuset()
+                    .unwrap()
+                    .includes(obj.complete_cpuset().unwrap())
+            );
+            prop_assert!(
+                parent
+                    .complete_nodeset()
+                    .unwrap()
+                    .includes(obj.complete_nodeset().unwrap())
+            );
         }
 
         Ok(())
@@ -1320,10 +1324,11 @@ pub(crate) mod tests {
         prop_assert_eq!(cousin.depth(), obj.depth());
         if obj.object_type().has_sets() {
             prop_assert!(!obj.cpuset().unwrap().intersects(cousin.cpuset().unwrap()));
-            prop_assert!(!obj
-                .complete_cpuset()
-                .unwrap()
-                .intersects(cousin.complete_cpuset().unwrap()));
+            prop_assert!(
+                !obj.complete_cpuset()
+                    .unwrap()
+                    .intersects(cousin.complete_cpuset().unwrap())
+            );
         }
         Ok(())
     }
@@ -1443,9 +1448,11 @@ pub(crate) mod tests {
         }
 
         // Only normal objects can be symmetric
-        assert!(topology
-            .virtual_objects()
-            .all(|obj| !obj.is_symmetric_subtree()));
+        assert!(
+            topology
+                .virtual_objects()
+                .all(|obj| !obj.is_symmetric_subtree())
+        );
     }
 
     /// Check that [`TopologyObject::total_memory()`] is correct
@@ -1465,9 +1472,11 @@ pub(crate) mod tests {
             };
             let gp_index = numa.global_persistent_index();
             let local_memory = attrs.local_memory().map_or(0, u64::from);
-            assert!(expected_total_memory
-                .insert(gp_index, local_memory)
-                .is_none());
+            assert!(
+                expected_total_memory
+                    .insert(gp_index, local_memory)
+                    .is_none()
+            );
             assert!(curr_objects.insert(gp_index, numa).is_none());
         }
 
@@ -1543,8 +1552,8 @@ pub(crate) mod tests {
     // --- Querying stuff by cpuset/nodeset ---
 
     /// Pick an object and a related cpuset
-    pub(crate) fn object_and_related_cpuset(
-    ) -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
+    pub(crate) fn object_and_related_cpuset()
+    -> impl Strategy<Value = (&'static TopologyObject, CpuSet)> {
         // Separate objects with and without cpusets
         let topology = Topology::test_instance();
         let mut with_cpuset = Vec::new();

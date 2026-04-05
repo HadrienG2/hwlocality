@@ -1,9 +1,9 @@
 use eyre::eyre;
 use hwlocality::{
+    Topology,
     cpu::binding::CpuBindingFlags,
     object::types::ObjectType,
     topology::support::{DiscoverySupport, FeatureSupport},
-    Topology,
 };
 
 /// Example which spawns one thread per core and then assigns it to each.

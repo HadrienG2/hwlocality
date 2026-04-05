@@ -13,7 +13,7 @@ pub(crate) mod unknown;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
-    ffi::{c_char, CStr},
+    ffi::{CStr, c_char},
     fmt, ptr,
 };
 
@@ -160,8 +160,9 @@ mod tests {
         assert_eq!(unsafe { deref_ptr(&ptr::null::<u16>()) }, None);
         // SAFETY: Safe to call on a null pointer
         assert_eq!(unsafe { deref_ptr_mut(&ptr::null_mut::<u16>()) }, None);
+        let mut null_mut = ptr::null_mut::<u16>();
         // SAFETY: Safe to call on a null pointer
-        assert_eq!(unsafe { deref_mut_ptr(&mut ptr::null_mut::<u16>()) }, None);
+        assert_eq!(unsafe { deref_mut_ptr(&mut null_mut) }, None);
 
         let mut x = 42;
         {
@@ -221,11 +222,13 @@ mod tests {
             i32::try_from(original_bytes.len() - 1).unwrap()
         }
 
-        // SAFETY: snprintf closure is indeed an snprintf-like function
-        assert!(unsafe { call_snprintf(|buf, len| snprintf(buf, len)) }
-            .iter()
-            .copied()
-            .eq(ORIGINAL.bytes().map(|b| c_char::try_from(b).unwrap())));
+        assert!(
+            // SAFETY: snprintf closure is indeed an snprintf-like function
+            unsafe { call_snprintf(|buf, len| snprintf(buf, len)) }
+                .iter()
+                .copied()
+                .eq(ORIGINAL.bytes().map(|b| c_char::try_from(b).unwrap()))
+        );
 
         struct Harness;
         //

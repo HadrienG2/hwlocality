@@ -33,7 +33,7 @@ pub enum BitmapCow<'target, Target: OwnedBitmap> {
     Owned(Target),
 }
 
-impl<'target, Target: OwnedBitmap> BitmapCow<'target, Target> {
+impl<Target: OwnedBitmap> BitmapCow<'_, Target> {
     /// Extracts the owned bitmap
     ///
     /// Clones the bitmap if it is not already owned.
@@ -45,7 +45,7 @@ impl<'target, Target: OwnedBitmap> BitmapCow<'target, Target> {
     }
 }
 
-impl<'target, Target: OwnedBitmap> AsRef<Target> for BitmapCow<'target, Target> {
+impl<Target: OwnedBitmap> AsRef<Target> for BitmapCow<'_, Target> {
     fn as_ref(&self) -> &Target {
         match self {
             Self::Borrowed(b) => b.as_ref(),
@@ -94,7 +94,7 @@ impl<'target, Target: OwnedBitmap> From<BitmapRef<'target, Target>> for BitmapCo
     }
 }
 
-impl<'target, Target: OwnedBitmap + Hash> Hash for BitmapCow<'target, Target> {
+impl<Target: OwnedBitmap + Hash> Hash for BitmapCow<'_, Target> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_ref().hash(state)
     }

@@ -190,12 +190,12 @@ pub(super) mod tests {
     use crate::{
         ffi::transparent::AsInner,
         object::{
+            TopologyObject,
             attributes::{
-                tests::{object_pair, ObjectsWithAttrs},
                 ObjectAttributes,
+                tests::{ObjectsWithAttrs, object_pair},
             },
             types::ObjectType,
-            TopologyObject,
         },
         tests::assert_panics,
     };

@@ -26,13 +26,13 @@
 
 use crate::ffi::{int::PositiveInt, unknown::UnknownVariant};
 #[cfg(doc)]
-use crate::object::{types::ObjectType, TopologyObject};
+use crate::object::{TopologyObject, types::ObjectType};
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_TYPE_DEPTH_MEMCACHE;
 use hwlocality_sys::{
-    hwloc_get_type_depth_e, HWLOC_TYPE_DEPTH_BRIDGE, HWLOC_TYPE_DEPTH_MISC,
-    HWLOC_TYPE_DEPTH_MULTIPLE, HWLOC_TYPE_DEPTH_NUMANODE, HWLOC_TYPE_DEPTH_OS_DEVICE,
-    HWLOC_TYPE_DEPTH_PCI_DEVICE, HWLOC_TYPE_DEPTH_UNKNOWN,
+    HWLOC_TYPE_DEPTH_BRIDGE, HWLOC_TYPE_DEPTH_MISC, HWLOC_TYPE_DEPTH_MULTIPLE,
+    HWLOC_TYPE_DEPTH_NUMANODE, HWLOC_TYPE_DEPTH_OS_DEVICE, HWLOC_TYPE_DEPTH_PCI_DEVICE,
+    HWLOC_TYPE_DEPTH_UNKNOWN, hwloc_get_type_depth_e,
 };
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;

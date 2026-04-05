@@ -41,16 +41,16 @@ use crate::{
         transparent::{AsInner, AsNewtype},
     },
     memory::nodeset::NodeSet,
-    object::{attributes::GroupAttributes, types::ObjectType, TopologyObject},
-    topology::{builder::TypeFilter, Topology},
+    object::{TopologyObject, attributes::GroupAttributes, types::ObjectType},
+    topology::{Topology, builder::TypeFilter},
 };
 use bitflags::bitflags;
 use errno::Errno;
 use hwlocality_sys::{
-    hwloc_restrict_flags_e, hwloc_topology, HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM,
-    HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS, HWLOC_RESTRICT_FLAG_ADAPT_IO,
-    HWLOC_RESTRICT_FLAG_ADAPT_MISC, HWLOC_RESTRICT_FLAG_BYNODESET,
-    HWLOC_RESTRICT_FLAG_REMOVE_CPULESS, HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS,
+    HWLOC_ALLOW_FLAG_ALL, HWLOC_ALLOW_FLAG_CUSTOM, HWLOC_ALLOW_FLAG_LOCAL_RESTRICTIONS,
+    HWLOC_RESTRICT_FLAG_ADAPT_IO, HWLOC_RESTRICT_FLAG_ADAPT_MISC, HWLOC_RESTRICT_FLAG_BYNODESET,
+    HWLOC_RESTRICT_FLAG_REMOVE_CPULESS, HWLOC_RESTRICT_FLAG_REMOVE_MEMLESS, hwloc_restrict_flags_e,
+    hwloc_topology,
 };
 use libc::{EINVAL, ENOMEM, ENOSYS};
 #[allow(unused)]
@@ -121,7 +121,9 @@ impl Topology {
         });
         #[cfg(not(tarpaulin_include))]
         if let Err(e) = result {
-            eprintln!("ERROR: Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules. Must abort...");
+            eprintln!(
+                "ERROR: Failed to refresh topology ({e}), so it's stuck in a state that violates Rust aliasing rules. Must abort..."
+            );
             std::process::abort()
         }
 
@@ -1633,8 +1635,8 @@ mod tests {
     use super::*;
     use crate::{
         object::{
-            depth::{Depth, NormalDepth},
             TopologyObjectID,
+            depth::{Depth, NormalDepth},
         },
         strategies::{any_object, any_string, topology_related_set},
     };
@@ -2605,9 +2607,11 @@ mod tests {
             let obj = res.unwrap();
             prop_assert_eq!(obj.object_type(), ObjectType::Misc);
             prop_assert_eq!(obj.name().unwrap().to_str().unwrap(), name);
-            prop_assert!(parent
-                .misc_children()
-                .any(|child| child.global_persistent_index() == obj.global_persistent_index()));
+            prop_assert!(
+                parent
+                    .misc_children()
+                    .any(|child| child.global_persistent_index() == obj.global_persistent_index())
+            );
             Ok(())
         })?;
         Ok(topology)

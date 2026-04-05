@@ -59,10 +59,10 @@ impl Topology {
         &self,
     ) -> Result<
         impl DoubleEndedIterator<Item = Result<CpuSet, RawHwlocError>>
-            + Clone
-            + ExactSizeIterator
-            + FusedIterator
-            + '_,
+        + Clone
+        + ExactSizeIterator
+        + FusedIterator
+        + '_,
         RawHwlocError,
     > {
         Ok(

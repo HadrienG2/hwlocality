@@ -8,12 +8,12 @@
 //! itself only hosts type definitions that are related to this functionality.
 
 use crate::{
+    ProcessId,
     bitmap::{Bitmap, BitmapKind, SpecializedBitmap, SpecializedBitmapRef},
     errors::{self, FlagsError, HybridError, RawHwlocError},
     ffi::unknown::UnknownVariant,
     memory::nodeset::NodeSet,
     topology::Topology,
-    ProcessId,
 };
 #[cfg(doc)]
 use crate::{cpu::cpuset::CpuSet, topology::support::MemoryBindingSupport};
@@ -23,11 +23,11 @@ use errno::Errno;
 #[cfg(feature = "hwloc-2_11_0")]
 use hwlocality_sys::HWLOC_MEMBIND_WEIGHTED_INTERLEAVE;
 use hwlocality_sys::{
+    HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET, HWLOC_MEMBIND_DEFAULT, HWLOC_MEMBIND_FIRSTTOUCH,
+    HWLOC_MEMBIND_INTERLEAVE, HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED, HWLOC_MEMBIND_NEXTTOUCH,
+    HWLOC_MEMBIND_NOCPUBIND, HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT, HWLOC_MEMBIND_THREAD,
     hwloc_bitmap_t, hwloc_const_bitmap_t, hwloc_const_topology_t, hwloc_membind_flags_t,
-    hwloc_membind_policy_t, hwloc_pid_t, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET,
-    HWLOC_MEMBIND_DEFAULT, HWLOC_MEMBIND_FIRSTTOUCH, HWLOC_MEMBIND_INTERLEAVE,
-    HWLOC_MEMBIND_MIGRATE, HWLOC_MEMBIND_MIXED, HWLOC_MEMBIND_NEXTTOUCH, HWLOC_MEMBIND_NOCPUBIND,
-    HWLOC_MEMBIND_PROCESS, HWLOC_MEMBIND_STRICT, HWLOC_MEMBIND_THREAD,
+    hwloc_membind_policy_t, hwloc_pid_t,
 };
 use libc::{ENOMEM, ENOSYS, EXDEV};
 #[allow(unused)]

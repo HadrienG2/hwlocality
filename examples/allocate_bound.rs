@@ -1,8 +1,8 @@
 use eyre::eyre;
 use hwlocality::{
-    memory::binding::{MemoryBindingFlags, MemoryBindingPolicy},
-    object::{depth::Depth, TopologyObject},
     Topology,
+    memory::binding::{MemoryBindingFlags, MemoryBindingPolicy},
+    object::{TopologyObject, depth::Depth},
 };
 
 /// Allocate 4 MiB of memory that is bound to the last NUMA node on the system

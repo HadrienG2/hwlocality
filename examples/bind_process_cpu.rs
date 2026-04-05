@@ -1,8 +1,8 @@
 use eyre::eyre;
 use hwlocality::{
-    cpu::binding::CpuBindingFlags,
-    object::{types::ObjectType, TopologyObject},
     Topology,
+    cpu::binding::CpuBindingFlags,
+    object::{TopologyObject, types::ObjectType},
 };
 
 /// Example which binds an arbitrary process (in this example this very same one)

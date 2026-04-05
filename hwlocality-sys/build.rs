@@ -131,7 +131,11 @@ fn setup_vendored_hwloc(min_required_version: &str) {
 /// Decode a hexadecimal digest into a stream of bytes
 #[cfg(feature = "vendored")]
 fn hex(hex: &'static str) -> Box<[u8]> {
-    assert_eq!(hex.len() % 2, 0, "Digest string {hex:?} should contain full bytes, i.e. pairs of hex digits, but it contains an odd number of bytes");
+    assert_eq!(
+        hex.len() % 2,
+        0,
+        "Digest string {hex:?} should contain full bytes, i.e. pairs of hex digits, but it contains an odd number of bytes"
+    );
     hex.as_bytes()
         .chunks_exact(2)
         .map(|hexdigit_pair| {
@@ -286,9 +290,13 @@ fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Combine it with any pre-existing PKG_CONFIG_PATH
     match env::var("PKG_CONFIG_PATH") {
         Ok(old_path) if !old_path.is_empty() => {
-            env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}"))
+            // SAFETY: Safe to call in a single-threaded program
+            unsafe { env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}")) }
         }
-        Ok(_) | Err(env::VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
+        Ok(_) | Err(env::VarError::NotPresent) => {
+            // SAFETY: Safe to call in a single-threaded program
+            unsafe { env::set_var("PKG_CONFIG_PATH", new_path) }
+        }
         Err(other_err) => panic!("Failed to check PKG_CONFIG_PATH: {other_err}"),
     }
 

@@ -1,4 +1,4 @@
-use hwlocality::{object::TopologyObject, Topology};
+use hwlocality::{Topology, object::TopologyObject};
 
 /// Walk the topologylogy in a tree-style and print it.
 fn main() -> eyre::Result<()> {

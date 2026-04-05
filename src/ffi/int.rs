@@ -881,11 +881,7 @@ impl PositiveInt {
     /// ```
     #[allow(clippy::if_then_some_else_none)]
     pub const fn checked_neg(self) -> Option<Self> {
-        if self.0 == 0 {
-            Some(Self(0))
-        } else {
-            None
-        }
+        if self.0 == 0 { Some(Self(0)) } else { None }
     }
 
     /// Checked shift left. Computes `self << rhs`, returning `None` if `rhs` is
@@ -2979,7 +2975,9 @@ macro_rules! shl_with_int {
     )* };
 }
 //
-shl_with_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+shl_with_int!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
+);
 
 impl<Rhs> ShlAssign<Rhs> for PositiveInt
 where
@@ -3076,7 +3074,9 @@ macro_rules! shr_with_int {
     )* };
 }
 //
-shr_with_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+shr_with_int!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
+);
 
 impl<Rhs> ShrAssign<Rhs> for PositiveInt
 where

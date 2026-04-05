@@ -1,10 +1,10 @@
 //! Queries against the depth- and type-based hierarchy of objects
 
 use super::{
+    TopologyObject,
     attributes::ObjectAttributes,
     depth::{Depth, NormalDepth, TypeToDepthError},
     types::{CacheType, ObjectType},
-    TopologyObject,
 };
 use crate::{
     ffi::{int, transparent::AsNewtype, unknown::UnknownVariant},

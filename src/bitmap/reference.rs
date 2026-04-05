@@ -713,14 +713,18 @@ pub(super) mod tests {
         prop_assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
 
         bitmap::allow_infinite_iteration(|| {
-            prop_assert!(bitmap
-                .iter_set()
-                .take(INFINITE_EXPLORE_ITERS)
-                .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
-            prop_assert!(bitmap
-                .iter_set()
-                .take(INFINITE_EXPLORE_ITERS)
-                .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
+            prop_assert!(
+                bitmap
+                    .iter_set()
+                    .take(INFINITE_EXPLORE_ITERS)
+                    .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS))
+            );
+            prop_assert!(
+                bitmap
+                    .iter_set()
+                    .take(INFINITE_EXPLORE_ITERS)
+                    .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS))
+            );
             Ok(())
         })?;
 

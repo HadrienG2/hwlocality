@@ -3,9 +3,9 @@
 use crate::{
     errors::ParameterError,
     object::{
+        TopologyObject,
         attributes::{ObjectAttributes, PCIDomain},
         depth::Depth,
-        TopologyObject,
     },
     topology::Topology,
 };
@@ -200,17 +200,19 @@ mod tests {
                 let Some(ObjectAttributes::PCIDevice(pci)) = device.attributes() else {
                     unreachable!("All PCI devices should have PCI attributes")
                 };
-                assert!(result
-                    .insert(
-                        PCIAddress {
-                            domain: pci.domain(),
-                            bus_id: pci.bus_id(),
-                            bus_device: pci.bus_device(),
-                            function: pci.function(),
-                        },
-                        device
-                    )
-                    .is_none());
+                assert!(
+                    result
+                        .insert(
+                            PCIAddress {
+                                domain: pci.domain(),
+                                bus_id: pci.bus_id(),
+                                bus_device: pci.bus_device(),
+                                function: pci.function(),
+                            },
+                            device
+                        )
+                        .is_none()
+                );
             }
             result
         })

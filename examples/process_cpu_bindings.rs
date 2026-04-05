@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use hwlocality::{
+    ProcessId, Topology,
     cpu::{binding::CpuBindingFlags, cpuset::CpuSet},
     topology::{
         builder::BuildFlags,
         support::{CpuBindingSupport, FeatureSupport},
     },
-    ProcessId, Topology,
 };
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
