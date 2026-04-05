@@ -160,8 +160,9 @@ mod tests {
         assert_eq!(unsafe { deref_ptr(&ptr::null::<u16>()) }, None);
         // SAFETY: Safe to call on a null pointer
         assert_eq!(unsafe { deref_ptr_mut(&ptr::null_mut::<u16>()) }, None);
+        let mut null_mut = ptr::null_mut::<u16>();
         // SAFETY: Safe to call on a null pointer
-        assert_eq!(unsafe { deref_mut_ptr(&mut ptr::null_mut::<u16>()) }, None);
+        assert_eq!(unsafe { deref_mut_ptr(&mut null_mut) }, None);
 
         let mut x = 42;
         {

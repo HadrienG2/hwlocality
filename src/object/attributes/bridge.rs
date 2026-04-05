@@ -410,9 +410,10 @@ pub(super) mod tests {
             Some(UpstreamAttributes::PCI(pci)) => {
                 prop_assert_eq!(upstream_type, BridgeType::PCI);
                 let actual_ptr: *const hwloc_pcidev_attr_s = pci.as_inner();
-                // SAFETY: This unsafe block will be removed on next MSRV bump
-                //         as this pattern is not considered unsafe anymore,
-                //         though it was considered unsafe by Rust 1.84.
+                // SAFETY: This unsafe block will be removed on a future MSRV
+                //         bump as this pattern is not considered unsafe
+                //         anymore, but was considered unsafe by Rust 1.85 which
+                //         is our current MSRV.
                 #[allow(unused_unsafe)]
                 let expected_ptr = unsafe { &raw const attr.0.upstream.pci };
                 prop_assert_eq!(actual_ptr, expected_ptr);
@@ -436,9 +437,10 @@ pub(super) mod tests {
                 match attr.downstream_attributes() {
                     Some(DownstreamAttributes::PCI(downstream)) => {
                         let actual_ptr: *const RawDownstreamPCIAttributes = downstream.as_inner();
-                        // SAFETY: This unsafe block will be removed on next MSRV bump
-                        //         as this pattern is not considered unsafe anymore,
-                        //         though it was considered unsafe by Rust 1.84.
+                        // SAFETY: This unsafe block will be removed on a future
+                        //         MSRV bump as this pattern is not considered
+                        //         unsafe anymore, but was considered unsafe by
+                        //         Rust 1.85 which is our current MSRV.
                         #[allow(unused_unsafe)]
                         let expected_ptr = unsafe { &raw const attr.0.downstream.pci };
                         prop_assert_eq!(actual_ptr, expected_ptr);

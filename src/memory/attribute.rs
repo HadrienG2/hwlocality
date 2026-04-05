@@ -2340,10 +2340,8 @@ impl NUMAInitiator<'_> {
         topology: &Topology,
     ) -> Result<(Option<hwloc_location>, LocalNUMANodeFlags), ForeignInitiatorError> {
         match self {
-            Self::Local {
-                initiator,
-                mut flags,
-            } => {
+            Self::Local { initiator, flags } => {
+                let mut flags = *flags;
                 flags.remove(LocalNUMANodeFlags::ALL);
                 // SAFETY: Per function precondition
                 Ok((Some(unsafe { initiator.as_checked_raw(topology)? }), flags))
@@ -3269,7 +3267,7 @@ mod tests {
     fn initiators(
         flags: MemoryAttributeFlags,
         targets_and_values: &TargetsAndValues,
-    ) -> impl Strategy<Value = Initiators> {
+    ) -> impl Strategy<Value = Initiators> + use<> {
         // Query basic topology properties
         let topology = Topology::test_instance();
         let num_objects = topology.objects().count();

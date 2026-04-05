@@ -7,7 +7,7 @@
 [![Code coverage](https://codecov.io/gh/HadrienG2/hwlocality/graph/badge.svg?token=OYWLNUD9AI)](https://codecov.io/gh/HadrienG2/hwlocality)
 [![CII Best Practices Summary](https://img.shields.io/cii/summary/7876)](https://www.bestpractices.dev/en/projects/7876)
 ![Requires rustc
-1.82.0+](https://img.shields.io/badge/rustc-1.84.0+-lightgray.svg)
+1.85.0+](https://img.shields.io/badge/rustc-1.85.0+-lightgray.svg)
 
 ## What is this?
 

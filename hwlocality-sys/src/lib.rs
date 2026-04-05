@@ -2375,7 +2375,7 @@ pub use memory_attributes::*;
 macro_rules! extern_c_block {
     ($link_name:literal) => {
         #[link(name = $link_name)]
-        extern "C" {
+        unsafe extern "C" {
             // === API versioning: https://hwloc.readthedocs.io/en/stable/group__hwlocality__api__version.html
 
             /// Indicate at runtime which hwloc API version was used at build time

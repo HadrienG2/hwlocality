@@ -286,9 +286,13 @@ fn install_hwloc_autotools(source_path: impl AsRef<Path>) {
     // Combine it with any pre-existing PKG_CONFIG_PATH
     match env::var("PKG_CONFIG_PATH") {
         Ok(old_path) if !old_path.is_empty() => {
-            env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}"))
+            // SAFETY: Safe to call in a single-threaded program
+            unsafe { env::set_var("PKG_CONFIG_PATH", format!("{new_path}:{old_path}")) }
         }
-        Ok(_) | Err(env::VarError::NotPresent) => env::set_var("PKG_CONFIG_PATH", new_path),
+        Ok(_) | Err(env::VarError::NotPresent) => {
+            // SAFETY: Safe to call in a single-threaded program
+            unsafe { env::set_var("PKG_CONFIG_PATH", new_path) }
+        }
         Err(other_err) => panic!("Failed to check PKG_CONFIG_PATH: {other_err}"),
     }
 
