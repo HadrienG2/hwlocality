@@ -131,7 +131,11 @@ fn setup_vendored_hwloc(min_required_version: &str) {
 /// Decode a hexadecimal digest into a stream of bytes
 #[cfg(feature = "vendored")]
 fn hex(hex: &'static str) -> Box<[u8]> {
-    assert_eq!(hex.len() % 2, 0, "Digest string {hex:?} should contain full bytes, i.e. pairs of hex digits, but it contains an odd number of bytes");
+    assert_eq!(
+        hex.len() % 2,
+        0,
+        "Digest string {hex:?} should contain full bytes, i.e. pairs of hex digits, but it contains an odd number of bytes"
+    );
     hex.as_bytes()
         .chunks_exact(2)
         .map(|hexdigit_pair| {

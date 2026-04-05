@@ -26,8 +26,8 @@ use crate::{
         string::LibcString,
         transparent::{AsInner, AsNewtype},
     },
-    object::{types::ObjectType, TopologyObject, TopologyObjectID},
-    topology::{editor::TopologyEditor, Topology},
+    object::{TopologyObject, TopologyObjectID, types::ObjectType},
+    topology::{Topology, editor::TopologyEditor},
 };
 use bitflags::bitflags;
 use derive_more::{Display, From};
@@ -35,12 +35,13 @@ use errno::Errno;
 #[cfg(feature = "hwloc-2_12_1")]
 use hwlocality_sys::HWLOC_LOCAL_NUMANODE_FLAG_INTERSECT_LOCALITY;
 use hwlocality_sys::{
-    hwloc_const_topology_t, hwloc_local_numanode_flag_e, hwloc_location, hwloc_location_u,
-    hwloc_memattr_flag_e, hwloc_memattr_id_t, hwloc_obj, HWLOC_LOCAL_NUMANODE_FLAG_ALL,
-    HWLOC_LOCAL_NUMANODE_FLAG_LARGER_LOCALITY, HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY,
-    HWLOC_LOCATION_TYPE_CPUSET, HWLOC_LOCATION_TYPE_OBJECT, HWLOC_MEMATTR_FLAG_HIGHER_FIRST,
-    HWLOC_MEMATTR_FLAG_LOWER_FIRST, HWLOC_MEMATTR_FLAG_NEED_INITIATOR, HWLOC_MEMATTR_ID_BANDWIDTH,
-    HWLOC_MEMATTR_ID_CAPACITY, HWLOC_MEMATTR_ID_LATENCY, HWLOC_MEMATTR_ID_LOCALITY,
+    HWLOC_LOCAL_NUMANODE_FLAG_ALL, HWLOC_LOCAL_NUMANODE_FLAG_LARGER_LOCALITY,
+    HWLOC_LOCAL_NUMANODE_FLAG_SMALLER_LOCALITY, HWLOC_LOCATION_TYPE_CPUSET,
+    HWLOC_LOCATION_TYPE_OBJECT, HWLOC_MEMATTR_FLAG_HIGHER_FIRST, HWLOC_MEMATTR_FLAG_LOWER_FIRST,
+    HWLOC_MEMATTR_FLAG_NEED_INITIATOR, HWLOC_MEMATTR_ID_BANDWIDTH, HWLOC_MEMATTR_ID_CAPACITY,
+    HWLOC_MEMATTR_ID_LATENCY, HWLOC_MEMATTR_ID_LOCALITY, hwloc_const_topology_t,
+    hwloc_local_numanode_flag_e, hwloc_location, hwloc_location_u, hwloc_memattr_flag_e,
+    hwloc_memattr_id_t, hwloc_obj,
 };
 #[cfg(feature = "hwloc-2_8_0")]
 use hwlocality_sys::{
@@ -53,7 +54,7 @@ use libc::{EBUSY, EINVAL, ENOENT};
 use similar_asserts::assert_eq;
 use std::{
     collections::{HashMap, HashSet},
-    ffi::{c_int, c_uint, c_ulong, CStr},
+    ffi::{CStr, c_int, c_uint, c_ulong},
     fmt::{self, Debug},
     hash::Hash,
     mem::MaybeUninit,
@@ -1087,7 +1088,9 @@ pub enum ValueInputError {
     /// Some provided initiator have the `Object` type, which the currently
     /// enabled set of hwlocs version does not properly support (need hwloc
     /// v3.0.0 or newer)
-    #[error("some initiators are Objects, but you need to request hwloc v3+ via feature hwloc-3_0_0 for that")]
+    #[error(
+        "some initiators are Objects, but you need to request hwloc v3+ via feature hwloc-3_0_0 for that"
+    )]
     ObjectInitiator,
 
     /// Some provided targets are [`TopologyObject`]s that do not belong to
@@ -2715,9 +2718,11 @@ mod tests {
             ) = (expected_best_targets, best_target)
             {
                 assert_eq!(best_value, expected_best_value);
-                assert!(expected_best_targets
-                    .into_iter()
-                    .any(|target_id| { best_target.global_persistent_index() == target_id }));
+                assert!(
+                    expected_best_targets
+                        .into_iter()
+                        .any(|target_id| { best_target.global_persistent_index() == target_id })
+                );
             }
         }
     }
@@ -2749,10 +2754,12 @@ mod tests {
         ) = (expected_best_targets, best_target)
         {
             assert_eq!(best_value, expected_best_value);
-            assert!(expected_best_targets
-                .into_iter()
-                .any(|target| target.global_persistent_index()
-                    == best_target.global_persistent_index()));
+            assert!(
+                expected_best_targets
+                    .into_iter()
+                    .any(|target| target.global_persistent_index()
+                        == best_target.global_persistent_index())
+            );
         }
     }
 
@@ -2786,8 +2793,8 @@ mod tests {
     /// Pick a memory attribute and a target that has a chance of being correct
     /// for this attribute, but may be a random object possibly coming from
     /// another topology.
-    fn memory_attribute_and_target(
-    ) -> impl Strategy<Value = (MemoryAttribute<'static>, &'static TopologyObject)> {
+    fn memory_attribute_and_target()
+    -> impl Strategy<Value = (MemoryAttribute<'static>, &'static TopologyObject)> {
         memory_attribute().prop_flat_map(|attr| {
             let targets = attr.targets(None).unwrap().0;
             let target = if targets.is_empty() {
@@ -2974,8 +2981,8 @@ mod tests {
     /// Given a memory attribute, pick an initiator that has a chance of being
     /// correct for this attribute, but may be a random object possibly coming
     /// from another topology.
-    fn memory_attribute_and_initiator(
-    ) -> impl Strategy<Value = (MemoryAttribute<'static>, Option<Initiator<'static>>)> {
+    fn memory_attribute_and_initiator()
+    -> impl Strategy<Value = (MemoryAttribute<'static>, Option<Initiator<'static>>)> {
         memory_attribute_target_initiator().prop_map(|(attr, _target, initiator)| (attr, initiator))
     }
 
@@ -3731,9 +3738,11 @@ mod tests {
                 prop_assert_eq!(new_attr.value(None, target), Ok(Some(*expected_value)));
                 let target_id = target.global_persistent_index();
                 id_to_target.entry(target_id).or_insert(target);
-                prop_assert!(target_id_to_value
-                    .insert(target_id, *expected_value)
-                    .is_none());
+                prop_assert!(
+                    target_id_to_value
+                        .insert(target_id, *expected_value)
+                        .is_none()
+                );
             }
 
             // There is no initiator, so there's a target-to-value mapping

@@ -166,12 +166,12 @@ pub(super) mod tests {
     use crate::{
         ffi::transparent::AsInner,
         object::{
+            TopologyObject,
             attributes::{
-                tests::{object_pair, parent_child, ObjectsWithAttrs},
                 ObjectAttributes,
+                tests::{ObjectsWithAttrs, object_pair, parent_child},
             },
             types::ObjectType,
-            TopologyObject,
         },
     };
     use hwlocality_sys::hwloc_obj_attr_u;

@@ -8,6 +8,7 @@
 
 use errno::Errno;
 use hwlocality::{
+    ProcessId,
     bitmap::{Bitmap, BitmapIndex, BitmapKind, BitmapRef, SpecializedBitmap, SpecializedBitmapRef},
     cpu::{
         binding::{CpuBindingError, CpuBindingFlags, CpuBoundObject},
@@ -22,10 +23,9 @@ use hwlocality::{
         nodeset::NodeSet,
     },
     topology::{
-        support::{FeatureSupport, MemoryBindingSupport},
         Topology,
+        support::{FeatureSupport, MemoryBindingSupport},
     },
-    ProcessId,
 };
 use proptest::{prelude::*, test_runner::TestRunner};
 use std::{

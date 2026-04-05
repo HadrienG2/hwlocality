@@ -12,14 +12,14 @@ use crate::{
     topology::Topology,
 };
 use bitflags::bitflags;
-use hwlocality_sys::{hwloc_topology_export_xml_flags_e, HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1};
+use hwlocality_sys::{HWLOC_TOPOLOGY_EXPORT_XML_FLAG_V1, hwloc_topology_export_xml_flags_e};
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
-    ffi::{c_char, c_uint, CStr, OsStr},
+    ffi::{CStr, OsStr, c_char, c_uint},
     fmt::{self, Debug, Display},
     hash::Hash,
     ops::{Deref, Index},

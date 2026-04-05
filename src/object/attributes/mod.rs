@@ -107,8 +107,8 @@ mod tests {
     };
     use crate::{
         object::{
-            types::{BridgeType, CacheType},
             TopologyObject,
+            types::{BridgeType, CacheType},
         },
         topology::Topology,
     };

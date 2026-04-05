@@ -23,7 +23,7 @@ use crate::{errors::FlagsError, ffi::unknown::UnknownVariant};
 use crate::{
     errors::{self, ForeignObjectError, RawHwlocError},
     ffi::{self, int, transparent::TransparentNewtype},
-    object::{depth::Depth, types::ObjectType, TopologyObject, TopologyObjectID},
+    object::{TopologyObject, TopologyObjectID, depth::Depth, types::ObjectType},
     topology::Topology,
 };
 #[cfg(feature = "hwloc-2_1_0")]
@@ -34,17 +34,17 @@ use crate::{
 use bitflags::bitflags;
 #[cfg(feature = "hwloc-2_1_0")]
 use hwlocality_sys::HWLOC_DISTANCES_KIND_HETEROGENEOUS_TYPES;
-use hwlocality_sys::{
-    hwloc_const_topology_t, hwloc_distances_kind_e, hwloc_distances_s, hwloc_obj, hwloc_topology,
-    HWLOC_DISTANCES_KIND_FROM_OS, HWLOC_DISTANCES_KIND_FROM_USER,
-    HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH, HWLOC_DISTANCES_KIND_MEANS_LATENCY,
-};
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
-    hwloc_distances_add_flag_e, hwloc_distances_transform_e, HWLOC_DISTANCES_ADD_FLAG_GROUP,
-    HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE, HWLOC_DISTANCES_TRANSFORM_LINKS,
-    HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS, HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL,
-    HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
+    HWLOC_DISTANCES_ADD_FLAG_GROUP, HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE,
+    HWLOC_DISTANCES_TRANSFORM_LINKS, HWLOC_DISTANCES_TRANSFORM_MERGE_SWITCH_PORTS,
+    HWLOC_DISTANCES_TRANSFORM_REMOVE_NULL, HWLOC_DISTANCES_TRANSFORM_TRANSITIVE_CLOSURE,
+    hwloc_distances_add_flag_e, hwloc_distances_transform_e,
+};
+use hwlocality_sys::{
+    HWLOC_DISTANCES_KIND_FROM_OS, HWLOC_DISTANCES_KIND_FROM_USER,
+    HWLOC_DISTANCES_KIND_MEANS_BANDWIDTH, HWLOC_DISTANCES_KIND_MEANS_LATENCY,
+    hwloc_const_topology_t, hwloc_distances_kind_e, hwloc_distances_s, hwloc_obj, hwloc_topology,
 };
 #[allow(unused)]
 #[cfg(test)]
@@ -968,9 +968,9 @@ impl<'topology> Distances<'topology> {
     pub fn objects(
         &self,
     ) -> impl DoubleEndedIterator<Item = Option<&TopologyObject>>
-           + Clone
-           + ExactSizeIterator
-           + FusedIterator {
+    + Clone
+    + ExactSizeIterator
+    + FusedIterator {
         // SAFETY: - inner is assumed valid as a type invariant, thus objs &
         //           num_objects() are trusted to be consistent, objs is assumed
         //           unaliased and bound to the lifetime of self.topology,
@@ -1161,10 +1161,10 @@ impl<'topology> Distances<'topology> {
     pub fn enumerate_distances(
         &self,
     ) -> impl DoubleEndedIterator<Item = ((usize, usize), u64)>
-           + Clone
-           + ExactSizeIterator
-           + FusedIterator
-           + '_ {
+    + Clone
+    + ExactSizeIterator
+    + FusedIterator
+    + '_ {
         let num_objects = self.num_objects();
         self.distances()
             .iter()

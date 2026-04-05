@@ -19,7 +19,7 @@ use crate::{
     errors::{self},
     ffi::{int, string::LibcString, transparent::AsNewtype},
     info::TextualInfo,
-    topology::{editor::TopologyEditor, Topology},
+    topology::{Topology, editor::TopologyEditor},
 };
 use derive_more::Display;
 use hwlocality_sys::hwloc_info_s;

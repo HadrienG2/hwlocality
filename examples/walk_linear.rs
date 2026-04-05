@@ -1,4 +1,4 @@
-use hwlocality::{object::depth::NormalDepth, Topology};
+use hwlocality::{Topology, object::depth::NormalDepth};
 
 /// Walk the topology with an array style, from depth 0 (always Machine)
 /// to the lowest depth (always logical processors).

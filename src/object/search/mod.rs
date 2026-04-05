@@ -2,7 +2,7 @@
 
 mod io;
 
-use super::{types::ObjectType, TopologyObject, TopologyObjectID};
+use super::{TopologyObject, TopologyObjectID, types::ObjectType};
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::errors::NulError;
 #[cfg(doc)]
@@ -106,9 +106,9 @@ impl Topology {
         &self,
         ty: ObjectType,
     ) -> impl DoubleEndedIterator<Item = (&TopologyObject, usize)>
-           + Clone
-           + ExactSizeIterator
-           + FusedIterator {
+    + Clone
+    + ExactSizeIterator
+    + FusedIterator {
         self.objects_at_depth(
             self.depth_for_type(ty)
                 .expect("These objects should only appear at a single depth"),
@@ -657,8 +657,8 @@ mod tests {
     /// Generate type-index paths that are mostly valid, but will occasionally
     /// be disordered or invalid, tell what the expected result is if the path
     /// is valid and None otherwise
-    fn type_index_path(
-    ) -> impl Strategy<Value = (Vec<(ObjectType, usize)>, Option<&'static TopologyObject>)> {
+    fn type_index_path()
+    -> impl Strategy<Value = (Vec<(ObjectType, usize)>, Option<&'static TopologyObject>)> {
         // First, have a strategy for generating correct paths
         let topology = Topology::test_instance();
         let valid_path = object_with_cpuset()

@@ -14,15 +14,15 @@ use crate::{
 };
 use bitflags::bitflags;
 use hwlocality_sys::{
-    hwloc_topology_export_synthetic_flags_e, HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_IGNORE_MEMORY,
+    HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_IGNORE_MEMORY,
     HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_ATTRS,
     HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_NO_EXTENDED_TYPES,
-    HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_V1,
+    HWLOC_TOPOLOGY_EXPORT_SYNTHETIC_FLAG_V1, hwloc_topology_export_synthetic_flags_e,
 };
 #[allow(unused)]
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 
 /// # Exporting Topologies to Synthetic
 //
@@ -139,7 +139,7 @@ mod tests {
     use super::*;
     use crate::{
         object::types::ObjectType,
-        topology::{builder::TypeFilter, TopologyObject},
+        topology::{TopologyObject, builder::TypeFilter},
     };
     use proptest::prelude::*;
     #[allow(unused)]

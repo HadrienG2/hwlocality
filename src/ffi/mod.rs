@@ -13,7 +13,7 @@ pub(crate) mod unknown;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use std::{
-    ffi::{c_char, CStr},
+    ffi::{CStr, c_char},
     fmt, ptr,
 };
 
@@ -223,10 +223,12 @@ mod tests {
         }
 
         // SAFETY: snprintf closure is indeed an snprintf-like function
-        assert!(unsafe { call_snprintf(|buf, len| snprintf(buf, len)) }
-            .iter()
-            .copied()
-            .eq(ORIGINAL.bytes().map(|b| c_char::try_from(b).unwrap())));
+        assert!(
+            unsafe { call_snprintf(|buf, len| snprintf(buf, len)) }
+                .iter()
+                .copied()
+                .eq(ORIGINAL.bytes().map(|b| c_char::try_from(b).unwrap()))
+        );
 
         struct Harness;
         //

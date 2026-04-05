@@ -3364,7 +3364,7 @@ macro_rules! extern_c_block {
             #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
             pub fn hwloc_cpukinds_get_nr(topology: hwloc_const_topology_t, flags: c_ulong)
-                -> c_int;
+            -> c_int;
             #[cfg(feature = "hwloc-2_4_0")]
             #[must_use]
             pub fn hwloc_cpukinds_get_by_cpuset(

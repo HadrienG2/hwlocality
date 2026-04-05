@@ -7,21 +7,21 @@
 //! struct](../../topology/struct.Topology.html#cpu-binding). The module itself
 //! only hosts type definitions that are related to this functionality.
 
-#[cfg(doc)]
-use crate::{bitmap::Bitmap, object::types::ObjectType, topology::support::CpuBindingSupport};
 use crate::{
+    ProcessId, ThreadId,
     cpu::cpuset::CpuSet,
     errors::{self, FlagsError, HybridError, RawHwlocError},
     topology::Topology,
-    ProcessId, ThreadId,
 };
+#[cfg(doc)]
+use crate::{bitmap::Bitmap, object::types::ObjectType, topology::support::CpuBindingSupport};
 use bitflags::bitflags;
 use derive_more::Display;
 use errno::Errno;
 use hwlocality_sys::{
+    HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT, HWLOC_CPUBIND_THREAD,
     hwloc_const_cpuset_t, hwloc_const_topology_t, hwloc_cpubind_flags_t, hwloc_cpuset_t,
-    hwloc_pid_t, HWLOC_CPUBIND_NOMEMBIND, HWLOC_CPUBIND_PROCESS, HWLOC_CPUBIND_STRICT,
-    HWLOC_CPUBIND_THREAD,
+    hwloc_pid_t,
 };
 use libc::{ENOSYS, EXDEV};
 #[cfg(any(test, feature = "proptest"))]

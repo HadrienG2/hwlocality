@@ -1,6 +1,6 @@
 use hwlocality::{
-    topology::support::{CpuBindingSupport, FeatureSupport, MemoryBindingSupport},
     Topology,
+    topology::support::{CpuBindingSupport, FeatureSupport, MemoryBindingSupport},
 };
 
 /// Example on how to check for specific topology support of a feature.

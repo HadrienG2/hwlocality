@@ -1,6 +1,6 @@
 use hwlocality::{
-    object::{depth::TypeToDepthError, types::ObjectType},
     Topology,
+    object::{depth::TypeToDepthError, types::ObjectType},
 };
 
 /// Prints the number of packages.

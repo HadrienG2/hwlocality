@@ -20,30 +20,30 @@ use crate::topology::support::DiscoverySupport;
 #[cfg(all(doc, feature = "hwloc-2_3_0"))]
 use crate::topology::support::MiscSupport;
 use crate::{
+    ProcessId,
     errors::{self, FlagsError, HybridError, NulError, RawHwlocError},
     ffi::{string::LibcString, unknown::UnknownVariant},
     object::types::ObjectType,
     path::{self, PathError},
-    ProcessId,
 };
 use bitflags::bitflags;
 use derive_more::From;
 use errno::Errno;
 #[cfg(feature = "hwloc-2_3_0")]
 use hwlocality_sys::HWLOC_TOPOLOGY_FLAG_IMPORT_SUPPORT;
-use hwlocality_sys::{
-    hwloc_pid_t, hwloc_topology, hwloc_topology_flags_e, hwloc_type_filter_e,
-    HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED, HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM,
-    HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES, HWLOC_TYPE_FILTER_KEEP_ALL,
-    HWLOC_TYPE_FILTER_KEEP_IMPORTANT, HWLOC_TYPE_FILTER_KEEP_NONE,
-    HWLOC_TYPE_FILTER_KEEP_STRUCTURE,
-};
 #[cfg(feature = "hwloc-2_1_0")]
-use hwlocality_sys::{hwloc_topology_components_flag_e, HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST};
+use hwlocality_sys::{HWLOC_TOPOLOGY_COMPONENTS_FLAG_BLACKLIST, hwloc_topology_components_flag_e};
 #[cfg(feature = "hwloc-2_5_0")]
 use hwlocality_sys::{
     HWLOC_TOPOLOGY_FLAG_DONT_CHANGE_BINDING, HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_CPUBINDING,
     HWLOC_TOPOLOGY_FLAG_RESTRICT_TO_MEMBINDING,
+};
+use hwlocality_sys::{
+    HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED, HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM,
+    HWLOC_TOPOLOGY_FLAG_THISSYSTEM_ALLOWED_RESOURCES, HWLOC_TYPE_FILTER_KEEP_ALL,
+    HWLOC_TYPE_FILTER_KEEP_IMPORTANT, HWLOC_TYPE_FILTER_KEEP_NONE,
+    HWLOC_TYPE_FILTER_KEEP_STRUCTURE, hwloc_pid_t, hwloc_topology, hwloc_topology_flags_e,
+    hwloc_type_filter_e,
 };
 #[cfg(feature = "hwloc-2_8_0")]
 use hwlocality_sys::{
@@ -557,15 +557,15 @@ impl TopologyBuilder {
         }
         match (ty, filter) {
             (ObjectType::Group, TypeFilter::KeepAll) => {
-                return Err(TypeFilterError::CantKeepGroup.into())
+                return Err(TypeFilterError::CantKeepGroup.into());
             }
             (ObjectType::Machine | ObjectType::PU | ObjectType::NUMANode, _)
                 if filter != TypeFilter::KeepAll =>
             {
-                return Err(TypeFilterError::CantIgnore(ty).into())
+                return Err(TypeFilterError::CantIgnore(ty).into());
             }
             (_, TypeFilter::KeepStructure) if ty.is_io() || ty == ObjectType::Misc => {
-                return Err(TypeFilterError::StructureIrrelevant.into())
+                return Err(TypeFilterError::StructureIrrelevant.into());
             }
             _ => {}
         }
