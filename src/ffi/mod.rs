@@ -222,8 +222,8 @@ mod tests {
             i32::try_from(original_bytes.len() - 1).unwrap()
         }
 
-        // SAFETY: snprintf closure is indeed an snprintf-like function
         assert!(
+            // SAFETY: snprintf closure is indeed an snprintf-like function
             unsafe { call_snprintf(|buf, len| snprintf(buf, len)) }
                 .iter()
                 .copied()
