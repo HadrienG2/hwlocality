@@ -2174,7 +2174,7 @@ impl<'target> Initiator<'target> {
     }
 }
 //
-impl<'target> From<CpuSet> for Initiator<'target> {
+impl From<CpuSet> for Initiator<'_> {
     fn from(cpuset: CpuSet) -> Self {
         BitmapCow::from(cpuset).into()
     }
