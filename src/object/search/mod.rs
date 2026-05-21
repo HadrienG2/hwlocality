@@ -2,7 +2,7 @@
 
 mod io;
 
-use super::{TopologyObject, TopologyObjectID, types::ObjectType};
+use super::{types::ObjectType, TopologyObject, TopologyObjectID};
 #[cfg(feature = "hwloc-2_5_0")]
 use crate::errors::NulError;
 #[cfg(doc)]
@@ -106,9 +106,9 @@ impl Topology {
         &self,
         ty: ObjectType,
     ) -> impl DoubleEndedIterator<Item = (&TopologyObject, usize)>
-    + Clone
-    + ExactSizeIterator
-    + FusedIterator {
+           + Clone
+           + ExactSizeIterator
+           + FusedIterator {
         self.objects_at_depth(
             self.depth_for_type(ty)
                 .expect("These objects should only appear at a single depth"),
@@ -657,8 +657,8 @@ mod tests {
     /// Generate type-index paths that are mostly valid, but will occasionally
     /// be disordered or invalid, tell what the expected result is if the path
     /// is valid and None otherwise
-    fn type_index_path()
-    -> impl Strategy<Value = (Vec<(ObjectType, usize)>, Option<&'static TopologyObject>)> {
+    fn type_index_path(
+    ) -> impl Strategy<Value = (Vec<(ObjectType, usize)>, Option<&'static TopologyObject>)> {
         // First, have a strategy for generating correct paths
         let topology = Topology::test_instance();
         let valid_path = object_with_cpuset()
@@ -869,7 +869,9 @@ mod tests {
                             prop_assert_eq!(dst.subtype().unwrap().to_str().unwrap(), expected_subtype);
                         }
                         if let Some(expected_prefix) = name_prefix {
-                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(expected_prefix));
+                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(expected_prefix),
+                                         "Name of {dst:?} aka {:?} should start with requested prefix {expected_prefix}",
+                                         dst.name());
                         }
                         if ty.has_sets() {
                             prop_assert_eq!(dst.cpuset(), src.cpuset());
