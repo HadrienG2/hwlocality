@@ -869,7 +869,9 @@ mod tests {
                             prop_assert_eq!(dst.subtype().unwrap().to_str().unwrap(), expected_subtype);
                         }
                         if let Some(expected_prefix) = name_prefix {
-                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(expected_prefix));
+                            prop_assert!(dst.name().unwrap().to_str().unwrap().starts_with(expected_prefix),
+                                         "Name of {dst:?} aka {:?} should start with requested prefix {expected_prefix}",
+                                         dst.name());
                         }
                         if ty.has_sets() {
                             prop_assert_eq!(dst.cpuset(), src.cpuset());
