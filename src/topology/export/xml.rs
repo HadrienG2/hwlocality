@@ -384,7 +384,7 @@ mod tests {
             let deref: &str = <XML<'_> as Deref>::deref(&xml);
             prop_assert_eq!(deref, rustr);
 
-            prop_assert_eq!(format!("{xml}"), format!("{rustr}"));
+            prop_assert_eq!(format!("{xml}"), rustr.to_owned());
             prop_assert_eq!(format!("{xml:?}"), format!("{rustr:?}"));
 
             prop_assert_eq!(&xml, &xml);
