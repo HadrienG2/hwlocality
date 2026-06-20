@@ -108,8 +108,8 @@ fn setup_vendored_hwloc(min_required_version: &str) {
         .expect("No major version in min_required_version")
     {
         "2" => (
-            "2.13.0",
-            hex("e21b0bd9a1bd814ab84feb23a190d873948e05a69b035a09587bbe6845f071c3"),
+            "2.14.0",
+            hex("61c4cf13ea026693905bdde6abc1eac09875a84b6d0394c6ba87d837e3699bb5"),
         ),
         other => panic!("Please add support for bundling hwloc v{other}.x"),
     };
