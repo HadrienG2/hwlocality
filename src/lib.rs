@@ -80,7 +80,6 @@
     clippy::float_cmp_const,
     clippy::fn_to_numeric_cast_any,
     clippy::format_push_string,
-    clippy::from_iter_instead_of_collect,
     //
     clippy::get_unwrap,
     //
