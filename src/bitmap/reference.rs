@@ -339,10 +339,10 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 #[doc(hidden)]
 macro_rules! impl_bitmap_ref_ref_ops {
     ($target:ty) => {
-        impl<'self_, Rhs> BitAnd<Rhs> for &'self_ BitmapRef<'_, $target>
+        impl<'self_, Rhs> std::ops::BitAnd<Rhs> for &'self_ BitmapRef<'_, $target>
         where
             Rhs: Borrow<$target>,
-            for<'rhs> &'self_ $target: BitAnd<&'rhs $target, Output = $target>,
+            for<'rhs> &'self_ $target: std::ops::BitAnd<&'rhs $target, Output = $target>,
         {
             type Output = $target;
 
@@ -351,10 +351,10 @@ macro_rules! impl_bitmap_ref_ref_ops {
             }
         }
 
-        impl<'self_, Rhs> BitOr<Rhs> for &'self_ BitmapRef<'_, $target>
+        impl<'self_, Rhs> std::ops::BitOr<Rhs> for &'self_ BitmapRef<'_, $target>
         where
             Rhs: Borrow<$target>,
-            for<'rhs> &'self_ $target: BitOr<&'rhs $target, Output = $target>,
+            for<'rhs> &'self_ $target: std::ops::BitOr<&'rhs $target, Output = $target>,
         {
             type Output = $target;
 
@@ -363,10 +363,10 @@ macro_rules! impl_bitmap_ref_ref_ops {
             }
         }
 
-        impl<'self_, Rhs> BitXor<Rhs> for &'self_ BitmapRef<'_, $target>
+        impl<'self_, Rhs> std::ops::BitXor<Rhs> for &'self_ BitmapRef<'_, $target>
         where
             Rhs: Borrow<$target>,
-            for<'rhs> &'self_ $target: BitXor<&'rhs $target, Output = $target>,
+            for<'rhs> &'self_ $target: std::ops::BitXor<&'rhs $target, Output = $target>,
         {
             type Output = $target;
 
@@ -375,9 +375,9 @@ macro_rules! impl_bitmap_ref_ref_ops {
             }
         }
 
-        impl<'self_> Not for &'self_ BitmapRef<'_, $target>
+        impl<'self_> std::ops::Not for &'self_ BitmapRef<'_, $target>
         where
-            &'self_ $target: Not<Output = $target>,
+            &'self_ $target: std::ops::Not<Output = $target>,
         {
             type Output = $target;
 
@@ -386,10 +386,10 @@ macro_rules! impl_bitmap_ref_ref_ops {
             }
         }
 
-        impl<'self_, Rhs> Sub<Rhs> for &'self_ BitmapRef<'_, $target>
+        impl<'self_, Rhs> std::ops::Sub<Rhs> for &'self_ BitmapRef<'_, $target>
         where
             Rhs: Borrow<$target>,
-            for<'rhs> &'self_ $target: Sub<&'rhs $target, Output = $target>,
+            for<'rhs> &'self_ $target: std::ops::Sub<&'rhs $target, Output = $target>,
         {
             type Output = $target;
 
