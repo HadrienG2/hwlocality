@@ -309,12 +309,12 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 ///
 /// This was historically done using the following style of generic impls...
 ///
-/// ```rust
+/// ```ignore
 /// impl<'self_, Target, Rhs> BitAnd<Rhs> for &'self_ BitmapRef<'_, Target>
 /// where
 ///     Target: OwnedBitmap,
 ///     Rhs: Borrow<Target>,
-///     for<'rhs> &'self_ Target: BitOr<&'rhs Target, Output = Target>,
+///     for<'rhs> &'self_ Target: BitAnd<&'rhs Target, Output = Target>,
 /// {
 ///     type Output = Target;
 ///
