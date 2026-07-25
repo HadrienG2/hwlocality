@@ -102,24 +102,14 @@ impl<Target: OwnedBitmap> AsRef<Target> for BitmapRef<'_, Target> {
     }
 }
 
-impl<Target, Rhs> BitAnd<Rhs> for &BitmapRef<'_, Target>
-where
-    Target: OwnedBitmap,
-    Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: BitAnd<&'b Target, Output = Target>,
-{
-    type Output = Target;
-
-    fn bitand(self, rhs: Rhs) -> Target {
-        self.as_ref() & rhs.borrow()
-    }
-}
+// To work around a rustc bug, BitAnd is implemented for &BitmapRef using the
+// impl_bitmap_ref_ref_ops macro defined below.
 
 impl<Target, Rhs> BitAnd<Rhs> for BitmapRef<'_, Target>
 where
     Target: OwnedBitmap,
     Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: BitAnd<&'b Target, Output = Target>,
+    for<'self_, 'rhs> &'self_ Target: BitAnd<&'rhs Target, Output = Target>,
 {
     type Output = Target;
 
@@ -128,24 +118,14 @@ where
     }
 }
 
-impl<Target, Rhs> BitOr<Rhs> for &BitmapRef<'_, Target>
-where
-    Target: OwnedBitmap,
-    Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: BitOr<&'b Target, Output = Target>,
-{
-    type Output = Target;
-
-    fn bitor(self, rhs: Rhs) -> Target {
-        self.as_ref() | rhs.borrow()
-    }
-}
+// To work around a rustc bug, BitOr is implemented for &BitmapRef using the
+// impl_bitmap_ref_ref_ops macro defined below.
 
 impl<Target, Rhs> BitOr<Rhs> for BitmapRef<'_, Target>
 where
     Target: OwnedBitmap,
     Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: BitOr<&'b Target, Output = Target>,
+    for<'self_, 'rhs> &'self_ Target: BitOr<&'rhs Target, Output = Target>,
 {
     type Output = Target;
 
@@ -154,24 +134,14 @@ where
     }
 }
 
-impl<Target, Rhs> BitXor<Rhs> for &BitmapRef<'_, Target>
-where
-    Target: OwnedBitmap,
-    Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: BitXor<&'b Target, Output = Target>,
-{
-    type Output = Target;
-
-    fn bitxor(self, rhs: Rhs) -> Target {
-        self.as_ref() ^ rhs.borrow()
-    }
-}
+// To work around a rustc bug, BitXor is implemented for &BitmapRef using the
+// impl_bitmap_ref_ref_ops macro defined below.
 
 impl<Target, Rhs> BitXor<Rhs> for BitmapRef<'_, Target>
 where
     Target: OwnedBitmap,
     Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: BitXor<&'b Target, Output = Target>,
+    for<'self_, 'rhs> &'self_ Target: BitXor<&'rhs Target, Output = Target>,
 {
     type Output = Target;
 
@@ -262,17 +232,8 @@ impl<'target, Target: OwnedBitmap> IntoIterator for BitmapRef<'target, Target> {
     }
 }
 
-impl<Target> Not for &BitmapRef<'_, Target>
-where
-    Target: OwnedBitmap,
-    for<'target> &'target Target: Not<Output = Target>,
-{
-    type Output = Target;
-
-    fn not(self) -> Target {
-        !(self.as_ref())
-    }
-}
+// To work around a rustc bug, Not is implemented for &BitmapRef using the
+// impl_bitmap_ref_ref_ops macro defined below.
 
 impl<Target> Not for BitmapRef<'_, Target>
 where
@@ -321,24 +282,14 @@ impl<Target: OwnedBitmap> Sealed for BitmapRef<'_, Target> {}
 // SAFETY: BitmapRef exposes no internal mutability
 unsafe impl<Target: OwnedBitmap + Sync> Send for BitmapRef<'_, Target> {}
 
-impl<Target, Rhs> Sub<Rhs> for &BitmapRef<'_, Target>
-where
-    Target: OwnedBitmap,
-    Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: Sub<&'b Target, Output = Target>,
-{
-    type Output = Target;
-
-    fn sub(self, rhs: Rhs) -> Target {
-        self.as_ref() - rhs.borrow()
-    }
-}
+// To work around a rustc bug, Sub is implemented for &BitmapRef using the
+// impl_bitmap_ref_ref_ops macro defined below.
 
 impl<Target, Rhs> Sub<Rhs> for BitmapRef<'_, Target>
 where
     Target: OwnedBitmap,
     Rhs: Borrow<Target>,
-    for<'a, 'b> &'a Target: Sub<&'b Target, Output = Target>,
+    for<'self_, 'rhs> &'self_ Target: Sub<&'rhs Target, Output = Target>,
 {
     type Output = Target;
 
@@ -354,6 +305,107 @@ unsafe impl<Target: OwnedBitmap + Sync> Sync for BitmapRef<'_, Target> {}
 //       `Target` to implement `Borrow<BitmapRef<'target, Target>>`, which is
 //       wrong as outlined above.
 
+/// Implement binary operations for `&BitmapRef<'_, $target>`
+///
+/// This was historically done using the following style of generic impls...
+///
+/// ```rust
+/// impl<'self_, Target, Rhs> BitAnd<Rhs> for &'self_ BitmapRef<'_, Target>
+/// where
+///     Target: OwnedBitmap,
+///     Rhs: Borrow<Target>,
+///     for<'rhs> &'self_ Target: BitOr<&'rhs Target, Output = Target>,
+/// {
+///     type Output = Target;
+///
+///     fn bitand(self, rhs: Rhs) -> Target {
+///         self.as_ref() | rhs.borrow()
+///     }
+/// }
+/// ```
+///
+/// ...but as of rustc 1.97, those trigger the compiler bug discussed in
+/// [issue 397](https://github.com/HadrienG2/hwlocality/issues/397), leading the
+/// trait solver to break by infinite recursion when the compiler doesn't manage
+/// to infer the type of a reference inside of a closure.
+///
+/// As there are only three types of owned bitmaps at the time of writing, and
+/// no expected change to hwloc would massively increase this number, using
+/// specific impls for each owned bitmap type is the pragmatic workaround.
+//
+// TODO: Remove this workaround once the rustc bug is resolved, likely by
+//       integration of the new trait solver.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_bitmap_ref_ref_ops {
+    ($target:ty) => {
+        impl<'self_, Rhs> BitAnd<Rhs> for &'self_ BitmapRef<'_, $target>
+        where
+            Rhs: Borrow<$target>,
+            for<'rhs> &'self_ $target: BitAnd<&'rhs $target, Output = $target>,
+        {
+            type Output = $target;
+
+            fn bitand(self, rhs: Rhs) -> $target {
+                self.as_ref() & rhs.borrow()
+            }
+        }
+
+        impl<'self_, Rhs> BitOr<Rhs> for &'self_ BitmapRef<'_, $target>
+        where
+            Rhs: Borrow<$target>,
+            for<'rhs> &'self_ $target: BitOr<&'rhs $target, Output = $target>,
+        {
+            type Output = $target;
+
+            fn bitor(self, rhs: Rhs) -> $target {
+                self.as_ref() | rhs.borrow()
+            }
+        }
+
+        impl<'self_, Rhs> BitXor<Rhs> for &'self_ BitmapRef<'_, $target>
+        where
+            Rhs: Borrow<$target>,
+            for<'rhs> &'self_ $target: BitXor<&'rhs $target, Output = $target>,
+        {
+            type Output = $target;
+
+            fn bitxor(self, rhs: Rhs) -> $target {
+                self.as_ref() ^ rhs.borrow()
+            }
+        }
+
+        impl<'self_> Not for &'self_ BitmapRef<'_, $target>
+        where
+            &'self_ $target: Not<Output = $target>,
+        {
+            type Output = $target;
+
+            fn not(self) -> $target {
+                !(self.as_ref())
+            }
+        }
+
+        impl<'self_, Rhs> Sub<Rhs> for &'self_ BitmapRef<'_, $target>
+        where
+            Rhs: Borrow<$target>,
+            for<'rhs> &'self_ $target: Sub<&'rhs $target, Output = $target>,
+        {
+            type Output = $target;
+
+            fn sub(self, rhs: Rhs) -> $target {
+                self.as_ref() - rhs.borrow()
+            }
+        }
+
+        // TODO: Do the same for all other binary ops + check if the bug
+        //       generalizes to other types like owned values and if so add
+        //       them here too.
+    };
+}
+//
+impl_bitmap_ref_ref_ops!(Bitmap);
+
 /// Implement BitmapRef for a specialized bitmap
 #[macro_export]
 #[doc(hidden)]
@@ -362,7 +414,7 @@ macro_rules! impl_bitmap_newtype_ref {
         $(#[$attr:meta])*
         $newtype:ident
     ) => {
-        impl<'target> AsRef<Bitmap> for BitmapRef<'_, $newtype> {
+        impl AsRef<Bitmap> for BitmapRef<'_, $newtype> {
             fn as_ref(&self) -> &Bitmap {
                 let newtype: &$newtype = self.as_ref();
                 newtype.as_ref()
@@ -378,7 +430,7 @@ macro_rules! impl_bitmap_newtype_ref {
             }
         }
 
-        impl<'target> Borrow<Bitmap> for BitmapRef<'_, $newtype> {
+        impl Borrow<Bitmap> for BitmapRef<'_, $newtype> {
             fn borrow(&self) -> &Bitmap {
                 self.as_ref()
             }
@@ -395,6 +447,8 @@ macro_rules! impl_bitmap_newtype_ref {
                 input.cast()
             }
         }
+
+        $crate::impl_bitmap_ref_ref_ops!($newtype);
     };
 }
 
@@ -713,18 +767,14 @@ pub(super) mod tests {
         prop_assert_eq!(format!("{:p}", bitmap.0), format!("{bitmap_ref:p}"));
 
         bitmap::allow_infinite_iteration(|| {
-            prop_assert!(
-                bitmap
-                    .iter_set()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS))
-            );
-            prop_assert!(
-                bitmap
-                    .iter_set()
-                    .take(INFINITE_EXPLORE_ITERS)
-                    .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS))
-            );
+            prop_assert!(bitmap
+                .iter_set()
+                .take(INFINITE_EXPLORE_ITERS)
+                .eq(bitmap_ref.into_iter().take(INFINITE_EXPLORE_ITERS)));
+            prop_assert!(bitmap
+                .iter_set()
+                .take(INFINITE_EXPLORE_ITERS)
+                .eq((&bitmap_ref).into_iter().take(INFINITE_EXPLORE_ITERS)));
             Ok(())
         })?;
 
@@ -753,5 +803,21 @@ pub(super) mod tests {
         prop_assert_eq!(bitmap_ref.partial_cmp(other), bitmap.partial_cmp(other));
         prop_assert_eq!(bitmap_ref.cmp(&BitmapRef::from(other)), bitmap.cmp(other));
         Ok(())
+    }
+
+    /// This function looks for [issue
+    /// 397](https://github.com/HadrienG2/hwlocality/issues/397)
+    ///
+    /// If future changes to the Rust standard library make these functions fail
+    /// to build, try other concrete types for y before giving up.
+    fn _issue_397_regression_test() {
+        let _ = |x, y: bool| &x & y;
+        let _ = |x, y: bool| &x | y;
+        let _ = |x, y: bool| &x ^ y;
+        let _ = |x, y: usize| &x - y;
+        // This one fails via infinite trait solver recursion when Not is
+        // defined in a generic fashion, but fails with a type inference error
+        // if it is defined in the current fashion.
+        // let _ = |x| !&x;
     }
 }
