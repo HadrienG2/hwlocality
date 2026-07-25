@@ -397,10 +397,6 @@ macro_rules! impl_bitmap_ref_ref_ops {
                 self.as_ref() - rhs.borrow()
             }
         }
-
-        // TODO: Do the same for all other binary ops + check if the bug
-        //       generalizes to other types like owned values and if so add
-        //       them here too.
     };
 }
 //
