@@ -16,7 +16,7 @@
 use crate::topology::support::DiscoverySupport;
 use crate::{
     cpu::cpuset::CpuSet,
-    errors::{self},
+    errors,
     ffi::{int, string::LibcString, transparent::AsNewtype},
     info::TextualInfo,
     topology::{Topology, editor::TopologyEditor},
