@@ -25,16 +25,16 @@ use crate::{
     ffi::transparent::AsNewtype,
     memory::nodeset::NodeSet,
     object::{
-        TopologyObject,
         depth::{Depth, NormalDepth},
         types::ObjectType,
+        TopologyObject,
     },
 };
 use bitflags::bitflags;
 use errno::Errno;
 use hwlocality_sys::{
-    HWLOC_DISTRIB_FLAG_REVERSE, hwloc_bitmap_s, hwloc_distrib_flags_e, hwloc_topology,
-    hwloc_type_filter_e,
+    hwloc_bitmap_s, hwloc_distrib_flags_e, hwloc_topology, hwloc_type_filter_e,
+    HWLOC_DISTRIB_FLAG_REVERSE,
 };
 use libc::EINVAL;
 #[allow(unused)]
@@ -459,6 +459,8 @@ impl Topology {
     /// - [`ForeignRoot`] if some of the specified roots do not belong to this
     ///   topology.
     /// - [`OverlappingRoots`] if some of the roots have overlapping CPU sets.
+    /// - [`InconsistentRootDepth`] if some roots are deeper than the specified
+    ///   maximum distribution depth.
     ///
     /// [`EmptyRoots`]: DistributeError::EmptyRoots
     /// [`ForeignRoot`]: DistributeError::ForeignRoot
@@ -586,6 +588,12 @@ impl Topology {
         if sets_overlap(decoded_roots.clone().map(|(_, root_set, _, _)| root_set)) {
             return Err(DistributeError::OverlappingRoots);
         }
+        if decoded_roots
+            .clone()
+            .any(|(_, _, _, depth)| depth > max_depth)
+        {
+            return Err(DistributeError::InconsistentRootDepth);
+        }
 
         // Run the recursion, collect results
         let mut result = Vec::with_capacity(num_items);
@@ -634,9 +642,17 @@ pub enum DistributeError {
     #[error("distribution root {0}")]
     ForeignRoot(#[from] ForeignObjectError),
 
-    /// Specified roots overlap ith each other
+    /// Specified roots overlap with each other
     #[error("distribution roots overlap with each other")]
     OverlappingRoots,
+
+    /// The specified root and depth constraints are inconsistent
+    ///
+    /// This happens if the algorithm is run to distribute tasks down to a
+    /// certain maximal depth, but some of the specified roots lie deeper in the
+    /// hwloc topology hierarchy.
+    #[error("some distribution roots are deeper than the specified max depth")]
+    InconsistentRootDepth,
 }
 
 /// Part of the implementation of [`Topology::distribute_items()`] that tells,
@@ -1274,7 +1290,9 @@ mod tests {
 
     /// Generate valid (disjoint) roots for [`Topology::distribute_items()`],
     /// taken from [`Topology::test_instance()`]
-    fn disjoint_roots() -> impl Strategy<Value = Vec<&'static TopologyObject>> {
+    fn disjoint_roots(
+        max_depth: NormalDepth,
+    ) -> impl Strategy<Value = Vec<&'static TopologyObject>> {
         /// Number of PUs below a normal object
         fn normal_weight(obj: &TopologyObject) -> usize {
             obj.cpuset()
@@ -1293,6 +1311,7 @@ mod tests {
         fn pick_disjoint_objects(
             root: &'static TopologyObject,
             num_objects: usize,
+            max_depth: NormalDepth,
         ) -> impl Strategy<Value = Vec<&'static TopologyObject>> {
             // Validate the request
             assert!(
@@ -1300,15 +1319,22 @@ mod tests {
                 "root object should be normal"
             );
             assert!(num_objects <= normal_weight(root));
+            assert!(root.depth().expect_normal() <= max_depth);
 
             // Honor the request
             match num_objects {
                 // Picking no objects is trivial
                 0 => Just(Vec::new()).boxed(),
 
-                // Picking a single object is easy too, just pick any object in
-                // the subtree below this root
+                // Picking a single object is easy too
                 1 => {
+                    // If we are at the maximum depth, the root is the only
+                    // choice, so we return that.
+                    if root.depth().expect_normal() == max_depth {
+                        return Just(vec![root]).boxed();
+                    }
+
+                    // Else we look up an object in the subtree below the root
                     let topology = Topology::test_instance();
                     let subtree_objects = topology
                         .normal_objects()
@@ -1334,7 +1360,7 @@ mod tests {
 
                     // Then picking a subsequence of that duplicated sequence...
                     prop::sample::subsequence(degenerate_children, num_objects)
-                        .prop_flat_map(|selected_degenerate| {
+                        .prop_flat_map(move |selected_degenerate| {
                             // Then deduplicating again to find out how many
                             // objects were allocated to each child.
                             let mut count_per_child =
@@ -1354,7 +1380,9 @@ mod tests {
                             // will yield a vector of results for each child...
                             let nested_objs = count_per_child
                                 .into_iter()
-                                .map(|(child, count)| pick_disjoint_objects(child, count))
+                                .map(|(child, count)| {
+                                    pick_disjoint_objects(child, count, max_depth)
+                                })
                                 .collect::<Vec<_>>();
 
                             // ...and we flatten that into a single vector of
@@ -1369,9 +1397,11 @@ mod tests {
         }
 
         // Finally, we use the above logic to generate any valid number of roots
-        let root = Topology::test_instance().root_object();
-        (1..=normal_weight(root))
-            .prop_flat_map(|num_objects| pick_disjoint_objects(root, num_objects))
+        let topology = Topology::test_instance();
+        let root = topology.root_object();
+        let max_roots = topology.objects_at_depth(max_depth).count();
+        (1..=max_roots)
+            .prop_flat_map(move |num_objects| pick_disjoint_objects(root, num_objects, max_depth))
             .prop_shuffle()
     }
 
@@ -1515,7 +1545,14 @@ mod tests {
                 for (leaf_set, items_per_leaf) in &items_per_set {
                     let cpu_share = leaf_set.weight().unwrap() as f64 / total_weight as f64;
                     let ideal_share = num_items as f64 * cpu_share;
-                    prop_assert!((*items_per_leaf as f64 - ideal_share).abs() <= 1.0);
+                    prop_assert!(
+                        (*items_per_leaf as f64 - ideal_share).abs() <= 1.0,
+                        "In distribution {items_per_set:?}, \
+                        distributed {items_per_leaf} items to leaf {leaf_set}. \
+                        Ideal share is computed to be {ideal_share}. \
+                        Residual {} should be <= 1.0 but isn't.",
+                        (*items_per_leaf as f64 - ideal_share).abs()
+                    );
                 }
 
                 // Check that the distribution is biased towards earlier or later
