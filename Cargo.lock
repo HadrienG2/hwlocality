@@ -338,6 +338,8 @@ dependencies = [
 [[package]]
 name = "hwlocality-sys"
 version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6a8feaeb431a8d8d4f163456e9b5bc7b18bc30c576360d2da2c04990da2f357"
 dependencies = [
  "autotools",
  "cmake",
@@ -345,7 +347,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "sha3",
- "static_assertions",
  "tar",
  "ureq",
  "windows-sys 0.61.2",
