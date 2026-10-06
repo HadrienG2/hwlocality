@@ -3868,7 +3868,8 @@ mod tests {
             compare_iters_infinite(actual, Iterator::next, expected, Iterator::next)?;
         }
 
-        /// Test usize -> PositiveInt conversion and special positive-usize ops
+        /// Test `usize` -> `PositiveInt` conversion and special
+        /// positive-`usize` ops
         #[test]
         fn unary_usize(x: usize) {
             // usize -> PositiveInt conversion
@@ -3929,13 +3930,14 @@ mod tests {
     }
 
     proptest! {
-        /// Test str -> PositiveInt conversion via the FromStr trait
+        /// Test `str` -> `PositiveInt` conversion via the `FromStr` trait
         #[test]
         fn from_str(src in any_string()) {
             test_from_str_radix(&src, 10, || PositiveInt::from_str(&src))?;
         }
 
-        /// Test str -> PositiveInt conversion via the from_str_radix() method
+        /// Test `str` -> `PositiveInt` conversion via the `from_str_radix()`
+        /// method
         #[test]
         fn from_str_radix(src in any_string(), radix: u32) {
             let radix = radix % 37;

@@ -535,7 +535,7 @@ bitflags! {
 
         /// Like `GROUP`, but consider the distance values as inaccurate and
         /// relax the comparisons during the grouping algorithms. The actual
-        /// accuracy may be modified through the HWLOC_GROUPING_ACCURACY
+        /// accuracy may be modified through the `HWLOC_GROUPING_ACCURACY`
         /// environment variable (see [Environment
         /// Variables](https://hwloc.readthedocs.io/en/stable/envvar.html)).
         #[doc(alias = "HWLOC_DISTANCES_ADD_FLAG_GROUP_INACCURATE")]

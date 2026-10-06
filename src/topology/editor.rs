@@ -747,8 +747,8 @@ bitflags! {
         /// By default, only objects that contain no PU and no memory are
         /// removed. This flag allows you to remove all objects that...
         ///
-        /// - Do not have access to any CPU anymore when restricting by CpuSet
-        /// - Do not have access to any memory anymore when restricting by NodeSet
+        /// - Can't access any CPU anymore, when restricting by `CpuSet`
+        /// - Can't access any memory anymore, when restricting by `NodeSet`
         //
         // --- Implementation details ---
         //
@@ -1924,7 +1924,7 @@ mod tests {
     // --- Changing the set of allowed PUs and NUMA nodes ---
 
     proptest! {
-        /// Test AllowSet construction from CpuSet
+        /// Test `AllowSet` construction from `CpuSet`
         #[test]
         fn allowset_from_cpuset(cpuset: CpuSet) {
             let allow_set = AllowSet::from(&cpuset);
@@ -1934,7 +1934,7 @@ mod tests {
             prop_assert_eq!(allow_cpuset, &cpuset);
         }
 
-        /// Test AllowSet construction from NodeSet
+        /// Test `AllowSet` construction from `NodeSet`
         #[test]
         fn allowset_from_nodeset(nodeset: NodeSet) {
             let allow_set = AllowSet::from(&nodeset);
@@ -1993,7 +1993,7 @@ mod tests {
     }
 
     proptest! {
-        /// Test display implementation of AllowSet
+        /// Test display implementation of `AllowSet`
         #[test]
         fn allowset_display(owned_allow_set in any_allow_set()) {
             let allow_set = owned_allow_set.as_allow_set();
@@ -2493,7 +2493,7 @@ mod tests {
             })?;
         }
 
-        /// Test that group insertion fails when group type filter is KeepNone
+        /// Test that group insertion fails when group type filter is `KeepNone`
         #[test]
         fn ignored_group_insertion(
             (parent, child_filter, dont_merge, subtype) in group_building_blocks(),
