@@ -16,7 +16,7 @@ runs:
       if: runner.os == 'Linux'
       uses: Eeems-Org/apt-cache-action@v1
       with:
-        packages: liblzma-dev libxml2
+        packages: liblzma-dev libxml2-dev
 
     - name: Cache hwloc install (Unices)
       if: runner.os != 'Windows'
