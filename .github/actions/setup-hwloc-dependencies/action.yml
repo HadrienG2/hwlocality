@@ -12,11 +12,11 @@ runs:
   steps:
     # TODO: Investigate why Ubuntu builds need liblzma-dev since 24.04.
     #       This is surprising since hwloc itself doesn't need it.
-    - name: Force-install liblzma-dev (Ubuntu)
+    - name: Install hwloc dependencies (Ubuntu)
       if: runner.os == 'Linux'
       uses: Eeems-Org/apt-cache-action@v1
       with:
-        packages: liblzma-dev
+        packages: liblzma-dev libxml2
 
     - name: Cache hwloc install (Unices)
       if: runner.os != 'Windows'
