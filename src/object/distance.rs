@@ -709,7 +709,7 @@ impl TopologyEditor<'_> {
         // There cannot be any object at a depth below the hwloc-supported max
         depth
             .try_into()
-            .map_or_else(|_| Ok(()), |depth| polymorphized(self, depth))
+            .map_or(Ok(()), |depth| polymorphized(self, depth))
     }
 
     /// Remove distance matrices for objects of a specific type in the topology
